@@ -287,92 +287,56 @@ observeEvent(input$action_edit_indicator_flag_guidance, {
 observeEvent(input$action_review_indicator_flags_view_dashboard, {
   cohort_info <- SELECTED_COHORT_INFO()
   #cohort_id <- SELECTED_COHORT_ID()
-  if (!isTruthy(cohort_info)) return(NULL)
+  
+  if (empty(cohort_info)) return(NULL)
   
   selected_indicator_flag_id <- as.character(input$action_indicator_flags_review)
   if (!isTruthy(selected_indicator_flag_id)) return(NULL)
   
   indicator_flag <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()[indicator_flag_id==selected_indicator_flag_id]
-  if (!isTruthy(indicator_flag)) return (NULL)
+  if (empty(indicator_flag)) return (NULL)
   
-  
-  filter_flags = c()
-  if (any(toupper(input$cohort_view_flagged_data)=="ACTIVE")) {
-    filter_flags <- c("critical","error","warning")
-    if (any(indicator_flag$check_class=="info")) filter_flags <- c(filter_flags,"info")
-  }
-  
-  
+
   flagged_indicator_id <- unique(indicator_flag$consolidated_from_indicator_id)
   flagged_indicator_check_id <- unique(indicator_flag$consolidated_from_indicator_check_id)
   
   if (!isTruthy(flagged_indicator_id)) flagged_indicator_id <- unique(indicator_flag$indicator_id)
   if (!isTruthy(flagged_indicator_check_id)) flagged_indicator_check_id <- unique(indicator_flag$indicator_check_id)
+
+  check_indicator_ids <- DBPOOL %>% dbGetQuery("
+    select unnest(formula_indicator_ids) as indicator_id 
+    from p_rsf.indicator_check_formulas 
+    where check_formula_id = $1::int",
+    params=list(indicator_flag$check_formula_id))
   
-  extended_parameters_with_flags <- DBPOOL %>% dbGetQuery("
-    select 
-      rdc.indicator_id 
-    from p_rsf.rsf_data_checks rdc
-    inner join p_rsf.indicator_checks ic on ic.indicator_check_id = rdc.indicator_check_id
-    left join p_rsf.indicator_check_guidance icg on icg.indicator_check_guidance_id = rdc.indicator_check_guidance_id
-    where rdc.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id from p_rsf.view_rsf_pfcbl_id_family_tree ft where ft.from_rsf_pfcbl_id = $1::int)
-      and rdc.indicator_id = any(select unnest(indf.formula_indicator_id_requirements)
-    														 from p_rsf.indicator_formulas indf
-    														 where indf.indicator_id = $2::int)
-      and rdc.check_asof_date = $3::date					 
-    	and rdc.check_data_id_is_current = true
-    	and rdc.check_status = 'active'
-    	and coalesce(icg.overwrite_check_class,ic.check_class) <> 'info'",
-    params=list(cohort_info$clientest_rsf_pfcbl_id,
-                flagged_indicator_id,
-                as.character(cohort_info$reporting_asof_date)))
+  for_indicator_names <- RSF_INDICATORS()[indicator_id==flagged_indicator_id,indicator_name]
+  for_indicator_names <- c(":include:IDs",for_indicator_names)
   
-  formula_parameters <- DBPOOL %>% dbGetQuery("
-    select ifp.parameter_indicator_id
-    from p_rsf.indicator_formula_parameters ifp
-    where ifp.indicator_id = $1::int",
-    params=list(flagged_indicator_id))
+  if (isTruthy(as.numeric(indicator_flag$indicator_formula_id))) for_indicator_names <- c(for_indicator_names,":expand:calculations-shallow")
+  if (!empty(check_indicator_ids)) {
+    for_indicator_names <- c(for_indicator_names,
+                             RSF_INDICATORS()[indicator_id %in% check_indicator_ids$indicator_id,indicator_name])
+  }
   
-  check_parameters <- DBPOOL %>% dbGetQuery("
-    select icfp.parameter_indicator_id
-    from p_rsf.indicator_check_formula_parameters icfp
-    where icfp.for_indicator_id = $1::int	
-      and icfp.indicator_check_id = $2::int
-    order by icfp.is_calculation_trigger_parameter desc",
-    params=list(flagged_indicator_id,
-                flagged_indicator_check_id))
+  dashboard_parameters <- SERVER_DASHBOARD_RUN_OPTIONS_INIT
+  dashboard_parameters$flags_filter <- "any"
+  dashboard_parameters$flags_display <- "active"
+  dashboard_parameters$format_unchanged <- "black"
   
+  if (length(for_indicator_names) >= length(unlist(indicator_flag$evaluation_ids))) {
+    dashboard_parameters$format_pivot <- "NAME"
+  } else {
+    dashboard_parameters$format_pivot <- "DATA"
+  }
   
-  calc_formula <- DBPOOL %>% dbGetQuery("select indf.formula from p_rsf.indicator_formulas indf where indf.indicator_id = $1::int",
-                                        params=list(flagged_indicator_id))
+  for_client_sys_names <- SELECTED_PROGRAM_CLIENTS_LIST()[rsf_program_id %in% cohort_info$rsf_program_id &
+                                                          rsf_facility_id %in% cohort_info$rsf_facility_id,
+                                                          rsf_pfcbl_id]
   
-  check_formula <- DBPOOL %>% dbGetQuery("select icf.formula from p_rsf.indicator_check_formulas icf where icf.for_indicator_id = $1::int and icf.indicator_check_id = $2::int",
-                                         params=list(flagged_indicator_id,flagged_indicator_check_id))
-  
-  msg <- c()
-  if (!empty(calc_formula)) msg <- paste0("CALCULATION FORMULA: ",calc_formula$formula)
-  if (!empty(check_formula)) msg <- c(msg,paste0("CHECK FORMULA: ",check_formula$formula))
-  
-  if (length(msg)==0) msg <- "Reviewing check from Datasets"
-  else msg <- paste0(msg,collapse=" <BR>")
-  
-  
-  flagged_indicator_id <- unique(c(flagged_indicator_id,
-                                   unique(formula_parameters$parameter_indicator_id),
-                                   unique(extended_parameters_with_flags$indicator_id),
-                                   unique(check_parameters$parameter_indicator_id)))
-  
-  
-  
-  DASH_LOAD_DASHBOARD(reporting_asof_date=cohort_info$reporting_asof_date,
-                      rsf_pfcbl_ids=cohort_info$clientest_rsf_pfcbl_id,
-                      indicator_ids=flagged_indicator_id,
-                      dashboard_info_msg=msg,
-                      display_currency="LCU",
-                      display_timeline=0,
-                      display_flags=TRUE,
-                      column_sysname=TRUE,
-                      filter_flags=filter_flags)
+  SERVER_DASHBOARD_DO_LOAD(for_client_sys_names=for_client_sys_names,
+                           for_indicator_names=for_indicator_names,
+                           for_asof_dates=cohort_info$reporting_asof_date,
+                           dashboard_parameters=dashboard_parameters)
 })
 
 observeEvent(input$action_review_indicator_flags_audit_indicator, {

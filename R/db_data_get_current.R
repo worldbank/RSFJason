@@ -144,10 +144,13 @@ db_data_get_current <- function(pool,
   
       if (fx_concatenate_LCU==TRUE) {
         data_currency[,
-                   `:=`(current_value=paste0(data_value," ",data_unit),
-                        current_unit=as.character(NA),
+                   `:=`(current_unit=as.character(NA),
                         indicator_name=paste0(indicator_name,"@LCU"),
                         data_type="text")]
+        
+        data_currency[!is.na(data_value),
+                      current_value:=paste0(data_value," ",data_unit)]
+        
       } else {
         cols <- names(data_currency)
         data_units <- data_currency[,..cols]
@@ -211,8 +214,9 @@ db_data_get_current <- function(pool,
         
         #make the fx converstion visually explicit in the column name
         rsf_data[!is.na(current_unit) &
-             data_type == "currency",
-             indicator_name := paste0(indicator_name,"@",current_unit)]
+             data_type == "currency" &
+             current_unit==fx_currency,
+             indicator_name := paste0(indicator_name,"@",current_unit)] #if it converts to indicator_name@LCU this will possibly make unintentional duplicates to rbind above
         
       #else it's not defined, so we might have uniform data units conveniently; or many different ones, depending on the query
       }

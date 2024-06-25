@@ -2,7 +2,11 @@ db_data_pivot_family <- function(rsf_data,
                                  value.vars=c("value",
                                               "updated",
                                               "flags"),
-                                 indicators.format=TRUE) {
+                                 indicators.format=TRUE)
+                                 # current_date.format=c("SYSID",
+                                 #                       "MAX",
+                                 #                       "ALL")) #if true, format columns as date, number, text, etc
+{
 
   if (!all(value.vars %in% names(rsf_data))) {
     stop(paste0("Columns not found in value.vars for rsf_data: ",paste0(setdiff(value.vars,names(rsf_data)),collapse=", ")))
@@ -22,12 +26,18 @@ db_data_pivot_family <- function(rsf_data,
     stop(paste0("Required col names: pfcbl_rank,current_asof_date,parent_rsf_pfcbl_id,pfcbl_category,sys_name,rsf_full_name,reporting_status,reporting_expected"))
   }
   
+  #current_date.format <- match.arg(current_date.format)
+  
   ranks <- sort(unique(rsf_data$pfcbl_rank))
   
   data_family <- unique(rsf_data[pfcbl_rank==ranks[1],
                                  .(current_asof_date,
                                    SYSID=parent_rsf_pfcbl_id,
                                    SYSCATEGORY=pfcbl_category)])
+  
+  # data_family[,
+  #             `:=`(ALL_rsf_pfcbl_ids=list())]
+  
   
   cols <- c("current_asof_date",
             "rsf_pfcbl_id",
@@ -90,10 +100,10 @@ db_data_pivot_family <- function(rsf_data,
                      pfcbl_category=NULL)]  
   }
   
-  data_family[,
-              SYSCATEGORY:=NULL]
+  # data_family[,
+  #             SYSCATEGORY:=NULL]
   
-  mergecols <- grep("^[A-Z]",names(rsf_data),value=T)
+  mergecols <- grep("^[A-Z]",names(rsf_data),value=T) #merge cols are those that start with an UPPER CASE letter (indicators all start with lower-case, so we know its a system or reporting column)
   if (length(mergecols)>0) {
 
     mergedata <- unique(rsf_data[rsf_pfcbl_id %in% unique(data_family$SYSID),

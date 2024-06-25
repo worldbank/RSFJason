@@ -19,12 +19,11 @@ LOCATIONS <- list(ARL="/credentials/credentials-remote-ARL.yaml",
                   Jason_DEV="/credentials/credentials-rsfjson-rsfdev.yaml",
                   Jason_PROD="/credentials/credentials-rsfjson-rsfprod.yaml")
 
-
 LOCATION <- "Jason_DEV"
 #LOCATION <- "Jason_PROD"
 
 if (grepl("DEV",LOCATION)==TRUE) {
-  #options(shiny.error = browser)
+  #options(shiny.erctror = browser)
   options(shiny.error = NULL)
 }
 
@@ -385,12 +384,14 @@ is.same_text <- function(a,b) {
 }
 
 is.same_number <- function(a,b,sig_digits=CALCULATIONS_ENVIRONMENT$SIG_DIGITS) { 
+  
   nas <- is.na(a) & is.na(b)
   
   a <- suppressWarnings(as.numeric(a))
   b <- suppressWarnings(as.numeric(b))
   
   invert <- a < 1 & b < 1
+  invert[is.na(invert)] <- FALSE
   a[invert] <- 1/a[invert]
   b[invert] <- 1/b[invert]
   

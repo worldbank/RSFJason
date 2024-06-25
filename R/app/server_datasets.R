@@ -979,14 +979,14 @@ observeEvent(input$cohort_action_dashboard, {
   
   selected_flags <- input$cohort_view_flag_classes
   
-  DASH_LOAD_DASHBOARD(reporting_asof_date=uploaded_cohort$reporting_asof_date,
-                      rsf_pfcbl_ids=unique(uploaded_clients$rsf_pfcbl_id),
-                      indicator_ids=unique(uploaded_indicators$indicator_id),
-                      display_report_id=uploaded_cohort$default_report_id,
-                      display_currency="LCU",
-                      display_timeline=0,
-                      display_flags=TRUE,
-                      filter_flags=selected_flags)
+  # DASH_LOAD_DASHBOARD(reporting_asof_date=uploaded_cohort$reporting_asof_date,
+  #                     rsf_pfcbl_ids=unique(uploaded_clients$rsf_pfcbl_id),
+  #                     indicator_ids=unique(uploaded_indicators$indicator_id),
+  #                     display_report_id=uploaded_cohort$default_report_id,
+  #                     display_currency="LCU",
+  #                     display_timeline=0,
+  #                     display_flags=TRUE,
+  #                     filter_flags=selected_flags)
   
 })
 

@@ -3,7 +3,7 @@ SERVER_DASHBOARD_OPTIONS_SYSCOLS <- c(`REPORTING_asof_date`="reporting_asof_date
                                                                                    #reporting_asof_date NOT in rsf_data, rather current_asof_date
                                       `SYSID`="SYSID",                             #must be kept and only filtered-out aesthetically.
                                                                                    #SYSID NOT in rsf_data
-                                      `DATA_currentest_date`="data_asof_date",
+                                      `SYSID_currentest_date`="data_asof_date",
                                       `SYSNAME`="SYSNAME",                        #must be kept and only filtered-out aesthetically (for upload matching)
                                                                                   #SYSNAME NOT in rsf_data  
                                       `REPORTING_status`="reporting_status",
@@ -14,7 +14,7 @@ SERVER_DASHBOARD_OPTIONS_SYSCOLS <- c(`REPORTING_asof_date`="reporting_asof_date
 observeEvent(input$server_dashboard__view_options, {
 
   m <- modalDialog(id="dash_options_modal",
-                   div(style="background-color:white;padding:5px;height:350px;",
+                   div(style="background-color:white;padding:5px;height:400px;",
                        #panel(heading="Advanced Dashboard Options",
                              fluidRow(column(12,align="center",style="font-weight:bold;color:black;padding-bottom:5px;margin-bottom:5px;","SYSTEM COLUMNS")),
                              fluidRow(column(12,
@@ -88,23 +88,46 @@ observeEvent(input$server_dashboard__view_options, {
                                                             multiple=FALSE,
                                                             selected=SERVER_DASHBOARD_RUN_OPTIONS$format_blank)),
                                       column(3,
-                                      selectizeInput(inputId="server_dashboard_options__display_flags",
+                                      pickerInput(inputId="server_dashboard_options__flags_display",
                                                      label="Include Flags",
                                                      choices=c("",
                                                                `ACTIVE`="active",
                                                                `RESOLVED`="resolved"),
                                                      multiple=TRUE,
-                                                     selected=SERVER_DASHBOARD_RUN_OPTIONS$display_flags,
+                                                     selected=SERVER_DASHBOARD_RUN_OPTIONS$flags_display,
                                                      options=list(placeholder="None"))),
                                       column(3,
-                                             selectizeInput(inputId="server_dashboard_options__format_exceldates",
-                                                            label="Export Excel Dates",
-                                                            choices=c("YES","NO"),
-                                                            multiple=FALSE,
-                                                            selected=fcase(SERVER_DASHBOARD_RUN_OPTIONS$format_exceldates=="NO",FALSE,
-                                                                           default=TRUE),
-                                                            options=list(placeholder="None")))
+                                             pickerInput(inputId="server_dashboard_options__format_filter",
+                                                            label="Filter",
+                                                            choices=c(`Blank Columns`="ECOLS",
+                                                                      `Blank Rows`="EROWS",
+                                                                      `Unchanged Columns`="UCOLS",
+                                                                      `Unchanged Rows`="UROWS"),
+                                                            multiple=TRUE,
+                                                            selected=SERVER_DASHBOARD_RUN_OPTIONS$format_filter,
+                                                            options=list(placeholder="No Filter")))
                        #)
+                       ),
+                       
+                       fluidRow(column(12,align="center",style="font-weight:bold;color:gray;padding-bottom:5px;margin-bottom:5px;","EXPORT PARAMETERS")),
+                       fluidRow(column(3,
+                                       selectizeInput(inputId="server_dashboard_options__format_exceldates",
+                                                      label="Export Excel Dates",
+                                                      choices=c("YES","NO"),
+                                                      multiple=FALSE,
+                                                      selected=fcase(SERVER_DASHBOARD_RUN_OPTIONS$format_exceldates==TRUE,"YES",
+                                                                     default="NO"),
+                                                      options=list(placeholder="None"))),
+                                column(3,
+                                       selectizeInput(inputId="server_dashboard_options__format_raw",
+                                                      label="RAW Data Extract",
+                                                      choices=c("YES","NO"),
+                                                      multiple=FALSE,
+                                                      selected=fcase(SERVER_DASHBOARD_RUN_OPTIONS$format_raw==TRUE,"YES",
+                                                                     default="NO"),
+                                                      options=list(placeholder="NO")))
+                                
+
                        )
                    ),
                    title=div(style="display:inline-block;","Dashboard Options"),
@@ -192,13 +215,30 @@ observeEvent(input$server_dashboard_options__format_blanks, {
 
 observeEvent(input$server_dashboard_options__format_exceldates, {
   
-  if (!isTruthy(input$server_dashboard_options__format_exceldates)) SERVER_DASHBOARD_RUN_OPTIONS$format_exceldates <- FALSE
+  if (input$server_dashboard_options__format_exceldates %in% c("NO")) SERVER_DASHBOARD_RUN_OPTIONS$format_exceldates <- FALSE
   else SERVER_DASHBOARD_RUN_OPTIONS$format_exceldates <- TRUE
 })
 
-observeEvent(input$server_dashboard_options__display_flags, {
+#hiding empty/unchanged rows/cols
+observeEvent(input$server_dashboard_options__format_filter, {
   
-  SERVER_DASHBOARD_RUN_OPTIONS$display_flags <- intersect(c("active","resolved"),tolower(input$server_dashboard_options__display_flags))
+  if (!isTruthy(input$server_dashboard_options__format_filter)) SERVER_DASHBOARD_RUN_OPTIONS$format_filter <- ""
+  else SERVER_DASHBOARD_RUN_OPTIONS$format_filter <- input$server_dashboard_options__format_filter
+})
+
+
+observeEvent(input$server_dashboard_options__format_raw, {
+  
+  if (input$server_dashboard_options__format_raw %in% c("YES")) {
+    SERVER_DASHBOARD_RUN_OPTIONS$format_raw <- TRUE
+  } else {
+    SERVER_DASHBOARD_RUN_OPTIONS$format_raw <- FALSE
+  }
+})
+
+observeEvent(input$server_dashboard_options__flags_display, {
+  
+  SERVER_DASHBOARD_RUN_OPTIONS$flags_display <- intersect(c("active","resolved"),tolower(input$server_dashboard_options__flags_display))
 })
   # 
   # observeEvent(input$rsfdash_options_filter_status, {

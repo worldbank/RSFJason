@@ -185,15 +185,16 @@ observeEvent(input$action_indicator_review_start, {
   
   method <- input$indicator_review_audit_method
   if (!method %in% c("rec","calc")) method <- "rec"
-  
-  cohort_list <- COHORTS_LIST()
-  cohort_list <- cohort_list[reporting_asof_date==indicator_review_reporting_date,
-                             .(reporting_cohort_id,source_name,source_reference)]
-  
-  if (nrow(cohort_list)==0) {
-    return(showNotification(type="warning",div(p("No data has been uploaded for the selected Program and selected Reporting Date."),
-                                               p("Please re-try the test with a different selection."))))
-  }
+
+  #Not super useful -- and now that COHORTS_LIST only returns a subset, can be very confusing.  
+  # cohort_list <- COHORTS_LIST()
+  # cohort_list <- cohort_list[reporting_asof_date==indicator_review_reporting_date,
+  #                            .(reporting_cohort_id,source_name,source_reference)]
+  # 
+  # if (nrow(cohort_list)==0) {
+  #   return(showNotification(type="warning",div(p("No data has been uploaded for the selected Program and selected Reporting Date."),
+  #                                              p("Please re-try the test with a different selection."))))
+  # }
   
   status_message(class="",
                  "Gathering information for calculation review...\n")
@@ -201,7 +202,7 @@ observeEvent(input$action_indicator_review_start, {
   disable(id="action_indicator_review_start")
   disable(id="indicator_review_client_list")
   disable(id="indicator_review_reporting_date")
-  
+
   result <- tryCatch({
     result <- DBPOOL %>% rsf_indicators_calculate_do_test(rsf_program_id=rsf_program_id,
                                                           reporting_current_date=indicator_review_reporting_date,

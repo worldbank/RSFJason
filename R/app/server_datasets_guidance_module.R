@@ -110,42 +110,58 @@ server_datasets_guidance_module <- function(id,
                          text = "Applying Updates...",
                          session = shiny::getDefaultReactiveDomain())
       
-      guidance_id <- DBPOOL %>% db_program_facility_checks_add_update_guidance(guidance_id=this_guidance_id,
-                                                                              indicator_id=this_indicator_id,
-                                                                              indicator_check_id=this_indicator_check_id,
-                                                                              for_rsf_pfcbl_id=this_rsf_pfcbl_id,
-                                                                              user_id=this_user_id,
-                                                                              guidance=guidance,
-                                                                              auto_resolve=resolving,
-                                                                              ignoring=ignoring,
-                                                                              overwrite_check_class=overwrite_class,
-                                                                              tolerance_variance=tolerance,
-                                                                              pfcbl_category=pfcbl_category)
+      guidance_id <- tryCatch({
+        DBPOOL %>% db_program_facility_checks_add_update_guidance(guidance_id=this_guidance_id,
+                                                                  indicator_id=this_indicator_id,
+                                                                  indicator_check_id=this_indicator_check_id,
+                                                                  for_rsf_pfcbl_id=this_rsf_pfcbl_id,
+                                                                  user_id=this_user_id,
+                                                                  guidance=guidance,
+                                                                  auto_resolve=resolving,
+                                                                  ignoring=ignoring,
+                                                                  overwrite_check_class=overwrite_class,
+                                                                  tolerance_variance=tolerance,
+                                                                  pfcbl_category=pfcbl_category)
+      },
+      error = function(e) {
+        showNotification(type="error",
+                         ui=h3(paste0(conditionMessage(e))))
+        NULL
+      },
+      warning = function(w) {
+        showNotification(type="error",
+                         ui=h3(paste0(conditionMessage(w))))
+        NULL
+      })
       
-      apply_to <- na.omit(as.numeric(INDICATOR_FLAGS_SELECTED_EVALUATION_IDS()))
-      if (length(apply_to) > 0) {
-          DBPOOL %>% dbExecute("with current_evaluations as (
-                                	select
-                                		rdc.evaluation_id,
-                                		rdc.indicator_check_guidance_id,
-                                		icg.guidance,
-                                		rdc.check_status_comment,
-                                		coalesce(icg.guidance = rdc.check_status_comment,false) OR rdc.check_status_comment is NULL as update_guidance_comment
-                                	from p_rsf.rsf_data_checks rdc
-                                	left join p_rsf.indicator_check_guidance icg on icg.indicator_check_guidance_id = rdc.indicator_check_guidance_id
-                                	where rdc.evaluation_id = any(select unnest(string_to_array($2::text,','))::int)
-                                )
-                                update p_rsf.rsf_data_checks rdc
-                                   set indicator_check_guidance_id = icg.indicator_check_guidance_id,
-                                			 check_status_comment = case when ce.update_guidance_comment = true then icg.guidance else rdc.check_status_comment end
-                                from current_evaluations ce,p_rsf.indicator_check_guidance icg 
-                                 where rdc.evaluation_id = ce.evaluation_id
-                                   and icg.indicator_check_guidance_id = $1::int",
-                              params=list(guidance_id,
-                                          paste0(apply_to,collapse=",")))
+      if (!is.null(guidance_id)) {
+        apply_to <- na.omit(as.numeric(INDICATOR_FLAGS_SELECTED_EVALUATION_IDS()))
+        if (length(apply_to) > 0) {
+            DBPOOL %>% dbExecute("with current_evaluations as (
+                                  	select
+                                  		rdc.evaluation_id,
+                                  		rdc.indicator_check_guidance_id,
+                                  		icg.guidance,
+                                  		rdc.check_status_comment,
+                                  		coalesce(icg.guidance = rdc.check_status_comment,false) OR rdc.check_status_comment is NULL as update_guidance_comment
+                                  	from p_rsf.rsf_data_checks rdc
+                                  	left join p_rsf.indicator_check_guidance icg on icg.indicator_check_guidance_id = rdc.indicator_check_guidance_id
+                                  	where rdc.evaluation_id = any(select unnest(string_to_array($2::text,','))::int)
+                                  )
+                                  update p_rsf.rsf_data_checks rdc
+                                     set indicator_check_guidance_id = icg.indicator_check_guidance_id,
+                                  			 check_status_comment = case when ce.update_guidance_comment = true then icg.guidance else rdc.check_status_comment end
+                                  from current_evaluations ce,p_rsf.indicator_check_guidance icg 
+                                   where rdc.evaluation_id = ce.evaluation_id
+                                     and icg.indicator_check_guidance_id = $1::int",
+                                params=list(guidance_id,
+                                            paste0(apply_to,collapse=",")))
+        }
+        
+        EVENT_GUIDANCE_APPLIED(EVENT_GUIDANCE_APPLIED()+1)
+      } else {
+        removeModal()
       }
-      
-      EVENT_GUIDANCE_APPLIED(EVENT_GUIDANCE_APPLIED()+1)
     }, ignoreInit = TRUE))
     
     output$new_guidance_name <- renderUI({

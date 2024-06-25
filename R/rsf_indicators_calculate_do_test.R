@@ -1,10 +1,10 @@
 
 
 # rsf_program_id <- SLGP_PROGRAM_ID
-# reporting_current_date <- '2023-09-30'
-# indicator_id <-  157623           
-# formula_pfcbl_id.familytree <- 363156                        
-
+# reporting_current_date <- '2021-12-31'
+# indicator_id <-  157552           
+# formula_pfcbl_id.familytree <- 363157                        
+#x<-rsf_indicators_calculate_do_test(pool,rsf_program_id,reporting_current_date,indicator_id,formula_pfcbl_id.familytree)
 
 rsf_indicators_calculate_do_test <- function(pool,
                                              rsf_program_id,
@@ -30,8 +30,10 @@ rsf_indicators_calculate_do_test <- function(pool,
       pfcbl_ids.familytree <- as.numeric(formula_pfcbl_id.familytree)
     }
     
-  
-  
+    status_message(paste0("Running test for SYSID=",paste0(formula_pfcbl_id.familytree,collapse=","),
+                          " indicator_id=",indicator_id,
+                          " rsf_program_id=",rsf_program_id))
+    
     test_calculation <- dbGetQuery(pool,"select 
                                           ids.rsf_pfcbl_id as calculate_rsf_pfcbl_id,
                                           ind.indicator_id as calculate_indicator_id,
@@ -72,11 +74,9 @@ rsf_indicators_calculate_do_test <- function(pool,
                                           ids.pfcbl_category_rank
                   
                                         from p_rsf.rsf_pfcbl_ids ids 
-                                        inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
-                                        inner join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
                                         inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                                                                                   and pis.indicator_id = ind.indicator_id
-                                                                                                   and pis.formula_id = indf.formula_id
+                                        inner join p_rsf.indicators ind on ind.indicator_id = pis.indicator_id
+                                        inner join p_rsf.indicator_formulas indf on indf.formula_id = pis.formula_id
 
                                         left join lateral (select 
                                                              rdc.data_id,
@@ -99,7 +99,7 @@ rsf_indicators_calculate_do_test <- function(pool,
                                           								 order by lcu.reporting_asof_date desc
                                           								 limit 1) lcu on true			
                                         where pis.is_subscribed = true
-                                          and ind.indicator_id = $2
+                                          and pis.indicator_id = $2
                                           and $3::date >= ids.created_in_reporting_asof_date
                                   			and ids.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id 
                                                                    from p_rsf.view_rsf_pfcbl_id_family_tree ft 
@@ -518,35 +518,76 @@ rsf_indicators_calculate_do_test <- function(pool,
     results[,formula_order:=NULL]
     
     if (is.na(parent_formula_id)==TRUE) {
-      prerequisites <- dbGetQuery(pool,"
-        select 
-          pis.rsf_pfcbl_id,
-          requirements.requirement_indicator_id,
-          requirements.parent_formula_id,
-          indf.formula_id
-          from (
-            select 
-            indf.formula_id as parent_formula_id,
-            unnest(indf.formula_indicator_id_requirements) as requirement_indicator_id
-            from p_rsf.indicator_formulas indf
-            where indicator_id = $1::int
-              and indf.formula_id = any(select unnest(string_to_array($2::text,','))::int)
-          ) as requirements
-        inner join p_rsf.indicator_formulas indf on indf.indicator_id = requirements.requirement_indicator_id
-        inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.indicator_id = requirements.requirement_indicator_id
-        																													 and pis.formula_id = indf.formula_id
-        where pis.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
-				                             from p_rsf.view_rsf_pfcbl_id_family_tree ft
-																		 where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($3::text,','))::int))
-          and (indf.formula_id <> any(select unnest(string_to_array($2::text,','))::int))
-        order by 
-        indf.formula_calculation_rank,
-        indf.computation_group,
-        indf.formula_id",
-        params=list(indicator_id,
-                    paste0(unique(results$formula_id),collapse=","),
-                    paste0(unique(pfcbl_ids.familytree),collapse=",")))
       
+      prerequisites <- dbGetQuery(pool,"
+        with requirements as materialized (
+          select 
+          calc.formula_id as parent_formula_id,
+  				pids.to_parameter_rsf_pfcbl_id,
+  				requirement_indicator_id
+  				
+          from (
+    				select
+    				pis.rsf_pfcbl_id,
+    				pis.formula_id
+    				from p_rsf.view_rsf_pfcbl_indicator_subscriptions pis 
+    				where pis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+    				  and pis.formula_id = any(select unnest(string_to_array($2::text,','))::int)
+  				) as calc
+  				inner join p_rsf.indicator_formulas indf on indf.formula_id = calc.formula_id
+  				inner join lateral unnest(indf.formula_indicator_id_requirements) as requirement_indicator_id on true
+  				inner join p_rsf.indicators ind on ind.indicator_id = requirement_indicator_id
+  				inner join p_rsf.compute_calculation_to_parameter_rsf_pfcbl_ids pids on pids.from_calculate_rsf_pfcbl_id = calc.rsf_pfcbl_id
+  				                                                                    and pids.from_calculate_formula_id = calc.formula_id
+          where pids.to_parameter_pfcbl_category = ind.data_category																																								
+        )
+        select 
+          req.parent_formula_id,
+          req.requirement_indicator_id,
+          pis.rsf_pfcbl_id,
+          pis.formula_id
+        from requirements req
+        inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = req.to_parameter_rsf_pfcbl_id
+                                                                   and pis.indicator_id = req.requirement_indicator_id
+        inner join p_rsf.indicator_formulas indf on indf.formula_id = pis.formula_id																								 
+        where pis.formula_id is not null
+        order by 
+          indf.formula_calculation_rank,
+          indf.computation_group,
+          indf.formula_id",
+  			params=list(paste0(unique(results$rsf_pfcbl_id),collapse=","),
+  			            paste0(unique(results$formula_id),collapse=",")))
+      
+
+#             prerequisites <- dbGetQuery(pool,"
+#         select 
+#           pis.rsf_pfcbl_id,
+#           requirements.requirement_indicator_id,
+#           requirements.parent_formula_id,
+#           indf.formula_id
+#           from (
+#             select 
+#             indf.formula_id as parent_formula_id,
+#             unnest(indf.formula_indicator_id_requirements) as requirement_indicator_id
+#             from p_rsf.indicator_formulas indf
+#             where indicator_id = $1::int
+#               and indf.formula_id = any(select unnest(string_to_array($2::text,','))::int)
+#           ) as requirements
+#         inner join p_rsf.indicator_formulas indf on indf.indicator_id = requirements.requirement_indicator_id
+#         inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.indicator_id = requirements.requirement_indicator_id
+#         																													 and pis.formula_id = indf.formula_id
+#         where pis.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+# 				                             from p_rsf.view_rsf_pfcbl_id_family_tree ft
+# 																		 where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($3::text,','))::int))
+#           and (indf.formula_id <> any(select unnest(string_to_array($2::text,','))::int))
+#         order by 
+#         indf.formula_calculation_rank,
+#         indf.computation_group,
+#         indf.formula_id",
+#         params=list(indicator_id,
+#                     paste0(unique(results$formula_id),collapse=","),
+#                     paste0(unique(pfcbl_ids.familytree),collapse=",")))
+#       
       if (!empty(prerequisites)) {
         setDT(prerequisites)
         for (fId in unique(prerequisites$formula_id)) {

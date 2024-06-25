@@ -1,6 +1,6 @@
-
-
-SERVER_DASHBOARD_REPORTS_LIST <- eventReactive(SELECTED_PROGRAM_ID(), {
+SERVER_DASHBOARD_REPORTS_LIST_REFRESH <- reactiveVal(0)
+SERVER_DASHBOARD_REPORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
+                                                 SERVER_DASHBOARD_REPORTS_LIST_REFRESH()), {
 
   program_id <- SELECTED_PROGRAM_ID()
   if (!isTruthy(program_id)) return (NULL) 
@@ -77,15 +77,115 @@ SERVER_DASHBOARD_REPORTS_LIST <- eventReactive(SELECTED_PROGRAM_ID(), {
   return (reports)
 
   
-},ignoreNULL=FALSE)
+},ignoreNULL=FALSE,ignoreInit = FALSE)
+
 
 SERVER_DASHBOARD_REPORT_SELECTED <- eventReactive(input$server_dashboard_reports__action_view, {
-  selected_report_id <- as.numeric(input$server_dashboard_reports__action_view)
+  selected_report_id <- suppressWarnings(as.numeric(input$server_dashboard_reports__action_view))
   if (!isTruthy(selected_report_id)) return (NULL)
   
   report <- SERVER_DASHBOARD_REPORTS_LIST()[report_id==selected_report_id]
   return (report)
 },ignoreNULL=FALSE)
+
+SERVER_DASHBOARD_DO_LOAD <- function(for_client_sys_names=NA,
+                                     for_indicator_names=NA,
+                                     for_asof_dates=NA,
+                                     dashboard_parameters) {
+  
+
+  SERVER_DASHBOARD_RUN_AUTORUN(FALSE)
+  
+  #if (isTruthy(SERVER_DASHBOARD_REPORT_VIEW_ID())) SERVER_DASHBOARD_REPORT_VIEW_ID()
+  for_asof_dates <- as.character(for_asof_dates) #could be coming in as relative ranks, as actual dates, or as character dates
+  
+  #Clear-out artifacts that may have been saved via a report within the parameters but that are also come via dedicated fields.
+  dashboard_parameters$rsf_pfcbl_ids <- NULL
+  dashboard_parameters$indicator_names <- NULL
+  dashboard_parameters$asof_dates <- NULL
+  
+  #RESET RUN OPTIONS
+  SERVER_DASHBOARD_RUN_OPTIONS_RESET()
+  
+  for (param in names(dashboard_parameters)) SERVER_DASHBOARD_RUN_OPTIONS[[param]] <- dashboard_parameters[[param]]
+  
+  if (isTruthy(for_indicator_names)) SERVER_DASHBOARD_RUN_OPTIONS$indicator_names <- for_indicator_names
+
+  if (isTruthy(for_client_sys_names)) {
+    selected_clients <- for_client_sys_names
+    client_rsf_pfcbl_ids <- NULL
+    if (any(selected_clients=="ALL")) {
+      client_rsf_pfcbl_ids <- SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id
+      
+    } else if (all(for_client_sys_names %in% as.character(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id),na.rm = T)) {
+      
+      client_rsf_pfcbl_ids <- suppressWarnings(as.numeric(for_client_sys_names))
+               
+    } else {
+      client_rsf_pfcbl_ids <- DBPOOL %>% dbGetQuery("
+      select 
+        sn.rsf_pfcbl_id
+      from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
+      where sn.sys_name = any(select unnest(string_to_array($1::text,','))::text)",
+      params=list(paste0(selected_clients,collapse=",")))
+      client_rsf_pfcbl_ids <- client_rsf_pfcbl_ids$rsf_pfcbl_id
+    } 
+    
+    SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids <- client_rsf_pfcbl_ids
+    updateSelectizeInput(session=session,
+                         inputId="server_dashboard__reporting_client",
+                         selected=client_rsf_pfcbl_ids)
+  }
+  
+  if (isTruthy(for_asof_dates)) {
+    asof_dates <- NULL
+    
+    #means for_client_sys_names was not NA
+    if (!empty(SERVER_DASHBOARD_VALID_ASOF_DATES())) {
+      asof_dates <- c(SERVER_DASHBOARD_VALID_ASOF_DATES()[date_rank %in% suppressWarnings(as.numeric(for_asof_dates)),date_rank], #requested as rel numbers
+                      SERVER_DASHBOARD_VALID_ASOF_DATES()[text_date %in% for_asof_dates,date_rank])  #requested as specific dates
+    }
+    
+    if (any(for_asof_dates=="ALL",na.rm=T)) asof_dates <- c(-1)
+    
+    if (!is.null(asof_dates)) {
+      asof_dates <- sort(unique(asof_dates))
+      SERVER_DASHBOARD_RUN_OPTIONS$asof_dates <- asof_dates
+    }
+  }
+  
+  if (!setequal(input$server_dashboard__view_currency,SERVER_DASHBOARD_RUN_OPTIONS$fx_currency)) {
+    updateSelectizeInput(session=session,
+                         inputId="server_dashboard__view_currency",
+                         selected=SERVER_DASHBOARD_RUN_OPTIONS$fx_currency)
+  }
+  
+  if (!setequal(input$server_dashboard__format_pivot,SERVER_DASHBOARD_RUN_OPTIONS$format_pivot)) {
+    updateSelectizeInput(session=session,
+                         inputId="server_dashboard__format_pivot",
+                         selected=SERVER_DASHBOARD_RUN_OPTIONS$format_pivot)
+  }
+  
+  if (!setequal(input$server_dashboard__flags_filter,SERVER_DASHBOARD_RUN_OPTIONS$flags_filter)) {
+    updateSelectizeInput(session=session,
+                         inputId="server_dashboard__flags_filter",
+                         selected=SERVER_DASHBOARD_RUN_OPTIONS$flags_filter)
+  }
+  
+  removeModal() #If one exists...
+
+  if (!"dashboard" %in% input$sidebarMenu)  {
+    updateTabItems(session=session,
+                   inputId="sidebarMenu",
+                   selected="dashboard")
+  }
+  
+  updateTabsetPanel(session=session,
+                    inputId="tabset_dashboard",
+                    selected="dashboard")
+  
+  runjs(paste0('Shiny.setInputValue("server_dashboard__autorun",true,{priority: "event"})'))
+}
 
 observeEvent(input$action_server_dashboard_reports__save_as, {
   
@@ -97,6 +197,9 @@ observeEvent(input$action_server_dashboard_reports__save_as, {
   if (empty(program)) {
     return (NULL)
   }
+  
+  all_clients_selected <- setequal(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id,
+                                   SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids)
   
   m <- modalDialog(id="dash_reports_save_modal",
                    div(style="background-color:white;padding:5px;height:250px;",
@@ -140,14 +243,14 @@ observeEvent(input$action_server_dashboard_reports__save_as, {
                                        selected=FALSE,
                                        options=list(placeholder="NO"))),
                        column(3,
-                        disabled(
+                        enabled(state=all_clients_selected,
                         selectizeInput(inputId="server_dashboard_reports__save_clients",
                                        label="Save Clients",
                                        choices=c(`YES`=TRUE,
                                                  `NO`=FALSE),
                                        width="100%",
                                        multiple=FALSE,
-                                       selected=FALSE,
+                                       selected=all_clients_selected,
                                        options=list(placeholder="NO")))),
                        column(3,
                               disabled(
@@ -190,7 +293,9 @@ observeEvent(input$action_server_dashboard_reports__save_as, {
 observeEvent(input$server_dashboard_reports__save_program, {
   save_program <- isTruthy(as.logical(input$server_dashboard_reports__save_program))
   
-  if (save_program) {
+  all_clients_selected <- setequal(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id,
+                                   SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids)
+  if (save_program || all_clients_selected) {
     enable(id="server_dashboard_reports__save_clients")
   } else {
     
@@ -206,15 +311,16 @@ observeEvent(input$server_dashboard_reports__save_clients, {
   save_clients <- isTruthy(as.logical(input$server_dashboard_reports__save_clients))
   has_name_filter <- isTruthy(as.logical(input$server_dashboard__name_filter))
   
-  if (save_clients & has_name_filter) {
+  for_client_names <- as.character(NA)
+  if ((save_clients & has_name_filter)) {
     enable(id="server_dashboard_reports__save_names")
   } else {
-    
-    updateSelectInput(session=session,
-                      inputId="server_dashboard_reports__save_names",
-                      selected=FALSE)
-    
-    disable(id="server_dashboard_reports__save_names")
+  
+      updateSelectInput(session=session,
+                        inputId="server_dashboard_reports__save_names",
+                        selected=FALSE)
+      
+      disable(id="server_dashboard_reports__save_names")
   }
 })
 
@@ -225,6 +331,9 @@ observeEvent(input$server_dashboard_reports__action_save, {
   dashboard_settings <- reactiveValuesToList(SERVER_DASHBOARD_RUN_OPTIONS)
   
   save_program <- isTruthy(as.logical(input$server_dashboard_reports__save_program))
+  all_clients_selected <- setequal(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id,
+                                   SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids)
+  
   for_program_name <- as.character(NA)
   if (save_program) {
     for_program_name <- DBPOOL %>% dbGetQuery("
@@ -238,10 +347,10 @@ observeEvent(input$server_dashboard_reports__action_save, {
 
   save_clients <- isTruthy(as.logical(input$server_dashboard_reports__save_clients))
   for_client_names <- as.character(NA)
-  if (save_clients) {
+  if (save_clients || all_clients_selected) {
     
     clients_list <- SELECTED_PROGRAM_CLIENTS_LIST()
-    if (all(clients_list$rsf_pfcbl_id %in% dashboard_settings$rsf_pfcbl_ids)) {
+    if (all_clients_selected) {
       for_client_names <- "ALL"
     } else {
       for_client_names <- DBPOOL %>% dbGetQuery("
@@ -264,19 +373,12 @@ observeEvent(input$server_dashboard_reports__action_save, {
   for_asof_dates <- as.character(NA)
   valid_dates<- SERVER_DASHBOARD_VALID_ASOF_DATES()
   
-  if (all(valid_dates[,is_future==FALSE,text_date] %in% SERVER_DASHBOARD_RUN_OPTIONS$asof_dates)) {
+  if (all(valid_dates$date_rank %in% SERVER_DASHBOARD_RUN_OPTIONS$asof_dates)) {
     for_asof_dates <- c("ALL")
-  #If the "currentest" reporting date is selected in the dashboard, then save the report as a sequence of relative dates
-  #so the report can auto update as latest date, previous, etc
-  } else if (any(valid_dates[date_rank==1,text_date] %in% SERVER_DASHBOARD_RUN_OPTIONS$asof_dates)) {
-    for_asof_dates <- valid_dates[text_date %in% SERVER_DASHBOARD_RUN_OPTIONS$asof_dates,
-                              as.character(date_rank)]  
+  } else {
+    for_asof_dates <- SERVER_DASHBOARD_RUN_OPTIONS$asof_dates  
   }
-  
-  if (any("future" %in% SERVER_DASHBOARD_RUN_OPTIONS$asof_dates,na.rm=T)) {
-    for_asof_dates <- c(for_asof_dates,"FUTURE")
-  }
-  
+
   filter_names <- suppressWarnings(as.numeric(input$server_dashboard__name_filter))
   filter_flags <- input$server_dashboard__flags_filter
   
@@ -338,64 +440,168 @@ observeEvent(input$server_dashboard_reports__action_save, {
                      ui=h3("An error has occurred and the report failed to save"))
   } else {
     removeModal()
+    SERVER_DASHBOARD_REPORTS_LIST_REFRESH(SERVER_DASHBOARD_REPORTS_LIST_REFRESH()+1)
   }
   
 },ignoreInit = TRUE)
 
-observeEvent(SERVER_DASHBOARD_REPORT_SELECTED(), {
+observeEvent(input$server_dashboard_reports__action_edits_save, {
+  
+  if (!isTruthy(SELECTED_PROGRAM_ID())) return (NULL)
+  
+  selected_report_id <- as.numeric(input$server_dashboard_reports__action_edit)
+  if (!isTruthy(selected_report_id) ||
+      !selected_report_id %in% SERVER_DASHBOARD_REPORTS_LIST()$report_id) return (NULL)
+
+  update_title <- input$server_dashboard_reports__edit_title
+  update_notes <- input$server_dashboard_reports__edit_notes
+  update_is_public <- isTruthy(input$server_dashboard_reports__edit_public)
+  
+
+  report_id <- withProgress(message="Saving report...", {
+    DBPOOL %>% dbGetQuery("
+    update p_rsf.reports re
+    set is_public = $1::bool,
+        report_title = $2::text,
+        report_notes = $3::text
+    where re.report_id = $4::int
+    returning report_id",
+    params=list(report_is_public,
+                report_title,
+                report_notes,
+                selected_report_id))
+  })
+  
+  if (!isTruthy(unlist(report_id))) {
+    showNotification(type="error",
+                     ui=h3("An error has occurred and the report failed to save"))
+  } else {
+    removeModal()
+    SERVER_DASHBOARD_REPORTS_LIST_REFRESH(SERVER_DASHBOARD_REPORTS_LIST_REFRESH()+1)
+  }
+  
+},ignoreInit = TRUE)
+
+observeEvent(input$server_dashboard_reports__action_edit, {
+  
+  if (!isTruthy(SELECTED_PROGRAM_ID())) return (NULL)
+  
+  selected_report_id <- as.numeric(input$server_dashboard_reports__action_edit)
+  if (!isTruthy(selected_report_id) ||
+      !selected_report_id %in% SERVER_DASHBOARD_REPORTS_LIST()$report_id) return (NULL)
+  
+  report <- SERVER_DASHBOARD_REPORTS_LIST()[report_id==selected_report_id]
+  
+
+
+  report_title <- report$report_title
+  report_notes <- report$report_notes
+  report_is_public <- report$is_public
+  
+  delete_UI <- NULL
+  if (identical(report$created_by_user_id,USER_ID())) {
+    delete_UI <- fluidRow(column(12,align="middle",
+                                 actionButton(inputId="server_dashboard_reports__edit_delete_report",
+                                              label="Permanently Delete Report",
+                                              class="btn-danger",
+                                              icon=icon("trash-can"))))
+  }
+  
+  m <- modalDialog(id="dash_reports_save_modal",
+                   div(style="background-color:white;padding:5px;height:250px;",
+
+                       fluidRow(
+                         column(10,
+                                textInput(inputId="server_dashboard_reports__edit_title",
+                                          label="Report Title",
+                                          value=report_title,
+                                          placeholder="Enter title for report")),
+                         column(2,
+                                div(style="padding-top:23px;",
+                                    switchInput(inputId="server_dashboard_reports__edit_public",
+                                                label= "<i class=\"fa fa-user-secret\"></i>",
+                                                onLabel = "PUBLIC",
+                                                onStatus= "success",
+                                                offLabel = "PRIVATE",
+                                                offStatus = "danger",
+                                                inline=TRUE,
+                                                size="normal",
+                                                value=report_is_public)))
+                         
+                       ),
+                       fluidRow(
+                         column(12,
+                                textAreaInput(inputId="server_dashboard_reports__edit_notes",
+                                              label=NULL,
+                                              rows=2,
+                                              value=report_notes,
+                                              placeholder="Comments on report..."))
+                       ),
+                       delete_UI,
+                       
+                   ),
+                   title=div(style="display:inline-block;","Edit Report"),
+                   footer=div(style="display:flex;flex-flow:row nowrap;justify-content: space-between;",
+                              modalButton("Cancel"),
+                              actionButton(inputId="server_dashboard_reports__action_edits_save",
+                                           label="Save & Close",
+                                           class="btn-success")
+                   ),
+                   size="m")
+  
+  showModal(m)
+  
+},ignoreInit = TRUE)
+
+observeEvent(input$server_dashboard_reports__edit_delete_report, {
+  
+  if (!isTruthy(SELECTED_PROGRAM_ID())) return (NULL)
+  
+  selected_report_id <- as.numeric(input$server_dashboard_reports__action_edit)
+  if (!isTruthy(selected_report_id) ||
+      !selected_report_id %in% SERVER_DASHBOARD_REPORTS_LIST()$report_id) return (NULL)
+  
+  report <- SERVER_DASHBOARD_REPORTS_LIST()[report_id==selected_report_id]
+  if (!identical(report$created_by_user_id,USER_ID())) {
+    showNotification(type="error",
+                     ui=h3("Reports can only be deleted by the users that created them"))
+  } else {
+    d <- DBPOOL %>% dbExecute("
+      delete from p_rsf.reports re
+      where re.report_id = $1::int
+        and re.created_by_user_id = $2::text",
+      params=list(selected_report_id,
+                  USER_ID()))
+    
+    SERVER_DASHBOARD_REPORTS_LIST_REFRESH(SERVER_DASHBOARD_REPORTS_LIST_REFRESH()+1)
+    removeModal()
+  }
+},ignoreInit = TRUE)
+
+observeEvent(input$server_dashboard_reports__action_view, {
   
   report <- SERVER_DASHBOARD_REPORT_SELECTED()
   dashboard_indicators <- SERVER_DASHBOARD_INDICATORS()
   if (empty(report)) return (NULL)
   
-  SERVER_DASHBOARD_RUN_AUTORUN(FALSE)
-  
-  parameters <- report$report_parameters[[1]]
-  for (param in names(parameters)) SERVER_DASHBOARD_RUN_OPTIONS[[param]] <- parameters[[param]]
-  
-  report_indicator <- dashboard_indicators[indicator_id==0,indicator_name]
-  if (isTruthy(report_indicator)) {
-    SERVER_DASHBOARD_RUN_OPTIONS$indicator_names <- report_indicator
-  } else if (isTruthy(report$for_indicator_names[[1]])) {
-    SERVER_DASHBOARD_RUN_OPTIONS$indicator_names <- report$for_indicator_names
+  for_indicator_names <- unlist(report$for_indicator_names)
+  if (!empty(dashboard_indicators[indicator_id==0])) {
+    for_indicator_names <- dashboard_indicators[indicator_id==0,indicator_name]
   }
   
-  if (isTruthy(report$for_client_sys_names[[1]])) {
-    selected_clients <- report$for_client_sys_names[[1]]
-    client_rsf_pfcbl_ids <- NULL
-    if (any(selected_clients=="ALL")) {
-      client_rsf_pfcbl_ids <- SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id
-      
-    } else {
-      client_rsf_pfcbl_ids <- DBPOOL %>% dbGetQuery("
-      select 
-        sn.rsf_pfcbl_id
-      from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
-      where sn.sys_name = any(select unnest(string_to_array($1::text,','))::text)",
-      params=list(paste0(selected_clients,collapse=",")))
-      client_rsf_pfcbl_ids <- client_rsf_pfcbl_ids$rsf_pfcbl_id
-    } 
-    
-    updateSelectizeInput(session=session,
-                         inputId="server_dashboard__reporting_client",
-                         selected=client_rsf_pfcbl_ids)
-  }
+  for_asof_dates <- unique(suppressWarnings(as.integer(unlist(report$for_asof_dates))))
+  if (!isTruthy(for_asof_dates)) for_asof_dates <- 1
   
-  if (isTruthy(parameters$fx_currency)) {
-    updateSelectizeInput(session=session,
-                         inputId="server_dashboard__view_currency",
-                         selected=parameters[["fx_currency"]])
-  }
-
-  updateTabsetPanel(session=session,
-                    inputId="tabset_dashboard",
-                    selected="dashboard")
+  report_parameters <- report$report_parameters[[1]]
   
-  # server_dashboard__reporting_asof_date
-  # server_dashboard__flags_filter
-  # server_dashboard__name_filter
-  # 
-  # server_dashboard__view_display
+  report_parameters$rsf_pfcbl_ids <- NULL
+  report_parameters$indicator_names <- NULL
+  report_parameters$asof_dates <- NULL
+  
+  SERVER_DASHBOARD_DO_LOAD(for_client_sys_names=unlist(report$for_client_sys_names),
+                           for_indicator_names=for_indicator_names,
+                           for_asof_dates=unlist(report$for_asof_dates),
+                           dashboard_parameters=report_parameters)
 },
 priority = 10) #need this observer to fire before observeEvent(SERVER_DASHBOARD_INDICATORS()
 
@@ -408,6 +614,7 @@ observeEvent(input$tabset_dashboard, {
                       value=TRUE)
   }
 })
+
 output$server_dashboard_reports__list <- DT::renderDataTable({
   
   req(SERVER_DASHBOARD_REPORTS_LIST())
