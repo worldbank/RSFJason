@@ -34,7 +34,7 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
     stop("Sheet data is missing or NA")
   }
   
-  sheet_cols=ncol(sheet_data)
+  sheet_cols <- ncol(sheet_data)
   
   if (sheet_cols < 5) {
     sheet_cols <- 5

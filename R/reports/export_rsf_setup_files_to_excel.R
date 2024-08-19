@@ -10,7 +10,8 @@ export_rsf_setup_files_to_excel <- function(pool,
                                                       "indicators",
                                                       "checks",
                                                       "guidance",
-                                                      "actions")
+                                                      "actions",
+                                                      "flags")
                                             ) #Setup only will filter out only those data submitted by setup files or not 
                                                                   #subsequently overwritten by a non-setup file or non-setup creation date
                                                                   #FALSE has few use cases -- maybe when QRs update values where they shouldn't?
@@ -152,6 +153,23 @@ export_rsf_setup_files_to_excel <- function(pool,
                                                    params=list(rsf_program_id,
                                                                paste0(rsf_pfcbl_ids.filter,collapse=",")))
       setDT(program_template_actions)
+    }
+    
+    program_flags <- NULL
+    if (any(include=="flags")) {
+      
+      program_flags <- dbGetQuery(pool,"
+                                  select * 
+                                  from p_rsf.view_rsf_data_checks_archive_eligible cae
+                                  where cae.rsf_program_id in ($1::int,0)
+                                    and case when NULLIF($2::text,'NA') is NULL then true
+                                        else cae.rsf_pfcbl_id in (select child_rsf_pfcbl_id
+	                                                                from p_rsf.rsf_pfcbl_id_family fam 
+													                                        where fam.parent_rsf_pfcbl_id in (select unnest(string_to_array($2::text,','))::int))
+                                        end",
+                                  params=list(rsf_program_id,
+                                              paste0(rsf_pfcbl_ids.filter,collapse=",")))
+      setDT(program_flags)
     }
   }  
   
@@ -329,6 +347,37 @@ export_rsf_setup_files_to_excel <- function(pool,
                                               sheet_name="PROGRAM_TEMPLATE_ACTIONS",
                                               sheet_data_table_name="RSF_TEMPLATE_ACTIONS",
                                               sheet_data=program_template_actions,
+                                              
+                                              program_name=exporting_name,
+                                              
+                                              template_key=TEMPLATE$template_key,
+                                              
+                                              reporting_entity=exporting_entity_name,
+                                              reporting_asof_date=exporting_asof_date,
+                                              reporting_user=format_name_abbreviation(exporting_users_name),
+                                              reporting_time=as.character(now()),
+                                              reporting_notes="")
+  }
+  
+  if (!empty(program_flags)) {
+    program_flags <- program_flags[,
+                                   .(SYSNAME=sys_name,
+                                     INDID=indicator_id,
+                                     CHKID=indicator_check_id,
+                                     check_asof_date,
+                                     check_status,
+                                     check_status_user_id,
+                                     check_status_comment,
+                                     check_message,
+                                     CINDID=consolidated_from_indicator_id,
+                                     CCHKID=consolidated_from_indicator_check_id,
+                                     data_sys_flags,
+                                     data_value_unit)]  
+    
+    excelwb <- rsf_reports_create_excel_sheet(excelwb=excelwb,
+                                              sheet_name="PROGRAM_FLAGS",
+                                              sheet_data_table_name="RSF_PROGRAM_FLAGS",
+                                              sheet_data=program_flags,
                                               
                                               program_name=exporting_name,
                                               

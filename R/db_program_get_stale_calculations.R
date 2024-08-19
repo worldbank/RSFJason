@@ -71,7 +71,8 @@ db_program_get_stale_calculations <- function(pool,
                                     --calc.formula_fx_date,
                                     calc.formula_id,
                                     ind.data_type,
-                                    ind.is_periodic_or_flow_reporting
+                                    ind.is_periodic_or_flow_reporting,
+                                    rd.data_sys_flags as current_data_sys_flags
                                   from (
                                   		select 
                                     		dce.rsf_pfcbl_id,
@@ -124,85 +125,6 @@ db_program_get_stale_calculations <- function(pool,
                                  params=list(rsf_pfcbl_id.family,
                                              as.character(limit_future)))
       
-      # calculations <- dbGetQuery(pool,"
-      #                            select 
-      #                             	calc.rsf_pfcbl_id as calculate_rsf_pfcbl_id,
-      #                             	calc.indicator_id as calculate_indicator_id,
-      #                             	calc.calculation_asof_date as calculate_asof_date,
-      #                             	cd.current_data_id,
-      #                             	cd.current_data_value,
-      #                             	cd.current_data_unit,
-      #                             	coalesce(lcu.data_unit_value,'LCU') as entity_local_currency_unit,
-      #                             	coalesce(rc.parent_reporting_cohort_id,rc.reporting_cohort_id) as current_reporting_cohort_id,
-      #                             	coalesce(rc.reporting_asof_date = calc.calculation_asof_date,false) as current_value_updated_in_reporting_current_date,
-      #                             	coalesce(rc.is_reported_cohort,false) as current_value_is_user_monitored,
-      #                             	coalesce(rc.is_calculated_cohort,false) as current_data_is_system_calculation,
-      #                             	
-      #                             	case when ind.data_type in ('currency','currency_ratio')     -- only calculate relevant indicator types
-      #                             				and ind.data_unit ~ 'LCU'
-      #                             				and cd.current_data_unit is distinct from lcu.data_unit_value -- eg, this indicator hasn't been calculated yet, it's default 
-      #                             			 then regexp_replace(ind.data_unit,'LCU',lcu.data_unit_value)
-      #                             			 
-      #                             			 when ind.data_type in ('currency','currency_ratio')
-      #                             				and ind.data_unit ~ 'LCU' = false             -- its a defined value, eg a _USD or _EUR indicator: then this must be the calculated output
-      #                             			 then ind.data_unit
-      #                             	
-      #                             			 else coalesce(cd.current_data_unit,ind.data_unit)
-      #                             	end as calculate_indicator_data_unit,
-      #                             	calc.formula_calculated_by_indicator_id,
-      #                               calc.formula_unit_set_by_indicator_id,
-      #                               calc.computation_group,
-      #                               calc.formula_fx_date,
-      #                               calc.formula_id,
-      #                               ind.data_type
-      #                             from (
-      #                             	select 
-      #                             		dce.rsf_pfcbl_id,
-      #                             		dce.indicator_id,
-      #                             		dce.calculation_asof_date,
-      #                             		indf.formula_calculation_rank,
-      #                             		indf.formula_calculated_by_indicator_id,
-      #                                 indf.formula_unit_set_by_indicator_id,
-      #                             		indf.computation_group,
-      #                                 indf.formula_fx_date,
-      #                                 indf.formula_id,
-      #                             		dense_rank() over(order by dce.rsf_pfcbl_id = 0 desc,          -- global always first
-      #                             										           dce.calculation_asof_date asc,      -- oldest calculations first
-      #                             										           indf.formula_calculation_rank asc,  -- lowest ranks first
-      #                                                            indf.computation_priority_rank desc -- higher computation priorities first
-      #                             										 ) calc_rank
-      #                             	from p_rsf.view_rsf_pfcbl_id_family_tree ft
-      #                             	inner join p_rsf.rsf_data_calculation_evaluations dce on dce.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-      #                             	inner join p_rsf.indicator_formulas indf on indf.indicator_id = dce.indicator_id
-      #                             	where ft.from_rsf_pfcbl_id = $1::int
-      #                             	  and coalesce(dce.calculation_asof_date <= $2::date,true)
-      #                             ) calc 
-      #                             inner join p_rsf.indicators ind on ind.indicator_id = calc.indicator_id
-      #                             left join lateral (select
-      #                             									rdc.data_id as current_data_id,
-      #                             									rdc.data_value as current_data_value,
-      #                             									rdc.data_unit as current_data_unit
-      #                             								 from p_rsf.rsf_data_current rdc
-      #                             								 where rdc.rsf_pfcbl_id = calc.rsf_pfcbl_id
-      #                             									 and rdc.indicator_id = calc.indicator_id
-      #                             									 and rdc.reporting_asof_date <= calc.calculation_asof_date
-      #                             								 order by rdc.reporting_asof_date desc
-      #                             								 limit 1) cd on true
-      #                             																		
-      #                             left join lateral (select 
-      #                             									 lcu.data_unit_value,
-      #                             									 lcu.reporting_asof_date as lcu_current_date
-      #                             								 from p_rsf.rsf_data_current_lcu lcu
-      #                             								 where lcu.for_rsf_pfcbl_id = calc.rsf_pfcbl_id
-      #                             									 and lcu.reporting_asof_date <= calc.calculation_asof_date
-      #                             								 order by lcu.reporting_asof_date desc
-      #                             								 limit 1) lcu on true																
-      #                             left join p_rsf.rsf_data rd on rd.data_id = cd.current_data_id
-      #                             left join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
-      #                             where calc.calc_rank = 1		
-      #                            ",
-      #                            params=list(rsf_pfcbl_id.family,
-      #                                        as.character(limit_future)))
       setDT(calculations)
       if (empty(calculations)) return (NULL)
      

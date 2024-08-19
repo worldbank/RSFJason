@@ -97,38 +97,7 @@ observeEvent(input$modal_dataset_upload_dashboard, {
   
   if (isTruthy(new_cohort_id) && new_cohort_id >-1) {
 
-    uploaded_cohort <- DBPOOL %>% dbGetQuery("select 
-                                              rc.reporting_cohort_id,
-                                              rc.reporting_asof_date,
-                                              rc.from_reporting_template_id, 
-                                              rt.default_report_id,
-                                              rc.reporting_rsf_pfcbl_id
-                                              from p_rsf.reporting_cohorts rc
-                                              left join p_rsf.reporting_templates rt on rt.template_id = rc.from_reporting_template_id
-                                              where rc.reporting_cohort_id = $1::int",
-                                             params=list(new_cohort_id))
-    
-    uploaded_clients <- DBPOOL %>% dbGetQuery("select rsf_pfcbl_id
-                                               from p_rsf.get_rsf_pfcbl_id_family_tree(string_to_array($1::text,',')::int[]) ft
-                                               where ft.pfcbl_category = 'client'",
-                                              params=list(uploaded_cohort$reporting_rsf_pfcbl_id))
-    
-    uploaded_indicators <- DBPOOL %>% dbGetQuery("select distinct
-                                                   rd.indicator_id
-                                                 from p_rsf.reporting_cohorts rc
-                                                 inner join p_rsf.rsf_data rd on rd.reporting_cohort_id = rc.reporting_cohort_id
-                                                 inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id
-                                                 where rc.reporting_cohort_id = $1::int
-                                                   and ind.is_system = false",
-                                                 params=list(new_cohort_id))
-    
-      
-    DASH_LOAD_DASHBOARD(reporting_asof_date=uploaded_cohort$reporting_asof_date,
-                        rsf_pfcbl_ids=unique(uploaded_clients$rsf_pfcbl_id),
-                        indicator_ids=unique(uploaded_indicators$indicator_id),
-                        display_report_id=uploaded_cohort$default_report_id,
-                        display_currency="LCU",
-                        display_timeline=FALSE)
+    SERVER_DATASETS_COHORT_DASHBOARD(selected_cohort_id=new_cohort_id)
   }
   
   removeModal()

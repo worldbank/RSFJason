@@ -1,9 +1,9 @@
 
 
-# rsf_program_id <- SLGP_PROGRAM_ID
-# reporting_current_date <- '2021-12-31'
-# indicator_id <-  157552           
-# formula_pfcbl_id.familytree <- 363157                        
+# rsf_program_id <- 363128
+# reporting_current_date <- '2023-12-31'
+# indicator_id <-  157631           
+# formula_pfcbl_id.familytree <- 363176                        
 #x<-rsf_indicators_calculate_do_test(pool,rsf_program_id,reporting_current_date,indicator_id,formula_pfcbl_id.familytree)
 
 rsf_indicators_calculate_do_test <- function(pool,
@@ -42,7 +42,7 @@ rsf_indicators_calculate_do_test <- function(pool,
                                           cd.data_id as current_data_id,
                                           cd.data_value as current_data_value,
                                           cd.data_unit as current_data_unit,
-                                          
+                                          rd.data_sys_flags as current_data_sys_flags,
                                           coalesce(lcu.data_unit_value,'LCU') as entity_local_currency_unit,
                                           coalesce(rc.parent_reporting_cohort_id,rc.reporting_cohort_id) as current_reporting_cohort_id,
                                           coalesce(rc.reporting_asof_date = $3::date,false) as current_value_updated_in_reporting_current_date,

@@ -361,7 +361,7 @@ template_upload <- function(pool,
       }
     }
     
-    if(!empty(template$setup_data$PROGRAM_GUIDANCE)) {
+    if (!empty(template$setup_data$PROGRAM_GUIDANCE)) {
     
     program_guidance <- template$setup_data$PROGRAM_GUIDANCE
     
@@ -490,7 +490,7 @@ template_upload <- function(pool,
 
     }
     
-    if(!empty(template$setup_data$PROGRAM_TEMPLATE_ACTIONS)) {
+    if (!empty(template$setup_data$PROGRAM_TEMPLATE_ACTIONS)) {
       
       template_actions <- template$setup_data$PROGRAM_TEMPLATE_ACTIONS 
       
@@ -597,8 +597,87 @@ template_upload <- function(pool,
 
     }
     
+    if (!empty(template$setup_data$PROGRAM_FLAGS)) {
+      template_flags <- template$setup_data$PROGRAM_FLAGS
+     
+      expected_headers <- c("SYSNAME","INDID","CHKID","check_asof_date","check_status","check_status_user_id","check_status_comment","check_message","CINDID","CCHKID","data_sys_flags","data_value_unit")
+      sys_headers <- c("sys_name","indicator_id","indicator_check_id","check_asof_date","check_status","check_status_user_id","check_status_comment","check_message","consolidated_from_indicator_id","consolidated_from_indicator_check_id","data_sys_flags","data_value_unit")
+      if (!setequal(names(template_flags),
+                    expected_headers)) {
+        status_message(class="error",
+                       "Failed to import PROGARM FLAGS.  Expected columns: ",paste0(expected_headers,collapse=", "))
+      } else {
+        setnames(template_flags,
+                 old=expected_headers,
+                 new=sys_headers)
+        
+        poolWithTransaction(pool,function(conn) {
+          
+          dbExecute(conn,"
+            create temp table _temp_flags(sys_name text,
+                                          indicator_id int,
+                                          indicator_check_id int,
+                                          check_asof_date date,
+                                          check_status text,
+                                          check_status_user_id text,
+                                          check_status_comment text,
+                                          check_message text,
+                                          consolidated_from_indicator_id int,
+                                          consolidated_from_indicator_check_id int,
+                                          data_sys_flags int,
+                                          data_value_unit text)
+            on commit drop;")
+          
+          dbAppendTable(conn,
+                        name="_temp_flags",
+                        value=template_flags[,
+                                             .(sys_name,
+                                               indicator_id,
+                                               indicator_check_id,
+                                               check_asof_date,
+                                               check_status,
+                                               check_status_user_id,
+                                               check_status_comment,
+                                               check_message,
+                                               consolidated_from_indicator_id,
+                                               consolidated_from_indicator_check_id,
+                                               data_sys_flags,
+                                               data_value_unit)])
+          
+          dbExecute(conn,"
+            insert into p_rsf.rsf_data_checks_archive(sys_name,
+                                                      indicator_id,
+                                                      indicator_check_id,
+                                                      check_asof_date,
+                                                      check_status,
+                                                      check_status_user_id,
+                                                      check_status_comment,
+                                                      check_message,
+                                                      consolidated_from_indicator_id,
+                                                      consolidated_from_indicator_check_id,
+                                                      data_sys_flags,
+                                                      data_value_unit)
+            select 
+              sys_name,
+              indicator_id,
+              indicator_check_id,
+              check_asof_date,
+              check_status,
+              check_status_user_id,
+              check_status_comment,
+              check_message,
+              consolidated_from_indicator_id,
+              consolidated_from_indicator_check_id,
+              data_sys_flags,
+              data_value_unit
+            from _temp_flags
+            on conflict do nothing;")
+        })
+      }
+    }
   }
   
+
   #saveRDS(template,"template.RDS")
   #template <- readRDS("template.RDS")
   #Checks and flags
@@ -825,7 +904,11 @@ template_upload <- function(pool,
               and ind.data_category in ('client','facility')
             	and pis.formula_id is NULL
             	and ind.is_periodic_or_flow_reporting = false
-            	and exists(select * from p_rsf.rsf_data_current rdc where rdc.data_id = rd.data_id)
+              and exists(select * from p_rsf.rsf_data_current rdc where rdc.data_id = rd.data_id) -- wasnt a reversion
+              and not exists(select * from p_rsf.rsf_pfcbl_ids ids
+                             where ids.rsf_pfcbl_id = rd.rsf_pfcbl_id
+                               and ids.created_in_reporting_asof_date = rd.reporting_asof_date) -- init date isnt an update
+            	
             	and not exists(select * from p_rsf.rsf_data_current rdc
                              inner join p_rsf.indicators inda on inda.indicator_id = rdc.indicator_id
             								 where rdc.rsf_pfcbl_id = facility.parent_rsf_pfcbl_id
@@ -1099,7 +1182,8 @@ template_upload <- function(pool,
                 check_formula_id:=as.numeric(NA)]
       
       db_rsf_checks_add_update(pool=pool,
-                               data_checks=sys_flags)
+                               data_checks=sys_flags,
+                               consolidation_threshold=template$get_program_setting("on_upload_check_consolidation_threshold"))
       
     }
   }  
@@ -1124,6 +1208,7 @@ template_upload <- function(pool,
                     rsf_indicators=template$rsf_indicators,
                     rsf_pfcbl_id.family=template$reporting_cohort$reporting_rsf_pfcbl_id,
                     check_future=template$get_program_setting("on_upload_perform_future_checks"),
+                    check_consolidation_threshold=template$get_program_setting("on_upload_check_consolidation_threshold"),
                     reference_asof_date=pmax(template$reporting_cohort$reporting_asof_date,
                                              max(template$pfcbl_data$reporting_asof_date)),
                     status_message= status_message)
@@ -1131,7 +1216,215 @@ template_upload <- function(pool,
   if(SYS_PRINT_TIMING) debugtime("template_upload"," >> Check time: ",format(Sys.time()-t2))
   
   template$check_time <- as.numeric(Sys.time()-t2,"secs")
-
+  
+  #Restore flags (following checks)
+  {
+    #restore regular flags
+    {
+      
+      restore_archive_checks <- dbGetQuery(pool,"
+        with archive_match as MATERIALIZED (
+          select 
+            rdc.evaluation_id,
+            dca.archive_id,
+            rdc.rsf_pfcbl_id,
+            dca.sys_name
+          from p_rsf.rsf_data_checks rdc
+          inner join p_rsf.rsf_data rd on rd.data_id = rdc.data_id
+          inner join p_rsf.rsf_data_checks_archive dca on dca.check_asof_date = rdc.check_asof_date
+                                                      and dca.indicator_check_id = rdc.indicator_check_id
+          																					  and dca.check_formula_id is not distinct from rdc.check_formula_id
+          
+          where rdc.rsf_pfcbl_id = any(select fam.child_rsf_pfcbl_id
+          														 from p_rsf.reporting_cohorts rc 
+          														 inner join p_rsf.rsf_pfcbl_id_family fam on fam.parent_rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
+          														 where rc.reporting_cohort_id = $1::int)
+          
+          and dca.sys_name ^@ (select sn.sys_name 
+          										 from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
+          										 where sn.rsf_pfcbl_id = (select rc.reporting_rsf_pfcbl_id
+          																							from p_rsf.reporting_cohorts rc
+          																							where rc.reporting_cohort_id = $1::int))
+          and p_rsf.rsf_data_value_unit(rd.data_value,rd.data_unit) is not distinct from dca.data_value_unit
+        )
+        select 
+          am.archive_id,
+          am.evaluation_id 
+        from archive_match am
+        inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = am.rsf_pfcbl_id
+        where sn.sys_name = am.sys_name",
+        params=list(template$reporting_cohort$reporting_cohort_id))
+      
+      setDT(restore_archive_checks)
+      
+      if (!empty(restore_archive_checks)) {
+        
+        #conn <- poolCheckout(pool)
+        #dbBegin(conn)
+        poolWithTransaction(pool,function(conn) {
+          
+          dbExecute(conn,"
+            create temp table _temp_restore(archive_id int,
+                                            evaluation_id int)
+            on commit drop;")
+          
+          dbAppendTable(conn,
+                        name="_temp_restore",
+                        value=restore_archive_checks)
+          
+          dbExecute(conn,"
+          update p_rsf.rsf_data_checks rdc
+          set check_status = dca.check_status,
+              check_status_comment = dca.check_status_comment,
+              check_status_user_id = dca.check_status_user_id
+          from _temp_restore tr
+          inner join p_rsf.rsf_data_checks_archive dca on dca.archive_id = tr.archive_id
+          where tr.evaluation_id = rdc.evaluation_id
+            and (rdc.check_status is distinct from dca.check_status
+                 or
+                 rdc.check_status_comment is distinct from dca.check_status_comment
+                 or
+                 rdc.check_status_user_id is distinct from dca.check_status_user_id)")
+          
+          dbExecute(conn,"
+          update p_rsf.rsf_data_checks rdc
+          set data_sys_flags = dca.data_sys_flags
+          from _temp_restore tr
+          inner join p_rsf.rsf_data_checks_archive dca on dca.archive_id = tr.archive_id
+          where tr.evaluation_id = rdc.evaluation_id
+            and rdc.data_sys_flags is distinct from dca.data_sys_flags")
+          
+          dbExecute(conn,"
+            delete from p_rsf.rsf_data_checks_archive dca
+            using _temp_restore tr
+            where tr.archive_id = dca.archive_id")
+          
+          dbExecute(conn,"
+            delete from p_rsf.rsf_data_checks_archive dca
+            where dca.archive_time < (now() - interval '90 days')")
+        }) 
+      }
+    }
+    
+    #restore data flags
+    {
+      restore_archive_flags <- dbGetQuery(pool,"
+        with restore_flags as materialized (
+        	select
+        		dca.archive_id,
+        		rd.data_id,
+        		rd.rsf_pfcbl_id as data_rsf_pfcbl_id,
+        		dca.rsf_pfcbl_id as archive_rsf_pfcbl_id,
+        		dca.sys_name
+        	from p_rsf.rsf_data rd
+        	inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
+        	inner join p_rsf.rsf_data_checks_archive dca on dca.indicator_id = rd.indicator_id
+        	                                            and dca.check_asof_date = rd.reporting_asof_date  
+        	where rd.rsf_pfcbl_id = any(select fam.child_rsf_pfcbl_id
+                                      from p_rsf.reporting_cohorts rc 
+                                      inner join p_rsf.rsf_pfcbl_id_family fam on fam.parent_rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
+                                      where rc.reporting_cohort_id = $1::int)
+            and dca.sys_name ^@ (select sn.sys_name 
+          										   from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
+          										   where sn.rsf_pfcbl_id = (select rc.reporting_rsf_pfcbl_id
+          																							  from p_rsf.reporting_cohorts rc
+          																							  where rc.reporting_cohort_id = $1::int))        
+        	  and rc.is_reported_cohort = true
+        		and dca.data_sys_flags is not null	  
+        		and dca.data_value_unit = p_rsf.rsf_data_value_unit(rd.data_value,rd.data_unit)
+        		
+        )
+        select 
+        	rf.archive_id,            
+        	rf.data_id
+        from restore_flags rf
+        inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = rf.data_rsf_pfcbl_id
+        where sn.sys_name = rf.sys_name",
+        params=list(template$reporting_cohort$reporting_cohort_id))
+      
+      setDT(restore_archive_flags)
+      if (!empty(restore_archive_flags)) {
+        
+        #dbBegin(conn)
+        poolWithTransaction(pool,function(conn) {
+          
+          dbExecute(conn,"
+            create temp table _temp_restore(archive_id int,
+                                            data_id int)
+            on commit drop;")
+          
+          dbAppendTable(conn,
+                        name="_temp_restore",
+                        value=restore_archive_flags)
+          
+          
+          dbExecute(conn,"
+          insert into p_rsf.rsf_data_checks(data_id,
+                                            rsf_pfcbl_id,
+                                            indicator_id,
+                                            check_asof_date,
+                                            indicator_check_id,
+                                            check_formula_id,
+                                            status_time,
+                                            check_message,
+                                            check_status,
+                                            check_status_comment,
+                                            check_status_user_id,
+                                            indicator_check_guidance_id,
+                                            check_data_id_is_current,
+                                            consolidated_from_indicator_id,
+                                            consolidated_from_indicator_check_id,
+                                            data_sys_flags)						
+          select 
+          rd.data_id,
+          rd.rsf_pfcbl_id,
+          rd.indicator_id,
+          rd.reporting_asof_date as check_asof_date,
+          dca.indicator_check_id,
+          dca.check_formula_id,
+          now() as status_time,
+          dca.check_message,
+          dca.check_status,
+          dca.check_status_comment,
+          dca.check_status_user_id,
+          NULL as indicator_check_guidance_id,
+          (dca.data_sys_flags & 4)=4 as check_data_id_is_current, -- revert will make current
+          dca.consolidated_from_indicator_id,
+          dca.consolidated_from_indicator_check_id,
+          dca.data_sys_flags
+          from _temp_restore tr
+          inner join p_rsf.rsf_data rd on rd.data_id = tr.data_id
+          inner join p_rsf.rsf_data_checks_archive dca on dca.archive_id = tr.archive_id
+          on conflict do nothing")
+          
+          dbExecute(conn,"
+            delete from p_rsf.rsf_data_checks_archive dca
+            using _temp_restore tr
+            where tr.archive_id = dca.archive_id")
+        }) 
+        
+        rsf_program_calculate(pool=pool,
+                              rsf_program_id=template$reporting_cohort$rsf_program_id,
+                              rsf_indicators=template$rsf_indicators,
+                              rsf_pfcbl_id.family=template$reporting_cohort$reporting_rsf_pfcbl_id,
+                              calculate_future=template$get_program_setting("on_upload_perform_future_calculations"),
+                              reference_asof_date=pmax(template$reporting_cohort$reporting_asof_date,
+                                                       max(template$pfcbl_data$reporting_asof_date)),
+                              status_message = status_message)
+        
+        rsf_program_check(pool=pool,
+                          rsf_program_id=template$reporting_cohort$rsf_program_id,
+                          rsf_indicators=template$rsf_indicators,
+                          rsf_pfcbl_id.family=template$reporting_cohort$reporting_rsf_pfcbl_id,
+                          check_future=template$get_program_setting("on_upload_perform_future_checks"),
+                          check_consolidation_threshold=template$get_program_setting("on_upload_check_consolidation_threshold"),
+                          reference_asof_date=pmax(template$reporting_cohort$reporting_asof_date,
+                                                   max(template$pfcbl_data$reporting_asof_date)),
+                          status_message= status_message)
+      }
+    }
+  }
+  
   #cohort info updates
   {
     dbExecute(pool,"update p_rsf.reporting_cohorts rc

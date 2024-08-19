@@ -16,42 +16,65 @@
 ##################
 
 
+SERVER_SETUP_PROGRAM_ARCHIVE <- eventReactive(c(SELECTED_PROGRAM_ID(),
+                                                input$ui_setup__indicator_program_facilities), {
+  
+  program <- SELECTED_PROGRAM()
+  if (!isTruthy(program)) return (NULL)
+  
+  
+  selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
+  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
+  if (any(selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id)) {
+    archive_name <- paste0("RSF ARCHIVE for ",
+                           paste0(sort(facilities[rsf_pfcbl_id %in% selected_rsf_pfcbl_id,facility_nickname]),collapse=", ")
+                           ,".zip")
+    return (list(export_rsf_pfcbl_id=selected_rsf_pfcbl_id,
+                 export_name=archive_name,
+                 export_pfcbl_category="facility"))
+  } else {
+    
+    archive_name <- paste0("RSF PROGRAM ARCHIVE for ",program$program_nickname,".zip")  
+    return (list(export_rsf_pfcbl_id=program$rsf_pfcbl_id,
+                 export_name=archive_name,
+                 export_pfcbl_category="program"))
+  }
+})
 
 output$program_download_archive <- downloadHandler(
   filename = function() {
-    program <- SELECTED_PROGRAM()
-    if (!isTruthy(program)) return (NULL)
-    archive_name <- paste0("RSF PROGRAM ARCHIVE for ",program$program_nickname,".zip")
     
-    selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
-    facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
-    if (any(selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id)) {
-      archive_name <- paste0("RSF ARCHIVE for ",
-                             paste0(sort(facilities[rsf_pfcbl_id %in% selected_rsf_pfcbl_id,facility_nickname]),collapse=", ")
-                             ,".zip")
-    }
+    SERVER_SETUP_PROGRAM_ARCHIVE()$export_name
     
-    archive_name    
   },
   content=function(file) {
     withProgress(message="Downloading file... This may take some time",value=0.5, {
       
       program <- SELECTED_PROGRAM()
       if (!isTruthy(program)) return(showNotification(h2("Please select an RSF Program to to enable download archive")))
-      selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
-      facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
-      if (!isTruthy(selected_rsf_pfcbl_id) ||
-          !any(selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id)) selected_rsf_pfcbl_id <- as.numeric(NA)
       
+      archive <- SERVER_SETUP_PROGRAM_ARCHIVE()
       program_id <- program$rsf_program_id
+      
+      #if it's a program-level archive, instruct get everything
+      #importantly, this will include Global settings associated for the Program
+      #whereas facility-level filters will not include Global (or Program) level settings.
+      export_rsf_pfcbl_id <- NA
+      if (archive$export_pfcbl_category=="facility") export_rsf_pfcbl_id <- archive$export_rsf_pfcbl_id
+      
       out_path <- DBPOOL %>% db_program_download(rsf_program_id=program_id,
-                                                 rsf_pfcbl_ids.filter=selected_rsf_pfcbl_id,
+                                                 rsf_pfcbl_ids.filter=export_rsf_pfcbl_id,
                                                  out_path=".",
                                                  exporting_user_id = USER_ID(),
-                                                 archive_name=file,
+                                                 archive_name=archive$export_name,
                                                  verbatim = FALSE) #Will consolidate setup into a single file.  Verbatim TRUE is only via maual utility call
 
-      incProgress(amount=1.0,message="Completed")
+      #incProgress(amount=1.0,message="Completed")
+      success <- file.copy(from=out_path,
+                           to=file,
+                           overwrite=T)
+      
+      return (file)
     })
   }
 )
@@ -93,7 +116,8 @@ output$program_download_setup <- downloadHandler(
                                                                               "indicators",
                                                                               "checks",
                                                                               "guidance",
-                                                                              "actions"))
+                                                                              "actions",
+                                                                              "flags"))
       
       
       openxlsx::saveWorkbook(wb=programs_export,

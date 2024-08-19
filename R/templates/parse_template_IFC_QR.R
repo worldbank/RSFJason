@@ -82,6 +82,7 @@ parse_template_IFC_QR <- function(pool,
  
   #Load the data sheets (and their formulas)  
   {
+    template_headers <- NULL
     {
       summary_sheet <- template_excel_read_sheet(excelwb=excelwb,
                                                  sheetName=summarySheet)
@@ -162,6 +163,9 @@ parse_template_IFC_QR <- function(pool,
   #rsf_indicators <- db_indicators_get_labels(pool)
   #labels, including facility-specific label mappings
   {
+    
+    save_headers <- TRUE
+    
     rsf_labels <- rbindlist(rsf_indicators$labels)
     rsf_labels <- unique(rsf_labels[,.(indicator_id,indicator_header_id,label_normalized)])
     
@@ -720,6 +724,14 @@ parse_template_IFC_QR <- function(pool,
                            indicator_id)]
       }
       
+      if (save_headers) {
+        template_headers <- rbindlist(list(template_headers,
+                                           summary_sheet[!is.na(indicator_id),
+                                                         .(label,
+                                                           data_source_index=paste0("SUMMARY ROW-",original_row_num),
+                                                           indicator_id)]))
+      }
+      
       summary_sheet <- summary_sheet[is.na(indicator_id)==FALSE,
                                        .(indicator_name,
                                          data_unit,
@@ -748,12 +760,24 @@ parse_template_IFC_QR <- function(pool,
                    "reporting_submitted_data_value",
                    "reporting_submitted_data_formula"))
     
+    summary_sheet <- unique(summary_sheet)
+    
+    summary_sheet <- summary_sheet[,
+                                   .(reporting_submitted_data_formula=ifelse(all(is.na(reporting_submitted_data_formula)),
+                                                                             as.character(NA),
+                                                                             paste0(na.omit(reporting_submitted_data_formula),collapse=","))),
+                                   by=.(reporting_template_row_group,
+                                     indicator_name,
+                                     reporting_submitted_data_value,
+                                     reporting_submitted_data_unit)]
+    
     summary_sheet <- summary_sheet[,
                                    .(reporting_template_row_group,
                                      indicator_name,
                                      reporting_submitted_data_value,
                                      reporting_submitted_data_unit,
                                      reporting_submitted_data_formula)]
+    
     summary_sheet
     
   }
@@ -779,6 +803,9 @@ parse_template_IFC_QR <- function(pool,
 
     data_rows <- seq(from=max(label_rows_index)+1,
                      to=nrow(data_sheet))
+    
+    #Empty submitted blank data sheet!
+    if (any(max(label_rows_index)+1 >= nrow(data_sheet))) data_rows <- 0
     
     data_sheet <- data_sheet[data_rows]
     data_formulas <- as.data.table(data_formula_matrix[data_rows,
@@ -1024,6 +1051,13 @@ parse_template_IFC_QR <- function(pool,
       
       #data_labels <- data_labels[is.na(indicator_id)==FALSE]
       
+      if (save_headers) {
+        template_headers <- rbindlist(list(template_headers,
+                                           data_labels[!is.na(indicator_id),
+                                                         .(label,
+                                                           data_source_index=paste0("QReport COL-",original_col_num),
+                                                           indicator_id)]))
+      }
       
       data_labels <- data_labels[is.na(indicator_id)==FALSE,
                                  .(rn,
@@ -1245,10 +1279,12 @@ parse_template_IFC_QR <- function(pool,
   template_data[,reporting_asof_date:=reporting_asof_date]
   
   
+  
   template <- list(cohort_pfcbl_id=rsf_pfcbl_id.facility,
                    reporting_asof_date=reporting_asof_date,
                    template_data=template_data,
-                   pfcbl_reporting_flags=reporting_flags)
+                   pfcbl_reporting_flags=reporting_flags,
+                   template_headers=unique(template_headers))
 
   status_message(class="info","Success: Completed Parsing File:\n")
   return (template)

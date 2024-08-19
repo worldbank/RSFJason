@@ -243,19 +243,22 @@ observeEvent(input$setup_program_create_action_button, {
                                             reporting_user_id = USER_ID(),
                                             template_files=export_filename,
                                             source_note="None",
+                                            delete_on_error=FALSE,
                                             status_message=progress_status_message)
         },
         error=function(e) {
           showNotification(type="error",
                            duration=NULL,
-                           ui=h3(paste0("An error has occcurred. Failed to create new ",what,":  ",conditionMessage(e))))
+                           ui=h3(paste0("An error has occcurred. Failed to create new ",what,":  ",conditionMessage(e),
+                                        "Please review the datasets panel and download the dataset, if available; then delete it.")))
           return(NULL)
           
         },
         warning=function(w) {
           showNotification(type="error",
                            duration=NULL,
-                           ui=h3(paste0("An error has occcurred. Failed to create new ",what,":  ",conditionMessage(w))))
+                           ui=h3(paste0("An error has occcurred. Failed to create new ",what,":  ",conditionMessage(w),
+                                        "Please review the datasets panel and download the dataset, if available; then delete it.")))
           return(NULL)
           
         })

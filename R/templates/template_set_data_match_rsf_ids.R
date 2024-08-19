@@ -168,10 +168,21 @@ template_set_data_match_rsf_ids <- function(pool,
               parent_SYSIDS <- NULL
               current_SYSIDS <- NULL
               
+            
             } else {
-              stop(paste0("Given the reporting template's reporting cohort ID of ",template$reporting_cohort$reporting_rsf_pfcbl_id,
-                          ", failed to uniquely find a parent_rsf_pfcbl_id at the ",parent_data_category,"-level for ID lookups at the ",
-                          current_data_category,"-level.  Manually defined relationships cannot be found in template$match_SYSNAMES using template_data$SYSID"))
+              
+              bad_data <- unique(template$template_data[data_category==current_data_category,
+                                                 .(reporting_template_row_group,
+                                                   indicator_name,
+                                                   data_submitted)])
+              message <- paste0("System is uploading the following ",toupper(current_data_category)," level data: \n",
+                                paste0("  ",paste0(bad_data$reporting_template_row_group," tab: ",bad_data$indicator_name," = '",bad_data$data_submitted,"'"),collapse=" \n"))
+              
+              message <- paste0(message," \n",
+                                "However new ",toupper(current_data_category),"s cannot be created because system cannot match any ",toupper(parent_data_category),"s. \n",
+                                "Verify your dataset is correct and that all ",toupper(parent_data_category),"s and ",toupper(current_data_category),"s have relevent ID and/or Name data columns to lookup or create")
+              
+              stop(message)
               
             }
           }

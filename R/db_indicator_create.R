@@ -17,7 +17,7 @@ db_indicator_create <- function(pool) {
                                 order by indicator_id
                                 limit 1;")
   }
-  print(paste0("New indicator: ",new_indicator$indicator_id))
+
   if (empty(new_indicator)) return (NULL)
   else return (new_indicator)
 }

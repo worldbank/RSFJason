@@ -289,14 +289,6 @@ COHORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
   return (cohorts)
 })
 
-#A view, based on key words and/or rsf_client_id
-# COHORTS_LIST_FILTER <- eventReactive(c(COHORTS_LIST(),
-#                                        input$dataset_review_filter), {
-#                                          
-#  
-#  
-# }, ignoreNULL = FALSE)
-
 #When a user clicks on an icon in the main datasets view panel
 SELECTED_COHORT_ID <- eventReactive(c(input$action_cohort_view,
                                       COHORTS_LIST()), {
@@ -307,7 +299,8 @@ SELECTED_COHORT_ID <- eventReactive(c(input$action_cohort_view,
   if (!isTruthy(cohorts)) return (NULL)
   if (!cohort_id %in% cohorts$reporting_cohort_id) return (NULL)
   cohort_id
-}, ignoreInit=TRUE,ignoreNULL=FALSE)
+}, 
+ignoreInit=TRUE,ignoreNULL=FALSE)
 
 
 SELECTED_COHORT_INFO <- eventReactive(SELECTED_COHORT_ID(), {
@@ -324,7 +317,8 @@ SELECTED_COHORT_INFO <- eventReactive(SELECTED_COHORT_ID(), {
   
   return (cohort)
   
-}, ignoreNULL=FALSE)
+}, 
+ignoreNULL=FALSE)
 
 
 #For the DATASE REVIEW panel: based on 
@@ -341,8 +335,7 @@ SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_COHORT_INFO(),
   if (!isTruthy(cohort)) return (NULL)
   
   reporting_current_date <- cohort$reporting_asof_date
-  clientest_rsf_pfcbl_id <- cohort$clientest_rsf_pfcbl_id #different, possibly, than reporting_rsf_pfcbl_id
-  collection_id <- as.numeric(input$cohort_collection_selected_id)
+  collection_id <- suppressWarnings(as.numeric(input$cohort_collection_selected_id)) #"all" will return NA
   
   flags_data <- NULL
   
@@ -351,46 +344,50 @@ SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_COHORT_INFO(),
   if (!isTruthy(collection_id)) {
     
     flags_data <- DBPOOL %>% dbGetQuery("
-                    select 
-                      rdc.evaluation_id,
-                      rdc.data_id,
-                      rdc.rsf_pfcbl_id,
-                      rdc.indicator_id,
-                      ind.indicator_name,
-                      ind.data_type,
-                      ind.data_category,
-                      ind.is_system as indicator_is_system,
-                      ind.is_calculated as indicator_is_calculated,
-                      ic.is_system as check_is_system,
-                      rdc.check_asof_date,
-                      rdc.indicator_check_id, 
-                      rdc.check_formula_id,
-                      ic.check_name,
-                      ic.check_type,
-                      coalesce(icg.overwrite_check_class,ic.check_class) as check_class,
-                      rdc.check_status,
-                      rdc.indicator_check_guidance_id,
-                      rdc.consolidated_from_indicator_id,
-                      rdc.consolidated_from_indicator_check_id,
-                      pis.is_subscribed,
-                      pis.formula_id as indicator_formula_id,
-                      pis.is_calculated as formula_is_calculated,
-                      indf.formula_title,
-                      indf.is_primary_default,
-                      indcf.check_formula_title
-                    from p_rsf.rsf_data_checks rdc
-                    inner join p_rsf.indicators ind on ind.indicator_id = rdc.indicator_id
-                    inner join p_rsf.indicator_checks ic on ic.indicator_check_id = rdc.indicator_check_id
-                    left join p_rsf.indicator_check_guidance icg on icg.indicator_check_guidance_id = rdc.indicator_check_guidance_id
-                    left join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = rdc.rsf_pfcbl_id
-                                                                              and pis.indicator_id = rdc.indicator_id
-                    left join p_rsf.indicator_formulas indf on indf.formula_id = pis.formula_id
-                    left join p_rsf.indicator_check_formulas indcf on indcf.check_formula_id = rdc.check_formula_id
-                    where rdc.rsf_pfcbl_id = any (select to_family_rsf_pfcbl_id from p_rsf.view_rsf_pfcbl_id_family_tree ft where ft.from_rsf_pfcbl_id = $1::int)
-                      and rdc.check_data_id_is_current = true
-                    	and rdc.check_asof_date = $2::date",
-                    params=list(clientest_rsf_pfcbl_id,
-                                reporting_current_date))
+      select 
+        rdc.evaluation_id,
+        rdc.data_id,
+        rdc.rsf_pfcbl_id,
+        rdc.indicator_id,
+        ind.indicator_name,
+        ind.data_type,
+        ind.data_category,
+        ind.is_system as indicator_is_system,
+        ind.is_calculated as indicator_is_calculated,
+        ic.is_system as check_is_system,
+        rdc.check_asof_date,
+        rdc.indicator_check_id, 
+        rdc.check_formula_id,
+        ic.check_name,
+        ic.check_type,
+        coalesce(icg.overwrite_check_class,ic.check_class) as check_class,
+        rdc.check_status,
+        rdc.indicator_check_guidance_id,
+        rdc.consolidated_from_indicator_id,
+        rdc.consolidated_from_indicator_check_id,
+        pis.is_subscribed,
+        pis.formula_id as indicator_formula_id,
+        pis.is_calculated as formula_is_calculated,
+        indf.formula_title,
+        indf.is_primary_default,
+        indcf.check_formula_title
+      from p_rsf.rsf_data_checks rdc
+      inner join p_rsf.rsf_data rd on rd.data_id = rdc.data_id 
+      inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
+      inner join p_rsf.indicators ind on ind.indicator_id = rdc.indicator_id
+      inner join p_rsf.indicator_checks ic on ic.indicator_check_id = rdc.indicator_check_id
+      left join p_rsf.indicator_check_guidance icg on icg.indicator_check_guidance_id = rdc.indicator_check_guidance_id
+      left join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = rdc.rsf_pfcbl_id
+                                                                and pis.indicator_id = rdc.indicator_id
+      left join p_rsf.indicator_formulas indf on indf.formula_id = pis.formula_id
+      left join p_rsf.indicator_check_formulas indcf on indcf.check_formula_id = rdc.check_formula_id
+      where rc.reporting_asof_date = $1::date
+        and rc.reporting_rsf_pfcbl_id = (select rcc.reporting_rsf_pfcbl_id 
+                                         from p_rsf.reporting_cohorts rcc
+                                         where rcc.reporting_cohort_id = $2::int)
+      and rdc.check_data_id_is_current = true",
+      params=list(reporting_current_date,
+                  cohort$reporting_cohort_id))
     
   
   } 
@@ -732,22 +729,27 @@ observeEvent(SELECTED_COHORT_ID(), {
                                    reporting_asof_date),
                               nomatch=NULL][,.(reporting_cohort_id,
                                                source_name)]
-    choices <- setNames(cohorts$reporting_cohort_id,
-                        cohorts$source_name)
-    choices.selected <- "all"
-    if (length(choices)==1) {
-      choices.selected <- choices[1]
+    
+    choices <- NULL
+    chocies.selected <- NULL
+
+    if (nrow(cohorts)==1) {
+      choices.selected <- cohort_id
+      choices <- setNames(cohorts$reporting_cohort_id,
+                          cohorts$source_name)
+      
     } else {
-      choices <- setNames(c("all",choices),
+      cohort_info <- SELECTED_COHORT_INFO()
+      choices.selected <- cohort_id
+      choices <- setNames(c("all",cohorts$reporting_cohort_id),
                           c(paste0("All ",cohort_info$reporting_asof_date_label," ",cohort_info$entity_name," reporting"),
-                            names(choices)))
+                            cohorts$source_name))
     }
     updateSelectizeInput(session=session,
                          inputId="cohort_collection_selected_id",
                          choices=choices,
                          selected=choices.selected)
   } 
-  
   
 },ignoreNULL=FALSE,ignoreInit = TRUE)
 
@@ -907,7 +909,7 @@ observeEvent(input$action_cohort_delete, {
                      incProgress(amount=0,
                                  message=paste0("Recalculating affected data: ",dots))
                    }
-                   rsf_indicators <- DBPOOL %>% db_indicators_get_labels()
+                   #rsf_indicators <- DBPOOL %>% db_indicators_get_labels()
                    DBPOOL %>% rsf_program_calculate(rsf_program_id = affected_program,
                                                     rsf_indicators = rsf_indicators,
                                                     rsf_pfcbl_id.family = NULL,
@@ -924,8 +926,11 @@ observeEvent(input$action_cohort_delete, {
                    }
   
                    DBPOOL %>% rsf_program_check(rsf_program_id=affected_program,
-                                                rsf_indicators=rsf_indicators,
+                                                rsf_indicators=RSF_INDICATORS(),
                                                 rsf_pfcbl_id.family=NULL,
+                                                check_future=TRUE,
+                                                check_consolidation_threshold=NA,
+                                                reference_asof_date=NULL,
                                                 status_message= progress_status_message)
                  }
                  incProgress(amount=1,message="Done")
@@ -948,45 +953,115 @@ observeEvent(input$action_cohort_selected, {
 },ignoreNULL = FALSE,ignoreInit = TRUE)
 
 #Button to View Dashboard from Upload Review panel
-observeEvent(input$cohort_action_dashboard, {
-  selected_cohort_id <- SELECTED_COHORT_ID()
+SERVER_DATASETS_COHORT_DASHBOARD <- function(selected_cohort_id=SELECTED_COHORT_ID(),
+                                             flags_filter="",
+                                             dashboard_parameters=list()) {
   
-  uploaded_cohort <- DBPOOL %>% dbGetQuery("select 
+  uploaded_cohorts <- DBPOOL %>% dbGetQuery("select 
                                               rc.reporting_cohort_id,
-                                              rc.reporting_asof_date,
-                                              rc.from_reporting_template_id, 
-                                              rt.default_report_id,
+                                              rc.reporting_asof_date::text,
                                               rc.reporting_rsf_pfcbl_id
                                               from p_rsf.reporting_cohorts rc
-                                              left join p_rsf.reporting_templates rt on rt.template_id = rc.from_reporting_template_id
-                                              where rc.reporting_cohort_id = $1::int",
+                                              where rc.reporting_cohort_id = $1::int
+                                           
+                                           union 
+                                           
+                                           select 
+                                              rc.reporting_cohort_id,
+                                              rc.reporting_asof_date::text,
+                                              rc.reporting_rsf_pfcbl_id
+                                              from p_rsf.reporting_cohorts rc
+                                              where rc.parent_reporting_cohort_id = $1::int
+                                           
+                                           union 
+                                           
+                                           select 
+                                              rc.reporting_cohort_id,
+                                              rc.reporting_asof_date::text,
+                                              rc.reporting_rsf_pfcbl_id
+                                              from p_rsf.reporting_cohorts rc
+                                              where rc.linked_reporting_cohort_id = $1::int",
                                            params=list(selected_cohort_id))
   
-  uploaded_clients <- DBPOOL %>% dbGetQuery("select rsf_pfcbl_id
-                                               from p_rsf.get_rsf_pfcbl_id_family_tree(string_to_array($1::text,',')::int[]) ft
-                                               where ft.pfcbl_category = 'client'",
-                                            params=list(uploaded_cohort$reporting_rsf_pfcbl_id))
+  # uploaded_clients <- DBPOOL %>% dbGetQuery("select ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id
+  #                                            from p_rsf.view_rsf_pfcbl_id_family_tree ft
+  #                                            where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+  #                                              and ft.to_pfcbl_category = 'client'",
+  #                                           params=list(unique(uploaded_cohorts$reporting_rsf_pfcbl_id)))
   
-  uploaded_indicators <- DBPOOL %>% dbGetQuery("select distinct
-                                                   rd.indicator_id
-                                                 from p_rsf.reporting_cohorts rc
-                                                 inner join p_rsf.rsf_data rd on rd.reporting_cohort_id = rc.reporting_cohort_id
-                                                 inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id
-                                                 where rc.reporting_cohort_id = $1::int
-                                                   and ind.is_system = false",
-                                               params=list(selected_cohort_id))
+  uploaded_clients <- DBPOOL %>% dbGetQuery("
+    select distinct
+    fam.parent_rsf_pfcbl_id as rsf_pfcbl_id
+    from p_rsf.reporting_cohorts rc
+    inner join p_rsf.rsf_data rd on rd.reporting_cohort_id = rc.reporting_cohort_id
+    inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id
+    inner join p_rsf.rsf_pfcbl_id_family fam on fam.child_rsf_pfcbl_id = rd.rsf_pfcbl_id
+    where rc.reporting_cohort_id = any(select unnest(string_to_array($1::text,','))::int)
+     and ind.indicator_sys_category = 'entity_reporting'
+     and fam.parent_pfcbl_rank <= 3",
+    params=list(paste0(unique(uploaded_cohorts$reporting_cohort_id),collapse=",")))
+  
+  uploaded_indicators <- DBPOOL %>% dbGetQuery("
+    select 
+     ind.indicator_name,
+     rpc.pfcbl_rank 
+    from p_rsf.reporting_cohorts rc
+    inner join p_rsf.rsf_data rd on rd.reporting_cohort_id = rc.reporting_cohort_id
+    inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id
+    inner join p_rsf.rsf_pfcbl_categories rpc on rpc.pfcbl_category = ind.data_category
+    where rc.reporting_cohort_id = any(select unnest(string_to_array($1::text,','))::int)
+     and ind.is_system = false
+    group by
+    ind.indicator_name ,
+    rpc.pfcbl_rank
+    order by 
+    rpc.pfcbl_rank desc,
+    min(rd.data_id) asc",
+  params=list(paste0(unique(uploaded_cohorts$reporting_cohort_id),collapse=",")))
+
+  uploaded_rank <- max(uploaded_indicators$pfcbl_rank)
+  
+  uploaded_entities <- DBPOOL %>% dbGetQuery("
+  select distinct 
+    ids.rsf_pfcbl_id
+  from p_rsf.reporting_cohorts rc
+  inner join p_rsf.rsf_data rd on rd.reporting_cohort_id = rc.reporting_cohort_id
+  inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rd.rsf_pfcbl_id
+  where rc.reporting_cohort_id = any(select unnest(string_to_array($1::text,','))::int)
+    and ids.pfcbl_category_rank = $2::int",
+  params=list(paste0(unique(uploaded_cohorts$reporting_cohort_id),collapse=","),
+              uploaded_rank))
   
   
-  selected_flags <- input$cohort_view_flag_classes
+  dashboard_parameters[["format_pivot"]] <- "NAME"
+  dashboard_parameters[["format_pivot_category"]] <-  ifelse(uploaded_rank >= 4,
+                                                             "client",
+                                                             "parent")
   
-  # DASH_LOAD_DASHBOARD(reporting_asof_date=uploaded_cohort$reporting_asof_date,
-  #                     rsf_pfcbl_ids=unique(uploaded_clients$rsf_pfcbl_id),
-  #                     indicator_ids=unique(uploaded_indicators$indicator_id),
-  #                     display_report_id=uploaded_cohort$default_report_id,
-  #                     display_currency="LCU",
-  #                     display_timeline=0,
-  #                     display_flags=TRUE,
-  #                     filter_flags=selected_flags)
+  dashboard_parameters[["filter_flags"]] <- input$action_indicator_flags_review
+  dashboard_parameters[["name_filter"]] <- uploaded_entities$rsf_pfcbl_id
+  
+  cohort <- SELECTED_COHORT_INFO()
+  ad_hoc_title <- paste0(toupper(cohort$pfcbl_category),": ",
+                         cohort$entity_name,
+                         " as-of ",
+                         cohort$reporting_asof_date,
+                         " upload#",
+                         cohort$reporting_cohort_id)
+
+  SERVER_DASHBOARD_REPORT_SELECTED(list(report_id=0,
+                                        report_title=ad_hoc_title,
+                                        for_client_sys_names=unique(uploaded_clients$rsf_pfcbl_id),
+                                        for_indicator_names=uploaded_indicators$indicator_name,
+                                        for_asof_dates=unique(uploaded_cohorts$reporting_asof_date),
+                                        report_parameters=list(dashboard_parameters)))
+  
+}
+
+observeEvent(input$cohort_action_dashboard, {
+ 
+  SERVER_DASHBOARD_REPORT_SELECTED(list())
+  SERVER_DATASETS_COHORT_DASHBOARD(flags_filter = input$action_indicator_flags_review)
   
 })
 
@@ -1100,24 +1175,62 @@ observeEvent(input$cohort_action_dashboard, {
   #Download the file that was uploaded
   output$datasets_review_download_source_action <- downloadHandler(
     filename = function() {
-      cohort <- SELECTED_COHORT_INFO()
-      if (!isTruthy(cohort)) return (NULL)
+      selected_id <- input$cohort_collection_selected_id
+      cohort <- NULL
+      if (identical(selected_id,"all") || is.na(suppressWarnings(as.numeric(selected_id)))) {
+        cohort <- SELECTED_COHORT_INFO()
+      } else {
+        cohort <- COHORTS_LIST()[reporting_cohort_id==as.numeric(selected_id)]
+      }
       cohort$source_name
     },
     content=function(file) {
 
       withProgress(message="Downloading file",value=0.5, {
         
-        cohort <- SELECTED_COHORT_INFO()
+        selected_id <- input$cohort_collection_selected_id
+        cohort <- NULL
+        if (identical(selected_id,"all") || is.na(suppressWarnings(as.numeric(selected_id)))) {
+          cohort <- SELECTED_COHORT_INFO()
+        } else {
+          cohort <- COHORTS_LIST()[reporting_cohort_id==as.numeric(selected_id)]
+        }
+        
 
         outpath <- DBPOOL %>% db_cohort_download_file(reporting_cohort_id=cohort$reporting_cohort_id)
-        #file.rename(from=outpath,to=file)
-        #print("Downloading file in output$datasets_review_download_source_action")
-        file.copy(from=outpath,
-                  to=file,
-                  overwrite = TRUE)
-        if (file.exists(outpath)) file.remove(outpath)
         
+        if (!is.null(outpath)) {
+          #file.rename(from=outpath,to=file)
+          #print("Downloading file in output$datasets_review_download_source_action")
+          file.copy(from=outpath,
+                    to=file,
+                    overwrite = TRUE)
+          if (file.exists(outpath)) file.remove(outpath)
+        } else {
+          linked_file <- DBPOOL %>% dbGetQuery("
+           select 
+            lrc.source_name,
+            lrc.reporting_cohort_id,
+            lrc.reporting_asof_date
+          from p_rsf.reporting_cohorts rc
+          inner join p_rsf.reporting_cohorts lrc on lrc.reporting_cohort_id = rc.linked_reporting_cohort_id
+          where rc.reporting_cohort_id = $1::int",
+          params=list(cohort$reporting_cohort_id))
+          
+          if (!empty(linked_file)) {
+            outpath <- DBPOOL %>% db_cohort_download_file(reporting_cohort_id=linked_file$reporting_cohort_id)
+            if (!is.null(outpath)) {
+              
+              file.copy(from=outpath,
+                        to=file,
+                        overwrite = TRUE)
+              if (file.exists(outpath)) file.remove(outpath)
+              
+            } else {
+              outpath <- NULL
+            }
+          }
+        }        
         incProgress(amount=1.0,message="Completed")
       })
     }

@@ -99,10 +99,11 @@ server <- function(input, output, session)
     source("./R/app/server_dashboard.R",local=serverENV)
     source("./R/app/server_dashboard_options.R",local=serverENV)
     source("./R/app/server_dashboard_reports.R",local=serverENV)
+    source("./R/app/server_dashboard_edit.R",local=serverENV)
     
     source("./R/app/server_datasets.R",local=serverENV)
     source("./R/app/server_datasets_review_flags.R",local=serverENV)
-    source("./R/app/server_datasets_indicatorflags_module.R",local=serverENV)
+#    source("./R/app/server_datasets_indicatorflags_module.R",local=serverENV)
     source("./R/app/server_datasets_upload.R",local=serverENV)
   
     #When permissions are implemented, only load administrateive modules if an admin

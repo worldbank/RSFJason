@@ -327,6 +327,7 @@ observeEvent(input$server_setup_checks__recheck_run, {
                                                 rsf_indicators=RSF_INDICATORS(),
                                                 rsf_pfcbl_id.family=facility$rsf_pfcbl_id,
                                                 check_future=TRUE,
+                                                check_consolidation_threshold=NA,
                                                 reference_asof_date=NULL,
                                                 status_message=progress_status_message)
                  })

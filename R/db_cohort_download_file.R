@@ -7,10 +7,17 @@ db_cohort_download_file <- function(pool,
   
   if (grepl("/$",file_path)) file_path <- gsub("/$","",file_path)
   
-  download_file <- dbGetQuery(pool,
-                              "select upload_filename,upload_file from p_rsf.reporting_cohort_info 
-                                    where reporting_cohort_id = $1::int",
+  #Linked reporting cohorts will not have any upload file.
+  download_file <- dbGetQuery(pool,"
+                              select 
+                                upload_filename,
+                                upload_file 
+                              from p_rsf.reporting_cohort_info 
+                              where reporting_cohort_id = $1::int
+                                and upload_file is not null",
                               params=list(reporting_cohort_id))
+  
+  if (empty(download_file)) return (NULL)
   
   download_filename <- download_file$upload_filename
   download_file <- unlist(download_file$upload_file,use.names = F)

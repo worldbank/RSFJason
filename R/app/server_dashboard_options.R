@@ -109,15 +109,8 @@ observeEvent(input$server_dashboard__view_options, {
                        #)
                        ),
                        
-                       fluidRow(column(12,align="center",style="font-weight:bold;color:gray;padding-bottom:5px;margin-bottom:5px;","EXPORT PARAMETERS")),
-                       fluidRow(column(3,
-                                       selectizeInput(inputId="server_dashboard_options__format_exceldates",
-                                                      label="Export Excel Dates",
-                                                      choices=c("YES","NO"),
-                                                      multiple=FALSE,
-                                                      selected=fcase(SERVER_DASHBOARD_RUN_OPTIONS$format_exceldates==TRUE,"YES",
-                                                                     default="NO"),
-                                                      options=list(placeholder="None"))),
+                       fluidRow(column(12,align="center",style="font-weight:bold;color:gray;padding-bottom:5px;margin-bottom:5px;","FORMAT PARAMETERS")),
+                       fluidRow(align="center",
                                 column(3,
                                        selectizeInput(inputId="server_dashboard_options__format_raw",
                                                       label="RAW Data Extract",
@@ -125,7 +118,19 @@ observeEvent(input$server_dashboard__view_options, {
                                                       multiple=FALSE,
                                                       selected=fcase(SERVER_DASHBOARD_RUN_OPTIONS$format_raw==TRUE,"YES",
                                                                      default="NO"),
-                                                      options=list(placeholder="NO")))
+                                                      options=list(placeholder="NO"))),
+                                column(3,
+                                       pickerInput(inputId="server_dashboard_options__format_pivot_category",
+                                                   label="Pivot On Parents", #label is Pivot but option is "no pivot" reversed.
+                                                   choices=c("",
+                                                             `None`="none",
+                                                             `Parent`="parent",
+                                                             `Facility`="facility",
+                                                             `Client`="client",
+                                                             `Borrower`="borrower"),
+                                                   multiple=FALSE,
+                                                   selected=SERVER_DASHBOARD_RUN_OPTIONS$format_pivot_category, #Reversed
+                                                   options=list(placeholder="Parent"))),
                                 
 
                        )
@@ -223,7 +228,10 @@ observeEvent(input$server_dashboard_options__format_exceldates, {
 observeEvent(input$server_dashboard_options__format_filter, {
   
   if (!isTruthy(input$server_dashboard_options__format_filter)) SERVER_DASHBOARD_RUN_OPTIONS$format_filter <- ""
-  else SERVER_DASHBOARD_RUN_OPTIONS$format_filter <- input$server_dashboard_options__format_filter
+  else SERVER_DASHBOARD_RUN_OPTIONS$format_filter <- intersect(c("ECOLS","EROWS","UCOLS","UROWS"),
+                                                               input$server_dashboard_options__format_filter)
+  
+  #SERVER_DASHBOARD_RUN_OPTIONS$flags_query <- "FLAGS" %in% input$server_dashboard_options__format_filter
 })
 
 
@@ -235,6 +243,17 @@ observeEvent(input$server_dashboard_options__format_raw, {
     SERVER_DASHBOARD_RUN_OPTIONS$format_raw <- FALSE
   }
 })
+
+observeEvent(input$server_dashboard_options__format_pivot_category, {
+  
+  #UI option is reversed from system
+  if (!input$server_dashboard_options__format_pivot_category %in% c("none","parent","facility","client","borrower")) {
+    SERVER_DASHBOARD_RUN_OPTIONS$format_pivot_category <- "parent"
+  } else {
+    SERVER_DASHBOARD_RUN_OPTIONS$format_pivot_category <- input$server_dashboard_options__format_pivot_category
+  }
+})
+
 
 observeEvent(input$server_dashboard_options__flags_display, {
   

@@ -11,17 +11,19 @@
   ),   #RSF
   parent=base_env())
   
-  #Data values are those variable types that carry the actual data value (ie, not meta data, like "changed").  This is only used by currency lookups
-  #since currency cares about the actual value and not about its metadata.
-  assign(x="indicator_ATTRIBUTES_DATA_VALUES",
-         envir=CALCULATIONS_ENVIRONMENT,
-         pos=0,
-         value=c("current",
-                 "issuances.current",
-                 "issuances.previous",
-                 "previous",
-                 "first",
-                 "all"))
+
+  #OBSOLETE 
+  # #Data values are those variable types that carry the actual data value (ie, not meta data, like "changed").  This is only used by currency lookups
+  # #since currency cares about the actual value and not about its metadata.
+  # assign(x="indicator_ATTRIBUTES_DATA_VALUES",
+  #        envir=CALCULATIONS_ENVIRONMENT,
+  #        pos=0,
+  #        value=c("current",
+  #                "issuances.current",
+  #                "issuances.previous",
+  #                "previous",
+  #                "first",
+  #                "all"))
   
   assign(x="indicator_ATTRIBUTES",
          envir=CALCULATIONS_ENVIRONMENT,
@@ -105,9 +107,8 @@
            #There are presently zero calculations that actually use this and allowing this feature requires so much overhead for unlisting 
            #lists, etc.
            #GENERATES A LIST VARIABLE
-           "all",                #list: all updated and/or multiple DATA VALUES reported for the indicator as-of date
-           "all.reporteddates"   #list: all updated and/or multiple REPORTING AS OF DATES reported for the indicator as-of date
-         ))            #data.table: all FLAGS on the data points for all
+           "all"                #data.table object: all updated and/or multiple DATA VALUES reported for the indicator as-of date
+         ))
   
   assign(x="hasmatches",
          envir=CALCULATIONS_ENVIRONMENT,
@@ -267,12 +268,14 @@
          envir=CALCULATIONS_ENVIRONMENT,
          value=function(...,na.rm=TRUE,na.zero=TRUE) {
            arg <- list(...)
-           
+
            if (length(unique(sapply(arg,length))) > 1) { 
              stop("All arguments to average must be the same length")
            }
            arg <- as.data.frame(arg,col.names=paste0("X",1:length(arg)))
-           x <- (base::rowMeans(x=arg,na.rm=na.rm))
+           x <- NULL
+           if (ncol(arg)==1) x <- (base::mean(x=arg$X1,na.rm=na.rm))
+           else x <- (base::rowMeans(x=arg,na.rm=na.rm))
            if (length(x)==0) x <- NA
            
            if (na.zero==TRUE & anyNA(x)) {
@@ -311,6 +314,95 @@
          value=function(...,na.rm=TRUE) {
            x <- (base::pmax(...,na.rm=na.rm))
            return(x)
+         })
+  
+  assign(x="timeseries",
+         envir=CALCULATIONS_ENVIRONMENT,
+         value=function(...,
+                        by,
+                        fill=TRUE) {
+           
+           vars <- list(...)
+           
+           if (length(fill) != 1 &&
+               length(fill) != length(vars)+1) {
+             stop(paste0("Fill values must by a single constant OR a vector of length ",
+                         length(vars)+1,
+                         " (number of timeseries columns plus one by column)"))
+           }
+           
+           if (is.null(by)) stop("by column is required")
+           
+           if (is.null(names(by)) && !is.null(names(by[[1]]))) by <- by[[1]]
+           
+           
+           if (!all(c("indicator_name",
+                      "current.reporteddate",
+                      "reporting_current_date",
+                      "current") %in% names(by))) {
+             stop("Timeseries arguments require columns with .all specified, eg: loan_risk_balance.all")
+           }
+           
+           
+           timeline <- seq(min(by$current.reporteddate)+1,
+                           max(by$reporting_current_date)+1,
+                           by="quarters")
+           
+           timeline <- data.table(reporting_current_date=ymd(timeline)-1)
+           timeline_origin <- min(timeline$reporting_current_date)
+           vars[[length(vars)+1]] <- by
+           
+           
+           for (i in 1:length(vars)) {
+             
+             col <- vars[[i]]
+             if (is.null(names(col)) && !is.null(names(col[[1]]))) col <- col[[1]]
+             if (!all(c("indicator_name",
+                        "current.reporteddate",
+                        "reporting_current_date",
+                        "current") %in% names(by))) {
+               stop("Timeseries arguments require columns with .all specified, eg: loan_risk_balance.all")
+             }
+             
+             this_fill <- NULL
+             if (length(fill)==1) this_fill <- fill
+             else this_fill <- fill[i]
+             
+             ind_col <- paste0(unique(col$indicator_name),".current")
+             
+             col <- col[,
+                        .(reporting_current_date=`current.reporteddate`,
+                          current)]
+             
+             #column's reporting data pre-dates the "By" reporting dates.  So we carry its value forward.
+             #Note: this will be incorrect for flow-type data.  But this is a rarely used expert-only function that anyone using should account for themselves.
+             #perhaps can add a pre-fill
+             if (!any(col$reporting_current_date==timeline_origin) &&
+                 as.logical(this_fill) %in% TRUE) {
+               
+               col_origin <- col[reporting_current_date < timeline_origin,max(reporting_current_date)]
+               col <- col[reporting_current_date >= col_origin]
+               col[reporting_current_date==col_origin,
+                   reporting_current_date:=timeline_origin]
+             }
+             timeline <- col[timeline,
+                             on=.(reporting_current_date)]
+             
+             if (as.logical(this_fill) %in% TRUE) {
+               timeline <- tidyr::fill(timeline,
+                                       current,
+                                       .direction="down")
+             } else if (!is.na(this_fill)) {
+               suppressWarnings(timeline[is.na(current),
+                                         current:=this_fill])
+             }    
+             
+             
+             setnames(timeline,
+                      old="current",
+                      new=ind_col)
+           }
+           return(timeline)
          })
   
   # assign(x="pmean",

@@ -6,7 +6,9 @@ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR_LABELS <- reactiveVal(data.tab
 SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS <- reactiveVal(data.table()) #data.table of formulas
 
 #RSF_INDICATORS is used by all the admin screens to have a full list of indicators, etc
-RSF_INDICATORS <- eventReactive(LOGGEDIN(), {
+RSF_INDICATORS <- eventReactive(c(LOGGEDIN(),
+                                  LOAD_SYSTEM_INDICATOR()), #will be called when a new indicator is created or deleted -- so refresh
+{
 
   if (!LOGGEDIN()) return (NULL)
 
@@ -16,7 +18,7 @@ RSF_INDICATORS <- eventReactive(LOGGEDIN(), {
 
   return (indicators)
   
-}, ignoreInit=FALSE)
+}, ignoreInit=FALSE) %>% debounce(100)
 
 observeEvent(LOAD_SYSTEM_INDICATOR(), {
   
@@ -30,6 +32,58 @@ observeEvent(LOAD_SYSTEM_INDICATOR(), {
                     value="")
   }
 },priority=100)
+
+SERVER_ADMIN_INDICATORS_DO_RECALCULATE <- function(rsf_pfcbl_ids=NA,
+                                                   indicator_id) {
+  
+  if (any(is.na(rsf_pfcbl_ids))) {
+    all_ids <- DBPOOL %>% dbGetQuery("
+      select pfi.rsf_pfcbl_id
+      from p_rsf.rsf_program_facility_indicators pfi 
+      where pfi.is_subscribed = true
+        and pfi.indicator_id = $1::int",
+    params=list(indicator_id))
+    rsf_pfcbl_ids <- all_ids$rsf_pfcbl_id
+  }
+  
+  if (length(rsf_pfcbl_ids) > 0) {
+    withProgress(message="Recalculating",
+                 value=(1/length(rsf_pfcbl_ids))/2, {
+      
+      for (id in rsf_pfcbl_ids) {
+        
+        progress_status_message <- function(class,...) {
+          dots <- list(...)
+          dots <- paste0(unlist(dots),collapse=" ")
+          incProgress(amount=0,
+                      message=paste0("Recalculating affected data: ",dots))
+        }
+        
+        pid <- DBPOOL %>% dbGetQuery("
+          select ids.rsf_program_id 
+          from p_rsf.rsf_pfcbl_ids ids
+          where ids.rsf_pfcbl_id = $1::int",
+          params=list(id))
+        pid <- pid$rsf_program_id
+        
+        DBPOOL %>% dbExecute("
+        select p_rsf.rsf_pfcbl_indicator_recalculate(v_rsf_pfcbl_id => $1::int,
+                                                      v_indicator_id => $2::int)",
+        params=list(id,
+                    indicator_id))
+        
+        DBPOOL %>% rsf_program_calculate(rsf_program_id=pid,
+                                         rsf_indicators=RSF_INDICATORS(),
+                                         rsf_pfcbl_id.family=id,
+                                         calculate_future=TRUE,
+                                         reference_asof_date=NULL,
+                                         status_message=progress_status_message)
+        
+        incProgress(amount=(1/length(rsf_pfcbl_ids)))
+      }
+    })
+  }
+}
 
 SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR <- eventReactive(c(RSF_INDICATORS(),
                                                                      input$admin_system_selected_indicator), {
@@ -396,7 +450,7 @@ observeEvent(input$server_admin_indicators__create_indicator, {
   )
   
   new_indicator <- DBPOOL %>% db_indicator_create()
-  if (!isTruthy(new_indicator)) {
+  if (is.null(new_indicator)) { #will return NULL if empty
     removeModal()
     showNotification(type="error",
                      h3("Failed to create a new indicator"))
@@ -520,7 +574,7 @@ observeEvent(input$server_admin_indicators__save_indicator, {
     options_allows_multi <- NA
   }
   
-  withProgress(message="Saving changes...",value=0.3, {
+  success <- withProgress(message="Saving changes...",value=0.3, {
     
     
     success <- tryCatch({
@@ -564,7 +618,7 @@ observeEvent(input$server_admin_indicators__save_indicator, {
       FALSE
     })
     
-    if (!success) return (NULL)
+    if (!success) return (FALSE)
     
     incProgress(amount=0.7,message="Updating")
       
@@ -580,11 +634,16 @@ observeEvent(input$server_admin_indicators__save_indicator, {
                                         params=list(indicator$indicator_id))
     monitoring <- unlist(monitoring)
     if (!any(monitoring)) showNotification(type="warning",
-                                             h3("Attention: Indicator is not monitored.  Click program name(s) below to manage status: ORANGE=Unmonitored, GREEN=Monitored"))
+                                           h3("Attention: Indicator is not monitored.  Click program name(s) below to manage status: ORANGE=Unmonitored, GREEN=Monitored"))
 
     incProgress(amount=1.0,message="Completed")
-    
+    return (TRUE)
   })  
+  
+  if (success) {
+    SERVER_ADMIN_INDICATORS_DO_RECALCULATE(rsf_pfcbl_ids=NA, #all
+                                           indicator_id=indicator$indicator_id)
+  }
 })
 
 observeEvent(input$server_admin_indicators__add_label, {

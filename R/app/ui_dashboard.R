@@ -70,12 +70,8 @@ tabPanel("Dashboard",value="dashboard",
                                        label="Save",
                                        icon=icon("save"),
                                        class="btn-success"),
-                          # 
-                          # actionButton(inputId="action_dfsdash_load",
-                          #              label="Load",
-                          #              icon=icon("chart-simple"),
-                          #              class="btn-primary"),
-                           actionButton(inputId="action_server_dashboard__edit",
+                          
+                          actionButton(inputId="action_server_dashboard__edit",
                                         label="Edit",
                                         icon=icon("edit"),
                                         class="btn-primary")),
@@ -108,7 +104,8 @@ tabPanel("Dashboard",value="dashboard",
                               width="100%",
                               multiple=TRUE,
                               selected="",
-                              options=list(placeholder="Select data columns...")))),
+                              options=list(placeholder="Select data columns...",
+                                           plugins=list("drag_drop"))))),
         
         div(style="display:flex;flex-flow:row nowrap;flex-shrink:1;",
             
@@ -190,7 +187,7 @@ tabPanel("Reports",value="reports",
           ),
           div(align="left",
               style="width:100%;display:flex;flex-flow:row nowrap;flex-grow:1;margin-right:5px;",
-              id="server_dashboard__panel_browser",
+              id="server_dashboard__panel_reports",
                   DT::dataTableOutput(outputId="server_dashboard_reports__list",
                                       width="100%")
           )

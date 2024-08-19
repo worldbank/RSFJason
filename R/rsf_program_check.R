@@ -3,6 +3,7 @@ rsf_program_check <- function(pool,
                              rsf_indicators,
                              rsf_pfcbl_id.family=NULL,
                              check_future=TRUE,
+                             check_consolidation_threshold=NA,
                              reference_asof_date=NULL,
                              status_message) {
   
@@ -19,6 +20,11 @@ rsf_program_check <- function(pool,
                    "Setting check_future set to FALSE.  Skipping calculations for after ",as.character(reference_asof_date),": update program setting to avoid this warning\n")
     
   }
+  
+  if (any(is.na(check_consolidation_threshold)) || 
+      is.null(check_consolidation_threshold)    ||
+      length(check_consolidation_threshold) > 1 ||
+      any(check_consolidation_threshold <= 1)) check_consolidation_threshold <- NA
   
   stale_checks <- db_program_get_stale_checks(pool=pool,
                                               rsf_program_id=rsf_program_id,
@@ -238,7 +244,7 @@ rsf_program_check <- function(pool,
                                                          check_formula_id,
                                                          check_asof_date,
                                                          check_message)],
-                             consolidation_threshold=100)
+                             consolidation_threshold=check_consolidation_threshold)
     
   }
   

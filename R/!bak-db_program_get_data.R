@@ -906,7 +906,7 @@ db_program_get_data  <- function(pool,
                                       	rdc.data_id,
                                       	rdc.indicator_id,
                                       	rdc.data_value,
-                                      	coalesce(rdc.data_unit,ind.data_unit) as data_unit
+                                      	rdc.data_unit
                                       from p_rsf.rsf_pfcbl_ids ids
                                       inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
                                       inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
@@ -925,18 +925,6 @@ db_program_get_data  <- function(pool,
                             data_value_changed=as.logical(NA),
                             data_value_updated=as.logical(TRUE),
                             reportnumber=as.numeric(NA))]
-        
-        setorder(query_rsf_data,
-                 rsf_pfcbl_id,
-                 indicator_id,
-                 reporting_asof_date,
-                 data_asof_date,
-                 data_id)
-        
-        query_rsf_data[,
-                       `:=`(data_value_changed=!(paste0(data_value,data_unit)==shift(paste0(data_value,data_unit),type="lag",n=1)),
-                            reportnumber=1:.N),
-                       by=.(rsf_pfcbl_id,indicator_id)]
         
         
         setcolorder(query_rsf_data,neworder=names(rsf_data))
@@ -1650,37 +1638,19 @@ db_program_get_data  <- function(pool,
                                           .(issuances.previous.reporteddate=data_asof_date),
                                           by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
             
-          } else if (current_variable=="all") {
+          }else if (current_variable=="all") {
+            atts_data <- current_rsf_data[data_class=="all",
+                                          .(all=list(data_value)),
+                                          by=.(reporting_current_date,
+                                               rsf_pfcbl_id,
+                                               indicator_name)]
             
-            atts_data <- current_rsf_data[data_class=="all"]
-            setnames(atts_data,
-                     old=c("data_value",
-                           "data_unit",
-                           "data_asof_date",
-                           "data_value_changed",
-                           "data_value_updated",
-                           "reportnumber"),
-                     new=c("current",
-                           "current.unit",
-                           "current.reporteddate",
-                           "current.changed",
-                           "current.updated",
-                           "current.reportnumber"))
-            
-            #atts_data[,currentdate:=reporting_current_date]
-            atts_data <- atts_data[data_class=="all",
-                                   .(all=list(.SD)),
-                                   .SDcols=c("indicator_name",
-                                             "reporting_current_date",
-                                             "current",
-                                             "current.unit",
-                                             "current.reporteddate",
-                                             "current.changed",
-                                             "current.updated",
-                                             "current.reportnumber"),
-                                   by=.(reporting_current_date,
-                                        rsf_pfcbl_id,
-                                        indicator_name)]
+          } else if (current_variable=="all.reporteddates") {
+            atts_data <- current_rsf_data[data_class=="all.reporteddates",
+                                          .(all.reporteddates=list(data_asof_date)),
+                                          by=.(reporting_current_date,
+                                               rsf_pfcbl_id,
+                                               indicator_name)]
             
           } else if (current_variable=="info.computationdate") {
             atts_data <- current_rsf_data[data_class=="info.computationdate",

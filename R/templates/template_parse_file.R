@@ -376,6 +376,51 @@ template_parse_file <- function(pool,
     }
   }
   
+  #if template/program monitors headers, save them
+  if (template$get_program_setting("on_upload_save_template_headers") &
+      !empty(template$template_headers)) {
+    
+    #conn <- poolCheckout(pool);dbBegin(conn)
+    poolWithTransaction(pool,function(conn) {
+      dbExecute(conn,"
+        create temp table theaders(reporting_cohort_id int,
+                                   rsf_pfcbl_id int,
+                                   indicator_id int,
+                                   template_header text,
+                                   template_header_position text)
+        on commit drop;")
+      
+      dbAppendTable(conn,
+                    name="theaders",
+                    value=template$template_headers[,.(indicator_id,
+                                                       template_header=label,
+                                                       template_header_position=data_source_index)])
+      
+      dbExecute(conn,"update theaders
+                set reporting_cohort_id = $1::int,
+                    rsf_pfcbl_id = $2::int",
+                params=list(reporting_cohort$reporting_cohort_id,
+                            reporting_cohort$reporting_rsf_pfcbl_id))
+      dbExecute(conn,"
+        insert into p_rsf.reporting_cohort_template_headers(reporting_cohort_id,
+                                                            rsf_pfcbl_id,
+                                                            indicator_id,
+                                                            template_header,
+                                                            template_header_position)
+        select 
+          reporting_cohort_id,
+          rsf_pfcbl_id,
+          indicator_id,
+          template_header,
+          template_header_position        
+        from theaders
+        on conflict do nothing;")
+    })
+    
+    
+  }
+
+  
   template$parse_time <- as.numeric(Sys.time()-t1,"secs")
   return (template)
 }

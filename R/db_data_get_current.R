@@ -2,16 +2,17 @@ db_data_get_current <- function(pool,
                                 rsf_pfcbl_ids.familytree,
                                 indicator_ids,
                                 reporting_current_date,
-                                fx_currency=NA,
                                 include.sys_name=TRUE,
                                 include.rsf_name=TRUE,
                                 include.status=TRUE,
                                 include.flags=c("active","resolved"),
+                                fx_currency=NA,
                                 fx_force_global=TRUE,
                                 fx_reported_date=FALSE,
                                 fx_concatenate_LCU=TRUE #Put date unit into same colummn (or not)
                                 )
 {  
+  
   rsf_data <- dbGetQuery(pool,"
                     select 
                     
@@ -50,7 +51,9 @@ db_data_get_current <- function(pool,
                     																	 input_current_date => $3::date,
                     																	 input_to_currency => $4::text,
                     																	 fx_force_global => $8::bool,
-                                                       fx_reported_date => $9::bool) as dft 
+                                                       fx_reported_date => $9::bool,
+                                                       include_flags => $10::bool) as dft 
+                    
                     left join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on $5::bool = true
                                                                           and sn.rsf_pfcbl_id = dft.rsf_pfcbl_id																						 
                     left join p_rsf.view_current_entity_names_and_ids nids on $6::bool = true
@@ -67,7 +70,8 @@ db_data_get_current <- function(pool,
                                 include.rsf_name,
                                 include.status,
                                 fx_force_global,
-                                fx_reported_date))
+                                fx_reported_date,
+                                length(include.flags) > 0))
   
   setDT(rsf_data)
   

@@ -1,13 +1,13 @@
 db_program_download <- function(pool,
                                 rsf_program_id,
-                                exporting_user_id,
+                                rsf_pfcbl_ids.filter,
                                 out_path=".",
+                                exporting_user_id,
+                                archive_name,
                                 consolidate.setup=TRUE, #If multiple setup files are uploaded, just take everything that's current and consolidate into one file
                                 verbatim=FALSE,         #When true, download everything that's uploaded and don't differentiate setupfiles.
-                                template_filter=NA,
-                                archive_name=NULL) {
-  
-  
+                                template_filter=NA) {
+
   if (grepl("/$",out_path)) out_path <- gsub("/$","",out_path)
   
   template_ids <- NULL
@@ -21,29 +21,30 @@ db_program_download <- function(pool,
   if (verbatim==FALSE) {
     programs_export <- export_rsf_setup_files_to_excel(pool=pool,
                                                        rsf_program_id=rsf_program_id,
+                                                       rsf_pfcbl_ids.filter=rsf_pfcbl_ids.filter,
                                                        exporting_user_id=exporting_user_id,
-                                                       include_never_reported=FALSE)
+                                                       include_never_reported=FALSE,
+                                                       include=c("data",
+                                                                 "settings",
+                                                                 "indicators",
+                                                                 "checks",
+                                                                 "guidance",
+                                                                 "actions",
+                                                                 "flags"))
   } else {
     consolidate.setup <- FALSE
   }
   
-  pname <- dbGetQuery(pool,"
-                        select 
-                          nids.rsf_name,
-                          nids.created_in_reporting_asof_date
-                        from p_rsf.view_current_entity_names_and_ids nids 
-                        where rsf_program_id = $1::int
-                        and pfcbl_category = 'program'",
-                      params=list(rsf_program_id))
-
-  if (is.null(archive_name) || all(is.na(archive_name))) {
-    archive_name <- paste0("RSF PROGRAM ARCHIVE for ",pname$rsf_name,".zip")
+  
+  if (is.null(rsf_pfcbl_ids.filter) || all(is.na(rsf_pfcbl_ids.filter))) {
+    rsf_pfcbl_ids.filter <- dbGetQuery(pool,"
+      select ids.rsf_pfcbl_id
+      from p_rsf.rsf_pfcbl_ids ids
+      where ids.rsf_program_id = $1::int
+        and ids.pfcbl_category in ('program','global')",
+      params=list(rsf_program_id))
+    rsf_pfcbl_ids.filter <- unlist(rsf_pfcbl_ids.filter)
   }
-  
- 
-  download_files <- NULL
-  program_export_name <- paste0(pname$rsf_name," RSF PROGRAM SETUP FILE.xlsx")
-  
   program_upload_files <- dbGetQuery(pool,"select
                                           rc.reporting_cohort_id,
                                           rc.reporting_time,
@@ -70,6 +71,12 @@ db_program_download <- function(pool,
                                                             limit 1) parent on true
                                           inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = parent.parent_rsf_pfcbl_id
                                           where rc.rsf_program_id = $1::int
+                                           and case when NULLIF($2::text,'NA') is NULL then true
+                                               else rc.reporting_rsf_pfcbl_id = any(select distinct
+                                                                               fam.child_rsf_pfcbl_id 
+                                                                               from p_rsf.rsf_pfcbl_id_family fam
+                                                                               where fam.parent_rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int))
+                                               end 
                                            and rci.upload_file is not null
                                            and rci.upload_filename is not null
                                            and rc.is_reported_cohort = true
@@ -82,9 +89,12 @@ db_program_download <- function(pool,
                                             rc.reporting_asof_date,
                                             rc.reporting_time,
                                             rc.reporting_cohort_id",
-                                     params=list(rsf_program_id))
+                                     params=list(rsf_program_id,
+                                                 paste0(rsf_pfcbl_ids.filter,collapse=",")))
   
   setDT(program_upload_files)
+  
+  if (!grepl("\\.zip",archive_name)) stop("Archive file name is expected to end in '.zip'")
   
   if (consolidate.setup==TRUE) {
     program_upload_files <- program_upload_files[is_setup_template==FALSE]
@@ -93,7 +103,7 @@ db_program_download <- function(pool,
   if (length(template_ids) > 0) {
     program_upload_files <- program_upload_files[template_id %in% template_ids] 
   }
-  
+
   {
     
     program_upload_files[,ext:=file_ext(source_name)]
@@ -127,15 +137,6 @@ db_program_download <- function(pool,
     
   }  
   
-  program_export_name <- paste0(paste0(rep(x="0",nchar(nrow(program_upload_files))),collapse = ""),"-",program_export_name)
-  if (!is.null(programs_export)) {
-  
-    
-    openxlsx::saveWorkbook(wb=programs_export,
-                           file=paste0(out_path,"/",program_export_name),
-                           overwrite=TRUE)
-  }
-  
   download_files <- mapply(db_cohort_download_file,
                            reporting_cohort_id=program_upload_files$reporting_cohort_id,
                            save_as_filename=program_upload_files$download_filename,
@@ -143,16 +144,33 @@ db_program_download <- function(pool,
                                          file_path=out_path,
                                          unpack_and_remove=TRUE))
   
+  # archive_name <- paste0(paste0(rep(x="0",nchar(nrow(program_upload_files))),collapse = ""),"-",file_path_sans_ext(archive_name))
+  
+  if (!is.null(programs_export)) {
+  
+    programs_name <- paste0(paste0(rep(x="0",nchar(nrow(program_upload_files))),collapse = ""),"-",file_path_sans_ext(archive_name),".xlsx")  
+    programs_name <- paste0(out_path,"/",programs_name,".xlsx")
+    
+    download_files <- c(programs_name,
+                        download_files)
+    
+    openxlsx::saveWorkbook(wb=programs_export,
+                           file=programs_name,
+                           overwrite=TRUE)
+  }
+  
+  
+  
   
   if (!all(file.exists(download_files))) {
     stop("Failed to download and find all files")
   }
   
   zip_files <- download_files
-  if (!is.null(programs_export)) {
-    zip_files <- c(paste0(out_path,"/",program_export_name),
-                   zip_files)
-  }
+  # if (!is.null(programs_export)) {
+  #   zip_files <- c(paste0(out_path,"/",programs_name),
+  #                  zip_files)
+  # }
   
   zip_files <- gsub(paste0("^",out_path,"/?"),"",zip_files)
   

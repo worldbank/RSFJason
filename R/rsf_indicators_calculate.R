@@ -282,10 +282,10 @@ rsf_indicators_calculate <- function(pool,
         calc_data[,missing_ids:=NULL]
         
         if (!empty(missing_ids)) {
-          status_message(class="error",paste0("\nCalculation failed: ",calculation$indicator_name,"\n  Formula has no data to calculate after filtering for entity missing IDs.  Skipping.\n"))
+          #status_message(class="error",paste0("\nCalculation failed due to missing data: ",calculation$indicator_name,"\n  Formula has no data to calculate after filtering for entity missing IDs.  Skipping.\n"))
           add_data_flag(rsf_pfcbl_id = unlist(missing_ids$rsf_pfcbl_id),
                         indicator_id=calculation$calculate_indicator_id,
-                        check_name="sys_calculator_failed",
+                        check_name="sys_calculator_missing_data",
                         check_message=paste0(calculation$indicator_name," formula has no data after filtering for missing ",
                                              paste0(formula_rsf_ids,collapse=" AND/OR "),
                                              ". Ensure ",toTitleCase(calculation$data_category)," has reported any ",
@@ -320,10 +320,10 @@ rsf_indicators_calculate <- function(pool,
       #Deprecated lists in calculations.  Zero uses cases presently and adds much complexity.
       #That said, there could be a use case in the future: it's more about ensuring the user-defined formula is written to manage list objects?
       #Could also convert it to a string here and throw a warning?
-      has_lists <- any(sapply(calc_data,class)=="list")
-      if (has_lists) {
-        stop("List objects are no longer allowed in calculations.  Any .all or .intraperiod data types should not be allowed in indicator formulas")
-      }
+      # has_lists <- any(sapply(calc_data,class)=="list")
+      # if (has_lists) {
+      #   stop("List objects are no longer allowed in calculations.  Any .all or .intraperiod data types should not be allowed in indicator formulas")
+      # }
       
       calc_data[,row_id:=1:.N]
       
@@ -523,7 +523,7 @@ rsf_indicators_calculate <- function(pool,
             cols=grouping_cols)
     
     calc_results <- NULL
-    
+    #browser()
     t2 <- Sys.time()
     
     calc_results <- tryCatch({

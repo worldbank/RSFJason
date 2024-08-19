@@ -1,8 +1,10 @@
 SERVER_DASHBOARD_REPORTS_LIST_REFRESH <- reactiveVal(0)
+SERVER_DASHBOARD_REPORT_SELECTED <- reactiveVal(list())
 SERVER_DASHBOARD_REPORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
                                                  SERVER_DASHBOARD_REPORTS_LIST_REFRESH()), {
 
   program_id <- SELECTED_PROGRAM_ID()
+  SERVER_DASHBOARD_REPORT_SELECTED(list())
   if (!isTruthy(program_id)) return (NULL) 
   
   reports <- DBPOOL %>% dbGetQuery("
@@ -80,13 +82,23 @@ SERVER_DASHBOARD_REPORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
 },ignoreNULL=FALSE,ignoreInit = FALSE)
 
 
-SERVER_DASHBOARD_REPORT_SELECTED <- eventReactive(input$server_dashboard_reports__action_view, {
+observeEvent(input$server_dashboard_reports__action_view, {
   selected_report_id <- suppressWarnings(as.numeric(input$server_dashboard_reports__action_view))
-  if (!isTruthy(selected_report_id)) return (NULL)
+  if (!isTruthy(selected_report_id)) {
+    SERVER_DASHBOARD_REPORT_SELECTED(list())
+    
+  } else {
   
-  report <- SERVER_DASHBOARD_REPORTS_LIST()[report_id==selected_report_id]
-  return (report)
-},ignoreNULL=FALSE)
+    report <- SERVER_DASHBOARD_REPORTS_LIST()[report_id==selected_report_id,
+                                              .(report_id,
+                                                report_title,
+                                                for_client_sys_names,
+                                                for_indicator_names,
+                                                for_asof_dates,
+                                                report_parameters)]
+    SERVER_DASHBOARD_REPORT_SELECTED(as.list(report))
+  }
+},ignoreNULL=FALSE,priority = 100)
 
 SERVER_DASHBOARD_DO_LOAD <- function(for_client_sys_names=NA,
                                      for_indicator_names=NA,
@@ -94,7 +106,11 @@ SERVER_DASHBOARD_DO_LOAD <- function(for_client_sys_names=NA,
                                      dashboard_parameters) {
   
 
-  SERVER_DASHBOARD_RUN_AUTORUN(FALSE)
+  #SERVER_DASHBOARD_AUTORUN(FALSE)
+  #runjs(paste0('Shiny.setInputValue("server_dashboard__autorun",false,{priority: "event"})'))
+  if (!is.null(dashboard_parameters) &&
+      !identical(dashboard_parameters,list()) &&
+      is.null(names(dashboard_parameters))) stop("Dashboard parameters submitted but does not appear to be a valid list?")
   
   #if (isTruthy(SERVER_DASHBOARD_REPORT_VIEW_ID())) SERVER_DASHBOARD_REPORT_VIEW_ID()
   for_asof_dates <- as.character(for_asof_dates) #could be coming in as relative ranks, as actual dates, or as character dates
@@ -107,18 +123,20 @@ SERVER_DASHBOARD_DO_LOAD <- function(for_client_sys_names=NA,
   #RESET RUN OPTIONS
   SERVER_DASHBOARD_RUN_OPTIONS_RESET()
   
+  
   for (param in names(dashboard_parameters)) SERVER_DASHBOARD_RUN_OPTIONS[[param]] <- dashboard_parameters[[param]]
   
   if (isTruthy(for_indicator_names)) SERVER_DASHBOARD_RUN_OPTIONS$indicator_names <- for_indicator_names
 
   if (isTruthy(for_client_sys_names)) {
-    selected_clients <- for_client_sys_names
+    selected_clients <- as.character(for_client_sys_names)
     client_rsf_pfcbl_ids <- NULL
     if (any(selected_clients=="ALL")) {
       client_rsf_pfcbl_ids <- SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id
       
-    } else if (all(for_client_sys_names %in% as.character(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id),na.rm = T)) {
+    } else if (any(as.character(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id) %in% as.character(for_client_sys_names),na.rm = T)) {
       
+      for_client_sys_names <- for_client_sys_names[as.character(for_client_sys_names) %in% as.character(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id)]
       client_rsf_pfcbl_ids <- suppressWarnings(as.numeric(for_client_sys_names))
                
     } else {
@@ -142,15 +160,22 @@ SERVER_DASHBOARD_DO_LOAD <- function(for_client_sys_names=NA,
     
     #means for_client_sys_names was not NA
     if (!empty(SERVER_DASHBOARD_VALID_ASOF_DATES())) {
-      asof_dates <- c(SERVER_DASHBOARD_VALID_ASOF_DATES()[date_rank %in% suppressWarnings(as.numeric(for_asof_dates)),date_rank], #requested as rel numbers
+      for_asof_ranks <- na.omit(suppressWarnings(as.numeric(for_asof_dates)))
+      asof_dates <- c(for_asof_ranks,
                       SERVER_DASHBOARD_VALID_ASOF_DATES()[text_date %in% for_asof_dates,date_rank])  #requested as specific dates
+      asof_dates <- as.character(asof_dates)
     }
     
-    if (any(for_asof_dates=="ALL",na.rm=T)) asof_dates <- c(-1)
+    if (any(tolower(for_asof_dates) %in% c("all","inf"),na.rm=T)) asof_dates <- c("Inf")
+    
+    if (is.null(asof_dates) && length(for_asof_dates) >0 && !anyNA(suppressWarnings(as.numeric(for_asof_dates)))) {
+      asof_dates <- for_asof_dates
+    }
     
     if (!is.null(asof_dates)) {
       asof_dates <- sort(unique(asof_dates))
-      SERVER_DASHBOARD_RUN_OPTIONS$asof_dates <- asof_dates
+      
+      SERVER_DASHBOARD_RUN_OPTIONS$asof_dates <- unique(asof_dates)
     }
   }
   
@@ -184,7 +209,19 @@ SERVER_DASHBOARD_DO_LOAD <- function(for_client_sys_names=NA,
                     inputId="tabset_dashboard",
                     selected="dashboard")
   
-  runjs(paste0('Shiny.setInputValue("server_dashboard__autorun",true,{priority: "event"})'))
+  #runjs(paste0('Shiny.setInputValue("server_dashboard__autorun",true,{priority: "event"})'))
+  if (length(na.omit(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids))==0) {
+    showNotification(type="message",
+                     ui=h3("This report does not save clients: Select relevant client(s) from the drop-down list"))
+  } else if (length(na.omit(SERVER_DASHBOARD_RUN_OPTIONS$asof_dates))==0) {
+    showNotification(type="message",
+                     ui=h3("This report does not save timeline: Select relevant date(s) from the drop-down list"))
+  
+  } else {
+    SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1)
+  }
+  
+  
 }
 
 observeEvent(input$action_server_dashboard_reports__save_as, {
@@ -367,16 +404,42 @@ observeEvent(input$server_dashboard_reports__action_save, {
   
   selected_indicator_ids <- input$server_dashboard__reporting_column_priority
   if (isTruthy(selected_indicator_ids)) {
-    for_indicator_names <- SERVER_DASHBOARD_INDICATORS()[indicator_id %in% selected_indicator_ids,indicator_name]
+    for_indicator_names <- SERVER_DASHBOARD_INDICATORS()[indicator_id %in% selected_indicator_ids]
+    for_indicator_names <- for_indicator_names[match(selected_indicator_ids,for_indicator_names$indicator_id),indicator_name]
+    
+    if (any(grepl("^:report:",for_indicator_names))) {
+      index <- min(grep("^:report:",for_indicator_names))
+      for_indicator_names <- append(for_indicator_names,
+                                    SERVER_DASHBOARD_SELECTED_INDICATORS()$indicator_name,
+                                    after=index)
+      for_indicator_names <- for_indicator_names[-(grep("^:report:",for_indicator_names))]
+    }
   }
   
   for_asof_dates <- as.character(NA)
   valid_dates<- SERVER_DASHBOARD_VALID_ASOF_DATES()
   
-  if (all(valid_dates$date_rank %in% SERVER_DASHBOARD_RUN_OPTIONS$asof_dates)) {
-    for_asof_dates <- c("ALL")
+  if (all(valid_dates$date_rank %in% SERVER_DASHBOARD_RUN_OPTIONS$asof_dates) ||
+      any(SERVER_DASHBOARD_RUN_OPTIONS$asof_dates=="Inf")) {
+    for_asof_dates <- c("Inf")
   } else {
-    for_asof_dates <- SERVER_DASHBOARD_RUN_OPTIONS$asof_dates  
+    valid_dates <- SERVER_DASHBOARD_VALID_ASOF_DATES()
+    run_dates <- na.omit(suppressWarnings(as.numeric(SERVER_DASHBOARD_RUN_OPTIONS$asof_dates)))
+    
+    #If the most recent rank is selected, assume selection via recentest
+    if (any(run_dates==1) &&
+        any(run_dates==max(valid_dates$date_rank)) &&
+        nrow(valid_dates[date_rank > 0]) > 3) {
+      for_asof_dates <- c(run_dates,
+                          (run_dates-1-max(valid_dates$date_rank)))
+    } else if (any(run_dates==1)) {
+        for_asof_dates <- run_dates
+    } else if (any(run_dates==max(valid_dates$date_rank))) {
+      for_asof_dates <- c((run_dates-1-max(valid_dates$date_rank)))
+    } else {
+      for_asof_dates <- run_dates
+    }
+    
   }
 
   filter_names <- suppressWarnings(as.numeric(input$server_dashboard__name_filter))
@@ -466,9 +529,9 @@ observeEvent(input$server_dashboard_reports__action_edits_save, {
         report_notes = $3::text
     where re.report_id = $4::int
     returning report_id",
-    params=list(report_is_public,
-                report_title,
-                report_notes,
+    params=list(update_is_public,
+                update_title,
+                update_notes,
                 selected_report_id))
   })
   
@@ -578,37 +641,68 @@ observeEvent(input$server_dashboard_reports__edit_delete_report, {
   }
 },ignoreInit = TRUE)
 
-observeEvent(input$server_dashboard_reports__action_view, {
+observeEvent(SERVER_DASHBOARD_REPORT_SELECTED(), {
   
   report <- SERVER_DASHBOARD_REPORT_SELECTED()
   dashboard_indicators <- SERVER_DASHBOARD_INDICATORS()
-  if (empty(report)) return (NULL)
+  if (length(report)==0) return (NULL)
   
   for_indicator_names <- unlist(report$for_indicator_names)
   if (!empty(dashboard_indicators[indicator_id==0])) {
     for_indicator_names <- dashboard_indicators[indicator_id==0,indicator_name]
   }
   
-  for_asof_dates <- unique(suppressWarnings(as.integer(unlist(report$for_asof_dates))))
-  if (!isTruthy(for_asof_dates)) for_asof_dates <- 1
+  for_asof_dates <- NULL
+  if (!anyNA(ymd(unlist(report$for_asof_dates),quiet=T))) { 
+    for_asof_dates <- unique(unlist(report$for_asof_dates))
+  } else if (!anyNA(suppressWarnings(as.numeric(unlist(report$for_asof_dates))))) {
+    for_asof_dates <- unique(suppressWarnings(as.numeric(unlist(report$for_asof_dates))))
+  } else { for_asof_dates <- 1 }
   
-  report_parameters <- report$report_parameters[[1]]
+  #report_parameters <- report$report_parameters[[1]]
   
-  report_parameters$rsf_pfcbl_ids <- NULL
-  report_parameters$indicator_names <- NULL
-  report_parameters$asof_dates <- NULL
+  # report_parameters$rsf_pfcbl_ids <- NULL
+  # report_parameters$indicator_names <- NULL
+  # report_parameters$asof_dates <- NULL
   
   SERVER_DASHBOARD_DO_LOAD(for_client_sys_names=unlist(report$for_client_sys_names),
                            for_indicator_names=for_indicator_names,
-                           for_asof_dates=unlist(report$for_asof_dates),
-                           dashboard_parameters=report_parameters)
+                           for_asof_dates=for_asof_dates,
+                           dashboard_parameters=report$report_parameters[[1]])
 },
 priority = 10) #need this observer to fire before observeEvent(SERVER_DASHBOARD_INDICATORS()
+
+# observeEvent(input$server_dashboard_reports__action_view, {
+#   
+#   report <- SERVER_DASHBOARD_REPORT_SELECTED()
+#   dashboard_indicators <- SERVER_DASHBOARD_INDICATORS()
+#   if (empty(report)) return (NULL)
+#   
+#   for_indicator_names <- unlist(report$for_indicator_names)
+#   if (!empty(dashboard_indicators[indicator_id==0])) {
+#     for_indicator_names <- dashboard_indicators[indicator_id==0,indicator_name]
+#   }
+#   
+#   for_asof_dates <- unique(suppressWarnings(as.numeric(unlist(report$for_asof_dates))))
+#   if (!isTruthy(for_asof_dates)) for_asof_dates <- 1
+#   
+#   report_parameters <- report$report_parameters[[1]]
+#   
+#   report_parameters$rsf_pfcbl_ids <- NULL
+#   report_parameters$indicator_names <- NULL
+#   report_parameters$asof_dates <- NULL
+#   
+#   SERVER_DASHBOARD_DO_LOAD(for_client_sys_names=unlist(report$for_client_sys_names),
+#                            for_indicator_names=for_indicator_names,
+#                            for_asof_dates=unlist(report$for_asof_dates),
+#                            dashboard_parameters=report_parameters)
+# },
+# priority = 10) #need this observer to fire before observeEvent(SERVER_DASHBOARD_INDICATORS()
 
 observeEvent(input$tabset_dashboard, {
   
   if (input$tabset_dashboard %in% "dashboard") {
-    SERVER_DASHBOARD_RUN_AUTORUN(TRUE)
+    
     updateSwitchInput(session=session,
                       inputId="server_dashboard__autorun",
                       value=TRUE)

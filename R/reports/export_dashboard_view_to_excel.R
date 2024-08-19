@@ -4,6 +4,7 @@
 #dd_dt <- as.data.table(as.data.frame(test_dt)[1:100,])
 #dd_dt$reporting_group <- 1:.N
 export_dashboard_view_to_excel <- function(pool,
+                                           export_asof_date,
                                            export_data,
                                            export_data_flags=NULL,
                                            exporting_user_id,
@@ -19,9 +20,11 @@ export_dashboard_view_to_excel <- function(pool,
   # exporting_user_id <<- exporting_user_id
   # report_id <<- report_id
   # report_note <<- report_note
+  # export_asof_date <<- export_asof_date
+  # export_data <<- export_data
   # opts <<- options
-  # 
-  
+  # export_data <- as.data.table(as.data.frame(ed))
+  #browser()
   
   #dd_dt <- as.data.table(as.data.frame(dd_dt))
   #options <- opts
@@ -43,15 +46,15 @@ export_dashboard_view_to_excel <- function(pool,
                             SYSID_NAMES$SYSNAME)
   }
   
-  print("Generating excel report")
-  #options:
-  useDropDowns <- options$useDropDowns
-  useTextFormat <- options$useTextFormat
-  writeFlags <- options$writeFlags
-  
-  if (is.null(useDropDowns)) useDropDowns <- FALSE
-  if (is.null(useTextFormat)) useTextFormat <- FALSE
-  if (is.null(writeFlags)) writeFlags <- FALSE
+  #print("Generating excel report")
+  # #options:
+  # useDropDowns <- options$useDropDowns
+  # useTextFormat <- options$useTextFormat
+  # writeFlags <- options$writeFlags
+  # 
+  # if (is.null(useDropDowns)) useDropDowns <- FALSE
+  # if (is.null(useTextFormat)) useTextFormat <- FALSE
+  # if (is.null(writeFlags)) writeFlags <- FALSE
   
   #https://stackoverflow.com/questions/56068262/openxlsx-protect-sheet-but-allow-entering-of-values
 
@@ -87,7 +90,8 @@ export_dashboard_view_to_excel <- function(pool,
                                `:=`(indicator_id=i.indicator_id,
                                     data_type=i.data_type),
                                on=.(indicator_name)]
-  exporting_asof_date <- as.character(max(unique(export_data$REPORTING_asof_date)))
+  
+  exporting_asof_date <- as.character(max(unique(export_asof_date)))
   
   export_cohort <- db_export_create(pool,
                                     exporting_user_id=exporting_user_id,
@@ -130,6 +134,66 @@ export_dashboard_view_to_excel <- function(pool,
     export_data[,REPORTING_asof_date:=as.character(REPORTING_asof_date)]
   }
   
+  col_types <- sapply(names(export_data),function(col_name) {
+    
+    col_type <- "TEXT"
+    ind_type <- "system"
+    if (any(col_name %in% export_names$column_name)) {
+      ind_type <- export_names[column_name==col_name,data_type]
+      col_type <- fcase(ind_type=="currency","NUMBER",
+                        ind_type=="date","DATE",
+                        ind_type=="percent","PERCENTAGE",
+                        ind_type=="number","NUMBER",
+                        ind_type=="text","TEXT",
+                        ind_type=="currency_ratio","TEXT",
+                        ind_type=="logical","TEXT",
+                        default="TEXT")      
+    }
+    
+    #print(paste0(col_name," ",ind_type))
+    if (col_name=="REPORTING_asof_date") {
+      is_date <- grepl("\\d{4}-\\d{1,2}-\\d{1,2}",export_data[[col_name]]) | nchar(export_data[[col_name]])==0 | is.na(export_data[[col_name]])
+      is_num <- grepl("\\d+",export_data[[col_name]])
+      if (all(is_date)) col_type <- "DATE"
+      else if (all(is_num)) col_type <- "NUMBER"
+    }
+    
+    if (col_type %in% c("NUMBER","PERCENTAGE","CURRENCY")) {
+
+      #Because @LCU columns may include, eg "10000 XOF" and "1533 UAH" in the columns and aren't numbers, despite the type.
+      valid_numbers <- all(is.na(export_data[[col_name]]) | !is.na(suppressWarnings(as.numeric(export_data[[col_name]]))))
+      if (valid_numbers) {
+        
+        if (!grepl("date|id",col_name)) {
+          if (ind_type=="currency") col_type <- "0.00"
+          else if (col_type=="NUMBER" && !any(grepl("\\.",export_data[[col_name]]))) col_type <- "#,##0"
+        } 
+        
+        if (grepl("id",col_name)) {
+          col_type <- "0"
+        }
+      
+
+        set(export_data,
+            i=NULL,
+            j=col_name,
+            value=suppressWarnings(as.numeric(export_data[[col_name]])))
+      }
+    }
+    
+    if (col_type %in% c("DATE")) {
+      is_date <- grepl("\\d{4}-\\d{1,2}-\\d{1,2}",export_data[[col_name]]) | nchar(export_data[[col_name]])==0 | is.na(export_data[[col_name]])
+      if (all(is_date)) {
+        set(export_data,
+            i=NULL,
+            j=col_name,
+            value=ymd(export_data[[col_name]]))
+      }
+    }
+    col_type
+  })
+  
+  #sapply(export_data,class)
   excelwb <-  rsf_reports_create_excel_sheet(sheet_name="RSF_DATA",
                                              sheet_data_table_name="RSF_TEMPLATE_DATA",
                                              sheet_data=export_data,
@@ -154,60 +218,74 @@ export_dashboard_view_to_excel <- function(pool,
   #excelwb <- openxlsx::createWorkbook()
   #addWorksheet(excelwb,"RSF Data")
 
-  if (useDropDowns==TRUE) {
-    # print("Creating drop downs")
-    # stop("useDropDowns==TRUE feature not yet implemented")
-    # t1 <- Sys.time()
-    # ops_indicators <- dbGetQuery(pool,"select ind.indicator_id,ind.indicator_name,ind.indicator_options_group_id,ind.indicator_options_group_allows_blanks,iog.options_group_name
-    #                                    from p_rsf.indicators ind
-    #                                    inner join p_rsf.indicator_options_groups iog on iog.options_group_id = ind.indicator_options_group_id
-    #                                    where array[indicator_name] && string_to_array($1,',')::varchar[]
-    #                                    and indicator_options_group_id is not null",
-    #                                    params=list(paste0(indicator_basenames,collapse=',')))
-    # setDT(ops_indicators)
-    # if (!empty(ops_indicators)) {
-    #   options <- dbGetQuery(pool,"select distinct topic,location,phrase_id,section as options_group_name,primary_phrase
-    #                               from p_rsf.view_rsf_labels_options
-    #                               where array[section] && string_to_array($1,',')::text[]
-    #                               and language = 'english'
-    #                               order by options_group_name,phrase_id",
-    #                               params=list(paste0(unique(ops_indicators$options_group_name),collapse=',')))
-    #   options <- as.data.table(options)
-    #   
-    #   #https://stackoverflow.com/questions/29898269/possible-to-write-excel-formulas-or-data-validation-using-r/55191118#55191118
-    #   addWorksheet(excelwb,SHEET_NAME_LISTS,visible=FALSE)
-    #   
-    #   options_names <- unique(ops_indicators$options_group_name)
-    #   for (op_index in 1:length(options_names)) {
-    #     op <- options_names[op_index]
-    #     indicators <- ops_indicators[options_group_name==op,indicator_name]
-    #     op_values <- options[options_group_name==op,.(phrase_id=as.character(phrase_id),primary_phrase=as.character(primary_phrase))]
-    #     for (ind in indicators) {
-    #       
-    #       #rdata[,..ind][op_values,on=.(borrower_industry=phrase_id)]
-    #       translated_values <- op_values[rdata[,.(phrase_id=as.character(unlist(.SD)),original=as.character(unlist(.SD))),.SDcols=ind],on=.(phrase_id)]
-    #       translated_values[is.na(primary_phrase),primary_phrase:=original]
-    #       translated_values <- translated_values$primary_phrase
-    #       if (length(translated_values) != nrow(rdata)) stop("Error in translations: translated length doesn't match original length")
-    #       set(rdata,i=NULL,j=ind,value=translated_values)
-    #     }
-    #     op_df <- as.data.frame(dots_list(!!op:=op_values$primary_phrase))
-    #     writeData(excelwb, sheet = 2, x = op_df, startCol = op_index)
-    #     
-    #     op_cols <- match(indicators,names(rdata))
-    #     cellRef <- paste0(getCellRefs(data.frame(row=2,col=op_index)),":",getCellRefs(data.frame(row=nrow(op_df)+1,col=op_index)))
-    #     cellRef <- gsub("([A-Z]+)","$\\1",cellRef)
-    #     cellRef <- gsub("([0-9]+)","$\\1",cellRef)
-    #     cellRef <- paste0("'",SHEET_NAME_LISTS,"'!",cellRef)
-    #     
-    #     for (col_num in op_cols) {
-    #       row_nums <- which(dd_dt$reporting_group_rank==-1)+START_ROW #for some reason adding in bulk causes auto-fill down the entire table
-    #       for (row_num in row_nums) dataValidation(excelwb, sheet=1, col = col_num, rows = row_num, type = "list", value = cellRef)
-    #     }
-    #   }
-    # }
-    # print(paste0("Dropdowns created: ",(Sys.time()-t1)))
+  for (colnum in seq_along(col_types)) {
+    
+    col_type <- col_types[[colnum]]
+    addStyle(excelwb,
+             sheet="RSF_DATA",
+             style=createStyle(numFmt=col_type),
+             rows=(START_ROW+1):(START_ROW+nrow(export_data)),
+             cols=colnum,
+             gridExpand = TRUE)
+    
   }
+
+  #savedwb <- openxlsx::saveWorkbook(excelwb,"test3.xlsx",overwrite=TRUE)
+  
+  # if (useDropDowns==TRUE) {
+  #   # print("Creating drop downs")
+  #   # stop("useDropDowns==TRUE feature not yet implemented")
+  #   # t1 <- Sys.time()
+  #   # ops_indicators <- dbGetQuery(pool,"select ind.indicator_id,ind.indicator_name,ind.indicator_options_group_id,ind.indicator_options_group_allows_blanks,iog.options_group_name
+  #   #                                    from p_rsf.indicators ind
+  #   #                                    inner join p_rsf.indicator_options_groups iog on iog.options_group_id = ind.indicator_options_group_id
+  #   #                                    where array[indicator_name] && string_to_array($1,',')::varchar[]
+  #   #                                    and indicator_options_group_id is not null",
+  #   #                                    params=list(paste0(indicator_basenames,collapse=',')))
+  #   # setDT(ops_indicators)
+  #   # if (!empty(ops_indicators)) {
+  #   #   options <- dbGetQuery(pool,"select distinct topic,location,phrase_id,section as options_group_name,primary_phrase
+  #   #                               from p_rsf.view_rsf_labels_options
+  #   #                               where array[section] && string_to_array($1,',')::text[]
+  #   #                               and language = 'english'
+  #   #                               order by options_group_name,phrase_id",
+  #   #                               params=list(paste0(unique(ops_indicators$options_group_name),collapse=',')))
+  #   #   options <- as.data.table(options)
+  #   #   
+  #   #   #https://stackoverflow.com/questions/29898269/possible-to-write-excel-formulas-or-data-validation-using-r/55191118#55191118
+  #   #   addWorksheet(excelwb,SHEET_NAME_LISTS,visible=FALSE)
+  #   #   
+  #   #   options_names <- unique(ops_indicators$options_group_name)
+  #   #   for (op_index in 1:length(options_names)) {
+  #   #     op <- options_names[op_index]
+  #   #     indicators <- ops_indicators[options_group_name==op,indicator_name]
+  #   #     op_values <- options[options_group_name==op,.(phrase_id=as.character(phrase_id),primary_phrase=as.character(primary_phrase))]
+  #   #     for (ind in indicators) {
+  #   #       
+  #   #       #rdata[,..ind][op_values,on=.(borrower_industry=phrase_id)]
+  #   #       translated_values <- op_values[rdata[,.(phrase_id=as.character(unlist(.SD)),original=as.character(unlist(.SD))),.SDcols=ind],on=.(phrase_id)]
+  #   #       translated_values[is.na(primary_phrase),primary_phrase:=original]
+  #   #       translated_values <- translated_values$primary_phrase
+  #   #       if (length(translated_values) != nrow(rdata)) stop("Error in translations: translated length doesn't match original length")
+  #   #       set(rdata,i=NULL,j=ind,value=translated_values)
+  #   #     }
+  #   #     op_df <- as.data.frame(dots_list(!!op:=op_values$primary_phrase))
+  #   #     writeData(excelwb, sheet = 2, x = op_df, startCol = op_index)
+  #   #     
+  #   #     op_cols <- match(indicators,names(rdata))
+  #   #     cellRef <- paste0(getCellRefs(data.frame(row=2,col=op_index)),":",getCellRefs(data.frame(row=nrow(op_df)+1,col=op_index)))
+  #   #     cellRef <- gsub("([A-Z]+)","$\\1",cellRef)
+  #   #     cellRef <- gsub("([0-9]+)","$\\1",cellRef)
+  #   #     cellRef <- paste0("'",SHEET_NAME_LISTS,"'!",cellRef)
+  #   #     
+  #   #     for (col_num in op_cols) {
+  #   #       row_nums <- which(dd_dt$reporting_group_rank==-1)+START_ROW #for some reason adding in bulk causes auto-fill down the entire table
+  #   #       for (row_num in row_nums) dataValidation(excelwb, sheet=1, col = col_num, rows = row_num, type = "list", value = cellRef)
+  #   #     }
+  #   #   }
+  #   # }
+  #   # print(paste0("Dropdowns created: ",(Sys.time()-t1)))
+  # }
   
   #print("Writing data")  
   #openxlsx::writeData(excelwb,sheet=1,x=rheaders,colNames=FALSE,rowNames=FALSE)
@@ -231,39 +309,39 @@ export_dashboard_view_to_excel <- function(pool,
   #                          tableName="rsf_template_data")
   
   #currently disabled
-  if (FALSE & !empty(export_data_flags)) {
-    
-    #print("Generating flags")
-    #stop("Write flags currently disabled")
-    #t1 <- Sys.time()
-    flagStyle <- createStyle(fontSize=9)
-    
-    for (cname in (names(export_data)[data_cols])) {
-      col_flags <- export_data_flags[[cname]]
-      col_flags[nchar(col_flags)==0] <- as.character(NA)
-      
-      if (all(is.na(col_flags))) next;
-      
-      col_num <- which(names(export_data)==cname)
-      for (row_num in 1:length(col_flags)) {
-        flagtext <- col_flags[[row_num]]
-        if (is.na(flagtext)) next
-        
-        comment <- createComment(author="System",
-                                 comment=flagtext,
-                                 visible=FALSE,
-                                 style=flagStyle,
-                                 height=4,
-                                 width=3)
-        
-        writeComment(excelwb,
-                     sheet=1,
-                     col = col_num,
-                     row = START_ROW+row_num,
-                     comment = comment)
-      }
-    }
-  }
+  # if (FALSE & !empty(export_data_flags)) {
+  #   
+  #   #print("Generating flags")
+  #   #stop("Write flags currently disabled")
+  #   #t1 <- Sys.time()
+  #   flagStyle <- createStyle(fontSize=9)
+  #   
+  #   for (cname in (names(export_data)[data_cols])) {
+  #     col_flags <- export_data_flags[[cname]]
+  #     col_flags[nchar(col_flags)==0] <- as.character(NA)
+  #     
+  #     if (all(is.na(col_flags))) next;
+  #     
+  #     col_num <- which(names(export_data)==cname)
+  #     for (row_num in 1:length(col_flags)) {
+  #       flagtext <- col_flags[[row_num]]
+  #       if (is.na(flagtext)) next
+  #       
+  #       comment <- createComment(author="System",
+  #                                comment=flagtext,
+  #                                visible=FALSE,
+  #                                style=flagStyle,
+  #                                height=4,
+  #                                width=3)
+  #       
+  #       writeComment(excelwb,
+  #                    sheet=1,
+  #                    col = col_num,
+  #                    row = START_ROW+row_num,
+  #                    comment = comment)
+  #     }
+  #   }
+  # }
   
   # print("Applying styles")
   # t1 <- Sys.time()
@@ -302,163 +380,163 @@ export_dashboard_view_to_excel <- function(pool,
   #            gridExpand = TRUE)
   # }
 
-if (FALSE) {
-  if (has_history==FALSE) {
-    evenGroups <- export_data$ROWID%%2==0 #name changed from reporting_group to `Row#`
-    oddGroups <- export_data$ROWID%%2==1
-    
-    tableEvenStyle <- createStyle(fontSize=10, fgFill = rgba2hex(DASH_DISPLAY_BLUE_C))
-    tableOddStyle <- createStyle(fontSize=10, fgFill = rgba2hex(DASH_DISPLAY_YELLOW_C))
-  
-    addStyle(excelwb,
-             sheet=1,
-             tableEvenStyle,
-             rows=which(evenGroups)+START_ROW,
-             cols=1:ncol(export_data),
-             gridExpand = TRUE)
-  
-    addStyle(excelwb,
-             sheet=1,
-             tableOddStyle,
-             rows=which(oddGroups)+START_ROW,
-             cols=1:ncol(export_data),
-             gridExpand = TRUE)
-    
-    addStyle(excelwb, 
-             sheet=1, 
-             style = createStyle(locked = FALSE), 
-             rows = (1:nrow(export_data))+START_ROW,
-             cols = data_cols,
-             gridExpand = TRUE, 
-             stack=TRUE)
-
-  
-  
-  } else {
-    sys_id_group=frank(export_data,"SYSID",ties.method = "dense")
-    
-    evenGroupCurrent <- sys_id_group%%2==0 & reporting_timeline == FALSE
-    evenGroupHistory <- sys_id_group%%2==0 & reporting_timeline == TRUE
-    
-    oddGroupCurrent <- sys_id_group%%2==1 & reporting_timeline == FALSE
-    oddGroupHistory <- sys_id_group%%2==1 & reporting_timeline == TRUE
-
-    tableEvenStyleCurrent <- createStyle(fontSize=10, fgFill = rgba2hex(DASH_DISPLAY_BLUE_CH)) 
-    tableEvenStyleHistory <- createStyle(fontSize=10, fgFill = rgba2hex(DASH_DISPLAY_BLUE_HH))
-    
-    tableOddStyleCurrent <- createStyle(fontSize=10, fgFill = rgba2hex(DASH_DISPLAY_YELLOW_CH))
-    tableOddStyleHistory <- createStyle(fontSize=10, fgFill = rgba2hex(DASH_DISPLAY_YELLOW_HH))
-    
-    # tableEvenStyleCurrent <- createStyle(fontSize=10, fgFill = "#D7FFD7") #Sea green
-    # tableEvenStyleHistory <- createStyle(fontSize=10, fgFill = "#EFFDEF")
-    # 
-    # tableOddStyleCurrent <- createStyle(fontSize=10, fgFill = "#e0f0fa") #Light Blue
-    # tableOddStyleHistory <- createStyle(fontSize=10, fgFill = "#F2F7FB")
-    
-    historyBorderStyle <- createStyle(border="bottom", borderColour = "white",borderStyle = "thin")
-    currentBorderStyle <- createStyle(border="top", borderColour = "dimgrey",borderStyle = "thin")
-    
-    addStyle(excelwb,
-             sheet=1,
-             tableEvenStyleCurrent,
-             rows=which(evenGroupCurrent)+START_ROW,
-             cols=1:ncol(export_data),
-             gridExpand = TRUE)
-
-    addStyle(excelwb,
-             sheet=1,
-             tableEvenStyleHistory,
-             rows=which(evenGroupHistory)+START_ROW,
-             cols=1:ncol(export_data),
-             gridExpand = TRUE)
-    
-    addStyle(excelwb,
-             sheet=1,
-             tableOddStyleCurrent,
-             rows=which(oddGroupCurrent)+START_ROW,
-             cols=1:ncol(export_data),
-             gridExpand = TRUE)
-    
-    addStyle(excelwb,
-             sheet=1,
-             tableOddStyleHistory,
-             rows=which(oddGroupHistory)+START_ROW,
-             cols=1:ncol(export_data),
-             gridExpand = TRUE)
-    
-    addStyle(excelwb,
-             sheet=1,
-             historyBorderStyle,
-             rows=which(oddGroupHistory | evenGroupHistory)+START_ROW,
-             cols=1:ncol(export_data),
-             gridExpand = TRUE,
-             stack = TRUE)
-
-    addStyle(excelwb,
-             sheet=1,
-             currentBorderStyle,
-             rows=which(oddGroupCurrent | evenGroupCurrent)+START_ROW,
-             cols=1:ncol(export_data),
-             gridExpand = TRUE,
-             stack = TRUE)
-    
-    #first 4 cols are sys cols
-    addStyle(excelwb, 
-             sheet=1, 
-             style = createStyle(locked = FALSE), 
-             rows = which(evenGroupCurrent | oddGroupCurrent)+START_ROW, 
-             cols = data_cols,
-             gridExpand=TRUE,
-             stack=TRUE)
-    
-  }
-  addStyle(excelwb,
-           sheet=1, 
-           style = createStyle(locked = FALSE), 
-           rows = nrow(export_data):(nrow(export_data)+100)+START_ROW, #Unlocks the last 100 rows (for modifying/adding new rows)
-           cols = data_cols, 
-           gridExpand=TRUE, 
-           stack=TRUE)
-  
-  #openxlsx::saveWorkbook(excelwb,file="test2.xlsx",overwrite=TRUE)
-  
-  
-  if (useTextFormat==TRUE) {
-    arrowStyle <- createStyle(fontColour = "#910f3c", fontSize = 10)
-    voidStyle <- createStyle(fontColour = "#a6a6a6")
-    missingStyle <- createStyle(fontColour = "#9b6432")
-    blankStyle <- createStyle(fontColour = "#dcdcdc")
-    
-    for (col_index in data_cols) {
-      arrowRows <- which(export_data[[col_index]] %in% c(as.character(intToUtf8(0x2191)),as.character(intToUtf8(0x2195))))
-      addStyle(excelwb,sheet=1,style=arrowStyle,rows=arrowRows+START_ROW,cols=col_index,stack=TRUE)
-      
-      voidRows <- which(export_data[[col_index]]=="{VOID}")
-      addStyle(excelwb,sheet=1,style=voidStyle,rows=voidRows+START_ROW,cols=col_index,stack=TRUE)
-
-      missingRows <- which(export_data[[col_index]]=="{MISSING}")
-      addStyle(excelwb,sheet=1,style=missingStyle,rows=missingRows+START_ROW,cols=col_index,stack=TRUE)
-      
-      blankRows <- which(export_data[[col_index]]=="{BLANK}")
-      addStyle(excelwb,sheet=1,style=blankStyle,rows=blankRows+START_ROW,cols=col_index,stack=TRUE)
-      
-    }
-  }
-
-  showGridLines(excelwb, sheet=1, showGridLines = FALSE)
-  
-  print(paste0("Styles created: ",(Sys.time()-t1)))
-  
-  print("Protecting sheets")
-  
-  sheet_names <- openxlsx::sheets(excelwb)
-  if (SHEET_NAME_LISTS %in% sheet_names) {
-    protectWorksheet(excelwb, 
-                     sheet=SHEET_NAME_LISTS,
-                     protect = TRUE,
-                     password="IFCRSF")
-  }
-}
+# if (FALSE) {
+#   if (has_history==FALSE) {
+#     evenGroups <- export_data$ROWID%%2==0 #name changed from reporting_group to `Row#`
+#     oddGroups <- export_data$ROWID%%2==1
+#     
+#     tableEvenStyle <- createStyle(fontSize=10, fgFill = rgba2hex(DASH_DISPLAY_BLUE_C))
+#     tableOddStyle <- createStyle(fontSize=10, fgFill = rgba2hex(DASH_DISPLAY_YELLOW_C))
+#   
+#     addStyle(excelwb,
+#              sheet=1,
+#              tableEvenStyle,
+#              rows=which(evenGroups)+START_ROW,
+#              cols=1:ncol(export_data),
+#              gridExpand = TRUE)
+#   
+#     addStyle(excelwb,
+#              sheet=1,
+#              tableOddStyle,
+#              rows=which(oddGroups)+START_ROW,
+#              cols=1:ncol(export_data),
+#              gridExpand = TRUE)
+#     
+#     addStyle(excelwb, 
+#              sheet=1, 
+#              style = createStyle(locked = FALSE), 
+#              rows = (1:nrow(export_data))+START_ROW,
+#              cols = data_cols,
+#              gridExpand = TRUE, 
+#              stack=TRUE)
+# 
+#   
+#   
+#   } else {
+#     sys_id_group=frank(export_data,"SYSID",ties.method = "dense")
+#     
+#     evenGroupCurrent <- sys_id_group%%2==0 & reporting_timeline == FALSE
+#     evenGroupHistory <- sys_id_group%%2==0 & reporting_timeline == TRUE
+#     
+#     oddGroupCurrent <- sys_id_group%%2==1 & reporting_timeline == FALSE
+#     oddGroupHistory <- sys_id_group%%2==1 & reporting_timeline == TRUE
+# 
+#     tableEvenStyleCurrent <- createStyle(fontSize=10, fgFill = rgba2hex(DASH_DISPLAY_BLUE_CH)) 
+#     tableEvenStyleHistory <- createStyle(fontSize=10, fgFill = rgba2hex(DASH_DISPLAY_BLUE_HH))
+#     
+#     tableOddStyleCurrent <- createStyle(fontSize=10, fgFill = rgba2hex(DASH_DISPLAY_YELLOW_CH))
+#     tableOddStyleHistory <- createStyle(fontSize=10, fgFill = rgba2hex(DASH_DISPLAY_YELLOW_HH))
+#     
+#     # tableEvenStyleCurrent <- createStyle(fontSize=10, fgFill = "#D7FFD7") #Sea green
+#     # tableEvenStyleHistory <- createStyle(fontSize=10, fgFill = "#EFFDEF")
+#     # 
+#     # tableOddStyleCurrent <- createStyle(fontSize=10, fgFill = "#e0f0fa") #Light Blue
+#     # tableOddStyleHistory <- createStyle(fontSize=10, fgFill = "#F2F7FB")
+#     
+#     historyBorderStyle <- createStyle(border="bottom", borderColour = "white",borderStyle = "thin")
+#     currentBorderStyle <- createStyle(border="top", borderColour = "dimgrey",borderStyle = "thin")
+#     
+#     addStyle(excelwb,
+#              sheet=1,
+#              tableEvenStyleCurrent,
+#              rows=which(evenGroupCurrent)+START_ROW,
+#              cols=1:ncol(export_data),
+#              gridExpand = TRUE)
+# 
+#     addStyle(excelwb,
+#              sheet=1,
+#              tableEvenStyleHistory,
+#              rows=which(evenGroupHistory)+START_ROW,
+#              cols=1:ncol(export_data),
+#              gridExpand = TRUE)
+#     
+#     addStyle(excelwb,
+#              sheet=1,
+#              tableOddStyleCurrent,
+#              rows=which(oddGroupCurrent)+START_ROW,
+#              cols=1:ncol(export_data),
+#              gridExpand = TRUE)
+#     
+#     addStyle(excelwb,
+#              sheet=1,
+#              tableOddStyleHistory,
+#              rows=which(oddGroupHistory)+START_ROW,
+#              cols=1:ncol(export_data),
+#              gridExpand = TRUE)
+#     
+#     addStyle(excelwb,
+#              sheet=1,
+#              historyBorderStyle,
+#              rows=which(oddGroupHistory | evenGroupHistory)+START_ROW,
+#              cols=1:ncol(export_data),
+#              gridExpand = TRUE,
+#              stack = TRUE)
+# 
+#     addStyle(excelwb,
+#              sheet=1,
+#              currentBorderStyle,
+#              rows=which(oddGroupCurrent | evenGroupCurrent)+START_ROW,
+#              cols=1:ncol(export_data),
+#              gridExpand = TRUE,
+#              stack = TRUE)
+#     
+#     #first 4 cols are sys cols
+#     addStyle(excelwb, 
+#              sheet=1, 
+#              style = createStyle(locked = FALSE), 
+#              rows = which(evenGroupCurrent | oddGroupCurrent)+START_ROW, 
+#              cols = data_cols,
+#              gridExpand=TRUE,
+#              stack=TRUE)
+#     
+#   }
+#   addStyle(excelwb,
+#            sheet=1, 
+#            style = createStyle(locked = FALSE), 
+#            rows = nrow(export_data):(nrow(export_data)+100)+START_ROW, #Unlocks the last 100 rows (for modifying/adding new rows)
+#            cols = data_cols, 
+#            gridExpand=TRUE, 
+#            stack=TRUE)
+#   
+#   #openxlsx::saveWorkbook(excelwb,file="test2.xlsx",overwrite=TRUE)
+#   
+#   
+#   if (useTextFormat==TRUE) {
+#     arrowStyle <- createStyle(fontColour = "#910f3c", fontSize = 10)
+#     voidStyle <- createStyle(fontColour = "#a6a6a6")
+#     missingStyle <- createStyle(fontColour = "#9b6432")
+#     blankStyle <- createStyle(fontColour = "#dcdcdc")
+#     
+#     for (col_index in data_cols) {
+#       arrowRows <- which(export_data[[col_index]] %in% c(as.character(intToUtf8(0x2191)),as.character(intToUtf8(0x2195))))
+#       addStyle(excelwb,sheet=1,style=arrowStyle,rows=arrowRows+START_ROW,cols=col_index,stack=TRUE)
+#       
+#       voidRows <- which(export_data[[col_index]]=="{VOID}")
+#       addStyle(excelwb,sheet=1,style=voidStyle,rows=voidRows+START_ROW,cols=col_index,stack=TRUE)
+# 
+#       missingRows <- which(export_data[[col_index]]=="{MISSING}")
+#       addStyle(excelwb,sheet=1,style=missingStyle,rows=missingRows+START_ROW,cols=col_index,stack=TRUE)
+#       
+#       blankRows <- which(export_data[[col_index]]=="{BLANK}")
+#       addStyle(excelwb,sheet=1,style=blankStyle,rows=blankRows+START_ROW,cols=col_index,stack=TRUE)
+#       
+#     }
+#   }
+# 
+#   showGridLines(excelwb, sheet=1, showGridLines = FALSE)
+#   
+#   print(paste0("Styles created: ",(Sys.time()-t1)))
+#   
+#   print("Protecting sheets")
+#   
+#   sheet_names <- openxlsx::sheets(excelwb)
+#   if (SHEET_NAME_LISTS %in% sheet_names) {
+#     protectWorksheet(excelwb, 
+#                      sheet=SHEET_NAME_LISTS,
+#                      protect = TRUE,
+#                      password="IFCRSF")
+#   }
+# }
   
   # protectWorksheet(excelwb, 
   #                  sheet=EXPORT_SHEET_NAME,
@@ -478,7 +556,7 @@ if (FALSE) {
   #This line allows specified cells to be unlocked so that users can enter values.
   
   
-  print("Completed excelwb")
+  #print("Completed excelwb")
   #print(Sys.time()-t0)
   #saveWorkbook(excelwb,file="./dashboard_test.xlsx",overwrite=TRUE)
   

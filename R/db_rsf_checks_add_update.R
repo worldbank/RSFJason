@@ -1,7 +1,7 @@
 #NEW
 db_rsf_checks_add_update <- function(pool,
                                      data_checks,
-                                     consolidation_threshold=100) #this should probably be made a program parameter
+                                     consolidation_threshold) 
 {
   #setups
   {
@@ -210,7 +210,13 @@ db_rsf_checks_add_update <- function(pool,
   
   data_checks[,original_auto_resolve:=as.logical(NA)]
   
-  if (any(data_checks$n > consolidation_threshold,na.rm=T)) {
+  #Consolidating checks is primarily intended for big big datasets where the entire upload could be flagged -- generating 100,000+ checks, etc that absolutely nobody 
+  #will trigage.  Even more than 100 checks...nobody will look at these individually.  Mass checks are more likely symptomatic of a bigger issue rather than
+  #a need to review each check.  Consolidation raises a categorical issue to attention without necessarily needing to dump massive numbers of checks into the database
+  #and deal with upload/download times thereof.
+  if (!is.na(consolidation_threshold) &&
+      consolidation_threshold > 1     &&
+      any(data_checks$n > consolidation_threshold,na.rm=T)) {
     
     consolidations <- data_checks[n>=consolidation_threshold]
     data_checks <- data_checks[n<consolidation_threshold]

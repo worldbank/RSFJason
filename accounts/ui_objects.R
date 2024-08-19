@@ -401,6 +401,12 @@ ui_htmlHead <- tagList(
               max-height:inherit;
               height:inherit!important;
              }
+    
+             #server_datasets_review_flags_dataset .dataTables_scrollBody {
+              max-height:inherit;
+              height:inherit!important;
+             }
+    
             "),
   useShinyjs())
 
@@ -448,27 +454,63 @@ ui_sidebar_IN <- dashboardSidebar(
 
 
 
-ui_body_OUT <- dashboardBody(id="dashboardBody",
-                             div(style="width:300px;margin:auto;text-align:left;margin-top:10%;",
-                                 #div(style="width:300px;text-align:left;margin-top:10%;",
-                                 wellPanel(id="location-login_panel",
-                                           textInput(inputId=accounts_NS("login_username"),label="Username"),
-                                           passwordInput(inputId=accounts_NS("login_password"),label="Password"),
-                                           hidden(div(id=accounts_NS("login_change_reset"),style="color:black;padding-top:5px;",
-                                                      p("Your password has been reset"),
-                                                      "Check your email for a temporary password")),
-                                           div(id=accounts_NS("login_button"),
-                                               div(style="width:100%;display:inline-block",
-                                                   div(actionButton(inputId=accounts_NS("login_action"),label="Login",icon=icon("sign-in-alt"),class="btn btn-success")),
-                                                   div(align="right",checkboxInput(inputId=accounts_NS("login_rememberme"),label="Remember Sign-in",value=TRUE)))),
-                                           hidden(div(id=accounts_NS("login_failed"),style="color:red;","Login Attempt ",textOutput(outputId=accounts_NS("login_attempts"),inline=TRUE)," Failed.")),
-                                           hidden(div(id=accounts_NS("login_change_password"),style="padding-top:10px;border-top:double black 4px;",
-                                                      passwordInput(inputId=accounts_NS("login_new_password1"),label="New Password"),
-                                                      passwordInput(inputId=accounts_NS("login_new_password2"),label="Verify Password"),
-                                                      actionButton(inputId=accounts_NS("login_change_action"),label="Login",icon=icon("sign-in-alt"),class="btn btn-success"),
-                                                      hidden(div(id=accounts_NS("login_change_failed"),style="color:red;padding-top:5px;",
-                                                                 textOutput(outputId=accounts_NS("login_change_failed_message"),inline=TRUE))))))))
+# ui_body_OUT <- dashboardBody(id="dashboardBody",
+#                              div(style="width:300px;margin:auto;text-align:left;margin-top:10%;",
+#                                  #div(style="width:300px;text-align:left;margin-top:10%;",
+#                                  wellPanel(id="location-login_panel",
+#                                            textInput(inputId=accounts_NS("login_username"),label="Username"),
+#                                            passwordInput(inputId=accounts_NS("login_password"),label="Password"),
+#                                            hidden(div(id=accounts_NS("login_change_reset"),style="color:black;padding-top:5px;",
+#                                                       p("Your password has been reset"),
+#                                                       "Check your email for a temporary password")),
+#                                            div(id=accounts_NS("login_button"),
+#                                                div(style="width:100%;display:inline-block",
+#                                                    div(actionButton(inputId=accounts_NS("login_action"),label="Login",icon=icon("sign-in-alt"),class="btn btn-success")),
+#                                                    div(align="right",checkboxInput(inputId=accounts_NS("login_rememberme"),label="Remember Sign-in",value=TRUE)))),
+#                                            hidden(div(id=accounts_NS("login_failed"),style="color:red;","Login Attempt ",textOutput(outputId=accounts_NS("login_attempts"),inline=TRUE)," Failed.")),
+#                                            hidden(div(id=accounts_NS("login_change_password"),style="padding-top:10px;border-top:double black 4px;",
+#                                                       passwordInput(inputId=accounts_NS("login_new_password1"),label="New Password"),
+#                                                       passwordInput(inputId=accounts_NS("login_new_password2"),label="Verify Password"),
+#                                                       actionButton(inputId=accounts_NS("login_change_action"),label="Login",icon=icon("sign-in-alt"),class="btn btn-success"),
+#                                                       hidden(div(id=accounts_NS("login_change_failed"),style="color:red;padding-top:5px;",
+#                                                                  textOutput(outputId=accounts_NS("login_change_failed_message"),inline=TRUE))))))))
 
+ui_body_OUT <- dashboardBody(id="dashboardBody",
+  div(style="width:400px;margin:auto;text-align:left;margin-top:10%;",
+      wellPanel(id="location-login_panel",
+                textInput(inputId=accounts_NS("login_username"),label="Username"),
+                passwordInput(inputId=accounts_NS("login_password"),label="Password"),
+                hidden(div(id=accounts_NS("login_change_reset"),style="color:black;padding-top:5px;",
+                           p("Your password has been reset"),
+                           "Check your email for a temporary password")),
+                div(id=accounts_NS("login_button"),
+                    div(style="width:100%;display:inline-block",
+                        div(column(6, actionButton(inputId=accounts_NS("login_action"),
+                                                   label="Login",icon=icon("sign-in-alt"),class="btn btn-success"),
+                                   checkboxInput(inputId=accounts_NS("login_rememberme"),
+                                                 label="Remember Sign-in",value=TRUE), align = "left"),
+                            column(6, actionButton(inputId=accounts_NS("forgot_password"),
+                                                   label="Forgot password",icon=icon("fas fa-question"), class="btn btn-success"), align = "right")
+                        ))),
+                
+                hidden(div(id="login_failed1",style="color:red;","Login Attempt ",
+                           textOutput(outputId=accounts_NS("login_attempts"),
+                                      inline=TRUE)," Failed.")),
+                hidden(div(id="login_failed2",style="color:red;","Wrong login")),
+                hidden(div(id="login_failed3",style="color:red;","You have no permission")),
+                hidden(div(id="login_failed4",style="color:red;","Your password was reseted. Check your email")),
+                hidden(div(id="reset_password",style="color:black;","Get Temporary Password ", 
+                           actionButton(inputId=accounts_NS("reset_password_button"),
+                                        label="Send email",icon=icon("envelope"),class="btn btn-success"))),
+                hidden(div(id="login_change_password",style="padding-top:10px;border-top:double black 4px;",
+                           passwordInput(inputId=accounts_NS("login_new_password1"),
+                                         label="New Password"),
+                           passwordInput(inputId=accounts_NS("login_new_password2"),
+                                         label="Verify Password"),
+                           actionButton(inputId=accounts_NS("login_change_action"),
+                                        label="Login",icon=icon("sign-in-alt"),class="btn btn-success"),
+                           hidden(div(id=accounts_NS("login_change_failed"),style="color:red;padding-top:5px;",
+                                      textOutput(outputId=accounts_NS("login_change_failed_message"),inline=TRUE))))))))
 
 ui_body_IN <- dashboardBody(id="dashboardBody",
                       fluidRow(

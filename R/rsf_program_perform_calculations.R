@@ -3,7 +3,8 @@ rsf_program_perform_calculations <- function(pool,
                                              current_data,
                                              rsf_indicators,
                                              perform.test = FALSE,
-                                             status_message=function(...) {}) {
+                                             status_message=function(...) {},
+                                             SYS_FLAGS_MANUAL_OVERWRITE=4) {
   
 
   t1 <- Sys.time()
@@ -278,6 +279,7 @@ rsf_program_perform_calculations <- function(pool,
                                                                      current_data_value,
                                                                      current_data_unit,
                                                                      current_data_is_system_calculation,
+                                                                     current_data_sys_flags,
                                                                      current_value_is_user_monitored,
                                                                      current_value_updated_in_reporting_current_date,
                                                                      entity_local_currency_unit,
@@ -297,6 +299,7 @@ rsf_program_perform_calculations <- function(pool,
                                                        current_data_value,
                                                        current_data_unit,
                                                        current_data_is_system_calculation,
+                                                       current_data_sys_flags,
                                                        current_value_is_user_monitored,
                                                        current_value_updated_in_reporting_current_date,
                                                        entity_local_currency_unit,
@@ -376,6 +379,13 @@ rsf_program_perform_calculations <- function(pool,
                               current_value_is_user_monitored==TRUE),     #or it's system reported, but user previously reported it
                              flag_overwrite:=TRUE]
       
+      current_results[is.na(current_data_sys_flags)==FALSE & 
+                      bitwAnd(current_data_sys_flags,SYS_FLAGS_MANUAL_OVERWRITE) == SYS_FLAGS_MANUAL_OVERWRITE & 
+                      current_value_reported_in_current_asof_date & 
+                      current_data_is_system_calculation == FALSE,
+                      formula_overwrite:="manual"]
+      
+      
     }
 
     #Set insert actions
@@ -407,6 +417,10 @@ rsf_program_perform_calculations <- function(pool,
       current_results[formula_overwrite=="deny"
                       & is.na(current_data_id)==FALSE,
                       insert_action:=FALSE]
+      current_results[formula_overwrite=="manual"
+                      & is.na(current_data_id)==FALSE,
+                      insert_action:=FALSE]
+      
       
       #for indicator formulas of data type "missing"
       #missing means permanent manual override
@@ -496,11 +510,12 @@ rsf_program_perform_calculations <- function(pool,
       vs_flags <- current_results[flag_overwrite==TRUE &
                                   data_changed ==TRUE & 
                                   insert_action==FALSE & 
-                                  equivalent==FALSE,
+                                  equivalent==FALSE &
+                                  (formula_overwrite %in% c("manual")) == FALSE,
                                          .(rsf_pfcbl_id,
                                            indicator_id,
                                            reporting_asof_date,
-                                           check_name="sys_calculator_vs_manual_calculation",
+                                           check_name="sys_calculator_vs_reported_calculation",
                                            check_message=paste0("System calculated {",
                                                                 ifelse(is.na(data_value),"MISSING",data_value),
                                                                 ifelse(is.na(data_unit),"",paste0(" ",data_unit)),"}",
@@ -513,7 +528,29 @@ rsf_program_perform_calculations <- function(pool,
                                                                 vs_flags))
       
       vs_flags <- NULL
+
+      manual_flags <- current_results[flag_overwrite==TRUE &
+                                    data_changed ==TRUE & 
+                                    insert_action==FALSE & 
+                                    equivalent==FALSE &
+                                    (formula_overwrite %in% c("manual")) == TRUE,
+                                  .(rsf_pfcbl_id,
+                                    indicator_id,
+                                    reporting_asof_date,
+                                    check_name="waiver_value_vs_sys_calculator",
+                                    check_message=paste0("Reported data marked as WAIVER: MANUAL CALCULATION for {",
+                                                         ifelse(is.na(current_data_value),"MISSING",current_data_value),
+                                                         ifelse(is.na(current_data_unit),"",paste0(" ",current_data_unit)),"}",
+                                                         " No Overwrite (system calculated {",
+                                                         ifelse(is.na(data_value),"MISSING",data_value),
+                                                         ifelse(is.na(data_unit),"",paste0(" ",data_unit)),"})"))]
       
+      if (!empty(manual_flags)) calculation_flags <- rbindlist(list(calculation_flags,
+                                                                    manual_flags))
+      
+      manual_flags <- NULL
+      
+            
       #all system flags have NA formulas as they are by definition internally computed.
       calculation_flags[,
                         check_formula_id:=as.numeric(NA)]
@@ -757,7 +794,8 @@ rsf_program_perform_calculations <- function(pool,
                                              variance)]
 
     db_rsf_checks_add_update(pool=pool,
-                             data_checks=calculation_flags)
+                             data_checks=calculation_flags,
+                             consolidation_threshold=NA)
     
   }  
   if(SYS_PRINT_TIMING) debugtime("rsf_program_perform_calculations","Done!",format(Sys.time()-t1))

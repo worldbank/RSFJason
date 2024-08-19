@@ -3,6 +3,7 @@ template_process <- function(pool,
                              template,
                              status_message=function(...) {}) {
   t1 <- Sys.time()
+  #tp <- copy(template)
   #Indicator and data validations
   {
     #Check for valid fields created in processing
@@ -192,6 +193,17 @@ template_process <- function(pool,
         stop(paste0("template_data$reporting_template_row_group expects format: ROW-numberROW-name. Where ROW-name is Letters or _ or - (not numbers or other punctuation).  First malformed row group is: ",first))
       }
     }
+    
+    duplicates <- template$template_data[,
+                                         .(n=.N),
+                                         by=.(reporting_template_row_group,
+                                              indicator_name,
+                                              reporting_asof_date)][n>1]
+    if (!empty(duplicates)) {
+      stop(paste0("Duplicated entries for: ",
+                  paste(paste(duplicates$reporting_template_row_group," ",duplicates$indicator_name," ",duplicates$reporting_asof_date)),
+                  collapse=" \n"))
+    }
   }  
   
   #RSF ID vs PFCBL ID template matching
@@ -376,37 +388,42 @@ template_process <- function(pool,
                                            reporting_asof_date,
                                            reporting_template_row_group)]
     
-    data_flags[indicator_subscriptions,
-               is_calculated:=i.is_calculated,
-               on=.(rsf_pfcbl_id,
-                    indicator_id)]
-    data_flags[,
-               omit:=FALSE]
+    if (!empty(data_flags)) {
+      data_flags[indicator_subscriptions,
+                 is_calculated:=i.is_calculated,
+                 on=.(rsf_pfcbl_id,
+                      indicator_id)]
+      data_flags[,
+                 omit:=FALSE]
+      
+      data_flags[check_name=="sys_flag_unexpected_formula" & is_calculated==TRUE,
+                 omit:=TRUE]
+      
+      data_flags[check_name=="sys_flag_unexpected_constant" & is_calculated==FALSE,
+                 omit:=TRUE]
+      
+      data_flags <- data_flags[omit==FALSE]
+      data_flags <- data_flags[,
+                               .(data_flags_new=list(.SD)),
+                               by=.(rsf_pfcbl_id,
+                                    indicator_id,
+                                    reporting_asof_date,
+                                    reporting_template_row_group),
+                               .SDcols=c("check_name","check_message")]
+      
+      #Reset the flags and re-apply those after checks
+      template$pfcbl_data[,
+                          data_flags_new:=NULL]
+      
+      template$pfcbl_data[data_flags,
+                          data_flags_new:=i.data_flags_new,
+                          on=.(rsf_pfcbl_id,
+                               indicator_id,
+                               reporting_asof_date,
+                               reporting_template_row_group)]
+      
     
-    data_flags[check_name=="sys_flag_unexpected_formula" & is_calculated==TRUE,
-               omit:=TRUE]
-    
-    data_flags[check_name=="sys_flag_unexpected_constant" & is_calculated==FALSE,
-               omit:=TRUE]
-    
-    data_flags <- data_flags[omit==FALSE]
-    data_flags <- data_flags[,
-                             .(data_flags_new=list(.SD)),
-                             by=.(rsf_pfcbl_id,
-                                  indicator_id,
-                                  reporting_asof_date,
-                                  reporting_template_row_group),
-                             .SDcols=c("check_name","check_message")]
-    
-    template$pfcbl_data[,
-                        data_flags_new:=list(NULL)]
-    
-    template$pfcbl_data[data_flags,
-                        data_flags_new:=i.data_flags_new,
-                        on=.(rsf_pfcbl_id,
-                             indicator_id,
-                             reporting_asof_date,
-                             reporting_template_row_group)]
+    }    
     data_flags <- NULL
     
     template$pfcbl_data[,omit:=FALSE]

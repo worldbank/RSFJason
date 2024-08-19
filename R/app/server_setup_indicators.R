@@ -31,6 +31,7 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
                                        and rdc.data_value is NOT NULL) as reported) as has on true
     where fis.rsf_pfcbl_id = $1::int
       and fis.is_system = false
+      --and fis.is_static_nonreporting = false
     order by fis.data_category_rank,fis.indicator_name",
     params=list(selected_rsf_pfcbl_id))
                                                   
@@ -201,11 +202,10 @@ observeEvent(input$action_setup_program_recalculate_reset, {
                           calcs.reporting_asof_date
                         from calculations calcs
                         inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = calcs.to_calculate_rsf_pfcbl_id
-                        																													 and pis.indicator_id = calcs.to_calculate_indicator_id
                         																													 and pis.formula_id = calcs.to_calculate_formula_id
                         where pis.is_subscribed = true
                           and pis.is_calculated = true
-                          and calcs.to_calculate_rsf_pfcbl_id = any(select distinct fam.child_rsf_pfcbl_id
+                          and calcs.to_calculate_rsf_pfcbl_id = any(select fam.child_rsf_pfcbl_id
                                                                     from p_rsf.rsf_pfcbl_id_family fam
                                                                     where fam.parent_rsf_pfcbl_id = $1::int)
                           and exists(select * from p_rsf.rsf_pfcbl_reporting rpr
@@ -224,9 +224,9 @@ observeEvent(input$action_setup_program_recalculate_reset, {
                         																													 and pis.indicator_id = rd.indicator_id
                         where pis.is_subscribed = true
                         	and pis.is_calculated = true
-                        	and rd.rsf_pfcbl_id = any(select distinct fam.child_rsf_pfcbl_id
-                        																						from p_rsf.rsf_pfcbl_id_family fam
-                        																						where fam.parent_rsf_pfcbl_id = $1::int)
+                        	and rd.rsf_pfcbl_id = any(select fam.child_rsf_pfcbl_id
+        																						from p_rsf.rsf_pfcbl_id_family fam
+        																						where fam.parent_rsf_pfcbl_id = $1::int)
                         	and exists(select * from p_rsf.rsf_pfcbl_reporting rpr
                         						 where rpr.rsf_pfcbl_id = rd.rsf_pfcbl_id
                         							 and rpr.reporting_asof_date = rd.reporting_asof_date)

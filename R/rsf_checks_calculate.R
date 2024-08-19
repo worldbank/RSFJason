@@ -36,7 +36,7 @@ rsf_checks_calculate <- function(pool,
   all_checks <- list()
   
   #rsf_data_wide[,row_id:=1:.N]
-  #i<-11
+  #i<-1
   for(i in 1:nrow(checks)) {
     
     calc_time <- Sys.time()

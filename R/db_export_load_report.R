@@ -14,7 +14,7 @@ db_export_load_report <- function(pool,
     openxlsx::loadWorkbook(template_file)
   },
   error = function(e) { 
-    stop(conditionMessage(e))
+    stop(paste0("This file appears to be corrupted.  Can it be opened regularly in Excel?  Error: ",conditionMessage(e)))
   },
   warning = function(w) { 
     message(paste0("Notice: Pivot tables can cause errors in loadWorkdbook.  Loading with suppressWarnings because: ",conditionMessage(w)))

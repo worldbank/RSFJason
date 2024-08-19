@@ -109,10 +109,14 @@ rsf_computation_fx_conversion <- function(pool,
       #browser()
       #Calculations are only performed on a per unique UNIT value
       to_currency <- compute_currency_unit
+
+      #Subgrouping comes in via checks not indicators.
+      if (!any(names(parameters)=="for_subgrouping")) parameters[,for_subgrouping:=FALSE]
       
       #FX cols will include BOTH currency columns that may need to be fx rates
+      
       fx_cols <- parameters[parameter_indicator_name %in% parameters[for_fx==TRUE,unique(parameter_indicator_name)] &
-                              (for_calculation==TRUE | for_fx==TRUE),
+                              (for_calculation==TRUE | for_fx==TRUE | for_subgrouping==TRUE),
                             unique(parameter_column_name)]
       
       if (length(fx_cols) == 0) {
