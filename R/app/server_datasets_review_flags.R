@@ -825,7 +825,7 @@ observeEvent(input$action_indicator_flags_review_save, {
   } 
   
   if (isTruthy(selected_evaluation_ids) & length(selected_evaluation_ids) > 0) {
-    
+    #browser()
     #Update the flags -- and set "reverts" to be "resolved" as they'll be subsequently deleted.
     if (check_status_updated %in% c("active","resolved","revert")) {
       withProgress(message="Saving updates...",value=0.25, {

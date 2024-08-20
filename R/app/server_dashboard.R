@@ -1492,6 +1492,29 @@ observeEvent(input$server_dashboard__reporting_column_priority, {
   }
 },priority=100)  
 
+observeEvent(input$server_dashboard__reporting_column_priority_lookup, {
+  
+  m <- modalDialog(id="server_dashboard__reporting_column_priority_lookup_modal",
+                   div(style="background-color:white;padding:5px;height:325px;",
+                     fluidRow(
+                       column(12,
+                              textInput(inputId="server_dashboard__reporting_column_priority_lookup_search",
+                                        label="Keyword Search",
+                                        placeholder="Enter key words to lookup and add indicators"))),
+                     fluidRow(
+                       column(12,
+                              style="height:100%;",
+                              DT::dataTableOutput(outputId="server_dashboard__reporting_column_priority_lookup_results",
+                                                  width="100%")))),
+                   
+                   title=HTML("Dashboard Indicator Keyword Search"),
+                   easyClose = TRUE,
+                   footer=modalButton("Close"),
+                   size="s")
+  showModal(m)
+  
+})
+
 observeEvent(input$server_dashboard__reporting_asof_date, {
   
   if (!isTruthy(input$server_dashboard__reporting_asof_date)) SERVER_DASHBOARD_RUN_OPTIONS$asof_dates <- character(0)
@@ -1734,6 +1757,21 @@ observeEvent(input$server_dashboard__browser_cell_clicked, {
   
 }, ignoreInit = TRUE)
 
+observeEvent(input$server_dashboard__reporting_column_priority_lookup_add, {
+  add_id <- as.numeric(input$server_dashboard__reporting_column_priority_lookup_add)
+  query_ids <- NULL
+  
+  if (add_id %in% input$server_dashboard__reporting_column_priority) {
+    query_ids <- input$server_dashboard__reporting_column_priority[-which(input$server_dashboard__reporting_column_priority==add_id)]
+  } else {
+    query_ids <- c(input$server_dashboard__reporting_column_priority,add_id)
+  }
+  
+  updateSelectizeInput(session=session,
+                       inputId="server_dashboard__reporting_column_priority",
+                       selected=query_ids)
+})
+
 SERVER_DASHBOARD_RENDER_DISPLAY <- function(display_data=SERVER_DASHBOARD_DATA_DISPLAY(),
                                             view="html") {
   
@@ -1942,6 +1980,90 @@ output$server_dashboard__browser <- DT::renderDataTable({
 
 
   return (dd)
+})
+
+SERVER_DASHBOARD_LOOKUP_RESULTS <- eventReactive(c(SERVER_DASHBOARD_INDICATORS(),
+                                                   input$server_dashboard__reporting_column_priority_lookup_search), {
+                                                     
+  keywords <- input$server_dashboard__reporting_column_priority_lookup_search      
+  
+  
+  ind <- RSF_INDICATORS()[,
+                          .(indicator_id,
+                            indicator_name,
+                            definition,
+                            labels)]
+  
+  ind <- rbindlist(list(ind[,unlist(labels,recursive=F),by=.(indicator_id)][label_key != "SYS",.(indicator_id,keywords=label_normalized)],
+                        ind[,.(indicator_id,keywords=indicator_name)],
+                        ind[,.(indicator_id,keywords=definition)],
+                        SERVER_DASHBOARD_INDICATORS()[indicator_id <=0,.(indicator_id,keywords=indicator_name)]))
+  
+  keywords <- trimws(unlist(strsplit(keywords,split="[^[:alnum:]]")))
+  
+  matches <- NA
+  if (isTruthy(keywords) && any(nchar(keywords) > 0)) {
+    
+    matches <- sapply(keywords,
+                      function(x,indicators) {
+                        indicators[grepl(pattern=x,keywords),indicator_id]
+                      },
+                      indicators=ind)
+    
+    if (length(keywords) > 1) {
+      matches <- Reduce(intersect,matches)
+    }
+    
+  
+  } else {
+    matches <- unique(ind$indicator_id)
+  }
+  
+  ind <- SERVER_DASHBOARD_INDICATORS()[indicator_id %in% matches,
+                                       .(indicator_id,
+                                         indicator_name)]
+  
+  setorder(ind,
+           indicator_name)
+  
+  ind[,
+      Add:=indicator_id %in% input$server_dashboard__reporting_column_priority]
+  
+  ind[,
+      Add:=paste0("<input type='checkbox' value=",indicator_id," onmousedown='event.stopPropagation();' ",
+                  ifelse(Add==TRUE, #"NEW" flags are those who've never had a comment will be auto-selected, else not.
+                         "checked=true ",
+                         ""),
+                  "onclick='Shiny.setInputValue(\"server_dashboard__reporting_column_priority_lookup_add\",",indicator_id,",{priority:\"event\"})' />")]
+  ind[,
+      `:=`(indicator_id=NULL)]
+  
+  return (ind[,.(INDICATOR=indicator_name,Add)])
+  
+})
+
+output$server_dashboard__reporting_column_priority_lookup_results <- DT::renderDataTable({
+  
+  ind <- SERVER_DASHBOARD_LOOKUP_RESULTS()
+  req(ind)
+  
+
+  
+  dom <- "t"
+  if (nrow(ind) > 8) dom <- "tp"
+  dd <- DT::datatable(ind,
+                      rownames = FALSE,
+                      fillContainer=TRUE,
+                      class = 'cell-border stripe',
+                      colnames=c("INDICATOR","Add"),
+                      height = "100%",
+                      escape = FALSE,
+                      options=list(
+                        dom=dom,
+                        ordering=FALSE,  
+                        paging=TRUE,
+                        pageLength=8))
+ return (dd)
 })
 
 output$action_server_dashboard__download <- downloadHandler(

@@ -714,6 +714,7 @@ observeEvent(SELECTED_COHORT_ID(), {
       
       updateTabsetPanel(session=session,inputId="datasetsTabset",selected="list")
     }
+  
   } else {
     showElement("dataset_review_header")
     
@@ -749,9 +750,15 @@ observeEvent(SELECTED_COHORT_ID(), {
                          inputId="cohort_collection_selected_id",
                          choices=choices,
                          selected=choices.selected)
+    
+    current_panel <- input$datasetsTabset
+    
+    if (!isTruthy(current_panel) || current_panel != "review") {
+      updateTabsetPanel(session=session,inputId="datasetsTabset",selected="review")
+    }
   } 
   
-},ignoreNULL=FALSE,ignoreInit = TRUE)
+},ignoreNULL=FALSE,ignoreInit = TRUE,priority=10)
 
 #
 observeEvent(SELECTED_COHORT_FLAGS(), {
@@ -831,19 +838,21 @@ observeEvent(SELECTED_COHORT_FLAGS(), {
 }, ignoreNULL=FALSE, priority=100)
 
 #action_cohort_view is the view icon in the main datasets panel: sets the current selected cohort ID value 
-observeEvent(input$action_cohort_view, {
-  
-  
-  cohorts <- COHORTS_LIST()
-  if (!isTruthy(cohorts)) return (NULL)
-  
-  cohort_id <- as.numeric(input$action_cohort_view)
-  current_panel <- input$datasetsTabset
-  
-  if (!isTruthy(current_panel) || current_panel != "review") {
-    updateTabsetPanel(session=session,inputId="datasetsTabset",selected="review")
-  }
-})
+# observeEvent(input$action_cohort_view, {
+#   
+#   
+#   cohorts <- COHORTS_LIST()
+#   if (!isTruthy(cohorts)) return (NULL)
+#   
+#   #cohort_id <- as.numeric(input$action_cohort_view)
+#   
+#   cohort_id <- SELECTED_COHORT_ID()
+#   current_panel <- input$datasetsTabset
+#   
+#   if (!isTruthy(current_panel) || current_panel != "review") {
+#     updateTabsetPanel(session=session,inputId="datasetsTabset",selected="review")
+#   }
+# },priority=0) #fire after 
 
 observeEvent(input$action_dataset_review_filter_clear, {
   

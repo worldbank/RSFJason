@@ -106,10 +106,12 @@ observeEvent(input$modal_dataset_upload_dataset, {
   new_cohort_id <- COHORT_NEW_ID()
   
   if (isTruthy(new_cohort_id) && new_cohort_id >-1) {
-    updateTabsetPanel(session=session,inputId="datasetsTabset",selected="review")
-    updateSelectizeInput(inputId="datasets_review_select",
-                         session=session,
-                         selected=new_cohort_id)
+    shinyjs::runjs(paste0("Shiny.setInputValue(\"action_cohort_view\",",new_cohort_id,",{priority:\"event\"})"))
+    
+    # updateTabsetPanel(session=session,inputId="datasetsTabset",selected="review")
+    # updateSelectizeInput(inputId="datasets_review_select",
+    #                      session=session,
+    #                      selected=new_cohort_id)
   }
   removeModal()
 })

@@ -407,6 +407,10 @@ ui_htmlHead <- tagList(
               height:inherit!important;
              }
     
+              #server_dashboard__reporting_column_priority_lookup_results .dataTables_scrollBody {
+              max-height:inherit;
+              height:inherit!important;
+             }
             "),
   useShinyjs())
 
@@ -440,12 +444,12 @@ ui_sidebar_IN <- dashboardSidebar(
     div(style="padding-left:5px;display: inline-block;width:245px;",
         selectizeInput(inputId="select_rsf_program_id",label=NULL,choices=NULL,multiple=FALSE,width="245px")),
     
-    menuItem("Reporting",  
-             href="https://qlik.worldbank.org/hub/stream/aaec8d41-5201-43ab-809f-3063750dfafd",
-             icon = icon("arrow-up-right-from-square")),
+    # menuItem("Reporting",  
+    #          href="https://qlik.worldbank.org/hub/stream/aaec8d41-5201-43ab-809f-3063750dfafd",
+    #          icon = icon("arrow-up-right-from-square")),
     
-    menuItem("Dashboard", tabName = "dashboard", icon = icon("dashboard")),
-    menuItem("Datasets",  tabName = "datasets", icon = icon("table")),
+    menuItem("Reporting", tabName = "dashboard", icon = icon("chart-area")),
+    menuItem("Datasets",  tabName = "datasets", icon = icon("table-list")),
     menuItem("RSF Setup", tabName = "setup", icon = icon("sliders")),
 
     menuItem("System", tabName = "system", icon = icon("cogs"))
