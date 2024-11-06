@@ -58,6 +58,34 @@ template_set_data_match_rsf_ids <- function(pool,
   
   
   template_match_data <- template$match_results
+  
+  template_match_data[,recognized_entity_number:=as.numeric(NA)]
+  
+  #For data archive restores: we know who the entity WILL BE over time, but hasn't been created yet.  So restore the who-am-i relationship across data rows
+  #where those rows may not have ID data values for data updates that are submitted over time.
+  template_data_sys_names <- NULL
+  if (any(names(template$template_data)=="SYSNAME")) {
+    
+    template_data_sys_names <- unique(template$template_data[,.(reporting_template_row_group,data_category,SYSNAME)])
+    template_data_sys_names[,sysname_tree:=strsplit(SYSNAME,
+                                  split=">",
+                                  fixed=T)]
+    set(template_data_sys_names,
+        i=NULL,
+        j="pfcbl_category",
+        value=sapply(template_data_sys_names$sysname_tree,function(x) gsub("\\s?([a-z]+):.*$","\\1",x[length(x)])))
+    
+    template_data_sys_names[,
+          recognized_entity_number:=.GRP,
+          by=.(SYSNAME,
+               data_category)]
+    
+    template_match_data[template_data_sys_names,
+                        recognized_entity_number:=i.recognized_entity_number,
+                        on=.(reporting_template_row_group,
+                             pfcbl_category)]
+  }
+  
   #Main lookup matching
   {
     current_rsf_id_rank <- 0 #0=Global, which is already known by definition as Global.
@@ -124,9 +152,50 @@ template_set_data_match_rsf_ids <- function(pool,
             
             current_match_data[is.na(parent_rsf_pfcbl_id),
                                parent_rsf_pfcbl_id:=parent_ids$rsf_pfcbl_id]
-          } else {
+          
+          } else if (!is.null(template_data_sys_names)) {
+            parent_sys_names <- current_match_data[is.na(parent_rsf_pfcbl_id),
+                               .(reporting_template_row_group,
+                                 pfcbl_category,
+                                 recognized_entity_number)
+                               ][template_data_sys_names,
+                                 on=.(reporting_template_row_group,
+                                      recognized_entity_number,
+                                      pfcbl_category),
+                                 nomatch=NULL
+                                 ][,
+                                   .(reporting_template_row_group,
+                                     recognized_entity_number,
+                                     pfcbl_category,
+                                     parent_sys_name=sapply(sysname_tree,function(x) trimws(paste0(x[-length(x)],collapse=">"))))]
             
-            if (!empty(template$match_SYSNAMES) && any(names(template_data)=="SYSID")) {
+            parent_ids <- template_data_sys_names[pfcbl_category==parent_data_category,
+                                                  .(reporting_template_row_group,
+                                                    pfcbl_category,
+                                                    SYSNAME)
+                                                  ][template_match_data[,.(reporting_template_row_group,
+                                                                          pfcbl_category,
+                                                                          rsf_pfcbl_id)],
+                                                    on=.(reporting_template_row_group,
+                                                         pfcbl_category),
+                                                    nomatch=NULL
+                                                    ][,
+                                                      .(parent_rsf_pfcbl_id=rsf_pfcbl_id,
+                                                        parent_sys_name=SYSNAME,
+                                                        joincondition=as.numeric(NA))]
+            parent_ids <- unique(parent_ids)
+            
+            parent_ids <- parent_sys_names[parent_ids,
+                                           on=.(parent_sys_name),
+                                           nomatch=NULL][!is.na(parent_rsf_pfcbl_id)]
+            
+            current_match_data[parent_ids,
+                               parent_rsf_pfcbl_id:=i.parent_rsf_pfcbl_id,
+                               on=.(parent_rsf_pfcbl_id=joincondition,
+                                    reporting_template_row_group,
+                                    pfcbl_category)]
+            
+          } else if (!empty(template$match_SYSNAMES) && any(names(template_data)=="SYSID")) {
               
               current_SYSIDS <- unique(template_data[data_category==current_data_category,
                                                      .(reporting_template_row_group,
@@ -169,7 +238,8 @@ template_set_data_match_rsf_ids <- function(pool,
               current_SYSIDS <- NULL
               
             
-            } else {
+            
+          } else {
               
               bad_data <- unique(template$template_data[data_category==current_data_category,
                                                  .(reporting_template_row_group,
@@ -184,8 +254,9 @@ template_set_data_match_rsf_ids <- function(pool,
               
               stop(message)
               
-            }
+            
           }
+          
         }
         
         if (anyNA(current_match_data$parent_rsf_pfcbl_id)) {
@@ -220,18 +291,30 @@ template_set_data_match_rsf_ids <- function(pool,
                                                   on=.(reporting_template_row_group,
                                                        pfcbl_category),
                                                   nomatch=NULL]
-          if (empty(template_current_data)) break;
-          if (!all(current_match_data$reporting_template_row_group %in% template_current_data$reporting_template_row_group)) {
-            no_ids <- which(!(current_match_data$reporting_template_row_group %in% template_current_data$reporting_template_row_group))
-            valid_indicators <- template$program_indicators[data_category==current_data_category &
-                                        indicator_sys_category %in% indicator_sys_category_match_indicators$indicator_sys_category,
-                                        indicator_name]
-            stop(paste0("No Identifier indicators submitted to lookup ",current_data_category," on: ",
-                        paste0(current_match_data$reporting_template_row_group[no_ids],collapse=" & "),". ",
-                        "Dataset expected to provide at least one of: ",
-                        paste0(valid_indicators,collapse=" AND/OR ")))
-          }
           
+          if (empty(template_current_data)) break;
+          
+          if (!all(current_match_data$reporting_template_row_group %in% template_current_data$reporting_template_row_group)) {
+            
+            no_id_data_rows <- current_match_data$reporting_template_row_group[!current_match_data$reporting_template_row_group %in% template_current_data$reporting_template_row_group]
+            
+            recognized_ids_with_data <- current_match_data[reporting_template_row_group %in% template_current_data$reporting_template_row_group,recognized_entity_number]
+            no_id_data_rows <- current_match_data[reporting_template_row_group %in% no_id_data_rows &
+                                                  !recognized_entity_number %in% recognized_ids_with_data,
+                                                  reporting_template_row_group]
+            
+            if (length(no_id_data_rows) > 0) {
+              #no_ids <- which(!(current_match_data$reporting_template_row_group %in% template_current_data$reporting_template_row_group))
+              valid_indicators <- template$rsf_indicators[data_category==current_data_category &
+                                          indicator_sys_category %in% indicator_sys_category_match_indicators$indicator_sys_category,
+                                          indicator_name]
+              
+              stop(paste0("No Identifier indicators submitted to lookup ",toupper(current_data_category)," on: ",
+                          paste0(no_id_data_rows,collapse=" & "),". ",
+                          "Dataset expected to provide at least one of: ",
+                          paste0(valid_indicators,collapse=" AND/OR ")))
+            }
+          }
           
           #template_current_lookup_data[,reporting_template_id:=template$template_id]
           template_current_data[is.na(data_value),
@@ -254,7 +337,6 @@ template_set_data_match_rsf_ids <- function(pool,
         {
          
           #create pseudo columns: normalized_id and data_source_row_id
-          #Not created earlier because all hashvalue matches would be reduntant to compute these pseudo cols
           {
             if (template_has_static_row_ids==TRUE) {
               
@@ -442,6 +524,54 @@ template_set_data_match_rsf_ids <- function(pool,
                                                                               indicator_id,
                                                                               indicator_sys_category,
                                                                               matched_rsf_pfcbl_id)]
+            
+            #Filter out recognized entities that have been matched
+            #Filter here so they can go through disambiguation matching in case lookup returns multiple matches.
+            #They'll be re-assosciated with the best match later.
+            # if (!empty(template_match_data[pfcbl_category==current_data_category & 
+            #                                is.na(recognized_entity_number) == FALSE])) {
+            #   
+            #   unmatched_recognized_rows <- template_current_lookup_data[,
+            #                                                             .(nomatches=all(is.na(matched_rsf_pfcbl_id))),
+            #                                                             by=.(reporting_template_row_group)
+            #                                                             ][nomatches==TRUE
+            #                                                               ][template_match_data[!is.na(recognized_entity_number),
+            #                                                                                     .(reporting_template_row_group,
+            #                                                                                       recognized_entity_number)],
+            #                                                                 on=.(reporting_template_row_group),
+            #                                                                 nomatch=NULL]
+            #   
+            #   #Filter-out unmatched rows that are recogized but have not submitted and ID information.  As these will be re-associated with those rows that
+            #   #did submit that ID information.
+            #   no_id_data_rows <- current_match_data[!reporting_template_row_group %in% template_current_data$reporting_template_row_group,
+            #                                         .(reporting_template_row_group,
+            #                                           recognized_entity_number)]
+            #   
+            #   #current_match_data[recognized_entity_number==2551]
+            #   #template_current_lookup_data[reporting_template_row_group %in% c("9012RSFDATA","9013RSFDATA")]
+            #   
+            #   unmatched_recognized_rows[!reporting_template_row_group %in% no_id_data_rows]
+            #   
+            #   recognized_ids_with_data <- current_match_data[reporting_template_row_group %in% template_current_data$reporting_template_row_group,recognized_entity_number]
+            #   
+            #   # matched_recognized_rows <- template_match_data[pfcbl_category==current_data_category & 
+            #   #                                                is.na(recognized_entity_number) == FALSE,
+            #   #                                                 .(reporting_template_row_group,
+            #   #                                                   recognized_entity_number)
+            #   #                                                 ][template_current_lookup_data[,.(reporting_template_row_group,
+            #   #                                                                                   matched_rsf_pfcbl_id)],
+            #   #                                                   on=.(reporting_template_row_group),
+            #   #                                                   nomatch=NULL][,
+            #   #                                                          .(hasmatches=any(!is.na(matched_rsf_pfcbl_id))),
+            #   #                                                          by=.(recognized_entity_number)
+            #   #                                                          ][hasmatches==TRUE]
+            #   
+            #   #has to match something if it'll be matched.  Else they're all new!... and new entities will group by recognition otherwise.
+            #   unmatched_recognized_rows <- unmatched_recognized_rows[recognized_entity_number %in% matched_recognized_rows$recognized_entity_number]
+            # 
+            #   
+            #   template_current_lookup_data <- template_current_lookup_data[!(reporting_template_row_group %in% unmatched_recognized_rows$reporting_template_row_group)]
+            # }
             
             
             #for entities (borrowers) that change their name and/or other info AND ALSO add a new entry on a new row,
@@ -813,6 +943,32 @@ template_set_data_match_rsf_ids <- function(pool,
           }
         }
         
+        
+        recognized_actions <- current_match_data[!is.na(match_action) & !is.na(recognized_entity_number),
+                                                 .(rsf_pfcbl_id,
+                                                   match_action,
+                                                   recognized_entity_number)]
+        
+        if (!empty(recognized_actions)) {
+          recognized_actions[,n:=nrow(unique(.SD)),by=.(recognized_entity_number)]
+          recognized_actions <- recognized_actions[n==1]
+          recognized_actions[,n:=NULL]
+          
+          recognized_actions <- current_match_data[is.na(match_action) &
+                                                   !is.na(recognized_entity_number),
+                                                   .(reporting_template_row_group,
+                                                     recognized_entity_number)
+                                ][recognized_actions,
+                                  on=.(recognized_entity_number)]
+          
+          current_match_data[recognized_actions,
+                             `:=`(rsf_pfcbl_id=i.rsf_pfcbl_id,
+                                  match_action=i.match_action,
+                                  matched_by='Recognized entity'),
+                             on=.(reporting_template_row_group,
+                                  recognized_entity_number)]
+        }
+        
         if (!empty(current_match_data[is.na(match_action)])) {
           bad_actions <- current_match_data[is.na(match_action)]
           bad_data <- template_data[reporting_template_row_group %in% bad_actions$reporting_template_row_group
@@ -861,6 +1017,8 @@ template_set_data_match_rsf_ids <- function(pool,
           #pfcbl_id can pre-assign new groups on template read-in without need to group by data-values across rows (pfcbl templates 
           #will also read-in "long" data and therefore not have parent-child relationships on individual rows)
           {
+            #This is semi-obsoleted and replaced by recognized_entity_number
+            #But as it works and as it is used by setup template, it's left in.
             if (template$template_ids_method=="pfcbl_id" && any(names(template_data)=="SYSID") && !empty(template_data[SYSID < 0])) {
               
               #for defined, they'are already defined...we don't care if there are redundancies or in any way aboud the data_value values.
@@ -921,7 +1079,8 @@ template_set_data_match_rsf_ids <- function(pool,
                                                .(reporting_template_row_group,
                                                  parent_rsf_pfcbl_id, 
                                                  parent_pfcbl_category=parent_data_category, 
-                                                 for_pfcbl_category=pfcbl_category)
+                                                 for_pfcbl_category=pfcbl_category,
+                                                 recognized_entity_number)
                                                 ][creation_data,
                                                     on=.(reporting_template_row_group,
                                                          for_pfcbl_category),
@@ -954,6 +1113,7 @@ template_set_data_match_rsf_ids <- function(pool,
                                                          reporting_template_row_group + 
                                                          parent_rsf_pfcbl_id + 
                                                          parent_pfcbl_category + 
+                                                         recognized_entity_number +
                                                          for_pfcbl_category ~ 
                                                          indicator_sys_category,
                                                          value.var="data_value")
@@ -973,19 +1133,9 @@ template_set_data_match_rsf_ids <- function(pool,
                 id_cols <- names(create_new_undefined)[-which(names(create_new_undefined) %in% c("reporting_template_row_group",
                                                                                                  "parent_rsf_pfcbl_id",
                                                                                                  "parent_pfcbl_category",
-                                                                                                 "for_pfcbl_category"))]
+                                                                                                 "for_pfcbl_category",
+                                                                                                 "recognized_entity_number"))]
                 
-                #all indicator_sys_category files are NA for the reporting row
-                missing_ids <- which(sapply(as.data.frame(t(create_new_undefined[,..id_cols])),function(x) all(is.na(x))))
-                if (length(missing_ids) > 0) {
-                  bad_rows <- create_new_undefined[missings_ids,reporting_template_row_group]
-                  stop(paste0("Failed to create new ",toTitleCase(current_data_category)," entities because ",
-                              paste0(id_cols,collapse=", "),
-                              " columnas are ALL {MISSING} on ROWS ",
-                              paste0(bad_rows,collapse=" & "),
-                              ". At least one non-missing ",current_data_category," ID value must be reported on these rows."))
-                }
-                group_cols <- names(create_new_undefined)[-which(names(create_new_undefined)=="reporting_template_row_group")]
                 
                 create_new_undefined[,row_number:=as.numeric(gsub("^([[:digit:]]+).*$","\\1",reporting_template_row_group))]
                 
@@ -993,8 +1143,59 @@ template_set_data_match_rsf_ids <- function(pool,
                 setorder(create_new_undefined,
                          row_number)
                 
+                if (any(!is.na(create_new_undefined$recognized_entity_number))) {
+                  
+                  first_cols <- c("recognized_entity_number",id_cols)
+                  
+                  first_recognized_entity <- create_new_undefined[!is.na(recognized_entity_number)
+                                             ][unique(creation_data[,.(reporting_template_row_group,reporting_asof_date)]),
+                                               on=.(reporting_template_row_group)]
+                  setorder(first_recognized_entity,
+                           reporting_asof_date,
+                           -row_number) #within the reporting dates, we want the last (latest) row first as "currentest data"
+                  
+                  first_recognized_entity[,
+                                          n:=1:.N,
+                                          by=.(recognized_entity_number)]
+                  
+                  first_recognized_entity <- first_recognized_entity[n==1,
+                                                                     ..first_cols]
+                  
+                  first_recognized_entity <- first_recognized_entity[current_match_data[,
+                                                                                        .(reporting_template_row_group,
+                                                                                          parent_rsf_pfcbl_id, 
+                                                                                          parent_pfcbl_category=parent_data_category, 
+                                                                                          for_pfcbl_category=pfcbl_category,
+                                                                                          recognized_entity_number)],
+                                          on=.(recognized_entity_number)]
+                  
+                  #just to allow merge, removed subsequently
+                  first_recognized_entity[,row_number:=.I]
+                  
+                  setcolorder(first_recognized_entity,
+                              neworder=names(create_new_undefined))
+                  
+                  
+                  create_new_undefined <- create_new_undefined[!(recognized_entity_number %in% unique(first_recognized_entity$recognized_entity_number))]
+                  create_new_undefined <- rbindlist(list(create_new_undefined,
+                                                         first_recognized_entity))
+                  
+                }
+                
                 create_new_undefined[,row_number:=NULL]
                 
+                #all indicator_sys_category files are NA for the reporting row
+                missing_ids <- which(sapply(as.data.frame(t(create_new_undefined[,..id_cols])),function(x) all(is.na(x))))
+                if (length(missing_ids) > 0) {
+                  bad_rows <- create_new_undefined[missing_ids,reporting_template_row_group]
+                  stop(paste0("Failed to create new ",toTitleCase(current_data_category)," entities because ",
+                              paste0(id_cols,collapse=", "),
+                              " columnas are ALL {MISSING} on ROWS ",
+                              paste0(bad_rows,collapse=" & "),
+                              ". At least one non-missing ",current_data_category," ID value must be reported on these rows."))
+                }
+                
+                group_cols <- names(create_new_undefined)[-which(names(create_new_undefined)=="reporting_template_row_group")]
                 create_new_undefined[,
                                      unique_new_entity_row_id:=.GRP,
                                      by=group_cols]

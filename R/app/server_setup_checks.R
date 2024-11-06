@@ -24,12 +24,15 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
    
    monitored_checks <- DBPOOL %>% dbGetQuery("
     select 
-      fcs.*,
-      icf.check_formula_title,
-      icf.check_pfcbl_category,
-      ic.check_name,
-      ic.check_type,
-      ic.check_class,
+      fcs.rsf_pfcbl_id,
+      fcs.indicator_check_id,
+      fcs.check_formula_id,
+      fcs.rank_id,
+      fcs.check_formula_title,
+      fcs.check_pfcbl_category,
+      fcs.check_name,
+      fcs.check_type,
+      fcs.check_class,
       ict.check_type_name,
       coalesce(has.reported,false) as has_flag,
       fcs.is_subscribed,
@@ -37,12 +40,7 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
       case when fcs.is_auto_subscribed = true then NULL::bool
            else fcs.is_subscribed end as user_subscription
     from p_rsf.view_rsf_program_facility_check_subscriptions fcs
-    inner join p_rsf.indicator_check_formulas icf on icf.check_formula_id = fcs.check_formula_id
-    inner join p_rsf.indicator_checks ic on ic.indicator_check_id = fcs.indicator_check_id
-    inner join p_rsf.indicator_check_types ict on ict.check_type = ic.check_type
-    inner join p_rsf.rsf_pfcbl_categories rpc on rpc.pfcbl_category = ic.check_pfcbl_category
-    inner join p_rsf.view_rsf_program_facility_check_subscribable fca on fca.rsf_pfcbl_id = fcs.rsf_pfcbl_id
-                                                                     and fca.check_formula_id = fcs.check_formula_id
+    inner join p_rsf.indicator_check_types ict on ict.check_type = fcs.check_type
     left join (select distinct
     						ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
     						rdc.check_formula_id,
@@ -52,16 +50,15 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
     						where ft.from_rsf_pfcbl_id = $1::int
     						  and rdc.check_formula_id is not null) as has on has.rsf_pfcbl_id = fcs.rsf_pfcbl_id
     																												  and has.check_formula_id = fcs.check_formula_id
-    where fca.is_subscribable = true
-      and fcs.rsf_pfcbl_id = $1::int
+    where fcs.rsf_pfcbl_id = $1::int
     order by 
-      rpc.pfcbl_rank desc,
-      case when ic.check_class = 'critical' then 1
-           when ic.check_class = 'error' then 2
-           when ic.check_class = 'warning' then 3
+      fcs.data_category_rank desc,
+      case when fcs.check_class = 'critical' then 1
+           when fcs.check_class = 'error' then 2
+           when fcs.check_class = 'warning' then 3
            else 4 end,
-      ic.check_name,
-      icf.check_formula_title",
+      fcs.check_name,
+      fcs.check_formula_title",
     params=list(selected_rsf_pfcbl_id))
                                                            
    setDT(monitored_checks)
@@ -589,8 +586,7 @@ output$ui_setup__checks_monitored_table <- DT::renderDataTable({
                   scrollY="70vh",
                   #scrollCollapse=TRUE,
                   ordering=F,
-                  paging=TRUE,
-                  pageLength=250,
+                  paging=F,
                   columnDefs = list(list(className = 'dt-left', targets = c(0,1)))))
   
 })

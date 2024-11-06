@@ -95,7 +95,7 @@ parse_template_rsf_setup <- function(pool,
              old="INDID",
              new="indicator_id")
     
-    bad_indicators <- setdiff(tdata[,.(indicator_id,indicator_name)],
+    bad_indicators <- fsetdiff(tdata[,.(indicator_id,indicator_name)],
                               rsf_indicators[,.(indicator_id,indicator_name)])
 
     bad_indicators <- as.data.frame(bad_indicators)

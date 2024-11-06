@@ -132,11 +132,11 @@ SERVER_DASHBOARD_DO_LOAD <- function(for_client_sys_names=NA,
     selected_clients <- as.character(for_client_sys_names)
     client_rsf_pfcbl_ids <- NULL
     if (any(selected_clients=="ALL")) {
-      client_rsf_pfcbl_ids <- SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id
+      client_rsf_pfcbl_ids <- SERVER_DASHBOARD_CLIENTS_LIST()$rsf_pfcbl_id
       
-    } else if (any(as.character(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id) %in% as.character(for_client_sys_names),na.rm = T)) {
+    } else if (any(as.character(SERVER_DASHBOARD_CLIENTS_LIST()$rsf_pfcbl_id) %in% as.character(for_client_sys_names),na.rm = T)) {
       
-      for_client_sys_names <- for_client_sys_names[as.character(for_client_sys_names) %in% as.character(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id)]
+      for_client_sys_names <- for_client_sys_names[as.character(for_client_sys_names) %in% as.character(SERVER_DASHBOARD_CLIENTS_LIST()$rsf_pfcbl_id)]
       client_rsf_pfcbl_ids <- suppressWarnings(as.numeric(for_client_sys_names))
                
     } else {
@@ -235,7 +235,7 @@ observeEvent(input$action_server_dashboard_reports__save_as, {
     return (NULL)
   }
   
-  all_clients_selected <- setequal(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id,
+  all_clients_selected <- setequal(SERVER_DASHBOARD_CLIENTS_LIST()$rsf_pfcbl_id,
                                    SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids)
   
   m <- modalDialog(id="dash_reports_save_modal",
@@ -330,7 +330,7 @@ observeEvent(input$action_server_dashboard_reports__save_as, {
 observeEvent(input$server_dashboard_reports__save_program, {
   save_program <- isTruthy(as.logical(input$server_dashboard_reports__save_program))
   
-  all_clients_selected <- setequal(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id,
+  all_clients_selected <- setequal(SERVER_DASHBOARD_CLIENTS_LIST()$rsf_pfcbl_id,
                                    SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids)
   if (save_program || all_clients_selected) {
     enable(id="server_dashboard_reports__save_clients")
@@ -368,7 +368,7 @@ observeEvent(input$server_dashboard_reports__action_save, {
   dashboard_settings <- reactiveValuesToList(SERVER_DASHBOARD_RUN_OPTIONS)
   
   save_program <- isTruthy(as.logical(input$server_dashboard_reports__save_program))
-  all_clients_selected <- setequal(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id,
+  all_clients_selected <- setequal(SERVER_DASHBOARD_CLIENTS_LIST()$rsf_pfcbl_id,
                                    SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids)
   
   for_program_name <- as.character(NA)
@@ -386,7 +386,7 @@ observeEvent(input$server_dashboard_reports__action_save, {
   for_client_names <- as.character(NA)
   if (save_clients || all_clients_selected) {
     
-    clients_list <- SELECTED_PROGRAM_CLIENTS_LIST()
+    clients_list <- SERVER_DASHBOARD_CLIENTS_LIST()
     if (all_clients_selected) {
       for_client_names <- "ALL"
     } else {

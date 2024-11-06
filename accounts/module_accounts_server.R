@@ -74,6 +74,7 @@ module_accounts_server <- function(id,
       USER_ACCOUNT$application_session_id <- credentials$session_id
       USER_ACCOUNT$user_name <- credentials$users_name
       USER_ACCOUNT$user_account_id <- credentials$account_id
+      USER_ACCOUNT$user_login <- credentials$user_login
     }
     
     LOGGEDIN <- reactive({ isTruthy(USER_ACCOUNT$user_account_id) && isTruthy(USER_ACCOUNT$application_session_id) })

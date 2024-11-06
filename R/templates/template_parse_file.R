@@ -12,8 +12,8 @@ template_parse_file <- function(pool,
   
     if (!all(file.exists(template_file))) stop(paste0("File note found: ",template_file))
   
-    if (!grepl("\\.xlsx?|\\.csv$",template_file,ignore.case = TRUE)) {
-      status_message(class="error","Error: Only .xlsx or .csv files can be uploaded.\n")
+    if (!grepl("\\.xlsx?|\\.csv|\\.csv\\.gz$",template_file,ignore.case = TRUE)) {
+      status_message(class="error","Error: Only .xlsx or .csv files can be uploaded: ",template_file," is not allowed.\n")
       #.xls files are prohibbted because openxlsx package cannot read them and this package is used to manage the excel sheets, downloads, etc.
       if (grepl("\\.xls$",template_file,ignore.case = TRUE)) status_message(class="info","Older .xls files cannot be uploaded.  In Excel, use 'Save As' to save the file to a modern version format.\n")
       
@@ -33,6 +33,35 @@ template_parse_file <- function(pool,
                                         rsf_data_sheet="RSF_DATA")
       
       rsf_indicators <- db_indicators_get_labels(pool=pool)
+      
+      if (any(rsf_indicators$redundancy_error,na.rm=T)) {
+        bad_indicators <- rsf_indicators[redundancy_error==TRUE,
+                                     .(indicator_name,
+                                       labels)]
+        bad_indicators <- bad_indicators[,unlist(labels,recursive=F),
+                                         by=.(indicator_name)][redundancy_error==TRUE]
+        
+        if (nrow(bad_indicators) > 1) {
+          
+          
+          setorder(bad_indicators,
+                   label_normalized,
+                   -is_primary)
+          
+          status_message(class="error","Error: Redundant indicator titles have been added for different indicators.  These MUST be corrected in Indicator Admin before new templates can be uploaded\n")
+          
+          ui <- tagList()
+          for (i in 1:nrow(bad_indicators)) {
+            status_message(class="none",
+                           paste(unlist(bad_indicators[i,.(indicator_name,
+                                                           key=paste0(key_type,"=",label_key),
+                                                           paste0("'",label,"'"),
+                                                           primary=ifelse(is_primary," (primary)"," (alias) <- should this one be deleted?"))]),collapse=" "),"\n")
+          }
+          status_message(class="error",
+                         "If a template is using redundant lables (this is bad practice), these may be specified in RSF Setup -> Template Setup, where header instructions may be added to dis-ambiguate these labels\n")
+        }
+      }
   }  
   
   {
@@ -62,7 +91,19 @@ template_parse_file <- function(pool,
         template_name <- {
           
           if (grepl("\\.csv$",template_file,ignore.case = TRUE)) {
-            "RSF-CSV-TEMPLATE"
+            
+            headers <- names(fread(file=template_file,nrows=0))
+            if (setequal(headers,
+                         c("SYSNAME",
+                           "INDID",
+                           "reporting_asof_date",
+                           "indicator_name",
+                           "data_value"))) {
+              "RSF-CSV-BACKUP-TEMPLATE"
+              
+            } else { #TODO if valid template then meta data within the file name itself.
+              "RSF-CSV-TEMPLATE"
+            }
           }
           
           ##################
@@ -110,7 +151,20 @@ template_parse_file <- function(pool,
         template$template_source_reference <- "SLGP Template"
         template$template_ids_method <- "rsf_id"
         
-      } 
+      }
+      
+      else if (template_name=="RSF-CSV-BACKUP-TEMPLATE") {
+        
+        template <- parse_template_csv_backup_data(pool=pool,
+                                                   template_lookup = template_lookup,
+                                                   template_file=template_file,
+                                                   reporting_user_id=reporting_user_id,
+                                                   rsf_indicators=rsf_indicators)
+        
+        if (!identical(as.numeric(template$rsf_program_id),as.numeric(rsf_program_id))) {
+          stop("Exported program ID in backup file does not match program selected for file upload")
+        }
+      }
       
       else if (template_name=="RSF-CSV-TEMPLATE") {
         
@@ -136,6 +190,7 @@ template_parse_file <- function(pool,
       template$template_name <- template_lookup$template_name
       template$template_key <- template_lookup$template_key
       template$data_integrity_key <- as.character(NA)
+      
       template$template_settings <- list()
       template$template_settings$template_has_static_row_ids <- template_lookup$template_has_static_row_ids
       template$template_settings$template_is_reportable <- template_lookup$is_reportable
@@ -276,6 +331,7 @@ template_parse_file <- function(pool,
     template$reporting_user_id <- reporting_user_id
   
   }
+  
   {
     {
       program_settings <- dbGetQuery(pool,"select 

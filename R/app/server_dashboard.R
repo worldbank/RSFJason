@@ -48,6 +48,7 @@ SERVER_DASHBOARD_RUN_OPTIONS_INIT <- list(rsf_pfcbl_ids=numeric(0),
                                           flags_display = c("active"),
                                           
                                           name_filter=c(),
+                                          reporting_filter="",
 
                                           fx_currency="LCU", #FX can not be allowed if FUTURE dates are selected
                                           fx_force_global=TRUE,
@@ -74,7 +75,7 @@ SERVER_DASHBOARD_DOWNLOAD_FILENAME <- eventReactive(c(SERVER_DASHBOARD_RUN_OPTIO
     reporting_dates <- paste0(reporting_dates,collapse=", ")
   }
 
-  clients <- SELECTED_PROGRAM_CLIENTS_LIST()
+  clients <- SERVER_DASHBOARD_CLIENTS_LIST()
   clients <- clients[rsf_pfcbl_id %in% client_ids]
   
   reporting_names <- ""
@@ -97,6 +98,48 @@ SERVER_DASHBOARD_DOWNLOAD_FILENAME <- eventReactive(c(SERVER_DASHBOARD_RUN_OPTIO
   return(default_filename)
 
 })
+
+SERVER_DASHBOARD_CLIENTS_LIST <- eventReactive(c(SELECTED_PROGRAM_CLIENTS_LIST()), {
+  
+  MODE_CROSS_PROGRAM <- TRUE
+  
+  if (MODE_CROSS_PROGRAM==TRUE) {
+    selected_program_id <- SELECTED_PROGRAM_ID()
+    if (!isTruthy(selected_program_id)) return (NULL)
+    
+    if(SYS_PRINT_TIMING) debugtime("eventReactive: SELECTED_PROGRAM_CLIENTS_LIST")
+    
+    clients <- DBPOOL %>% dbGetQuery("
+    select distinct on (ids.rsf_program_id,ids.rsf_facility_id)
+      ids.rsf_program_id,
+      ids.rsf_facility_id,
+      ids.rsf_client_id,
+      ids.rsf_pfcbl_id,
+      ids.pfcbl_category,
+      ids.pfcbl_category_rank as pfcbl_rank,
+      case when nids.pfcbl_category not in ('global','client') 
+           then nids.pfcbl_category || ':' || nids.rsf_name
+           else nids.rsf_name 
+      end as client_name,
+      nids.name,
+      nids.id,
+      nids.created_in_reporting_asof_date
+    from p_rsf.rsf_pfcbl_ids ids
+    inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
+    where ids.pfcbl_category_rank <= 3
+      and ids.pfcbl_category <> 'program'
+      and ids.rsf_program_id = $1::int
+    order by ids.rsf_program_id,ids.rsf_facility_id,ids.rsf_client_id nulls last",
+    params=list(selected_program_id))
+    
+    setDT(clients)
+    return (clients)
+  } else {
+    return (SELECTED_PROGRAM_CLIENTS_LIST())
+  }
+  
+  
+},ignoreNULL = FALSE)
 
 SERVER_DASHBOARD_INDICATORS <- eventReactive(c(SERVER_DASHBOARD_REPORT_SELECTED(),
                                                RSF_INDICATORS()), { 
@@ -907,6 +950,22 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
   rsf_family_data <- rsf_family_data[,
                                      ..selected_col_names]
   
+
+  if (any(names(rsf_family_data)=="RSFNAME",na.rm=T) &
+      all(grepl("^RANK\\d+",rsf_family_data$RSFNAME))) {
+    
+    ranknames <- rsf_family_data$RSFNAME
+    ranks <- as.numeric(gsub("^RANK(\\d+).*$","\\1",ranknames))
+    ranknames <- gsub("^RANK\\d+","",ranknames)
+    
+    ranknames <- paste0("RANK",
+                        str_pad(as.character(ranks),
+                                width=nchar(as.character(max(ranks))),
+                                side="left",
+                                pad=0),
+                        ranknames)
+    rsf_family_data[,RSFNAME:=ranknames]
+  }
   
   if (any(duplicated(names(rsf_family_data)))) {
     
@@ -924,6 +983,7 @@ SERVER_DASHBOARD_DATA_DISPLAY_UPDATE <- eventReactive(c(SERVER_DASHBOARD_CURRENT
                                                         SERVER_DASHBOARD_RUN_OPTIONS$format_pivot,
                                                         SERVER_DASHBOARD_RUN_OPTIONS$format_filter,
                                                         SERVER_DASHBOARD_RUN_OPTIONS$flags_filter,
+                                                        SERVER_DASHBOARD_RUN_OPTIONS$reporting_filter,
                                                         SERVER_DASHBOARD_RUN_OPTIONS$format_pivot_category), {
 
   return (list(current_query=SERVER_DASHBOARD_CURRENT_QUERY(),
@@ -931,6 +991,7 @@ SERVER_DASHBOARD_DATA_DISPLAY_UPDATE <- eventReactive(c(SERVER_DASHBOARD_CURRENT
                format_pivot=SERVER_DASHBOARD_RUN_OPTIONS$format_pivot,
                format_filter=SERVER_DASHBOARD_RUN_OPTIONS$format_filter,
                flags_filter=SERVER_DASHBOARD_RUN_OPTIONS$flags_filter,
+               reporting_filter=SERVER_DASHBOARD_RUN_OPTIONS$reporting_filter,
                format_pivot_category=SERVER_DASHBOARD_RUN_OPTIONS$format_pivot_category))
                                                            
 }) %>% debounce(250)
@@ -994,7 +1055,70 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
    }
  }
  
- #browser()
+ #reporting filter
+ 
+ rfilter <- as.logical(SERVER_DASHBOARD_RUN_OPTIONS$reporting_filter)
+ if (!is.na(rfilter)) {
+   
+   dashboard_data[,REPORTING:=TRUE]
+  
+   dd_dates <- as.character(unique(dashboard_data$REPORTING_asof_date))
+   for (d in dd_dates) {
+     reporting_dates <- DBPOOL %>% dbGetQuery("
+       select distinct on (rep.rsf_pfcbl_id)
+         rep.rsf_pfcbl_id,
+         rep.is_reporting
+       from p_rsf.view_rsf_pfcbl_id_is_reporting rep
+       where rep.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+         and rep.reporting_asof_date <= $2::date
+       order by rep.rsf_pfcbl_id,rep.reporting_asof_date desc",
+       params=list(paste0(unique(dashboard_data$SYSID),collapse=","),
+                   d))
+     setDT(reporting_dates)
+     reporting_dates[,REPORTING_asof_date:=as.Date(d)]
+
+     termination_dates <- DBPOOL %>% dbGetQuery("
+     select distinct on (fam.child_rsf_pfcbl_id)
+     fam.child_rsf_pfcbl_id as rsf_pfcbl_id,
+     (rdc.data_value is not null and ((rdc.data_value)::date) < $2::date) as is_terminated
+     from p_rsf.rsf_pfcbl_id_family fam
+     inner join p_rsf.indicators ind on ind.data_category = fam.parent_pfcbl_category
+     inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = fam.parent_rsf_pfcbl_id
+                                          and rdc.indicator_id = ind.indicator_id
+                                          and rdc.reporting_asof_date <= $2::date
+     where fam.child_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+       and fam.parent_pfcbl_category = 'facility'
+       and ind.indicator_sys_category = 'entity_completion_date'
+     order by 
+     fam.child_rsf_pfcbl_id,
+     rdc.data_value desc nulls last",
+     params=list(paste0(unique(dashboard_data$SYSID),collapse=","),
+                 d))
+     
+     setDT(termination_dates)
+     termination_dates[,REPORTING_asof_date:=as.Date(d)]
+     
+     dashboard_data[reporting_dates,
+                    REPORTING:=i.is_reporting,
+                    on=.(SYSID=rsf_pfcbl_id,
+                         REPORTING_asof_date)]
+     
+     dashboard_data[termination_dates[is_terminated==TRUE],
+                    REPORTING:=FALSE,
+                    on=.(SYSID=rsf_pfcbl_id,
+                         REPORTING_asof_date)]
+     
+     reporting_dates <- NULL
+   }
+  
+   if (rfilter==TRUE) {
+     dashboard_data <- dashboard_data[REPORTING==TRUE]
+   } else {
+     dashboard_data <- dashboard_data[REPORTING==FALSE]
+   }
+   dashboard_data[,REPORTING:=NULL]
+ }
+ 
  #dd <- dfilters$current_query
  #dashboard_data <- as.data.table(as.data.frame(dd))
  #flag filter -- how flags are filtered is dependent on pivot
@@ -1557,6 +1681,17 @@ observeEvent(input$server_dashboard__flags_filter, {
   
 },ignoreNULL = FALSE)
 
+observeEvent(input$server_dashboard__reporting_filter, {
+  
+  rfilter <- as.logical(input$server_dashboard__reporting_filter)
+  if (is.na(rfilter)) {
+    SERVER_DASHBOARD_RUN_OPTIONS$reporting_filter <- ""
+  } else if (rfilter==TRUE) {
+    SERVER_DASHBOARD_RUN_OPTIONS$reporting_filter <- TRUE
+  } else {
+    SERVER_DASHBOARD_RUN_OPTIONS$reporting_filter <- FALSE
+  }
+})
 
 observeEvent(SERVER_DASHBOARD_SELECTED_INDICATORS(), {
   
@@ -1619,9 +1754,9 @@ ignoreNULL = FALSE,
 ignoreInit = FALSE,
 priority = 9) # #need this observer to fire AFTER observeEvent(SERVER_DASHBOARD_REPORT_SELECTED() which sets SERVER_DASHBOARD_RUN_OPTIONS$indicator_names
 
-observeEvent(SELECTED_PROGRAM_CLIENTS_LIST(), {
+observeEvent(SERVER_DASHBOARD_CLIENTS_LIST(), {
   
-  clients <- SELECTED_PROGRAM_CLIENTS_LIST()
+  clients <- SERVER_DASHBOARD_CLIENTS_LIST()
   
   if (is.null(clients)) {
     updatePickerInput(session=session,
@@ -2006,7 +2141,10 @@ SERVER_DASHBOARD_LOOKUP_RESULTS <- eventReactive(c(SERVER_DASHBOARD_INDICATORS()
     
     matches <- sapply(keywords,
                       function(x,indicators) {
-                        indicators[grepl(pattern=x,keywords),indicator_id]
+                        indicators[grepl(pattern=x,
+                                         keywords,
+                                         ignore.case = T),
+                                   indicator_id]
                       },
                       indicators=ind)
     

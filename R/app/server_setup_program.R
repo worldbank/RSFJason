@@ -131,3 +131,60 @@ output$program_download_setup <- downloadHandler(
   }
 )
 
+
+output$program_download_backup <- downloadHandler(
+  filename = function() {
+    program <- SELECTED_PROGRAM()
+    if (!isTruthy(program)) return (NULL)
+    setup_name <- paste0("RSF PROGRAM BACKUP DATA FILE for ",
+                         program$program_nickname
+                         ," ",
+                         format.Date(now(tzone="EST"),"%Y-%m-%d %Hh%M"),
+                         ".csv.gz")
+    
+    selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
+    facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
+    if (any(selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id)) {
+      setup_name <- paste0("RSF BACKUP DATA FILE for ",
+                           paste0(sort(facilities[rsf_pfcbl_id %in% selected_rsf_pfcbl_id,facility_nickname]),collapse=", ")
+                           ," ",
+                           format.Date(now(tzone="EST"),"%Y-%m-%d %Hh%M"),
+                           ".csv.gz")
+    }
+    setup_name
+  },
+  content=function(file) {
+    
+    withProgress(message="Downloading file... This may take some time",value=0.5, {
+      
+      program <- SELECTED_PROGRAM()
+      if (!isTruthy(program)) return(showNotification(h2("Please select an RSF Program to to enable download archive")))
+      
+      selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
+      facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
+      
+      if (!isTruthy(selected_rsf_pfcbl_id) ||
+          !any(selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id)) selected_rsf_pfcbl_id <- program$rsf_pfcbl_id
+      
+      backup_export <- DBPOOL %>% export_backup_data_to_csv(rsf_pfcbl_id.familytree=selected_rsf_pfcbl_id,
+                                                            exporting_user_id=USER_ID())
+      
+      if (file.exists(file)) {
+        file.remove(file)
+      }
+      
+      fwrite(x=backup_export,
+             file=file,
+             compress="gzip")
+      
+      # openxlsx::saveWorkbook(wb=programs_export,
+      #                        file=file,
+      #                        overwrite=TRUE)
+      
+      return (file)      
+      
+      incProgress(amount=1.0,message="Completed")
+    })
+  }
+)
+

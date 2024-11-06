@@ -33,6 +33,10 @@ rsf_calculations_resolve_parameters <- function(calculations,
                                    parameter_data_type=i.data_type),
                               on=.(parameter_indicator_name=indicator_name)]
   
+  #For .all, a .timeseries value is resolved.  Which should not be a resolved parameter as it is a list element of .all
+  if (any(request_indicator_variables$parameter_variable=="timeseries",na.rm=T)) {
+    request_indicator_variables <- request_indicator_variables[!(parameter_variable=="timeseries")]
+  }
   #Can occur if a formula definition requests a non-existent indicator.  Which can happen if formula simply has mistakes, or if an indicator is renamed
   #or formula_indicator_formula specification has those issues
   if (anyNA(request_indicator_variables$parameter_indicator_id)) {

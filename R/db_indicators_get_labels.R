@@ -1,6 +1,7 @@
 db_indicators_get_labels <- function(pool) {
   #conn <- poolCheckout(pool)
   #dbBegin(conn)
+  #dbRollback(conn)
   
     
   indicators <- poolWithTransaction(pool,function(conn) {
@@ -25,6 +26,7 @@ db_indicators_get_labels <- function(pool) {
                               ind.indicator_options_group_allows_multiples,
                               ind.is_setup,
                               ind.is_periodic_or_flow_reporting,
+                              ind.default_subscription,
                               ind.classification,
                               ind.definition,
                               ind.is_system_calculated,
@@ -56,25 +58,27 @@ db_indicators_get_labels <- function(pool) {
     
     indicator_labels[,
                      label_normalized:=normalizeLabel(label)]
+    
     indicator_labels[,
-                     n:=length(unique(indicator_id)),
+                     redundancy_error:=length(unique(indicator_id))>1,
                      by=.(label_normalized)]
     
-    if (any(indicator_labels$n > 1)) {
-      dups <- indicator_labels[n>1]
-      dups[indicators,
-           indicator_name:=i.indicator_name,
-           on=.(indicator_id)]
-      
-      dups <- dups[,.(msg=paste0(sort(unique(paste0(label,"=",indicator_name," (",indicator_id,")"))),collapse=" & ")),
-                   by=.(label_normalized)]
-      
-      stop(paste0("Identical indicator labels identify different indicators (This must be fixed in JASON SYSTEM ADMIN for these indicator aliases:\n ",
-                  paste0(dups$msg,collapse=" \n ")))
-    }
+    # if (any(indicator_labels$redundancy_error==TRUE)) {
+    #   dups <- indicator_labels[n>1]
+    #   dups[indicators,
+    #        indicator_name:=i.indicator_name,
+    #        on=.(indicator_id)]
+    #   
+    #   dups <- dups[,.(msg=paste0(sort(unique(paste0(label,"=",indicator_name," (",indicator_id,")"))),collapse=" & ")),
+    #                by=.(label_normalized)]
+    #   
+    #   stop(paste0("Identical indicator labels identify different indicators (This must be fixed in JASON SYSTEM ADMIN for these indicator aliases:\n ",
+    #               paste0(dups$msg,collapse=" \n ")))
+    # }
     
     indicator_labels <- indicator_labels[,
-                                         .(labels=list(.SD)), 
+                                         .(labels=list(.SD),
+                                           redundancy_error=any(redundancy_error)), 
                                          by=.(label_id),
                                          .SDcols = c("indicator_id",
                                                      "indicator_header_id",
@@ -83,11 +87,13 @@ db_indicators_get_labels <- function(pool) {
                                                      "label_normalized",
                                                      "key_type",
                                                      "key_type_template_id",
-                                                     "is_primary")]
+                                                     "is_primary",
+                                                     "redundancy_error")]
     indicators[,labels:=list()]
     
     indicators[indicator_labels,
-               labels:=i.labels,
+               `:=`(labels=i.labels,
+                    redundancy_error=i.redundancy_error),
                on=.(label_id)]
    
   

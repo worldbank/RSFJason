@@ -256,7 +256,10 @@ rsf_indicators_calculate <- function(pool,
       
 
       
-      calc_data <- unique(rsf_data_wide[,..cols])
+      calc_data <- unique(rsf_data_wide[,..cols],
+                          by=c("reporting_current_date",
+                               grep("^rsf_[a-z]+_id$",cols,value=T),
+                               grep("^rsf_pfcbl_id\\.[a-z]+$",cols,value=T)))
       
       setnames(calc_data,
                old=c(calculation_rsf_pfcbl_id_col),
@@ -345,6 +348,7 @@ rsf_indicators_calculate <- function(pool,
         if (is.na(calculation$formula_grouping_rsf_id) && 
             calculation$perform_calculation_by_row==FALSE &&
             any(grepl("(?<!p)sum\\(|(?<!p)mean\\(|count\\(|all\\(|any\\(|(?<!p)max\\(|(?<!p)min\\(|length\\(",calculation$formula,perl=T))) {
+          
           stop("Formula uses aggregate function but formula grouping is undefined for:\n",
                " {",calculation$indicator_name,"}\n",
                " Calculating: {",calculation$formula,"}\n",
@@ -376,7 +380,7 @@ rsf_indicators_calculate <- function(pool,
       if (!is.na(calculation$formula_grouping_pfcbl_rank)) {
         #Column names that are equal-to or parent-level from the current grouping-level
         #These columns will be passed to the data.table by() clause and ensure that any aggregate functions will see them only onces and not count/sum repeated rows
-        grouped_parameters <- parameters[rsf_indicators[indicator_pfcbl_rank <= calculation$formula_grouping_pfcbl_rank,
+        grouped_parameters <- parameters[parameter_variable != "all"][rsf_indicators[indicator_pfcbl_rank <= calculation$formula_grouping_pfcbl_rank,
                                                         .(parameter_indicator_id =indicator_id)],
                                          on=.(parameter_indicator_id ),
                                          nomatch=NULL,

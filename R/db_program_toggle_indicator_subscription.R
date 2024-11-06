@@ -35,6 +35,15 @@ db_program_toggle_indicator_subscription <- function(pool,
                         rsf_program_id,
                         indicator_id))
   
+  if (empty(status)) {
+    status <- dbGetQuery(pool,"
+    select is_subscribed or is_auto_subscribed or is_system
+    from p_rsf.view_rsf_program_facility_indicator_subscriptions 
+    where rsf_pfcbl_id = $1::int 
+      and indicator_id = $2::int",
+    params=list(rsf_pfcbl_id,
+                indicator_id))
+  }
   status <- unlist(status)
   return (status)
 }

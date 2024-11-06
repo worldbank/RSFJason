@@ -1,8 +1,5 @@
 #panel(style="min-width:1000px;",
 div(style="background-color:white;padding:10px;",
-  # heading=div(
-  #           div(style="float:left;","Manage Datasets and Template Uploads"),
-  #           div(style="float:right;",actionButton(inputId="action_template_upload_new",label="Upload Template",class="btn-primary",icon=icon("upload")))),
 
   div(style="float:right;position:relative;padding-left:50px;height:34px;",
       actionButton(inputId="action_template_upload_new",label="Upload Template",class="btn-primary",icon=icon("upload"))
@@ -43,13 +40,19 @@ div(style="background-color:white;padding:10px;",
               tabPanel("Dataset Review",value="review",
                        fluidRow(id="dataset_collections_select",
                                 style="padding-top:15px;",
-                         column(12,
+                                
+                         column(10,
                                 selectizeInput(inputId="cohort_collection_selected_id",
                                       label="Datasets Collection",
                                       choices=NULL,
                                       selected=NULL,
                                       options=list(placeholder="Select a dataset for review"),
                                       width="100%")),
+                         column(2,align="right",style="padding-top:25px;",
+                                downloadButton(outputId="datasets_review_download_source_action",
+                                               label="Download Template",
+                                               class="btn btn-success",
+                                               icon=icon("download")))
                        ),
                        shinyjs::hidden(
                         fluidRow(id="dataset_review_header",
@@ -104,6 +107,16 @@ div(style="background-color:white;padding:10px;",
                                                                                      }")))
                                        ),
                                        
+                                       div(style="display:flex;min-width:250px;flex-shrink:2;flex-flow:row nowrap;margin-right:10px;",
+                                           name="flag_options_filters",
+                                           selectizeInput(inputId="cohort_view_flag_indicator_classifications",
+                                                          multiple=FALSE,
+                                                          label="Priority Indicator Flags",
+                                                          width="100%",
+                                                          choices="",
+                                                          selected="",
+                                                          options=list(placeholder="Nothing flagged"))
+                                       ),
                                        
                                        div(style="display:flex;text-align:center;flex-grow:1;flex-flow:row nowrap;",
                                            div(" ")
@@ -129,10 +142,10 @@ div(style="background-color:white;padding:10px;",
                                        
                                        div(style="display:flex;min-width:120px;text-align:center;flex-flow:row nowrap;margin-right:10px;",
                                            div(style="margin-top:25px;",
-                                               downloadButton(outputId="datasets_review_download_source_action",
-                                                          label="Download ",
+                                               downloadButton(outputId="datasets_review_download_flags_action",
+                                                          label="Export Flags",
                                                           class="btn btn-success",
-                                                          icon=icon("download")))
+                                                          icon=icon("file-export")))
                                        ),
                                        
                                        div(style="display:flex;min-width:120px;text-align:center;flex-flow:row nowrap;margin-right:10px;",

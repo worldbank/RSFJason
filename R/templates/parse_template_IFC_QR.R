@@ -160,7 +160,7 @@ parse_template_IFC_QR <- function(pool,
     as.numeric(rsf_pfcbl_id$rsf_pfcbl_id)
   }
   
-  #rsf_indicators <- db_indicators_get_labels(pool)
+  
   #labels, including facility-specific label mappings
   {
     
@@ -198,7 +198,10 @@ parse_template_IFC_QR <- function(pool,
     setDT(header_actions)
     
     header_actions[,template_header_position:=as.numeric(NA)]
-    
+    header_actions[,stop:=as.numeric(NA)]
+    header_actions[grepl("^:AFTER:(ROW|COL)\\d+$",template_header),
+                   stop:=as.numeric(gsub("^:AFTER:(ROW|COL)(\\d+)$","\\2",template_header))]
+    stop_actions <- header_actions[is.na(stop)==FALSE & action=="ignore"]
     #default allows facilities to overwrite program-level setups, for example.
     header_actions <- header_actions[action != "default"]
     
@@ -297,6 +300,7 @@ parse_template_IFC_QR <- function(pool,
                                            to.lower.case=FALSE,
                                            empty.is.NA=TRUE)]
   
+      
       all_blanks <- which(sapply(as.data.frame(is.na(t(summary_sheet))),all))
       if (any(all_blanks)) summary_sheet <- summary_sheet[-all_blanks]
       
@@ -351,6 +355,7 @@ parse_template_IFC_QR <- function(pool,
     
     #label matching!!
     {
+      
       #match by exact position (all matches) and also exact encounter index
       {
       position_matches <- summary_sheet[is.na(action) &
@@ -521,9 +526,17 @@ parse_template_IFC_QR <- function(pool,
     
     #Label errors/mismatching
     {
+      
       summary_sheet[,
                      ignore:=anyNA(action)==FALSE & all(action=="ignore"),
                      by=.(original_row_num)]
+
+      stop_row <- na.omit(stop_actions[template_header_sheet_name=="Summary" & is.na(stop)==FALSE,stop])
+      if (length(stop_row) > 0) {
+        stop_row <- max(stop_row)
+        summary_sheet[original_row_num > stop_row,
+                      ignore:=TRUE]
+      }
       
       #summary_sheet[ignore==TRUE]
       summary_sheet <- summary_sheet[ignore==FALSE]
@@ -803,6 +816,33 @@ parse_template_IFC_QR <- function(pool,
 
     data_rows <- seq(from=max(label_rows_index)+1,
                      to=nrow(data_sheet))
+    
+    na_data <- rowSums(is.na(data_sheet))==ncol(data_sheet)
+    if (any(na_data)) {
+      na_ratio <- (sum(rowSums(is.na(data_sheet))==ncol(data_sheet)) / nrow(data_sheet))
+      #What is the ratio of fully NA rows to total number of rows?
+      #If it is high, it implies that the Excel may have a lot of junk data -- such as formats applied to nothing.
+      #This takes a lot of time to read in (eg, if user has formatted to end of possible Excel limit, this is 1 million+ rows that we'll be parsing)
+      #Do we have more than 1000 rows defined and more than 85% blank?
+      if (nrow(data_sheet) > 1000 &
+          na_ratio > 0.85) {
+        status_message(class="warning",
+                       "Sheet QReport defines ",nrow(data_sheet)," rows and ",round(nrow(data_sheet) * na_ratio)," are entirely blank! \n",
+                       "This takes a long time to parse and then discard blank rows. \n",
+                       "Ensure that Excel formats are not filled-in until the last row and no columns have filled-down blanks or other defaults that generate unnecessary empty rows. ",
+                       "To clean up and improve upload speed: \n",
+                       "  - click on the first blank data row number \n",
+                       "  - do Ctrl+Shift+Down Arrow to select all empty rows to the end of the sheet \n",
+                       "  - Right-click mouse and select 'Delete' \n",
+                       "  - Save As an updated file name")
+        
+        
+        # status_message(class="warning",
+        #                "System will attempt to auto-cleanup empty rows.  By ignoring information after row ",)
+        
+      }
+      
+    }
     
     #Empty submitted blank data sheet!
     if (any(max(label_rows_index)+1 >= nrow(data_sheet))) data_rows <- 0

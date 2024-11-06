@@ -8,6 +8,14 @@ parse_template_pfcbl_editor_report <- function(pool,
   
   
   report_data <- template$template_data
+  
+  if (!any(names(report_data)=="INDID")) stop("parse_template_pfcbl_editor_report expects column INDID")
+  if (!any(names(report_data)=="SYSID") &&
+      !any(names(report_data)=="SYSNAME")) stop("parse_template_pfcbl_editor_report expects column SYSID or SYSNAME or both")
+  
+  if (!any(names(report_data)=="SYSID")) report_data[,SYSID:=as.numeric(NA)]
+  if (!any(names(report_data)=="SYSNAME")) report_data[,SYSNAME:=as.character(NA)]
+  
   {
     setnames(report_data,
              old=c("INDID"),

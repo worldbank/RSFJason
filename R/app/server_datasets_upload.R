@@ -195,6 +195,7 @@ observeEvent(input$modal_dataset_upload_next, {
   
   if (empty(results)) {
     COHORT_NEW_ID(NA) 
+    REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1) #failed cohorts will leave an artifact, generally, which should be viewable.
     #COHORT_TEMPLATES(NA)
   } else {
     #reporting_cohort_ids <- sapply(up_template,function(x) x[['reporting_cohort']][['reporting_cohort_id']])
@@ -241,13 +242,13 @@ output$dataset_upload_title <- renderText({
 
 
 
-observeEvent(c(DATASET_UPLOAD_FILE(),
-               SELECTED_PROGRAM(),
-               COHORT_NEW_ID()), { 
-                 
-
-},
-ignoreNULL = FALSE,ignoreInit = TRUE,priority=1)
+# observeEvent(c(DATASET_UPLOAD_FILE(),
+#                SELECTED_PROGRAM(),
+#                COHORT_NEW_ID()), { 
+#                  
+# 
+# },
+# ignoreNULL = FALSE,ignoreInit = TRUE,priority=1)
 
 observeEvent(input$dataset_upload_file, {
   

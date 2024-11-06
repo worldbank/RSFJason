@@ -335,16 +335,15 @@
            
            if (is.null(names(by)) && !is.null(names(by[[1]]))) by <- by[[1]]
            
-           
            if (!all(c("indicator_name",
-                      "current.reporteddate",
+                      "timeseries.reporteddate",
                       "reporting_current_date",
-                      "current") %in% names(by))) {
-             stop("Timeseries arguments require columns with .all specified, eg: loan_risk_balance.all")
+                      "timeseries") %in% names(by))) {
+             stop("Timeseries arguments require columns with .all specified, eg: loan_risk_balance.all to provide a data.table with columns: timeseries, timeseries.unit, timeseries.reporteddate, timeseries.changed, timeseries.updated")
            }
            
            
-           timeline <- seq(min(by$current.reporteddate)+1,
+           timeline <- seq(min(by$timeseries.reporteddate)+1,
                            max(by$reporting_current_date)+1,
                            by="quarters")
            
@@ -358,26 +357,40 @@
              col <- vars[[i]]
              if (is.null(names(col)) && !is.null(names(col[[1]]))) col <- col[[1]]
              if (!all(c("indicator_name",
-                        "current.reporteddate",
+                        "timeseries.reporteddate",
                         "reporting_current_date",
-                        "current") %in% names(by))) {
-               stop("Timeseries arguments require columns with .all specified, eg: loan_risk_balance.all")
+                        "timeseries") %in% names(by))) {
+               stop("Timeseries arguments require columns with .all specified, eg: loan_risk_balance.all to provide a data.table with columns: timeseries, timeseries.unit, timeseries.reporteddate, timeseries.changed, timeseries.updated")
              }
              
              this_fill <- NULL
-             if (length(fill)==1) this_fill <- fill
-             else this_fill <- fill[i]
+             if (length(fill)==1) { this_fill <- fill 
+             } else { this_fill <- fill[i] }
              
-             ind_col <- paste0(unique(col$indicator_name),".current")
+             #ind_col <- unique(col$indicator_name)
+             # col[,`:=`(indicator_name=NULL,
+             #           reporting_current_date=NULL)]
+             # 
+             ind_col <- paste0(unique(col$indicator_name),".timeseries")
+             
+             # setnames(col,
+             #          old="timeseries.reporteddate",
+             #          new="reporting_current_date")
+             # 
+             # setnames(col,
+             #          old=grep("timeseries\\..*$",names(col),value=T),
+             #          new=paste0(ind_col,".",grep("timeseries\\..*$",names(col),value=T)))
+             
              
              col <- col[,
-                        .(reporting_current_date=`current.reporteddate`,
-                          current)]
+                        .(reporting_current_date=`timeseries.reporteddate`,
+                          timeseries)]
              
              #column's reporting data pre-dates the "By" reporting dates.  So we carry its value forward.
              #Note: this will be incorrect for flow-type data.  But this is a rarely used expert-only function that anyone using should account for themselves.
              #perhaps can add a pre-fill
              if (!any(col$reporting_current_date==timeline_origin) &&
+                 any(col$reporting_current_date < timeline_origin) &&
                  as.logical(this_fill) %in% TRUE) {
                
                col_origin <- col[reporting_current_date < timeline_origin,max(reporting_current_date)]
@@ -390,79 +403,25 @@
              
              if (as.logical(this_fill) %in% TRUE) {
                timeline <- tidyr::fill(timeline,
-                                       current,
+                                       timeseries,
                                        .direction="down")
              } else if (!is.na(this_fill)) {
-               suppressWarnings(timeline[is.na(current),
-                                         current:=this_fill])
+               suppressWarnings(timeline[is.na(timeseries),
+                                         timeseries:=this_fill])
              }    
              
              
              setnames(timeline,
-                      old="current",
+                      old="timeseries",
                       new=ind_col)
            }
            return(timeline)
          })
-  
-  # assign(x="pmean",
-  #        envir=CALCULATIONS_ENVIRONMENT,
-  #        value=function(...,na.zero=TRUE,na.rm=TRUE) {
-  #          
-  #          sapply(as.data.table(do.call(rbind,list(...))),
-  #                 FUN=function(...,na.zero,na.rm) {
-  #                   x <- unlist(list(...),recursive = F,use.names = F)
-  #                   avg <- base::mean(x,na.rm=na.rm)
-  #                   if (na.zero==TRUE && (length(avg)==0 || all(is.na(avg)))) {
-  #                     return(0)
-  #                   } else {
-  #                     return(avg)
-  #                   }
-  #                 },
-  #                 na.rm=na.rm,na.zero=na.zero)
-  #        })
-  
-  # #parallel mean, excludes NA by default where mean(a,b) = a where all(b)==NA
-  # assign(x="psum",
-  #        envir=CALCULATIONS_ENVIRONMENT,
-  #        value=function(...,na.zero=TRUE,na.rm=TRUE) {
-  #          
-  #          sapply(as.data.table(do.call(rbind,list(...))),
-  #                 FUN=function(...,na.zero,na.rm) {
-  #                   x <- unlist(list(...),recursive = F,use.names = F)
-  #                   total <- base::sum(x,na.rm=na.rm)
-  #                   if (na.zero==TRUE && (length(total)==0 || all(is.na(total)))) {
-  #                     return(0)
-  #                   } else {
-  #                     return(total)
-  #                   }
-  #                 },
-  #                 na.rm=na.rm,na.zero=na.zero)
-  #        })
-  
-  # assign(x="pmax",
-  #        envir=CALCULATIONS_ENVIRONMENT,
-  #        value=function(...,na.rm=TRUE) {
-  #          val <- base::pmax(...,na.rm=na.rm)
-  #          if (length(val)==0) return(NA)
-  #          else return (val)
-  #        })
-  
-  # assign(x="concatenate",
-  #        envir=CALCULATIONS_ENVIRONMENT,
-  #        value=function(...,delimiter=" ") {
-  #          #return (paste(...))
-  #          if (all(sapply(as.list(...),function(x) is.null(x) || all(is.na(x)) || length(x)==0))) return (NA_character_)
-  #          l <- list(...)
-  #          l <- rapply(l,function(x) { paste0(unique(as.character(x)),collapse=delimiter) } )
-  #          return (paste0(unlist(l),collapse=""))
-  #        })
+
   assign(x="concatenate",
          envir=CALCULATIONS_ENVIRONMENT,
          value=function(...,delimiter=" ") { return(paste(...,sep=delimiter)) })
-  
-  
-  
+
   #entered as an alias function so checks and calculations can use more intuitive "count" and also avoid very unintutive "unlist" since data values are in [[1]] of list object
   assign(x="count",
          envir=CALCULATIONS_ENVIRONMENT,

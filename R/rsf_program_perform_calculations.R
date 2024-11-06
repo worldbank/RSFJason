@@ -4,7 +4,14 @@ rsf_program_perform_calculations <- function(pool,
                                              rsf_indicators,
                                              perform.test = FALSE,
                                              status_message=function(...) {},
-                                             SYS_FLAGS_MANUAL_OVERWRITE=4) {
+                                             SYS_FLAGS_MANUAL_OVERWRITE=4,
+                                             
+                                             #Eg, is 0.000032 and 0.00003 the "same" number?  If this flag is FALSE then system says Yes, these are basically
+                                             #the same and will NOT overwrite the manually reported value with the system calculated value.  This
+                                             #helps audit uploads to keep exactly what was uploaded and reduced data IO to overwrite functionally the same data.
+                                             #But also allows some unexpected variance that can result in system calculated results having slightly different inputs.
+                                             PROGRAM_FLAGS_OVERWRITE_EQUIVALENT_NUMBERS=TRUE) { 
+   
   
 
   t1 <- Sys.time()
@@ -350,13 +357,15 @@ rsf_program_perform_calculations <- function(pool,
                                      !(is.same_text(data_value,current_data_value))| 
                                      !(is.same_text(data_unit,current_data_unit))]
       
-      #where changed is TRUE, possible change it back to FALSE if these are numeric valuse that are effectively the same (within .001% of the same value of eachother)
-      current_results[data_changed==TRUE
-                             & data_type %in% c("number","percent","currency","currency_ratio")
-                             & !is.na(current_data_id)
-                             & is.same_text(data_unit,current_data_unit),
-                             data_changed:=!(is.same_number(data_value,current_data_value))] #if it's deny then allowed to have different values; and if hashids are the same, calculation attempt and flag has already been done
-      #1004
+      if (PROGRAM_FLAGS_OVERWRITE_EQUIVALENT_NUMBERS==FALSE) {
+        #where changed is TRUE, possible change it back to FALSE if these are numeric valuse that are effectively the same (within .001% of the same value of eachother)
+        current_results[data_changed==TRUE
+                         & data_type %in% c("number","percent","currency","currency_ratio")
+                         & !is.na(current_data_id)
+                         & is.same_text(data_unit,current_data_unit), #just comaring units, not values!
+                         data_changed:=!(is.same_number(data_value,current_data_value))] #if it's deny then allowed to have different values; and if hashids are the same, calculation attempt and flag has already been done
+      }
+      
       #parsed_calculated_data[data_changed==TRUE & data_value==current_data_value,.(indicator_name,data_type,data_value,current_data_value,data_unit,current_data_unit)]
       current_results[,current_value_reported_in_current_asof_date:=ifelse(is.na(current_data_id),
                                                                                 FALSE,
@@ -374,10 +383,10 @@ rsf_program_perform_calculations <- function(pool,
       
       current_results[,flag_overwrite:=FALSE]            
       current_results[is_system ==FALSE &                          #not a system indicator
-                             is.na(current_data_id)==FALSE &              #has an existing data point
-                             (current_data_is_system_calculation==FALSE | #current data is user reported (not system reported)
-                              current_value_is_user_monitored==TRUE),     #or it's system reported, but user previously reported it
-                             flag_overwrite:=TRUE]
+                       is.na(current_data_id)==FALSE &              #has an existing data point
+                       (current_data_is_system_calculation==FALSE | #current data is user reported (not system reported)
+                        current_value_is_user_monitored==TRUE),     #or it's system reported, but user previously reported it
+                       flag_overwrite:=TRUE]
       
       current_results[is.na(current_data_sys_flags)==FALSE & 
                       bitwAnd(current_data_sys_flags,SYS_FLAGS_MANUAL_OVERWRITE) == SYS_FLAGS_MANUAL_OVERWRITE & 
@@ -417,6 +426,7 @@ rsf_program_perform_calculations <- function(pool,
       current_results[formula_overwrite=="deny"
                       & is.na(current_data_id)==FALSE,
                       insert_action:=FALSE]
+      
       current_results[formula_overwrite=="manual"
                       & is.na(current_data_id)==FALSE,
                       insert_action:=FALSE]
@@ -430,10 +440,10 @@ rsf_program_perform_calculations <- function(pool,
       #This can also be useful for backfilling templates where columns don't exist and then are added later.  At the point they're later added (and
       #when the user submits a new value), then the user reporting will take over and replace the automated system calculation.
       current_results[formula_overwrite=="missing" &
-                             data_changed==TRUE,
-                             insert_action:= current_value_is_missing==TRUE |          #Either its missing...
-                                             current_data_is_system_calculation==TRUE  #Or it's being calculated by the system and system may update its own calculations
-                             ]
+                      data_changed==TRUE,
+                      insert_action:= current_value_is_missing==TRUE |          #Either its missing...
+                                      current_data_is_system_calculation==TRUE  #Or it's being calculated by the system and system may update its own calculations
+                     ]
       
 
       #unchanged means manual override for current reporting period,
@@ -481,6 +491,16 @@ rsf_program_perform_calculations <- function(pool,
                         (suppressWarnings(as.numeric(data_value))==0 & is.na(current_data_value))
                       ),
                       equivalent:=TRUE]
+      
+      #Don't flag overwrites for equivalent numbers
+      if (PROGRAM_FLAGS_OVERWRITE_EQUIVALENT_NUMBERS==TRUE) {
+        
+        current_results[data_changed==TRUE
+                        & data_type %in% c("number","percent","currency","currency_ratio")
+                        & !is.na(current_data_id)
+                        & is.same_text(data_unit,current_data_unit), #just comparing units, not values!
+                        equivalent:=(is.same_number(data_value,current_data_value))] 
+      }
       
       if (!empty(format_flags)) calculation_flags <- rbindlist(list(calculation_flags,
                                                                     format_flags))

@@ -25,7 +25,7 @@ template_parse_process_and_upload <- function(pool,
                exdir=dirname(template_files),
                overwrite=T)
     
-    print(paste0(list.files(dirname(template_files)),collapse=","))
+    #print(paste0(list.files(dirname(template_files)),collapse=","))
 
     template_files <- paste0(dirname(template_files),.Platform$file.sep,manifest$filename)
     
@@ -44,6 +44,7 @@ template_parse_process_and_upload <- function(pool,
     if(SYS_PRINT_TIMING) debugtime(reset=T)
     #status_message(class="none","Reading file",tf,"\n",reset=T)
     
+    error_message <- NULL
     #PARSE FILE
     {
       template <- tryCatch({
@@ -56,15 +57,17 @@ template_parse_process_and_upload <- function(pool,
       },
       warning = function(w) {
         status_message(class="error",conditionMessage(w))
+        error_message <<- conditionMessage(w)
         NULL;
       },
       error = function(e) {
         status_message(class="error",conditionMessage(e))
+        error_message <<- conditionMessage(e)
         NULL;
       })
       
       if (is.null(template) && continue_on_error==FALSE) {
-        stop("Failed to parse file")
+        stop(paste0("Failed to process file because: \n",error_message))
       } else if (is.null(template)) {
         status_message(class="error","Continuing on error")
         next;
@@ -82,7 +85,15 @@ template_parse_process_and_upload <- function(pool,
       stop("Failed to create reporting_cohort_id")
     }
     
+    #If there's an error with parsing edits, then all edits will be lost.  And people will be pissed off!
+    if (template$template_name=="PFCBL-EDITOR-TEMPLATE") {
+      delete_on_error <- FALSE
+    }
+    
+    
+    
     #PROCESS
+    error_message <- NULL
     template <- tryCatch({
       template_process(pool=pool,
                        template=template,
@@ -90,10 +101,12 @@ template_parse_process_and_upload <- function(pool,
     },
     warning = function(w) {
       status_message(class="error",conditionMessage(w))
+      error_message <<- conditionMessage(w)
       NULL;
     },
     error = function(e) {
       status_message(class="error",conditionMessage(e))
+      error_message <<- conditionMessage(e)
       NULL;
     })
     
@@ -108,13 +121,14 @@ template_parse_process_and_upload <- function(pool,
                   params=list(current_cohort_id))
       }
       if (continue_on_error==FALSE) {
-        stop("Failed to process file")
+        stop(paste0("Failed to process file because: \n",error_message))
       } else {
         status_message(class="error","Continuing on error")
         next;
       }
     }    
     
+    error_messages <- NULL
     template <- tryCatch({
       template_upload(pool=pool,
                       template=template,
@@ -122,10 +136,12 @@ template_parse_process_and_upload <- function(pool,
     },
     warning = function(w) {
       status_message(class="error",conditionMessage(w))
+      error_message <<- conditionMessage(w)
       NULL;
     },
     error = function(e) {
       status_message(class="error",conditionMessage(e))
+      error_message <<- conditionMessage(e)
       NULL;
     })
     
@@ -141,7 +157,7 @@ template_parse_process_and_upload <- function(pool,
       }
 
       if (continue_on_error==FALSE) {
-        stop("Failed to process file")
+        stop(paste0("Failed to process file because: \n",error_message))
       } else {
         status_message(class="error","Continuing on error")
         next;

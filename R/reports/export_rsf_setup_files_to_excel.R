@@ -39,7 +39,8 @@ export_rsf_setup_files_to_excel <- function(pool,
                             "indicators",
                             "checks",
                             "guidance",
-                            "actions") )) stop("Include must have one or all of: data, settings, indicators, checks, guidance, actions")
+                            "actions",
+                            "flags") )) stop("Include must have one or all of: data, settings, indicators, checks, guidance, actions, flags")
     
     if (!any(include=="data")) stop("Include must at least include: data")
     
@@ -159,9 +160,23 @@ export_rsf_setup_files_to_excel <- function(pool,
     if (any(include=="flags")) {
       
       program_flags <- dbGetQuery(pool,"
-                                  select * 
+                                  select 
+                                    cae.evaluation_id as archive_id,
+                                    cae.sys_name,
+                                    cae.indicator_id,
+                                    cae.indicator_check_id,
+                                    cae.check_asof_date::text,
+                                    cae.check_status,
+                                    cae.check_status_user_id,
+                                    cae.check_status_comment,
+                                    cae.check_message,
+                                    cae.consolidated_from_indicator_id,
+                                    cae.consolidated_from_indicator_check_id,
+                                    cae.data_sys_flags,
+                                    cae.data_value_unit
                                   from p_rsf.view_rsf_data_checks_archive_eligible cae
-                                  where cae.rsf_program_id in ($1::int,0)
+                                  inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = cae.rsf_pfcbl_id
+                                  where ids.rsf_program_id in ($1::int,0)
                                     and case when NULLIF($2::text,'NA') is NULL then true
                                         else cae.rsf_pfcbl_id in (select child_rsf_pfcbl_id
 	                                                                from p_rsf.rsf_pfcbl_id_family fam 
@@ -233,6 +248,7 @@ export_rsf_setup_files_to_excel <- function(pool,
                                            SYSNAME=sys_name,
                                            indicator_name,
                                            monitored=toupper(as.character(monitored)),
+                                           is_auto_subscribed,
                                            FRMID=formula_id,
                                            formula_title)]
     
@@ -261,7 +277,8 @@ export_rsf_setup_files_to_excel <- function(pool,
                                        check_class,
                                        check_type,
                                        check_formula_title,
-                                       monitored=toupper(as.character(monitored)))]
+                                       monitored=toupper(as.character(monitored)),
+                                       is_auto_subscribed)]
     
     excelwb <- rsf_reports_create_excel_sheet(excelwb=excelwb,
                                               sheet_name="PROGRAM_CHECKS",
@@ -361,7 +378,8 @@ export_rsf_setup_files_to_excel <- function(pool,
   
   if (!empty(program_flags)) {
     program_flags <- program_flags[,
-                                   .(SYSNAME=sys_name,
+                                   .(ARCID=archive_id,
+                                     SYSNAME=sys_name,
                                      INDID=indicator_id,
                                      CHKID=indicator_check_id,
                                      check_asof_date,

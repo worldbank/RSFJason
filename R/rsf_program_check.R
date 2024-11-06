@@ -9,7 +9,7 @@ rsf_program_check <- function(pool,
   
   t1 <- Sys.time()
   #rsf_program_id <- 23
-  #rsf_indicators <- db_indicators_get_labels(pool=pool)
+  
   #rsf_pfcbl_id.family <- 59268
   
   limit_date <- NA

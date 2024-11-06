@@ -13,12 +13,21 @@ db_export_load_report <- function(pool,
   excelwb <- tryCatch({
     openxlsx::loadWorkbook(template_file)
   },
-  error = function(e) { 
-    stop(paste0("This file appears to be corrupted.  Can it be opened regularly in Excel?  Error: ",conditionMessage(e)))
-  },
   warning = function(w) { 
+  
+    wb <- suppressWarnings(openxlsx::loadWorkbook(template_file))
     message(paste0("Notice: Pivot tables can cause errors in loadWorkdbook.  Loading with suppressWarnings because: ",conditionMessage(w)))
-    suppressWarnings(openxlsx::loadWorkbook(template_file))
+    wb
+  },
+  error = function(e) { 
+    stop(paste0("This file appears to be corrupted. \n",
+                "Can it be opened regularly in Excel? \n",
+                "Is it password protected? If so, open in Excel: \n",
+                "  (1) select File -> Info -> Protect Workbook -> Encrypt with Password: Delete the password (leave the field empty). -> Click OK button \n",
+                "  (2) select File -> Save As: Save a copy using a new file name to your local File Folder. \n",
+                "  (3) Upload this new file into Jason \n",
+                " \n",
+                "Error when trying to read file: ",conditionMessage(e)))
   })
   
   #excelwb <- openxlsx::loadWorkbook()

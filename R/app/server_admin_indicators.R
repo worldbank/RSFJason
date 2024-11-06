@@ -4,7 +4,8 @@ LOAD_SYSTEM_INDICATOR <- reactiveVal(NA)
 SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR_LABELS <- reactiveVal(data.table())
 
 SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS <- reactiveVal(data.table()) #data.table of formulas
-
+SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING <- reactiveVal(0)
+SERVER_ADMIN_INDICATORS_DELETE_INDICATOR_ID <- reactiveVal(NA)
 #RSF_INDICATORS is used by all the admin screens to have a full list of indicators, etc
 RSF_INDICATORS <- eventReactive(c(LOGGEDIN(),
                                   LOAD_SYSTEM_INDICATOR()), #will be called when a new indicator is created or deleted -- so refresh
@@ -16,6 +17,31 @@ RSF_INDICATORS <- eventReactive(c(LOGGEDIN(),
 
   if (empty(indicators)) return (NULL)
 
+  if (any(indicators$redundancy_error,na.rm=T)) {
+    bad_indicators <- indicators[redundancy_error==TRUE,
+                                 .(indicator_name,
+                                   labels)]
+    bad_indicators <- bad_indicators[,unlist(labels,recursive=F),
+                                     by=.(indicator_name)][redundancy_error==TRUE]
+    
+    if (nrow(bad_indicators) > 1) {
+      setorder(bad_indicators,
+               label_normalized,
+               -is_primary)
+      ui <- tagList()
+      for (i in 1:nrow(bad_indicators)) {
+        ui[[length(ui)+1]] <- p(paste(unlist(bad_indicators[i,.(indicator_name,
+                                                           key=paste0(key_type,"=",label_key),
+                                                           paste0("'",label,"'"),
+                                                           primary=ifelse(is_primary," (primary)"," (alias) <- should this one be deleted?"))]),collapse=" "))
+      }
+      showNotification(type="error",
+                       duration=NULL,
+                       ui=div(h3("Error: Redundant indicator titles have been added for different indicators.  These MUST be corrected in Indicator Admin"),
+                              ui,
+                              h4("If a template is using redundant lables (this is bad practice), these may be specified in RSF Setup -> Template Setup, where header instructions may be added to dis-ambiguate these labels")))
+    }
+  }
   return (indicators)
   
 }, ignoreInit=FALSE) %>% debounce(100)
@@ -34,16 +60,27 @@ observeEvent(LOAD_SYSTEM_INDICATOR(), {
 },priority=100)
 
 SERVER_ADMIN_INDICATORS_DO_RECALCULATE <- function(rsf_pfcbl_ids=NA,
-                                                   indicator_id) {
+                                                   indicator_id,
+                                                   reset=FALSE) {
   
   if (any(is.na(rsf_pfcbl_ids))) {
-    all_ids <- DBPOOL %>% dbGetQuery("
-      select pfi.rsf_pfcbl_id
-      from p_rsf.rsf_program_facility_indicators pfi 
-      where pfi.is_subscribed = true
-        and pfi.indicator_id = $1::int",
-    params=list(indicator_id))
-    rsf_pfcbl_ids <- all_ids$rsf_pfcbl_id
+    if (reset==TRUE) {
+      all_ids <- DBPOOL %>% dbGetQuery("
+        select pfi.rsf_pfcbl_id
+        from p_rsf.rsf_program_facility_indicators pfi 
+        where pfi.is_subscribed = true
+          and pfi.indicator_id = $1::int",
+      params=list(indicator_id))
+      rsf_pfcbl_ids <- all_ids$rsf_pfcbl_id
+    } 
+    else {
+
+        all_ids <- DBPOOL %>% dbGetQuery("
+          select distinct dce.rsf_pfcbl_id from p_rsf.rsf_data_calculation_evaluations dce
+          where dce.indicator_id = $1::int",
+          params=list(indicator_id))
+            rsf_pfcbl_ids <- all_ids$rsf_pfcbl_id
+    }
   }
   
   if (length(rsf_pfcbl_ids) > 0) {
@@ -66,11 +103,13 @@ SERVER_ADMIN_INDICATORS_DO_RECALCULATE <- function(rsf_pfcbl_ids=NA,
           params=list(id))
         pid <- pid$rsf_program_id
         
-        DBPOOL %>% dbExecute("
-        select p_rsf.rsf_pfcbl_indicator_recalculate(v_rsf_pfcbl_id => $1::int,
-                                                      v_indicator_id => $2::int)",
-        params=list(id,
-                    indicator_id))
+        if (reset==TRUE) {
+          DBPOOL %>% dbExecute("
+          select p_rsf.rsf_pfcbl_indicator_recalculate(v_rsf_pfcbl_id => $1::int,
+                                                        v_indicator_id => $2::int)",
+          params=list(id,
+                      indicator_id))
+        }
         
         DBPOOL %>% rsf_program_calculate(rsf_program_id=pid,
                                          rsf_indicators=RSF_INDICATORS(),
@@ -180,6 +219,17 @@ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR <- eventReactive(c(RSF_INDICAT
     
     SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR_LABELS(labels)
     SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS(formulas)
+    
+    pending <- DBPOOL %>% dbGetQuery("
+      select count(*)::int as pending
+      from p_rsf.rsf_data_calculation_evaluations dce
+      where dce.indicator_id = $1::int",
+      params=list(selected_indicator_id))
+    
+    pending <- pending$pending
+    if (!isTruthy(pending)) pending <- 0
+    SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING(pending)
+    
   }
   
   return (selected_indicator)
@@ -462,10 +512,106 @@ observeEvent(input$server_admin_indicators__create_indicator, {
   
 }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
-observeEvent(input$server_admin_indicators__delete_indicator, {
+observeEvent(input$server_admin_indicators__delete_prompt, {
+  
+  selected_indicator <- SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR()
+  deletable <- DBPOOL %>% dbGetQuery("select
+                                      not exists(
+                                        select *
+                                        from p_rsf.rsf_data rd
+                                        inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
+                                        inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rd.rsf_pfcbl_id
+                                        where rd.indicator_id = $1::int
+                                        	and ids.created_by_reporting_cohort_id <> rd.reporting_cohort_id)",
+                                     params=list(selected_indicator$indicator_id))
+  deletable <- unlist(deletable)
+  
+  if (deletable==TRUE) {
+    SERVER_ADMIN_INDICATORS_DELETE_INDICATOR_ID(selected_indicator$indicator_id)
+    shinyjs::runjs(paste0("Shiny.setInputValue(\"server_admin_indicators__delete_action\",",selected_indicator$indicator_id,",{priority:\"event\"})"))
+  } else {
+    
+    SERVER_ADMIN_INDICATORS_DELETE_INDICATOR_ID(selected_indicator$indicator_id)  
+    ddata <- DBPOOL %>% dbGetQuery("
+      with dcounts as materialized (
+        select
+        	rc.reporting_rsf_pfcbl_id as rsf_pfcbl_id,
+        	rc.rsf_program_id,
+        	count(distinct data_id) filter (where rc.is_calculated_cohort=true) as calculated_data_count,
+        	count(distinct data_id) filter (where rc.is_reported_cohort=true) as reported_data_count
+        from p_rsf.rsf_data rd
+        inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
+        where rd.indicator_id = $1::int
+        group by rc.reporting_rsf_pfcbl_id,rc.rsf_program_id
+      )
+      select nids.rsf_full_name,calculated_data_count,reported_data_count
+      from dcounts dc
+      inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = dc.rsf_pfcbl_id
+      order by dc.rsf_program_id,nids.rsf_full_name",
+      params=list(selected_indicator$indicator_id))
+    
+    setDT(ddata)
+    dp <- sum(ddata$calculated_data_count,ddata$reported_data_count)
+    
+    delete_confirm <- modalDialog(title="Confirm Delete Indicator?",
+                                  footer=div(style="display:flex;flex-flow:row nowrap;justify-content: space-between;",
+                                             modalButton("Cancel: No actions"),
+                                             actionButton(inputId="server_admin_indicators__delete_confirm",
+                                                                  label=paste0("PERMANENTLY DELETE indicator and all ",dp," data points"),
+                                                                  class="btn-danger")),
+                                          div(style="background-color:white;padding:2px;height:400px;",
+                                              p("WARNING: This indicator has reported data:"),
+                                              p(paste0(sum(ddata$calculated_data_count)," data calculated by the system")),
+                                              p(paste0(sum(ddata$reported_data_count)," data calculated by the system")),
+                                              p("This action will DELETE this indicator and ALL data from the system and ALL ",
+                                                "formulas (if this is a calculated indicator)."),
+                                              p("This action CANNOT BE UNDONE: Proceed only with absolute certainty"),
+                                              p("Enter password for account '",USER_ACCOUNT$user_login,"' to confirm delete action:"),
+                                              passwordInput(inputId="server_admin_indicators__delete_pwconfirm",
+                                                            label="Account Password",
+                                                            value="",
+                                                            width="100%")))
+    showModal(delete_confirm)
+    
+    
+  }
+  
+})
 
+observeEvent(input$server_admin_indicators__delete_confirm, {
+  if (isTruthy(input$server_admin_indicators__delete_confirm)) {
+    did <- SERVER_ADMIN_INDICATORS_DELETE_INDICATOR_ID()  
+    pwconfirm <- input$server_admin_indicators__delete_pwconfirm
+    
+    result <- db_user_login(pool=DBPOOL_APPLICATIONS,
+                            application_hashid=RSF_MANAGEMENT_APPLICATION_ID,
+                            username=USER_ACCOUNT$user_login,
+                            password=pwconfirm)
+
+    if (is.null(result)) {
+      showNotification(type="error",
+                       h3("Delete failed: Login credentials could not be validated"))
+    } else {
+      shinyjs::runjs(paste0("Shiny.setInputValue(\"server_admin_indicators__delete_action\",",did,",{priority:\"event\"})"))
+    }
+  }
+},ignoreInit = TRUE)
+
+observeEvent(input$server_admin_indicators__delete_action, {
+
+
+  confirm_id <- as.numeric(input$server_admin_indicators__delete_action)
+  delete_id <- SERVER_ADMIN_INDICATORS_DELETE_INDICATOR_ID()
   indicator <- SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR()
+  
+  if (!isTruthy(confirm_id)) return(NULL)
+  if (!isTruthy(SERVER_ADMIN_INDICATORS_DELETE_INDICATOR_ID())) return (NULL)
   if (empty(indicator)) return (NULL)
+  if (!(indicator$indicator_id == confirm_id && confirm_id == delete_id)) {
+    return(showNotification(type="error",
+                            h3("Selected indicator does not match deleted indicator: delete failed")))
+  }
+
   deleted <- withProgress({
     incProgress(amount=0.5)
     deleted <- DBPOOL %>% db_indicator_delete(indicator_id=indicator$indicator_id)
@@ -477,6 +623,7 @@ observeEvent(input$server_admin_indicators__delete_indicator, {
   },message="Deleting indicator...")
 
   if (!deleted) showNotification(type="error","Delete failed. This indicator has active data and can only be removed after data is deleted.")
+  SERVER_ADMIN_INDICATORS_DELETE_INDICATOR_ID(as.numeric(NA))
 })
 
 observeEvent(input$server_admin_indicators__save_indicator, {
@@ -532,6 +679,7 @@ observeEvent(input$server_admin_indicators__save_indicator, {
   data_frequency <- as.logical(input$admin_system_edit_indicator_data_frequency)
   default_value <- input$admin_system_edit_indicator_default
   definition <- input$admin_system_edit_indicator_definition
+  default_subscription <- as.logical(input$admin_system_edit_indicator_default_subscribed)
   
   indicator_name <- normalizeIndicatorName(x=indicator_name,
                                            category=data_category,
@@ -554,7 +702,8 @@ observeEvent(input$server_admin_indicators__save_indicator, {
   if (!data_category %in% c("global","program","facility","client","borrower","loan")) return(showNotification(h3("Save failed: Valid data category is required."),type="error"))
   if (!data_type %in% c("number","currency","currency_ratio","percent","date","text","logical")) return(showNotification(h3("Save failed: Valid data type is required."),type="error"))
   if (!isTruthy(definition)) definition <-  "Definition undefined"
-
+  if (is.na(default_subscription)) default_subscription <- TRUE
+  
   if (!identical(indicator$data_category,data_category) |
       !identical(indicator$data_type,data_type) |
       !identical(indicator$data_unit,data_unit)) {
@@ -585,6 +734,7 @@ observeEvent(input$server_admin_indicators__save_indicator, {
                                                           data_unit=data_unit,
                                                           data_frequency=data_frequency,
                                                           default_value=default_value,
+                                                          default_subscription=default_subscription,
                                                           options_group_id=options_id,
                                                           options_group_allows_blanks=options_allows_blanks,
                                                           options_group_allows_multiples=options_allows_multi,
@@ -609,12 +759,14 @@ observeEvent(input$server_admin_indicators__save_indicator, {
     },
     warning = function(w) {
       showNotification(type="warning",
-                       ui=h3("Failed to update indicator: ",conditionMessage(w)))
+                       ui=h3("Failed to update indicator: ",conditionMessage(w)),
+                       duration=NULL)
       FALSE
     },
     error = function(e) {
       showNotification(type="warning",
-                       ui=h3("Failed to update indicator: ",conditionMessage(e)))
+                       ui=h3("Failed to update indicator: ",conditionMessage(e)),
+                       duration=NULL)
       FALSE
     })
     
@@ -641,8 +793,18 @@ observeEvent(input$server_admin_indicators__save_indicator, {
   })  
   
   if (success) {
-    SERVER_ADMIN_INDICATORS_DO_RECALCULATE(rsf_pfcbl_ids=NA, #all
-                                           indicator_id=indicator$indicator_id)
+    
+    pending <- DBPOOL %>% dbGetQuery("
+      select count(*)::int as pending
+      from p_rsf.rsf_data_calculation_evaluations dce
+      where dce.indicator_id = $1::int",
+      params=list(indicator$indicator_id))
+    
+    pending <- pending$pending
+    if (!isTruthy(pending)) pending <- 0
+    SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING(pending)
+  # SERVER_ADMIN_INDICATORS_DO_RECALCULATE(rsf_pfcbl_ids=NA, #all
+  #                                        indicator_id=indicator$indicator_id)
   }
 })
 
@@ -926,11 +1088,46 @@ observeEvent(input$admin_system_edit_indicator_type, {
   removeModal()
 }, ignoreInit=FALSE, priority = -1)
 
+observeEvent(input$server_admin_indicators__recalculate_pending, {
+  indicator <- req(SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR())
+  
+  tryCatch({
+    SERVER_ADMIN_INDICATORS_DO_RECALCULATE(indicator_id=indicator$indicator_id)  
+    SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING(0)
+  },
+  warning=function(w) { showNotification(type="warning",
+                                         duration=NULL,
+                                         ui=h3(conditionMessage(w)))
+  },
+  error=function(e) {
+    showNotification(type="error",
+                     duration=NULL,
+                     ui=h3(conditionMessage(e)))
+  })
+  
+  
+})
+
+observeEvent(SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING(), {
+  
+  pending <- SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING()
+  if (!isTruthy(pending)) pending <- 0
+  if (pending > 0) showElement(id="server_admin_indicators__calculations_pending")
+  else hideElement(id="server_admin_indicators__calculations_pending")
+})
+
+output$server_admin_indicators__recalculate_count <- renderText({
+  paste0("Recalculate ",SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING()," Pending")
+})
+
 output$admin_system_edit_indicator <- renderUI({
   
   indicator <- req(SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR())
   formulas <- isolate({ SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS() })    #not reactive: don't want to refresh when modules make updates or add new.
   labels <- isolate({ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR_LABELS() }) #not reactive: don't want to refresh when modules make updates or add new.
+  pending <- isolate({ SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING() })
+  
+  if (!isTruthy(pending)) pending <- 0
   
   #print(paste0("admin_system_edit_indicator called: ",indicator$indicator_id))
   
@@ -951,17 +1148,7 @@ output$admin_system_edit_indicator <- renderUI({
   if (length(data_points)==0) data_points <- 0
   editable <- data_points == 0
   
-  deletable <- DBPOOL %>% dbGetQuery("select
-                                      not exists(
-                                        select *
-                                        from p_rsf.rsf_data rd
-                                        inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
-                                        inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rd.rsf_pfcbl_id
-                                        where rd.indicator_id = $1::int
-                                        	and ids.created_by_reporting_cohort_id <> rd.reporting_cohort_id)",
-                                     params=list(indicator$indicator_id))
-  deletable <- unlist(deletable)
-  
+
   indicator_name <- indicator$indicator_name
   indicator_name_label <- paste0("Indicator name may use only: upper and lower-case letters and numbers; and underscore punctiation. Names will be auto-formatted.")
   secondary_labels <- paste0("One label per line.",
@@ -973,6 +1160,9 @@ output$admin_system_edit_indicator <- renderUI({
   
   selected_frequency <- as.logical(indicator$is_periodic_or_flow_reporting)
   if (!isTruthy(selected_frequency)) selected_frequency <- FALSE
+  
+  selected_monitoring <- as.logical(indicator$default_subscription)
+  if (is.na(selected_monitoring)) selected_monitoring <- TRUE
   
   category_choices <- c(Global="global",
                         Program="program",
@@ -1106,6 +1296,13 @@ output$admin_system_edit_indicator <- renderUI({
                                                    icon("exclamation-triangle",class="icon-orange"),
                                                    paste0("Indicator has ",data_points," data points saved. Editing options that affect existing data are disabled."))))
   
+  recalculate_pending <- div(id="server_admin_indicators__calculations_pending",
+                             actionButton(inputId="server_admin_indicators__recalculate_pending",
+                                          label=textOutput(outputId="server_admin_indicators__recalculate_count",inline = TRUE),
+                                          icon=icon("calculator"),
+                                          class="btn btn-warning"))
+  
+  if (pending==0) recalculate_pending <- hidden(recalculate_pending)
 
   ui <- div(style='width:1000px;background-color:gainsboro;padding:10px;margin: 0 auto;',
             fluidRow(align="center",style="padding-top:5px;padding-bottom:5px;",column(12,uiOutput(outputId="admin_system_display_indicator_html_name"))),
@@ -1123,7 +1320,7 @@ output$admin_system_edit_indicator <- renderUI({
                                                    choices = category_choices,
                                                    selected = selected_category,
                                                    options = list(placeholder="Select...")))),
-                     column(3,align="left",
+                     column(2,align="left",
                             enabled(state=editable,
                                     selectizeInput(inputId="admin_system_edit_indicator_type",
                                                    label = "Data Type",
@@ -1139,14 +1336,20 @@ output$admin_system_edit_indicator <- renderUI({
                                                    options = list(placeholder="{ Not applicable }",
                                                                   create=TRUE,
                                                                   persist=TRUE)))),
-                     column(3,align="left",
+                     column(2,align="left",
                             enabled(state=editable,
                                     selectizeInput(inputId="admin_system_edit_indicator_data_frequency",
                                                    label = "Data Frequency",
                                                    choices = c('Normal'=FALSE,
                                                                'Periodic'=TRUE),
                                                    selected = selected_frequency,
-                                                   options = list(placeholder="Normal"))))
+                                                   options = list(placeholder="Normal")))),
+                     column(2,align="left",
+                              selectizeInput(inputId="admin_system_edit_indicator_default_subscribed",
+                                             label="Monitoring",
+                                             selected=selected_monitoring,
+                                             choices=c("Auto"=TRUE,
+                                                       "RSF Setup"=FALSE)))
                      ),
             fluidRow(align="left",
                      column(4,align="left",
@@ -1168,7 +1371,8 @@ output$admin_system_edit_indicator <- renderUI({
                                                  label="Add Formula",
                                                  icon=icon("plus-square"),
                                                  class="btn btn-primary")),
-                                div(id="server_admin_indicators__quasi_calculation")),
+                                div(id="server_admin_indicators__quasi_calculation"),
+                                div(style="padding-left:20px;",recalculate_pending)),
                             
                             div(id="server_admin_indicators__formulas",style="padding-top:10px;",
                                 ui_formulas))),
@@ -1189,8 +1393,10 @@ output$admin_system_edit_indicator <- renderUI({
             #recalculate_ui,
             fluidRow(style='padding-top:10px;',div(style='border-top:solid gray 1px;margin-left:10px;margin-right:10px;',
                                                    column(6,align="left",style="padding-top:5px;",
-                                                          enabled(state=deletable,
-                                                                  actionButton(inputId="server_admin_indicators__delete_indicator",class="btn-danger",label="Delete",icon=icon("minus-circle")))
+                                                          actionButton(inputId="server_admin_indicators__delete_prompt",
+                                                                               class="btn-danger",
+                                                                               label="Delete",
+                                                                               icon=icon("minus-circle"))
                                                    ),
                                                    column(6,align="right",style="padding-top:5px;",
                                                           actionButton(inputId="server_admin_indicators__save_indicator",class="btn-success",label="Save",icon=icon("save")))))
@@ -1199,8 +1405,8 @@ output$admin_system_edit_indicator <- renderUI({
   return(ui)
 })
 
+
 output$admin_system_download_indicators <- downloadHandler(
-  
   filename = function() { "RSF Indicators List.xlsx" },
   content = function(file) {
     

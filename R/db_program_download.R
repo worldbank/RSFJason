@@ -149,7 +149,9 @@ db_program_download <- function(pool,
   if (!is.null(programs_export)) {
   
     programs_name <- paste0(paste0(rep(x="0",nchar(nrow(program_upload_files))),collapse = ""),"-",file_path_sans_ext(archive_name),".xlsx")  
-    programs_name <- paste0(out_path,"/",programs_name,".xlsx")
+    programs_name <- paste0(out_path,"/",programs_name)
+    
+    if (!grepl("\\.xlsx$",programs_name)) programs_name <- paste0(programs_name,".xlsx")
     
     download_files <- c(programs_name,
                         download_files)

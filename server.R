@@ -17,6 +17,7 @@ server <- function(input, output, session)
   DBPOOL <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
   if (!is.null(DBPOOL) && pool::dbIsValid(DBPOOL)) { print("DBPOOL (MAIN) Started")
   } else { print("DBPOOL (MAIN) FAILED TO START") }
+  
   #pool <- DBPOOL
   #
   #https://appsilon.com/how-to-safely-remove-a-dynamic-shiny-module/

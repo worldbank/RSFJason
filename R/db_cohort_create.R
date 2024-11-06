@@ -95,58 +95,11 @@ db_cohort_create <- function(pool,
             }
           }
         }
-        
-        #People just don't care enough to fix/resolve checks.  Blocking only irritates people and ask to "fix" the check, not fix the problem.
-        #So don't bother.
-        # #Error fails prevent uploading new data in new/future reporting periods
-        # if (any(fail_on_check_class == "error")) {
-        #   invalid_checks_error <- dbGetQuery(conn,"
-        #                                           select
-        #                                             fam.parent_pfcbl_category,
-        #                                             fam.child_pfcbl_category,
-        #                                             count(*) as count_critical_checks
-        #                                           from p_rsf.rsf_pfcbl_id_family fam
-        #                                           inner join p_rsf.rsf_data rd on rd.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
-        #                                           inner join p_rsf.rsf_data_checks rdc on rdc.data_id = rd.data_id
-        #                                           inner join p_rsf.indicator_checks ic on ic.indicator_check_id = rdc.indicator_check_id
-        #                                           left join p_rsf.indicator_check_guidance icg on icg.indicator_check_guidance_id = rdc.indicator_check_guidance_id
-        #                                           where fam.parent_rsf_pfcbl_id = $1::int
-        #                                             and coalesce(icg.overwrite_check_class,ic.check_class) = 'error'
-        #                                             and rdc.check_asof_date < $3::date -- only < and not <= so fixes can be uploaded for this reporting date
-        #                                             and case when NULLIF($2::varchar,'NA') IS NULL 
-        #                                                      then true
-        #                                                      else fam.child_pfcbl_category = any(string_to_array(NULLIF($2::varchar,'NA'),',')::varchar[])
-        #                                                 end
-        #                                           group by 
-        #                                           fam.parent_pfcbl_category,
-        #                                           fam.child_pfcbl_category",
-        #                                     params=list(cohort_pfcbl_id,
-        #                                                 paste0(reporting_pfcbl_categories,collapse=","),
-        #                                                 reporting_asof_date))
-        #   
-        #   if (nrow(invalid_checks_error) > 0) {
-        #     
-        #     if (!(!is.null(fail_on_check_submitted_indicators) &
-        #           all(reporting_asof_date %in% unique(invalid_checks_critical$check_asof_date)) &
-        #           all(invalid_checks_critical$parent_pfcbl_category==invalid_checks_critical$child_pfcbl_category) &
-        #           all(invalid_checks_critical$indicator_name %in% fail_on_check_submitted_indicators) &
-        #           all(unique(invalid_checks_critical$child_pfcbl_category) %in% unique(indicatorNameResolveCategory(fail_on_check_submitted_indicators))))) {
-        #       
-        #       entity <- unique(invalid_checks_error$parent_pfcbl_category)
-        #       entity_checks <- unique(invalid_checks_error$child_pfcbl_category)
-        #       entity_dates <- unique(invalid_checks_error$evaluation_asof_date)
-        #       
-        #       stop(paste0("Failed to upload template due to ERROR FLAGS existing on the ",
-        #                   toTitleCase(entity)," at the following levels: ",paste0(toTitleCase(entity_checks),collapse=", "),
-        #                   " and reporting dates: ",paste0(entity_dates,collapse=", "),
-        #                   ". These must be resolved or corrected before reporting data in ",reporting_asof_date,"."))
-        #     }
-        #   }
-        # }
       }
       
       failed_cohorts <- dbGetQuery(conn,"
       select 
+      rc.reporting_cohort_id,
       rc.source_name,
       rc.reporting_asof_date,
       sn.sys_name
@@ -155,10 +108,12 @@ db_cohort_create <- function(pool,
       where rc.cohort_processing_completed = false 
         and rc.linked_reporting_cohort_id is null 
         and rc.is_reported_cohort = true 
+        and rc.reporting_cohort_id is distinct from NULLIF($2::text,'NA')::int
         and rc.reporting_rsf_pfcbl_id = any(select fam.child_rsf_pfcbl_id 
                                             from p_rsf.rsf_pfcbl_id_family fam
                                             where fam.parent_rsf_pfcbl_id = $1::int)",
-      params=list(cohort_pfcbl_id))
+      params=list(cohort_pfcbl_id,
+                  linked_reporting_cohort_id))
       
       if (!empty(failed_cohorts)) {
         setDT(failed_cohorts)

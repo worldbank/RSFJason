@@ -16,11 +16,12 @@ RSF_MANAGEMENT_APPLICATION_ID <- "4608A309E2E38860DC98FAC53F967CF2"
 LOCATIONS <- list(ARL="/credentials/credentials-remote-ARL.yaml",
                   #SSA_DEV="/credentials/credentials-remote-dev.yaml",
                   #SSA_PROD="/credentials/credentials-remote-RSF.yaml",
+                  Jason_DEVB="/credentials/credentials-rsfjson-rsfdevb.yaml",
                   Jason_DEV="/credentials/credentials-rsfjson-rsfdev.yaml",
                   Jason_PROD="/credentials/credentials-rsfjson-rsfprod.yaml")
 
-LOCATION <- "Jason_DEV"
-#LOCATION <- "Jason_PROD"
+#LOCATION <- "Jason_DEV"
+LOCATION <- "Jason_PROD"
 
 if (grepl("DEV",LOCATION)==TRUE) {
   #options(shiny.erctror = browser)
@@ -164,7 +165,7 @@ source('./R/templates/template_process.R')
 
 source("./R/reports/export_dashboard_view_to_excel.R")
 source("./R/reports/export_dashboard_edits_to_excel.R")
-#source("./R/reports/export_create_program_to_excel.R")
+source("./R/reports/export_backup_data_to_csv.R")
 source("./R/reports/export_create_entity_to_excel.R")
 
 source('./R/templates/parse_data_formats.R')
@@ -176,6 +177,7 @@ source('./R/templates/template_parse_process_and_upload.R')
 source('./R/templates/parse_template_IFC_QR.R')
 source('./R/templates/parse_template_csv.R')
 source('./R/templates/parse_template_rsf_setup.R')
+source('./R/templates/parse_template_csv_backup_data.R')
 
 source('./R/templates/parse_template_pfcbl_editor_report.R')
 source('./R/templates/parse_template_rsf_create_entities.R')
@@ -400,22 +402,6 @@ is.same_number <- function(a,b,sig_digits=CALCULATIONS_ENVIRONMENT$SIG_DIGITS) {
   x[nas] <- TRUE       #Both are NAs so means is the same.
   x
 }
-#   # x[x==FALSE] <- (suppressWarnings(abs(as.numeric(a[x==FALSE]) - as.numeric(b[x==FALSE]))) < (1/10^sig_digits)) == TRUE |
-#   #   (suppressWarnings(abs(as.numeric(a[x==FALSE]) - as.numeric(b[x==FALSE]))) < 1 &
-#   #    (suppressWarnings(abs((as.numeric(a[x==FALSE]) / as.numeric(b[x==FALSE]))-1)) < (1/10^(sig_digits-2))) == TRUE)
-#   # ifelse(is.na(x),FALSE,x)
-#   
-#   #(suppressWarnings(abs(as.numeric(a[x==FALSE]) - as.numeric(b[x==FALSE]))) < (1/10^sig_digits)) == TRUE 
-#   #Abs difference of the two is less than .000001
-#   
-#   OR
-#   
-#   #Abs difference of the two is less than 1 AND ratio of the two is less than .003
-#   |
-#     (suppressWarnings(abs(as.numeric(a[x==FALSE]) - as.numeric(b[x==FALSE]))) < 1 &
-#        (suppressWarnings(abs((as.numeric(a[x==FALSE]) / as.numeric(b[x==FALSE]))-1)) < (1/10^(sig_digits-2))) == TRUE)
-#   ifelse(is.na(x),FALSE,x)
-# }
 
 user_send_email <- function(pool,from="ARL System <sheitmann@ifc.org>",to,subject,html) {
   

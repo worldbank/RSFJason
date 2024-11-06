@@ -504,6 +504,12 @@ db_rsf_checks_add_update <- function(pool,
           
           dbExecute(conn,"analyze _temp_add_checks;")
           
+          dbExecute(conn,"
+                    delete from _temp_add_checks tac
+                    where not exists(select * from p_rsf.rsf_pfcbl_reporting rpr 
+                                     where rpr.rsf_pfcbl_id = tac.rsf_pfcbl_id 
+                                       and rpr.reporting_asof_date = tac.check_asof_date)")
+          
           dbExecute(conn,"update _temp_add_checks tac
                           set data_id = (select rdc.data_id
                                          from p_rsf.rsf_data_current rdc

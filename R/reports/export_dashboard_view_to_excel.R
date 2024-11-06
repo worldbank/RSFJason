@@ -42,10 +42,24 @@ export_dashboard_view_to_excel <- function(pool,
       any(names(export_data)=="SYSNAME") &&
       any(names(export_data)=="SYSID")) {
     SYSID_NAMES <- unique(export_data[,.(SYSNAME,SYSID)])
-    SYSID_NAMES <- setNames(SYSID_NAMES$SYSID,
-                            SYSID_NAMES$SYSNAME)
   }
   
+  if (is.null(SYSID_NAMES)) {
+    snames <- dbGetQuery(pool,"
+      select
+      nids.rsf_pfcbl_id,
+      nids.rsf_full_name
+      from p_rsf.view_current_entity_names_and_ids nids
+      where nids.rsf_name = any(select unnest(string_to_array($1::text,','))::text)
+        or nids.rsf_full_name = any(select unnest(string_to_array($1::text,','))::text)",
+      params=list(paste0(names(export_data),collapse=",")))
+    
+    setDT(snames)
+    SYSID_NAMES <- unique(snames[,.(SYSNAME=rsf_full_name,SYSID=rsf_pfcbl_id)])
+    
+  }
+  SYSID_NAMES <- setNames(SYSID_NAMES$SYSID,
+                          SYSID_NAMES$SYSNAME)
   #print("Generating excel report")
   # #options:
   # useDropDowns <- options$useDropDowns
@@ -67,8 +81,11 @@ export_dashboard_view_to_excel <- function(pool,
   export_data[,reporting_rowid:=1:.N]
   
   export_names <- NULL
+  
   if (any(names(export_data)=="indicator_name")) {
     export_names <- data.table(column_name=export_data$indicator_name)
+  } else if (any(names(export_data)=="INDICATOR")) {
+    export_names <- data.table(column_name=export_data$INDICATOR)
   } else {
     export_names <- data.table(column_name=names(export_data))
   }

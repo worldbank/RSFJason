@@ -37,7 +37,7 @@ server_setup_template__header_module_ui <- function(id,
                                                 `Ignore`="ignore"),
                                       selected=header$action))
   
-  header_mapping <- div(style="display:flex;flex-flow:row nowrap;min-width:450px;padding:0 0 0 2px;white-space:nowrap;",
+  header_mapping <- div(style="display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;white-space:nowrap;",
                         selectizeInput(inputId=ns("template_remap_header_indicator_name"),
                                        label=switch(is_label_header,
                                                     "Re-Map to Indicator",
@@ -56,6 +56,14 @@ server_setup_template__header_module_ui <- function(id,
                                      onclick=paste0("Shiny.setInputValue(`server_setup_templates__header_delete`,",header$header_id,",{priority:`event`})"),
                                      icon=icon("trash")))
   
+  header_comment <- div(style="display:flex;flex-flow:row nowrap;min-width:150px;padding:0 0 0 2px;white-space:nowrap;",
+                        textInput(inputId=ns("template_remap_header_comment"),
+                                  label=switch(is_label_header,
+                                               "Comment",
+                                               NULL),
+                                  value=header$comment,
+                                  placeholder="Comments"))
+  
   ui <- div(name="template_header_box",
             id=ns("ui"),
             div(style="display:flex;flex-flow:row nowrap;justify-content:left;align-items:start;",
@@ -63,6 +71,7 @@ server_setup_template__header_module_ui <- function(id,
                 header_template,
                 header_action,
                 header_mapping,
+                header_comment,
                 header_remove))
   
   return (ui)
@@ -147,7 +156,8 @@ SERVER_SETUP_TEMPLATES__HEADER_ACTIONS <- eventReactive(SERVER_SETUP_TEMPLATES__
       fth.remap_header,
       fth.template_header_sheet_name,
       fth.template_header_encounter_index,
-      fth.header_id
+      fth.header_id,
+      coalesce(fth.comment,'') as comment
     from p_rsf.rsf_program_facility_template_headers fth
     where fth.rsf_pfcbl_id = $1::int
       and fth.template_id = $2::int",
@@ -251,6 +261,7 @@ observeEvent(input$server_setup_templates__save, {
              template_header_sheet_name,
              template_header_indicator_name,
              template_header_encounter_index,
+             template_remap_header_comment,
              header_id)
     
     save_headers[,
@@ -273,7 +284,8 @@ observeEvent(input$server_setup_templates__save, {
                                         template_header_indicator_name text,
                                         template_header_action text,
                                         template_header_encounter_index int,
-                                        template_remap_header_indicator_name text)
+                                        template_remap_header_indicator_name text,
+                                        template_remap_header_comment text)
         on commit drop;")
       
       dbAppendTable(conn,
@@ -283,7 +295,8 @@ observeEvent(input$server_setup_templates__save, {
                                           template_header_indicator_name,
                                           template_header_action,
                                           template_header_encounter_index,
-                                          template_remap_header_indicator_name)])
+                                          template_remap_header_indicator_name,
+                                          template_remap_header_comment)])
 
       dbExecute(conn,"
         update _temp_headers th
@@ -304,7 +317,8 @@ observeEvent(input$server_setup_templates__save, {
             template_header = th.template_header_indicator_name,
             template_header_encounter_index = th.template_header_encounter_index,
             action = th.template_header_action,
-            remap_header = th.template_remap_header_indicator_name
+            remap_header = th.template_remap_header_indicator_name,
+            comment = th.template_remap_header_comment
         from _temp_headers th
         where th.header_id = fth.header_id
           and fth.rsf_pfcbl_id = $1::int
@@ -331,7 +345,8 @@ observeEvent(input$server_setup_templates__add, {
                                                             template_header,
                                                             template_header_encounter_index,
                                                             action,
-                                                            remap_header)
+                                                            remap_header,
+                                                            comment)
     select 
       ids.rsf_pfcbl_id,
       $2::int as template_id,
@@ -341,7 +356,8 @@ observeEvent(input$server_setup_templates__add, {
       '' as template_header_indicator_name,
       0 as template_header_encounter_index,
       'default' as template_header_action,
-      NULL as template_remap_header_indicator_name
+      NULL as template_remap_header_indicator_name,
+      NULL as comment
     from p_rsf.rsf_pfcbl_ids ids
     where ids.rsf_pfcbl_id = $1::int",
     params=list(selected_template$selected_rsf_pfcbl_id,

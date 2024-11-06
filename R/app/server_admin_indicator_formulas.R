@@ -257,6 +257,7 @@ server_admin_indicator_formulas.module_session_indicator_formula <- function(id,
         from p_rsf.rsf_program_facility_indicators pfi
         inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = pfi.rsf_pfcbl_id
         where pfi.formula_id = $1::int
+          and pfi.is_subscribed = true
           and exists(select * from p_rsf.rsf_data rd
         	           where rd.indicator_id = pfi.indicator_id
         						   and rd.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id

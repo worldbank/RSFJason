@@ -469,8 +469,10 @@ SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_COHORT_INFO(),
   return(flags_data)  
 }, ignoreNULL=FALSE)
 
+
+
 #Indicators-level view for cohort review panel: collapsed evaluation_ids by indicator and check
-SELECTED_COHORT_INDICATOR_FLAGS_FILTERED <- eventReactive(c(SELECTED_COHORT_FLAGS(),
+SELECTED_COHORT_INDICATOR_FLAGS_FILTERS <- eventReactive(c(SELECTED_COHORT_FLAGS(),
                                                             input$cohort_view_flagged_data,  #ALL/RESOLVED/ACTIVE
                                                             input$cohort_view_flag_classes,
                                                             input$cohort_view_flag_types), #error/warning/info  
@@ -525,9 +527,10 @@ SELECTED_COHORT_INDICATOR_FLAGS_FILTERED <- eventReactive(c(SELECTED_COHORT_FLAG
     cohort_indicator_flags <- cohort_indicator_flags[check_class %in% view_data_classes]
   }
   
-  rsf_check_types <-RSF_CHECK_TYPES()
+  rsf_check_types <- RSF_CHECK_TYPES()
   view_flag_types <- tolower(input$cohort_view_flag_types)
   view_flag_types <- intersect(c(rsf_check_types$type_class),view_flag_types)
+  
   if (length(view_flag_types) >0) {
     cohort_indicator_flags <- cohort_indicator_flags[check_type %in% rsf_check_types[type_class %in% view_flag_types,check_type]]
   }
@@ -658,20 +661,64 @@ SELECTED_COHORT_INDICATOR_FLAGS_FILTERED <- eventReactive(c(SELECTED_COHORT_FLAG
   
 }, ignoreNULL = FALSE)
 
-SELECTED_COHORT_SELECTED_INDICATOR_REVIEW_FLAGS <- eventReactive(c(SELECTED_COHORT_INDICATOR_FLAGS_FILTERED(),
-                                                                   input$action_indicator_flags_review),
-{
-  selected_indicator_flag_id <- as.character(input$action_indicator_flags_review)
-  indicator_flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()
+SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION <- eventReactive(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS(), {
+  if (is.null(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS())) return (NULL)                                                                    
+  if (empty(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS())) return (data.table(indicator_id=numeric(0),
+                                                                           classification=character(0),
+                                                                           indicator_name=character(0)))
+
+  flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERS()
   
-  if (!isTruthy(selected_indicator_flag_id)) return (NULL)
-  if (!isTruthy(indicator_flags)) return (NULL)
-  if (!selected_indicator_flag_id %in% indicator_flags$indicator_flag_id) return(NULL)
+  classification_indicators <- DBPOOL %>% dbGetQuery("
+    select ind.indicator_id,ind.classification,ind.indicator_name
+    from p_rsf.view_rsf_program_facility_indicator_subscriptions pis
+    inner join p_rsf.indicators ind on ind.indicator_id = pis.indicator_id
+    where pis.rsf_pfcbl_id=$1::int
+      and ind.classification is not null
+      and pis.is_subscribed = true
+    
+    union 	
+    
+    select parameter_id,ind.classification,ind.indicator_name
+    from p_rsf.view_rsf_program_facility_indicator_subscriptions pis
+    inner join p_rsf.indicators ind on ind.indicator_id = pis.indicator_id
+    inner join p_rsf.indicator_formulas indf on indf.formula_id = pis.formula_id
+    inner join lateral unnest(indf.formula_indicator_id_requirements) as parameter_id on true
+    where pis.rsf_pfcbl_id=$1::int
+      and ind.classification is not null
+      and pis.is_subscribed = true",
+    params=list(SELECTED_COHORT_INFO()$reporting_rsf_pfcbl_id))
   
-  indicator_flags <- SELECTED_COHORT_FLAGS()[indicator_flag_id==selected_indicator_flag_id]
-  return (indicator_flags)
-},
-ignoreNULL=FALSE)
+  setDT(classification_indicators)
+  
+  classification_indicators <- classification_indicators[indicator_id %in% flags$indicator_id]
+  setorder(classification_indicators,
+           indicator_name,
+           indicator_id)
+  
+  return (classification_indicators)
+
+},ignoreNULL=TRUE)
+
+SELECTED_COHORT_INDICATOR_FLAGS_FILTERED <- eventReactive(c(input$cohort_view_flag_indicator_classifications,
+                                                            SELECTED_COHORT_INDICATOR_FLAGS_FILTERS()), {
+  flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERS()
+  filter <- input$cohort_view_flag_indicator_classifications
+  
+  if (isTruthy(filter)) {
+    indicator_classifications <- SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION()
+    
+    if (filter=="all") {
+      flags <- flags[indicator_id %in% indicator_classifications$indicator_id]  
+    } else {
+      
+      indicator_classifications <- indicator_classifications[indicator_name==filter]
+      flags <- flags[indicator_id %in% indicator_classifications$indicator_id]
+    }
+    
+  }
+  return (flags)
+})
 
 #Populates select input to filter on client/facility name
 observeEvent(SELECTED_PROGRAM_CLIENTS_LIST(), {
@@ -684,7 +731,10 @@ observeEvent(SELECTED_PROGRAM_CLIENTS_LIST(), {
                          selected = "")
     
   } else {
-    clients_choices <- c(`Client Filter...`="",setNames(clients$rsf_pfcbl_id,clients$client_name))
+    setorder(clients,
+             client_name)
+    clients_choices <- c(`Client Filter...`="",
+                         setNames(clients$rsf_pfcbl_id,clients$client_name))
     updateSelectizeInput(session=session,
                          inputId="dataset_review_filter_client",
                          choices = clients_choices,
@@ -693,6 +743,47 @@ observeEvent(SELECTED_PROGRAM_CLIENTS_LIST(), {
   }
 }, ignoreNULL = FALSE)
 
+observeEvent(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS(), {
+  
+  if (empty(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS()) ||
+      empty(SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION())) {
+    updateSelectizeInput(session=session,
+                         inputId="cohort_view_flag_indicator_classifications",
+                         choices = "",
+                         selected = "",
+                         options=list(placeholder="No priority indicator flags"))
+  
+  } else {
+    indicators <- SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION()
+    indicators <- unique(indicators$indicator_name)
+    class_choices <- c("",
+                       `All Priority Flags`="all",
+                       indicators)
+    
+    updateSelectizeInput(session=session,
+                         inputId="cohort_view_flag_indicator_classifications",
+                         choices = class_choices,
+                         selected = "",
+                         options=list(placeholder=paste0(length(indicators)," priority indicators have flags...")))
+  }
+},ignoreNULL=FALSE)
+
+# observeEvent(SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION(), {
+#   
+#   indicators <- SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION()
+#   if (empty(indicators)) {
+#     updateSelectizeInput(session=session,
+#                          inputId="cohort_view_flag_indicator_classifications",
+#                          choices = "",
+#                          selected = "",
+#                          options=list(placeholder="No priority indicator flags"))
+#     
+#   } else {
+#     
+#     
+#     
+#   }
+# },ignoreNULL = TRUE)
 
 observeEvent(SELECTED_COHORT_ID(), {
   
@@ -837,22 +928,6 @@ observeEvent(SELECTED_COHORT_FLAGS(), {
   }  
 }, ignoreNULL=FALSE, priority=100)
 
-#action_cohort_view is the view icon in the main datasets panel: sets the current selected cohort ID value 
-# observeEvent(input$action_cohort_view, {
-#   
-#   
-#   cohorts <- COHORTS_LIST()
-#   if (!isTruthy(cohorts)) return (NULL)
-#   
-#   #cohort_id <- as.numeric(input$action_cohort_view)
-#   
-#   cohort_id <- SELECTED_COHORT_ID()
-#   current_panel <- input$datasetsTabset
-#   
-#   if (!isTruthy(current_panel) || current_panel != "review") {
-#     updateTabsetPanel(session=session,inputId="datasetsTabset",selected="review")
-#   }
-# },priority=0) #fire after 
 
 observeEvent(input$action_dataset_review_filter_clear, {
   
@@ -868,6 +943,9 @@ observeEvent(input$action_cohort_delete, {
   delete_cohort_ids <- COHORTS_SELECTED()
   program_id <- SELECTED_PROGRAM_ID()
   
+  tryCatch({
+    
+
   withProgress(value=.15,message="Deleting datasets...",
                {
                  delete_cohort_ids <- unique(na.omit(delete_cohort_ids))
@@ -918,9 +996,9 @@ observeEvent(input$action_cohort_delete, {
                      incProgress(amount=0,
                                  message=paste0("Recalculating affected data: ",dots))
                    }
-                   #rsf_indicators <- DBPOOL %>% db_indicators_get_labels()
+                   
                    DBPOOL %>% rsf_program_calculate(rsf_program_id = affected_program,
-                                                    rsf_indicators = rsf_indicators,
+                                                    rsf_indicators = RSF_INDICATORS(),
                                                     rsf_pfcbl_id.family = NULL,
                                                     status_message=progress_status_message)
                      
@@ -944,6 +1022,21 @@ observeEvent(input$action_cohort_delete, {
                  }
                  incProgress(amount=1,message="Done")
                })
+
+  },
+  error=function(e) {
+    showNotification(type="error",
+                     duration=NULL,
+                     ui=h3(paste0("An error occurred when deleting, recalculating and rechecking datasets: ",
+                                  conditionMessage(e))))
+  },
+  warning=function(w) {
+    showNotification(type="error",
+                     duration=NULL,
+                     ui=h3(paste0("An error occurred when deleting, recalculating and rechecking datasets: ",
+                                  conditionMessage(w))))  
+    
+  })
   
   COHORTS_SELECTED(c())
   
@@ -1244,6 +1337,8 @@ observeEvent(input$cohort_action_dashboard, {
       })
     }
   )
+  
+  
 }
 
 ####RENDER DATA TABLES####

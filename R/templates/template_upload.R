@@ -154,7 +154,7 @@ template_upload <- function(pool,
     if (!empty(template$setup_data$PROGRAM_INDICATORS)) {
       
       program_indicators <- template$setup_data$PROGRAM_INDICATORS
-      if (!setequal(names(program_indicators),c("INDID","FRMID","SYSNAME","indicator_name","monitored","formula_title"))) {
+      if (!setequal(names(program_indicators),c("INDID","FRMID","SYSNAME","indicator_name","monitored","formula_title","is_auto_subscribed"))) {
         status_message(class="error",
                        "Failed to import PROGRAM INDICATORS.  Expected columns: ",paste0(c("INDID","FRMID","SYSNAME","indicator_name","monitored","formula_title"),collapse=", "))
       } else {
@@ -164,6 +164,7 @@ template_upload <- function(pool,
         program_indicators[,indicator_id:=as.numeric(indicator_id)]
         program_indicators[,formula_id:=as.numeric(formula_id)]
         program_indicators[,monitored:=as.logical(monitored)]
+        program_indicators[,is_auto_subscribed:=as.logical(is_auto_subscribed)]
         #monitored_indicators <- program_indicators[monitored==TRUE] #if there is a misalignment or change, we don't care if they're not monitoring it.
         
         bad_indicators <- fsetdiff(program_indicators[,.(indicator_id,indicator_name)],
@@ -195,6 +196,7 @@ template_upload <- function(pool,
           dbExecute(conn,"create temp table _temp_indicators(sys_name text,
                                                            indicator_id int,
                                                            is_subscribed bool,
+                                                           is_auto_subscribed bool,
                                                            formula_id int,
                                                            rsf_pfcbl_id int)
                   on commit drop;")
@@ -203,8 +205,9 @@ template_upload <- function(pool,
                         name="_temp_indicators",
                         value=program_indicators[,.(sys_name=SYSNAME,
                                                     indicator_id,
-                                                    formula_id,
-                                                    is_subscribed=monitored)])
+                                                    is_subscribed=monitored,
+                                                    is_auto_subscribed,
+                                                    formula_id)])
           
           dbExecute(conn,"analyze _temp_indicators")
           
@@ -245,7 +248,7 @@ template_upload <- function(pool,
                   ids.rsf_program_id,
                   ids.rsf_facility_id,
                   ti.is_subscribed,
-                  false as is_auto_subscribed
+                  coalesce(ti.is_auto_subscribed,false) as is_auto_subscribed
                   from _temp_indicators ti
                   inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ti.rsf_pfcbl_id
                   left join p_rsf.indicator_formulas indf on indf.formula_id = ti.formula_id
@@ -255,6 +258,19 @@ template_upload <- function(pool,
                   where ids.rsf_program_id = $1::int
                     and exists(select * from p_rsf.indicators ind 
                                where ind.indicator_id = ti.indicator_id)
+                  except 
+                  
+                  select 
+                    rsf_pfcbl_id,
+                    indicator_id,
+                    formula_id,
+                    rsf_program_id,
+                    rsf_facility_id,
+                    is_subscribed,
+                    is_auto_subscribed
+                  from p_rsf.rsf_program_facility_indicators pfi
+                  where pfi.rsf_program_id = $1::int
+                  
                   on conflict(rsf_pfcbl_id,indicator_id)
                   do update
                   set formula_id = EXCLUDED.formula_id,
@@ -269,7 +285,7 @@ template_upload <- function(pool,
     
     if (!empty(template$setup_data$PROGRAM_CHECKS)) {
       program_checks <- template$setup_data$PROGRAM_CHECKS
-      if (!setequal(names(program_checks),c("CHKID","FRMID","SYSNAME","check_name","check_class","check_type","check_formula_title","monitored"))) {
+      if (!setequal(names(program_checks),c("CHKID","FRMID","SYSNAME","check_name","check_class","check_type","check_formula_title","monitored","is_auto_subscribed"))) {
 
         status_message(class="error",
                        "Program template does not correctly define checks. Manually import checks. Expecting columns: ",
@@ -283,6 +299,7 @@ template_upload <- function(pool,
         
         program_checks[,indicator_check_id:=as.numeric(indicator_check_id)]
         program_checks[,monitored:=as.logical(monitored)]
+        program_checks[,is_auto_subscribed:=as.logical(monitored)]
         program_checks[,check_formula_id:=as.numeric(check_formula_id)]
         
         valid_monitoring <- dbGetQuery(pool,"select sn.rsf_pfcbl_id,sn.sys_name
@@ -307,6 +324,7 @@ template_upload <- function(pool,
                                                        check_formula_id int,
                                                        indicator_check_id int,
                                                        is_subscribed bool,
+                                                       is_auto_subscribed bool,
                                                        rsf_pfcbl_id int
                   )
                   on commit drop;")
@@ -316,7 +334,8 @@ template_upload <- function(pool,
                         value=unique(program_checks[,.(sys_name=SYSNAME,
                                                        check_formula_id,
                                                        indicator_check_id,
-                                                       is_subscribed=monitored)]))
+                                                       is_subscribed=monitored,
+                                                       is_auto_subscribed)]))
           
           dbExecute(conn,"analyze _temp_checks")
           
@@ -339,17 +358,31 @@ template_upload <- function(pool,
                                                                  is_subscribed,
                                                                  is_auto_subscribed)
                   select 
-                  tc.rsf_pfcbl_id,
-                  icf.check_formula_id,
-                  tc.indicator_check_id,
-                  ids.rsf_program_id,
-                  ids.rsf_facility_id,
-                  tc.is_subscribed,
-                  false as is_auto_subscribed
+                    tc.rsf_pfcbl_id,
+                    icf.check_formula_id,
+                    tc.indicator_check_id,
+                    ids.rsf_program_id,
+                    ids.rsf_facility_id,
+                    tc.is_subscribed,
+                    coalesce(tc.is_auto_subscribed,false) as is_auto_subscribed
                   from _temp_checks tc
                   inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = tc.rsf_pfcbl_id
                   inner join p_rsf.indicator_check_formulas icf on icf.check_formula_id = tc.check_formula_id
                   where ids.rsf_program_id = $1::int
+                  
+                  except
+                  
+                  select
+                   rsf_pfcbl_id,
+                   check_formula_id,
+                   indicator_check_id,
+                   rsf_program_id,
+                   rsf_facility_id,
+                   is_subscribed,
+                   is_auto_subscribed
+                  from p_rsf.rsf_program_facility_checks pfc
+                  where pfc.rsf_program_id = $1::int
+                  
                   on conflict(rsf_pfcbl_id,check_formula_id)
                   do update
                   set rsf_facility_id = EXCLUDED.rsf_facility_id,
@@ -600,8 +633,8 @@ template_upload <- function(pool,
     if (!empty(template$setup_data$PROGRAM_FLAGS)) {
       template_flags <- template$setup_data$PROGRAM_FLAGS
      
-      expected_headers <- c("SYSNAME","INDID","CHKID","check_asof_date","check_status","check_status_user_id","check_status_comment","check_message","CINDID","CCHKID","data_sys_flags","data_value_unit")
-      sys_headers <- c("sys_name","indicator_id","indicator_check_id","check_asof_date","check_status","check_status_user_id","check_status_comment","check_message","consolidated_from_indicator_id","consolidated_from_indicator_check_id","data_sys_flags","data_value_unit")
+      expected_headers <- c("ARCID","SYSNAME","INDID","CHKID","check_asof_date","check_status","check_status_user_id","check_status_comment","check_message","CINDID","CCHKID","data_sys_flags","data_value_unit")
+      sys_headers <- c("archive_id","sys_name","indicator_id","indicator_check_id","check_asof_date","check_status","check_status_user_id","check_status_comment","check_message","consolidated_from_indicator_id","consolidated_from_indicator_check_id","data_sys_flags","data_value_unit")
       if (!setequal(names(template_flags),
                     expected_headers)) {
         status_message(class="error",
@@ -611,10 +644,13 @@ template_upload <- function(pool,
                  old=expected_headers,
                  new=sys_headers)
         
+        #conn <- poolCheckout(pool)
+        #dbBegin(conn)
         poolWithTransaction(pool,function(conn) {
           
           dbExecute(conn,"
-            create temp table _temp_flags(sys_name text,
+            create temp table _temp_flags(archive_id int,
+                                          sys_name text,
                                           indicator_id int,
                                           indicator_check_id int,
                                           check_asof_date date,
@@ -631,7 +667,8 @@ template_upload <- function(pool,
           dbAppendTable(conn,
                         name="_temp_flags",
                         value=template_flags[,
-                                             .(sys_name,
+                                             .(archive_id,
+                                               sys_name,
                                                indicator_id,
                                                indicator_check_id,
                                                check_asof_date,
@@ -645,7 +682,8 @@ template_upload <- function(pool,
                                                data_value_unit)])
           
           dbExecute(conn,"
-            insert into p_rsf.rsf_data_checks_archive(sys_name,
+            insert into p_rsf.rsf_data_checks_archive(archive_id,
+                                                      sys_name,
                                                       indicator_id,
                                                       indicator_check_id,
                                                       check_asof_date,
@@ -658,6 +696,7 @@ template_upload <- function(pool,
                                                       data_sys_flags,
                                                       data_value_unit)
             select 
+              archive_id,
               sys_name,
               indicator_id,
               indicator_check_id,

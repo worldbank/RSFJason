@@ -60,6 +60,42 @@ SERVER_DATASETS_REVIEW_FLAGS_REVERSIONS <- function(evaluation_ids) {
   
 }
 
+SELECTED_COHORT_SELECTED_INDICATOR_REVIEW_FLAGS <- eventReactive(c(SELECTED_COHORT_INDICATOR_FLAGS_FILTERED(),
+                                                                   input$action_indicator_flags_review), {
+
+ selected_indicator_flag_id <- as.character(input$action_indicator_flags_review)
+ indicator_flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()
+ 
+ if (!isTruthy(selected_indicator_flag_id)) return (NULL)
+ if (!isTruthy(indicator_flags)) return (NULL)
+ if (!selected_indicator_flag_id %in% indicator_flags$indicator_flag_id) return(NULL)
+ 
+ indicator_flags <- SELECTED_COHORT_FLAGS()[indicator_flag_id==selected_indicator_flag_id]
+ return (indicator_flags)
+},ignoreNULL=FALSE)
+
+SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS <- function(evaluation_ids) {
+  
+  evaluation_ids <- paste0(unique(evaluation_ids),collapse=",")
+  cohort_flag_details <- DBPOOL %>% dbGetQuery("select 
+    rdc.evaluation_id,
+    rdc.rsf_pfcbl_id,
+    rdc.check_asof_date,
+    rdc.check_status,
+    rdc.check_status_comment,
+    rdc.check_message,
+    rdc.check_status_user_id,
+    vai.users_name as check_status_users_name,
+    nids.rsf_full_name as entity_name
+    from p_rsf.rsf_data_checks rdc
+    inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = rdc.rsf_pfcbl_id
+    left join p_rsf.view_account_info vai on vai.account_id = rdc.check_status_user_id
+    where rdc.evaluation_id = any(select unnest(string_to_array($1::text,','))::int)",
+    params=list(evaluation_ids))
+  
+  setDT(cohort_flag_details)
+  return (cohort_flag_details)
+}
 
 showModal_indicator_check_guidance_new <- function(for_indicator_id,
                                                    indicator_check_id,
@@ -1196,24 +1232,26 @@ output$server_datasets_review_flags_dataset <- DT::renderDataTable({
   }
   
   indicator_flags_selected <- req(input$indicator_flags_selected)
-  indicator_flags_status <- req(input$indicator_flags_status)
+  indicator_flags_status <- input$indicator_flags_status
   
-  cohort_flag_details <- DBPOOL %>% dbGetQuery("select 
-    rdc.evaluation_id,
-    rdc.rsf_pfcbl_id,
-    rdc.check_status,
-    rdc.check_status_comment,
-    rdc.check_message,
-    rdc.check_status_user_id,
-    vai.users_name as check_status_users_name,
-    nids.rsf_full_name as entity_name
-    from p_rsf.rsf_data_checks rdc
-    inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = rdc.rsf_pfcbl_id
-    left join p_rsf.view_account_info vai on vai.account_id = rdc.check_status_user_id
-    where rdc.evaluation_id = any(select unnest(string_to_array($1::text,','))::int)",
-    params=list(paste0(unique(evaluations$evaluation_id),collapse=",")))
+  cohort_flag_details <- SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS(evaluations$evaluation_id)
   
-  setDT(cohort_flag_details)
+  # cohort_flag_details <- DBPOOL %>% dbGetQuery("select 
+  #   rdc.evaluation_id,
+  #   rdc.rsf_pfcbl_id,
+  #   rdc.check_status,
+  #   rdc.check_status_comment,
+  #   rdc.check_message,
+  #   rdc.check_status_user_id,
+  #   vai.users_name as check_status_users_name,
+  #   nids.rsf_full_name as entity_name
+  #   from p_rsf.rsf_data_checks rdc
+  #   inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = rdc.rsf_pfcbl_id
+  #   left join p_rsf.view_account_info vai on vai.account_id = rdc.check_status_user_id
+  #   where rdc.evaluation_id = any(select unnest(string_to_array($1::text,','))::int)",
+  #   params=list(paste0(unique(evaluations$evaluation_id),collapse=",")))
+  # 
+  # setDT(cohort_flag_details)
   
   evaluations <- evaluations[cohort_flag_details,
                              on=.(evaluation_id),
@@ -1242,7 +1280,7 @@ output$server_datasets_review_flags_dataset <- DT::renderDataTable({
   
   INDICATOR_FLAGS_SELECTED_EVALUATION_IDS(unique(evaluations[selected==TRUE,evaluation_id])) #Refresh for new review
   
-  if (indicator_flags_status=="revert") {
+  if (indicator_flags_status %in% "revert") {
     
     reversions <- SERVER_DATASETS_REVIEW_FLAGS_REVERSIONS(evaluations$evaluation_id)
     
@@ -1281,3 +1319,84 @@ output$server_datasets_review_flags_dataset <- DT::renderDataTable({
     formatStyle(columns=c(0,1,4,5,6),whiteSpace="nowrap")
 })
 
+output$datasets_review_download_flags_action <- downloadHandler(
+  filename = function() {
+    selected_id <- input$cohort_collection_selected_id
+    cohort <- NULL
+    if (identical(selected_id,"all") || is.na(suppressWarnings(as.numeric(selected_id)))) {
+      cohort <- SELECTED_COHORT_INFO()
+    } else {
+      cohort <- COHORTS_LIST()[reporting_cohort_id==as.numeric(selected_id)]
+    }
+    paste0("Flags Report for ",cohort$source_name)
+  },
+  content=function(file) {
+    
+    
+    withProgress(message="Downloading file",value=0.5, {
+      
+      flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()[,
+                                                           .(pfcbl_category_rank,
+                                                             check_rank,
+                                                             indicator_id,
+                                                             indicator_name,
+                                                             formula_title,
+                                                             check_name,
+                                                             check_type,
+                                                             check_class,
+                                                             check_formula_title,
+                                                             evaluation_ids)]
+      flags <- flags[,
+                     .(evaluation_id=unlist(evaluation_ids,recursive=F)),
+                     by=.(pfcbl_category_rank,
+                          check_rank,
+                          indicator_id,
+                          indicator_name,
+                          formula_title,
+                          check_name,
+                          check_type,
+                          check_class,
+                          check_formula_title)]
+      
+      evaluations <- SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS(flags$evaluation_id)
+      
+      flags <- flags[evaluations,
+                     on=.(evaluation_id),
+                     nomatch=NULL]
+      
+      setorder(flags,
+               pfcbl_category_rank,
+               check_rank,
+               entity_name,
+               check_type,
+               check_name)
+      
+      flags <- flags[,
+                     .(FLAGID=evaluation_id,
+                       SYSID=rsf_pfcbl_id,
+                       CHECK_DATE=check_asof_date,
+                       NAME=entity_name,
+                       indicator_name,
+                       indicator_formula=formula_title,
+                       check_formula=check_formula_title,
+                       type=check_type,
+                       class=check_class,
+                       CHECK=check_name,
+                       MESSAGE=check_message,
+                       STATUS=check_status,
+                       comment=check_status_comment,
+                       user=check_status_users_name)]
+      
+      
+      wb <- openxlsx::createWorkbook()
+      openxlsx::addWorksheet(wb,
+                             sheetName="FLAGS")
+      openxlsx::writeDataTable(wb=wb,
+                               sheet="FLAGS",
+                               x=flags)
+      openxlsx::saveWorkbook(wb=wb,
+                             file=file,
+                             overwrite=TRUE)
+      })
+  }
+)

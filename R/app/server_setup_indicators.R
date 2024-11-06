@@ -21,7 +21,8 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
       indf.is_primary_default,
       coalesce(has.reported,false) as has_reported,
       case when fis.is_auto_subscribed = true then NULL::bool
-           else fis.is_subscribed end as user_subscription
+           else fis.is_subscribed end
+      as user_subscription
     from p_rsf.view_rsf_program_facility_indicator_subscriptions fis
     left join p_rsf.indicator_formulas indf on indf.formula_id = fis.formula_id
     left join lateral (select exists(select * from p_rsf.view_rsf_pfcbl_id_family_tree ft
@@ -56,14 +57,6 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
                                                     is_subscribed=is_subscribed,
                                                     user_subscription=user_subscription,
                                                     id=indicator_html_id)]
-  
-  # monitored_indicators[,indicator_html:=paste0("<div onmousedown='event.stopPropagation();' ",
-  #                                              "style='display:inline-block;' ",
-  #                                              "class='pointer' ",
-  #                                              "title='",definition,"' ",
-  #                                              "onclick='Shiny.setInputValue(\"server_setup_indicators__toggle_subscription\",\"",indicator_html_id,"\",{priority:\"event\"})'>",
-  #                                              indicator_name_html,
-  #                                              "</div>")]
 
   monitored_indicators[,indicator_html:=paste0("<div title='",definition,"'>",
                                                indicator_name_html,
@@ -115,11 +108,14 @@ ignoreInit  = FALSE,ignoreNULL=FALSE) %>% debounce(millis=100)
 SERVER_SETUP_INDICATORS_LIST_FILTERED <- eventReactive(c(SERVER_SETUP_INDICATORS_LIST(),
                                                          input$ui_setup__indicator_monitoring_filter,
                                                          input$ui_setup__indicator_category_filter,
-                                                         input$ui_setup__indicator_search_filter), {
+                                                         input$ui_setup__indicator_search_filter,
+                                                         input$ui_setup__indicator_calculated_filter), {
   
   mfilter <- input$ui_setup__indicator_monitoring_filter
   cfilter <- tolower(input$ui_setup__indicator_category_filter)
   sfilter <- tolower(input$ui_setup__indicator_search_filter)
+  xfilter <- tolower(input$ui_setup__indicator_calculated_filter)
+  
   monitored_indicators <- SERVER_SETUP_INDICATORS_LIST()
   SERVER_SETUP_INDICATORS_TOGGLE_SELECTED(c())
   if (empty(monitored_indicators)) return (NULL)
@@ -148,6 +144,16 @@ SERVER_SETUP_INDICATORS_LIST_FILTERED <- eventReactive(c(SERVER_SETUP_INDICATORS
    monitored_indicators <- monitored_indicators[is_subscribed==FALSE]
   } else if (isTruthy(mfilter) && mfilter=="unreported") {
    monitored_indicators <- monitored_indicators[has_reported==FALSE & is_subscribed==TRUE]
+  } else if (isTruthy(mfilter) && mfilter=="auto") {
+    monitored_indicators <- monitored_indicators[default_subscription==TRUE]
+  } else if (isTruthy(mfilter) && mfilter=="setup") {
+    monitored_indicators <- monitored_indicators[default_subscription==FALSE]
+  }
+  
+  if (isTruthy(xfilter) && xfilter=="calculated") {
+    monitored_indicators <- monitored_indicators[is_calculated==TRUE]
+  } else if (isTruthy(xfilter) && xfilter=="reported") {
+    monitored_indicators <- monitored_indicators[is_calculated==FALSE]
   }
   
   if (isTruthy(cfilter) && any(cfilter==monitored_indicators$data_category)) {
@@ -422,17 +428,26 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
   
   formula_click <- input$server_setup_indicators__formula_subscription
   selected_facility_id <- as.numeric(input$ui_setup__indicator_program_facilities)
-  
+
   if (!isTruthy(formula_click)) return (NULL)
   if (!isTruthy(SELECTED_PROGRAM_ID())) return (NULL)
   if (!isTruthy(selected_facility_id)) return (NULL)
   
   program <- SELECTED_PROGRAM()
   facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
-  selected_facility <- setNames(c(program$rsf_pfcbl_id,
-                                  facilities$rsf_pfcbl_id),
-                                c(paste0("program:",program$program_nickname," (all facilities)"),
-                                  paste0("facility:",facilities$facility_nickname)))
+  selected_facility <- NULL
+  
+  #Because newly created programs without facilities trying to setup indicators will crash
+  if (empty(facilities)) {
+    selected_facility <- setNames(c(program$rsf_pfcbl_id,
+                                  c(paste0("program:",program$program_nickname," (all facilities)"))))
+    
+  } else {
+    selected_facility <- setNames(c(program$rsf_pfcbl_id,
+                                    facilities$rsf_pfcbl_id),
+                                  c(paste0("program:",program$program_nickname," (all facilities)"),
+                                    paste0("facility:",facilities$facility_nickname)))
+  }
   selected_facility <- selected_facility[which(selected_facility==selected_facility_id)]
   selected_facility <- names(selected_facility)
   
@@ -611,6 +626,7 @@ observeEvent(input$server_setup_indicators__toggle_subscriptions, {
 
   #SERVER_DASHBOARD.INDICATORS_REFRESH(SERVER_DASHBOARD.INDICATORS_REFRESH()+1)
   SERVER_SETUP_INDICATORS_LIST_REFRESH(SERVER_SETUP_INDICATORS_LIST_REFRESH()+1)
+  SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1) #Because which indicators are subscribed/subscribable affects check auto-subscribe
   
 }, ignoreInit = TRUE)
 
@@ -751,8 +767,7 @@ output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
                   scrollY="70vh",
                   #scrollCollapse=TRUE,
                   ordering=F,
-                  paging=TRUE,
-                  pageLength=250,
+                  paging=F,
                   columnDefs = list(list(className = 'dt-left', targets = c(0,1)))))
   
 })

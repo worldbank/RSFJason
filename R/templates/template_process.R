@@ -39,6 +39,11 @@ template_process <- function(pool,
       
       if (is.null(template$reporting_asof_date) || is.null(template$template_data$reporting_asof_date) || length(template$reporting_asof_date) != 1 || 
           !all(template$reporting_asof_date %in% template$template_data$reporting_asof_date)) stop("Template's reporting_asof_date must uniquely match template's data program_id")
+      
+      #Templates imported via fread return an "IDate" "Date" class that can later cause conflicts when rbindlist with regular Date classes
+      template$template_data[,
+                             reporting_asof_date:=as.Date(reporting_asof_date)]
+      
     }
   
     #Check we're uploading for a valid date for the program

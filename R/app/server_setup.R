@@ -206,3 +206,20 @@ output$server_setup_download_setup_title <- renderText({
   return (message)
   
 })
+
+output$server_setup_download_backup_title <- renderText({
+  
+  program <- SELECTED_PROGRAM()
+  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()  
+  
+  if (empty(program)) return ("Select RSF Program")
+  
+  selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
+  
+  message <- "Select Program or Facility"
+  if (selected_rsf_pfcbl_id %in% program$rsf_pfcbl_id) message <- "Program Backup Data"
+  else if (selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id) message <- paste0(facilities[rsf_pfcbl_id==selected_rsf_pfcbl_id,facility_nickname],
+                                                                                 " Backup Data")
+  return (message)
+  
+})

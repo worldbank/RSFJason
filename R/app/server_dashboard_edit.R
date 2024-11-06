@@ -89,7 +89,7 @@ observeEvent(input$action_server_dashboard__edit, {
 
     fx_currency <- SERVER_DASHBOARD_RUN_OPTIONS$fx_currency
     if (!fx_currency %in% "LCU") {
-      showNotification(type="info",ui=h2("Resetting dashboard view to default Local Currency for data editing session"))
+      showNotification(type="warning",ui=h2("Resetting dashboard view to default Local Currency for data editing session"))
       updateSelectizeInput(session=session,
                            inputId="server_dashboard__view_currency",
                            selected="LCU")
@@ -378,7 +378,7 @@ observeEvent(input$server_dashboard__browser_cell_edit, {
     }
     
     
-    print(SERVER_DASHBOARD_EDIT_NEW_DATA())
+    #print(SERVER_DASHBOARD_EDIT_NEW_DATA())
   
   } else {
     return (showNotification(type="error",ui=h2("Edits can only be made during an editing session.  Click 'EDIT' to start session")))
@@ -399,8 +399,10 @@ observeEvent(input$action_server_dashboard__edit_save, {
   
   if (SERVER_DASHBOARD_EDIT_STATUS()==FALSE) return (NULL)
   
+  
   editing_filename <- input$server_dashboard_edit_filename
-
+ 
+  
   if (!isTruthy(editing_filename)) {
     editing_filename <- SERVER_DASHBOARD_DOWNLOAD_FILENAME()
   }  
@@ -465,6 +467,32 @@ observeEvent(input$action_server_dashboard__edit_save, {
     return(showNotification(type="error",ui=h2("Error: failed to match system IDs")))
   }
   
+  edit_dt[,n:=.N:1,
+          by=.(rsf_pfcbl_id,
+               indicator_id,
+               reporting_asof_date)]
+  
+  if (any(edit_dt$n > 1)) {
+    edit_dt_dups <- edit_dt[n>1]
+    edit_dt <- edit_dt[n==1]
+    
+    dups_ui <- "<table>"
+    for (i in 1:nrow(edit_dt_dups)) {
+      dups_ui <- paste0("<tr> ",
+                        "<td>",edit_dt_dups[i]$SYSNAME,"</td>",
+                        "<td>",edit_dt_dups[i]$indicator_name,"</td>",
+                        "<td>",edit_dt_dups[i]$reporting_asof_date,"</td>",
+                        "<td>",edit_dt_dups[i]$data_value,"</td></tr>")
+    }
+    dups_ui <- paste(dups_ui,"</table>")
+    dups_ui <- div(h3("Duplicate values found and discarded. If multiple values are intentional they must be done in separate editing sessions"),
+                   div(HTML(dups_ui)))
+    
+    showNotification(type="warning",
+                     ui=dups_ui,
+                     duration=NULL)
+  }
+
   #Just want to gray-out the background  
   showModal(ui=HTML('<div id="shiny-modal" class="modal fade" tabindex="-1" data-backdrop="static" data-keyboard="false">
                       <div class="modal-dialog">
@@ -518,12 +546,14 @@ observeEvent(input$action_server_dashboard__edit_save, {
     },
     warning=function(w) {
       showNotification(type="error",
+                       duration=NULL,
                        ui=h3(paste0("An error has occcurred. Failed to save edits: ",conditionMessage(w),
                                     "Please review the datasets panel and download the dataset, if available; then delete it.")))
       return (NULL)
     },
     error=function(e) {
       showNotification(type="error",
+                       duration=NULL,
                        ui=h3(paste0("An error has occcurred. Failed to save edits: ",conditionMessage(e),
                                     "Please review the datasets panel and download the dataset, if available; then delete it.")))
       return (NULL)
