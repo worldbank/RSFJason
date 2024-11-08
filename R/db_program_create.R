@@ -212,32 +212,32 @@ db_program_create <- function(pool,
     })
     
     
-    dbExecute(pool,"
-      insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
-    																										indicator_id,
-    																										formula_id,
-    																										rsf_program_id,
-    																										rsf_facility_id,
-    																										is_subscribed,
-    																										is_auto_subscribed)
-    	select
-    		$1::int as rsf_pfcbl_id,
-    		ind.indicator_id,
-    		indf.formula_id,
-    		$2::int as rsf_program_id,
-    		NULL as rsf_facility_id, -- only program level auto subscribes
-    		true as is_subscribed,
-    		true as is_auto_subscribed
-    	from p_rsf.indicators ind
-      left join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
-                                             and indf.is_primary_default is true
-      where ind.default_subscription is true
-        and ind.data_category <> 'global'
-      on conflict(rsf_pfcbl_id,indicator_id)
-    	do nothing;",
-      params=list(reporting_cohort$reporting_rsf_pfcbl_id,
-                  reporting_cohort$rsf_program_id))
-    
+    # dbExecute(pool,"
+    #   insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
+    # 																										indicator_id,
+    # 																										formula_id,
+    # 																										rsf_program_id,
+    # 																										rsf_facility_id,
+    # 																										is_subscribed,
+    # 																										is_auto_subscribed)
+    # 	select
+    # 		$1::int as rsf_pfcbl_id,
+    # 		ind.indicator_id,
+    # 		indf.formula_id,
+    # 		$2::int as rsf_program_id,
+    # 		NULL as rsf_facility_id, -- only program level auto subscribes
+    # 		true as is_subscribed,
+    # 		true as is_auto_subscribed
+    # 	from p_rsf.indicators ind
+    #   left join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
+    #                                          and indf.is_primary_default is true
+    #   where ind.default_subscription is true
+    #     and ind.data_category <> 'global'
+    #   on conflict(rsf_pfcbl_id,indicator_id)
+    # 	do nothing;",
+    #   params=list(reporting_cohort$reporting_rsf_pfcbl_id,
+    #               reporting_cohort$rsf_program_id))
+      
   if (empty(reporting_cohort)) stop("Failed to create new program")
   
   nodefault_setup_indicators <- c('name',

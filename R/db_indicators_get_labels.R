@@ -31,6 +31,7 @@ db_indicators_get_labels <- function(pool) {
                               ind.definition,
                               ind.is_system_calculated,
                               ind.is_static_nonreporting,
+                              ind.sort_preference,
                               exists(select * from p_rsf.indicator_formulas indf
                                      where indf.indicator_id = ind.indicator_id
                                        and indf.overwrite <> 'allow') as is_user_calculatable

@@ -681,6 +681,8 @@ observeEvent(input$server_admin_indicators__save_indicator, {
   definition <- input$admin_system_edit_indicator_definition
   default_subscription <- as.logical(input$admin_system_edit_indicator_default_subscribed)
   
+  sort_preference <- as.numeric(input$admin_system_edit_indicator_sort)
+  
   indicator_name <- normalizeIndicatorName(x=indicator_name,
                                            category=data_category,
                                            data_unit=data_unit,
@@ -701,7 +703,10 @@ observeEvent(input$server_admin_indicators__save_indicator, {
   if (!isTruthy(data_type)) return(showNotification(h3("Save failed: Data type is required."),type="error"))
   if (!data_category %in% c("global","program","facility","client","borrower","loan")) return(showNotification(h3("Save failed: Valid data category is required."),type="error"))
   if (!data_type %in% c("number","currency","currency_ratio","percent","date","text","logical")) return(showNotification(h3("Save failed: Valid data type is required."),type="error"))
-  if (!isTruthy(definition)) definition <-  "Definition undefined"
+  if (data_type=="currency_ratio" && empty(formulas)) {
+    return(showNotification(h3("Save failed: Currency Ratio type indicators must be calculated -- define a formula for this indicator or change its data type")))
+  }
+  if (!isTruthy(definition)) definition <- "Definition undefined"
   if (is.na(default_subscription)) default_subscription <- TRUE
   
   if (!identical(indicator$data_category,data_category) |
@@ -727,6 +732,7 @@ observeEvent(input$server_admin_indicators__save_indicator, {
     
     
     success <- tryCatch({
+      
       DBPOOL %>% db_indicator_update(indicator=data.table(indicator_id=indicator$indicator_id,
                                                           indicator_name=indicator_name,
                                                           data_category=data_category,
@@ -738,7 +744,8 @@ observeEvent(input$server_admin_indicators__save_indicator, {
                                                           options_group_id=options_id,
                                                           options_group_allows_blanks=options_allows_blanks,
                                                           options_group_allows_multiples=options_allows_multi,
-                                                          definition=definition),
+                                                          definition=definition,
+                                                          sort_preference=sort_preference),
                                          labels=labels[,
                                                        .(label_id,
                                                           label_key,
@@ -1164,6 +1171,9 @@ output$admin_system_edit_indicator <- renderUI({
   selected_monitoring <- as.logical(indicator$default_subscription)
   if (is.na(selected_monitoring)) selected_monitoring <- TRUE
   
+  selected_sort_order <- as.numeric(indicator$sort_preference)
+  if (is.na(selected_sort_order)) selected_sort_order <- ""
+  
   category_choices <- c(Global="global",
                         Program="program",
                         Facility="facility",
@@ -1352,7 +1362,12 @@ output$admin_system_edit_indicator <- renderUI({
                                                        "RSF Setup"=FALSE)))
                      ),
             fluidRow(align="left",
-                     column(4,align="left",
+                     column(1,align="left",
+                            textInput(inputId="admin_system_edit_indicator_sort",
+                                      label="Ordering",
+                                      value=selected_sort_order)),
+                     
+                     column(3,align="left",
                             enabled(state=editable,
                                     selectizeInput(inputId="admin_system_edit_indicator_options",
                                                    label = "Choices Group",

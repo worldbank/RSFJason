@@ -20,6 +20,9 @@ SERVER_DASHBOARD_SPECIAL_INDICATORS <- c(":exclude:reported",
                                          ":include:program",
                                          ":include:IDs",
                                          ":include:NAMES",
+                                         ":template:reporting",
+                                         ":template:client",
+                                         ":template:RSA",
                                          ":expand:calculations-shallow",
                                          ":expand:calculations-deep",
                                          ":expand:indicators")
@@ -101,40 +104,37 @@ SERVER_DASHBOARD_DOWNLOAD_FILENAME <- eventReactive(c(SERVER_DASHBOARD_RUN_OPTIO
 
 SERVER_DASHBOARD_CLIENTS_LIST <- eventReactive(c(SELECTED_PROGRAM_CLIENTS_LIST()), {
   
-  MODE_CROSS_PROGRAM <- TRUE
+  MODE_CROSS_PROGRAM <- FALSE
+  
+  selected_program_id <- SELECTED_PROGRAM_ID()
+  if (!isTruthy(selected_program_id)) MODE_CROSS_PROGRAM <- TRUE
   
   if (MODE_CROSS_PROGRAM==TRUE) {
-    selected_program_id <- SELECTED_PROGRAM_ID()
-    if (!isTruthy(selected_program_id)) return (NULL)
     
     if(SYS_PRINT_TIMING) debugtime("eventReactive: SELECTED_PROGRAM_CLIENTS_LIST")
     
     clients <- DBPOOL %>% dbGetQuery("
-    select distinct on (ids.rsf_program_id,ids.rsf_facility_id)
+    select 
       ids.rsf_program_id,
       ids.rsf_facility_id,
       ids.rsf_client_id,
       ids.rsf_pfcbl_id,
       ids.pfcbl_category,
       ids.pfcbl_category_rank as pfcbl_rank,
-      case when nids.pfcbl_category not in ('global','client') 
-           then nids.pfcbl_category || ':' || nids.rsf_name
-           else nids.rsf_name 
-      end as client_name,
+      nids.pfcbl_category || ':' || nids.rsf_name as client_name,
       nids.name,
       nids.id,
       nids.created_in_reporting_asof_date
     from p_rsf.rsf_pfcbl_ids ids
     inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
-    where ids.pfcbl_category_rank <= 3
-      and ids.pfcbl_category <> 'program'
-      and ids.rsf_program_id = $1::int
-    order by ids.rsf_program_id,ids.rsf_facility_id,ids.rsf_client_id nulls last",
-    params=list(selected_program_id))
+    where ids.pfcbl_category = 'program'
+    order by client_name")
     
     setDT(clients)
     return (clients)
+    
   } else {
+    
     return (SELECTED_PROGRAM_CLIENTS_LIST())
   }
   
@@ -190,10 +190,20 @@ SERVER_DASHBOARD_SELECTED_INDICATORS <- eventReactive(SERVER_DASHBOARD_RUN_OPTIO
   selected_dashboard_indicator_names <- SERVER_DASHBOARD_RUN_OPTIONS$indicator_names
   if (empty(selected_dashboard_indicators)) return (NULL)
   
+  #the "0" indicator_id is assigned to a selected report.
+  #so is there a :report: that has been loaded?  A user might for example load a report 
+  #and then include or exclude other indicators to that reporting template.
   if (any(selected_dashboard_indicators$indicator_id %in% 0)) {
     
     report_indicator_names <- unlist(SERVER_DASHBOARD_REPORT_SELECTED()$for_indicator_names)
     
+    #this should be obsolete.  Previously a report could be saved that include another report's name.
+    #eg, load :report:myreport and then add-on a couple more indicators and then save as a new report.  The collection of indicators would then include
+    #the name of the report.  The idea being that one could modify that parent-level report and child-level reports could inherit changes.  This was not a good idea:
+    #in the event that people deleted that parent level report, all information was then lost--frustrating users.  And this happened more often than not as people
+    #would create a report, save it.  Realize it needed to be modified. Modify it.  Save as a new report.  Delete the obsolete (parent) report.  And then their final
+    #report would be broken.  
+    #No reports just save all the underlying indicator names and there's no concept of inheritence.  This clause is obsolete as no reports should have a :report: indicator saved in its definition.
     parent_report_indicator_names <- function(report_names) {
       parent_indicator_names <- c()
       if (any(grepl(":report:",report_names),na.rm=T)) {
@@ -238,7 +248,6 @@ SERVER_DASHBOARD_SELECTED_INDICATORS <- eventReactive(SERVER_DASHBOARD_RUN_OPTIO
                                 by=.(indicator_id)]
   
   selected_dashboard_indicators <- selected_dashboard_indicators[n==1]
-  #selected_dashboard_indicator_names <- unique(selected_dashboard_indicator_names)
   selected_dashboard_indicators[,n:=NULL]
   
   selected_dashboard_indicators[,
@@ -248,6 +257,37 @@ SERVER_DASHBOARD_SELECTED_INDICATORS <- eventReactive(SERVER_DASHBOARD_RUN_OPTIO
     selected_dashboard_indicators[indicator_name==selected_dashboard_indicator_names[[i]],
                                   sort:=i]
     
+  }
+  
+  template_special <- selected_dashboard_indicators[grepl("^:template:",indicator_name)==TRUE,indicator_name]
+  if (length(template_special) > 0) {
+    if (any(template_special==":template:RSA")) {
+      
+      selected_dashboard_indicators <- rbindlist(list(SERVER_DASHBOARD_INDICATORS()[indicator_name==":include:facility"],
+                                                      selected_dashboard_indicators),
+                                                 fill=TRUE) #fills sort order
+    }
+    
+    if (any(template_special==":template:reporting")) {
+      
+      selected_dashboard_indicators <- rbindlist(list(SERVER_DASHBOARD_INDICATORS()[indicator_name %in% c(":include:borrower",":include:loan")],
+                                                      selected_dashboard_indicators),
+                                                 fill=TRUE) #fills sort order
+    }
+
+    if (any(template_special==":template:client")) {
+      
+      selected_dashboard_indicators <- rbindlist(list(SERVER_DASHBOARD_INDICATORS()[indicator_name==":include:client"],
+                                                      selected_dashboard_indicators),
+                                                 fill=TRUE) #fills sort order
+      
+    }
+    
+    selected_dashboard_indicators <- rbindlist(list(SERVER_DASHBOARD_INDICATORS()[indicator_name %in% c(":exclude:system",
+                                                                                                        ":exclude:calculated",
+                                                                                                        ":exclude:unsubscribed")],
+                                                    selected_dashboard_indicators),
+                                               fill=TRUE) #fills sort order
   }
   
   #special :include: are generic to the indicator definitions
@@ -309,10 +349,10 @@ SERVER_DASHBOARD_SELECTED_INDICATORS <- eventReactive(SERVER_DASHBOARD_RUN_OPTIO
 
 SERVER_DASHBOARD_VALID_ASOF_DATES <- eventReactive(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids, {
 
-  program_id <- SELECTED_PROGRAM_ID()
+  #program_id <- SELECTED_PROGRAM_ID()
   selected_clients <- as.numeric(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids)
   
-  if (!isTruthy(program_id)) return (NULL)
+  #if (!isTruthy(program_id)) return (NULL)
   
   if (!isTruthy(selected_clients)) { 
     return (NULL)
@@ -321,19 +361,18 @@ SERVER_DASHBOARD_VALID_ASOF_DATES <- eventReactive(SERVER_DASHBOARD_RUN_OPTIONS$
   
   valid_dates <- DBPOOL %>% dbGetQuery("
     with dates as (                                       
-      select 
+      select distinct
         prd.valid_reporting_date::text as text_date,
         valid_reporting_date > (now()::date) as is_future
       from p_rsf.rsf_program_reporting_dates prd
-      where prd.rsf_program_id = $1::int
-        and prd.valid_reporting_date 
+      where prd.valid_reporting_date 
       	between (select min(created_in_reporting_asof_date) 
       	         from p_rsf.rsf_pfcbl_ids ids 
-      					 where ids.rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int))
+      					 where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int))
             and (select max(reporting_asof_date) 
           	     from p_rsf.rsf_pfcbl_reporting rpr
-          			 where rpr.rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int))
-      order by prd.valid_reporting_date desc
+          			 where rpr.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int))
+      order by (prd.valid_reporting_date::text) desc
     )
     select 
       text_date,
@@ -348,8 +387,7 @@ SERVER_DASHBOARD_VALID_ASOF_DATES <- eventReactive(SERVER_DASHBOARD_RUN_OPTIONS$
       0::int as date_rank,
       array_to_string(array_agg(text_date order by text_date),',') as date_value
     from dates where is_future = true",
-      params=list(program_id,
-                  paste0(selected_clients,collapse=",")))
+      params=list(paste0(selected_clients,collapse=",")))
   
   setDT(valid_dates)
   
@@ -505,7 +543,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
      
     }
   }
-  
+
   exclude_indicators <- grep("^:exclude:",selected_indicators$indicator_name,value=T)
   if (length(exclude_indicators) > 0) {
     
@@ -542,7 +580,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
       exclude_rank <- selected_indicators[indicator_name==":exclude:calculated",sort]
       exclude_ids <-  c(exclude_ids,
                         selected_indicators[(indicator_id %in% query_indicators[is_calculated==TRUE,indicator_id]) &
-                                              sort > exclude_rank,
+                                              sort < exclude_rank,
                                             indicator_id])
     }
     
@@ -550,14 +588,14 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
       exclude_rank <- selected_indicators[indicator_name==":exclude:system",sort]
       exclude_ids <-  c(exclude_ids,
                         selected_indicators[(indicator_id %in% query_indicators[is_system==TRUE,indicator_id]) &
-                                              sort > exclude_rank,
+                                              sort < exclude_rank,
                                             indicator_id])
     }
     if (":exclude:unsubscribed" %in% exclude_indicators) {
       exclude_rank <- selected_indicators[indicator_name==":exclude:unsubscribed",sort]
       exclude_ids <-  c(exclude_ids,
                         selected_indicators[(indicator_id %in% query_indicators[is_subscribed==FALSE,indicator_id]) &
-                                              sort > exclude_rank,
+                                              sort < exclude_rank,
                                             indicator_id])
     }
     

@@ -223,16 +223,7 @@ template_upload <- function(pool,
                         from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
                         where sn.sys_name = ti.sys_name")
 
-          #Bad idea!  Instead, auto-subscribes are done within the database on indicator reporting          
-          # dbExecute(conn,"
-          #         delete from p_rsf.rsf_program_facility_indicators pfi
-          #         where exists(select * from _temp_indicators ti
-          #                      where ti.rsf_pfcbl_id = pfi.rsf_pfcbl_id)
-          #           and not exists(select * from _temp_indicators ti
-          #                          where ti.indicator_id = pfi.indicator_id)")
-          
-          
-          
+
           dbExecute(conn,"
                   insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
                                                                     indicator_id,

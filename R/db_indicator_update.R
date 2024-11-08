@@ -80,6 +80,18 @@ db_indicator_update <- function(pool,
   })
   
   #2: Update indicators.  Various checks require update before formulas to ensure consistency, ie, with defaults not being calculated.
+  
+  if (indicator$data_type=="currency_ratio") {
+    if (empty(formulas) || nrow(formulas)==0) stop("currency ratio indicators must have a calculated formula")
+    
+    dbExecute(pool,"
+              update p_rsf.indicators 
+              set is_calculated = true
+              where indicator_id = $1::int",
+              params=list(indicator$indicator_id))
+
+  }
+  
   dbExecute(pool,"
     update p_rsf.indicators
     set indicator_name = $1,
@@ -92,9 +104,10 @@ db_indicator_update <- function(pool,
        indicator_options_group_allows_blanks = NULLIF($8,'NA')::bool,
        indicator_options_group_allows_multiples = NULLIF($9,'NA')::bool,
        is_periodic_or_flow_reporting = coalesce($10::bool,false),
-       modification_time = (timeofday())::timestamptz,
-    default_subscription = coalesce(NULLIF($11::text,'NA')::bool,true)::bool
-    where indicator_id = $12::int
+       default_subscription = coalesce(NULLIF($11::text,'NA')::bool,true)::bool,
+       sort_preference = NULLIF($12::text,'NA')::int2,
+       modification_time = (timeofday())::timestamptz
+    where indicator_id = $13::int
     ",params=list(indicator$indicator_name,
                   indicator$data_category,
                   indicator$data_type,
@@ -106,6 +119,7 @@ db_indicator_update <- function(pool,
                   indicator$options_group_allows_multiples,
                   indicator$data_frequency,
                   indicator$default_subscription,
+                  indicator$sort_preference,
                   indicator$indicator_id))
   
   #conn <- poolCheckout(pool)

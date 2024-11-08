@@ -439,8 +439,8 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
   
   #Because newly created programs without facilities trying to setup indicators will crash
   if (empty(facilities)) {
-    selected_facility <- setNames(c(program$rsf_pfcbl_id,
-                                  c(paste0("program:",program$program_nickname," (all facilities)"))))
+    selected_facility <- setNames(c(program$rsf_pfcbl_id),
+                                  c(paste0("program:",program$program_nickname," (all facilities)")))
     
   } else {
     selected_facility <- setNames(c(program$rsf_pfcbl_id,
@@ -718,6 +718,68 @@ output$server_setup_indicators__recalculate_pendingcount <- renderText({
 #   if (!isTruthy(tc)) tc <- "0"
 #   return (tc)
 # })
+observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
+  
+  clicked_cell <- input$ui_setup__indicators_monitored_table_cell_edit
+    
+  if (!isTruthy(clicked_cell) || length(clicked_cell) == 0) return (NULL)
+  monitored_indicator <- SERVER_SETUP_INDICATORS_LIST_FILTERED()[clicked_cell$row,
+                                                                 .(rsf_pfcbl_id,
+                                                                   indicator_id,
+                                                                   formula_id,
+                                                                   is_subscribed,
+                                                                   sort_preference,
+                                                                   subscription_comments)]
+  
+  monitored_indicator <- as.list(monitored_indicator)
+  if (clicked_cell$col==4) { 
+    monitored_indicator[["sort_preference"]] <- as.numeric(clicked_cell$value)
+    
+    
+  } else if (clicked_cell$col==5) {
+    monitored_indicator[["subscription_comments"]] <- as.character(clicked_cell$value)
+  }
+  
+  DBPOOL %>% dbExecute("
+    insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
+                                                      indicator_id,
+                                                      formula_id,
+                                                      rsf_program_id,
+                                                      rsf_facility_id,
+                                                      is_subscribed,
+                                                      is_auto_subscribed,
+                                                      sort_preference,
+                                                      subscription_comments)
+            select 
+              ids.rsf_pfcbl_id,
+              ind.indicator_id,
+              indf.formula_id as formula_id,
+              ids.rsf_program_id,
+              ids.rsf_facility_id,
+              $4::bool as is_subscribed,
+              false as is_auto_subscribed,
+              $5::int2 as sort_preference,
+              $6::text as subscription_comments
+            from p_rsf.rsf_pfcbl_ids ids
+            inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
+            left join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
+                                                   and indf.formula_id = $3::int
+            where ids.rsf_pfcbl_id = $1::int
+              and ind.indicator_id = $2::int
+            on conflict (rsf_pfcbl_id,indicator_id)
+            do update
+            set formula_id = EXCLUDED.formula_id,
+                is_subscribed = EXCLUDED.is_subscribed,
+                is_auto_subscribed = EXCLUDED.is_auto_subscribed,
+                sort_preference = EXCLUDED.sort_preference,
+                subscription_comments = EXCLUDED.subscription_comments",
+    params=list(monitored_indicator$rsf_pfcbl_id,
+                monitored_indicator$indicator_id,
+                monitored_indicator$formula_id,
+                monitored_indicator$is_subscribed,
+                monitored_indicator$sort_preference,
+                monitored_indicator$subscription_comments))
+})
 
 output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
   
@@ -754,20 +816,41 @@ output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
                         </i></div>")
   
   
-  monitored_indicators <- monitored_indicators[,.(toggle_box,indicator_html,formula_name_html,formula_view)]
+  monitored_indicators <- monitored_indicators[,
+                                               .(toggle_box,
+                                                 indicator_html,
+                                                 formula_name_html,
+                                                 formula_view,
+                                                 sort_preference=ifelse(is.na(sort_preference),"",
+                                                                              as.character(sort_preference)),
+                                                 subscription_comments=ifelse(is_inherited==TRUE,
+                                                                              "[program setting]",
+                                                                              subscription_comments))]
   
   DT::datatable(monitored_indicators,
                 rownames = FALSE,
                 fillContainer=TRUE,
-                colnames=c(toggleButton,"Indicator Name","Calculation","Formula"),
+                colnames=c(toggleButton,"Indicator Name","Calculation","Formula","Order","Notes"),
+                editable=list(target = 'cell', disable = list(columns = c(0,1,2,3))), #c(0,1)))
                 escape = FALSE, #Shouldn't be any HTML escapable text
                 options=list(
                   dom="t",
                   bSort=T,
                   scrollY="70vh",
-                  #scrollCollapse=TRUE,
                   ordering=F,
                   paging=F,
-                  columnDefs = list(list(className = 'dt-left', targets = c(0,1)))))
+                  columnDefs = list(list(className = 'dt-left', targets = c(0,1))))) %>%
+    
+    formatStyle(columns="sort_preference",
+                target="cell",
+                `width` = "50px",
+                `white-space`="nowrap") %>%
+    
+    formatStyle(columns="subscription_comments",
+                target="cell",
+                `width` = "150px",
+                `white-space`="normal",
+                `text-overflow`="ellipsis",
+                `overflow`="hidden")
   
 })

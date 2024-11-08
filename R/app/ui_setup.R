@@ -84,6 +84,8 @@ div(style="background-color:white;padding:10px;",
                                                             label="Recalculate"))),
                            ),
                            fluidRow(column(12,
+                                           div("To toggle indicator subscriptions: check it and click on the crossing-arrows button.  To edit sort ordering or monitoring comments: double-click in the cell to make edits."))),
+                           fluidRow(column(12,
                                            DT::dataTableOutput(outputId="ui_setup__indicators_monitored_table")))),
 #############
 ###TAB CHECKS
