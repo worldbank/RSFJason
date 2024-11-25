@@ -152,10 +152,16 @@ db_add_update_data_system <- function(pool,
                           order by 
                             reporting.rsf_pfcbl_id,
                             reporting.reporting_cohort_id desc
-                        )
+                        ),
+                        -- create program cohorts can uniquely nest parent cohorts.
+                        parent_cohorts as (
+                      		select reporting.rsf_pfcbl_id,coalesce(rc.parent_reporting_cohort_id,rc.reporting_cohort_id) as reporting_cohort_id
+                      		from reporting 
+                      		inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = reporting.reporting_cohort_id
+                      	)
                         update _temp_upload_system_data usd
                         set reporting_cohort_id = rep.reporting_cohort_id
-                        from reporting rep
+                        from parent_cohorts rep
                         where rep.rsf_pfcbl_id = usd.rsf_pfcbl_id
                           and exists(select * from p_rsf.reporting_cohorts rc
                                      where rc.reporting_cohort_id = rep.reporting_cohort_id

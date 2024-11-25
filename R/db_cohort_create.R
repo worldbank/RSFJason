@@ -11,6 +11,7 @@ db_cohort_create <- function(pool,
                              reporting_pfcbl_categories=NA,
                              fail_on_check_class=c("critical"),       #Relevant for checking on flags and whether to fail to create because so
                              fail_on_check_submitted_indicators=NULL, #If user is submitting an indicator that has a failed check, allow it to pass
+                             fail_on_incomplete_cohorts=TRUE, #If a child entity has a cohort with cohort_processing_completed = false, fail to create a new cohort
                              linked_reporting_cohort_id=NA) 
 {
 
@@ -22,9 +23,14 @@ db_cohort_create <- function(pool,
   fail_on_check_class <- tolower(fail_on_check_class)
   if (length(fail_on_check_class)==0) fail_on_check_class <- "none"
   
+  if (is.null(fail_on_incomplete_cohorts) || 
+      !fail_on_incomplete_cohorts %in% c(TRUE,FALSE)) {
+    fail_on_incomplete_cohorts <- TRUE
+  }
   #conn <- poolCheckout(pool)
   # dbRollback(conn)
   #dbBegin(conn);
+  
   reporting_cohort <- poolWithTransaction(pool,function(conn) { 
 
       valid_user_id <- dbGetQuery(conn,"select * from p_rsf.view_account_info vai
@@ -97,36 +103,38 @@ db_cohort_create <- function(pool,
         }
       }
       
-      failed_cohorts <- dbGetQuery(conn,"
-      select 
-      rc.reporting_cohort_id,
-      rc.source_name,
-      rc.reporting_asof_date,
-      sn.sys_name
-      from p_rsf.reporting_cohorts rc
-      inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
-      where rc.cohort_processing_completed = false 
-        and rc.linked_reporting_cohort_id is null 
-        and rc.is_reported_cohort = true 
-        and rc.reporting_cohort_id is distinct from NULLIF($2::text,'NA')::int
-        and rc.reporting_rsf_pfcbl_id = any(select fam.child_rsf_pfcbl_id 
-                                            from p_rsf.rsf_pfcbl_id_family fam
-                                            where fam.parent_rsf_pfcbl_id = $1::int)",
-      params=list(cohort_pfcbl_id,
-                  linked_reporting_cohort_id))
-      
-      if (!empty(failed_cohorts)) {
-        setDT(failed_cohorts)
-        setorder(failed_cohorts,
-                 sys_name,
-                 reporting_asof_date,
-                 source_name)
+      if (fail_on_incomplete_cohorts == TRUE) {
+        failed_cohorts <- dbGetQuery(conn,"
+        select 
+        rc.reporting_cohort_id,
+        rc.source_name,
+        rc.reporting_asof_date,
+        sn.sys_name
+        from p_rsf.reporting_cohorts rc
+        inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
+        where rc.cohort_processing_completed = false 
+          and rc.linked_reporting_cohort_id is null 
+          and rc.is_reported_cohort = true 
+          and rc.reporting_cohort_id is distinct from NULLIF($2::text,'NA')::int
+          and rc.reporting_rsf_pfcbl_id = any(select fam.child_rsf_pfcbl_id 
+                                              from p_rsf.rsf_pfcbl_id_family fam
+                                              where fam.parent_rsf_pfcbl_id = $1::int)",
+        params=list(cohort_pfcbl_id,
+                    linked_reporting_cohort_id))
         
-        message <- paste0("The following datasets failed to upload properly: \n",
-                          paste0(paste0(failed_cohorts$sys_name," ",failed_cohorts$reporting_asof_date,": ",failed_cohorts$source_name),
-                          collapse=" \n"),"\n",
-                          "To ensure all data is properly reported, these datasets should be deleted and re-uploaded before uploading any new datasets.")
-        stop(message)
+        if (!empty(failed_cohorts)) {
+          setDT(failed_cohorts)
+          setorder(failed_cohorts,
+                   sys_name,
+                   reporting_asof_date,
+                   source_name)
+          
+          message <- paste0("The following datasets failed to upload properly: \n",
+                            paste0(paste0(failed_cohorts$sys_name," ",failed_cohorts$reporting_asof_date,": ",failed_cohorts$source_name),
+                            collapse=" \n"),"\n",
+                            "To ensure all data is properly reported, these datasets should be deleted and re-uploaded before uploading any new datasets.")
+          stop(message)
+        }
       }
       
       reporting_cohort <- dbGetQuery(conn,

@@ -79,26 +79,6 @@ observeEvent(input$setup_program_create_action_button, {
                             h3("Error: Client, Facility and Borrower must be selected to create a new Loan")))
   }
   
-  reporting_asof_date <- as.character(input$setup_program_create_setup_reporting_asof_date)
-  if (what != "program") {
-    if (!isTruthy(reporting_asof_date) || is.na(suppressWarnings(ymd(reporting_asof_date)))) {
-      return(showNotification(type="error",
-                              h3("Error: Creation reporting date must be selected")))
-      
-    }
-    
-    reporting_asof_date <- ymd(reporting_asof_date)
-    reporting_frequency <- DBPOOL %>% dbGetQuery("select reporting_period from p_rsf.rsf_programs rp
-                                                  where rp.rsf_program_id = $1::int",
-                                                 rsf_program_id)
-    reporting_frequency <- reporting_frequency$reporting_period
-  } else {
-    reporting_asof_date <- as.Date(as.numeric(NA))
-    
-  }
-  
-  reporting_asof_start <- floor_date(reporting_asof_date,reporting_frequency)
-  
   setup_indicator_ids <- grep("^setup_program_create_setup_indicator_",names(reactiveValuesToList(input)),value=T)
   setup_indicators <- lapply(setup_indicator_ids,function(x) {
     val <- input[[x]]
@@ -110,13 +90,15 @@ observeEvent(input$setup_program_create_action_button, {
                data_value=val)
   })
   setup_indicators <- rbindlist(setup_indicators)
+ 
   #si <<- as.data.frame(setup_indicators)
   #setup_indicators <- as.data.table(si)
   #what <<- what
   #rsf_program_id <<- rsf_program_id
   #facility_rsf_pfcbl_id <<- facility_rsf_pfcbl_id
   
-  setup_indicators[,indicator_id:=as.numeric(gsub("^setup_program_create_setup_indicator_","",setup_indicator))]
+  setup_indicators[,
+                   indicator_id:=as.numeric(gsub("^setup_program_create_setup_indicator_","",setup_indicator))]
   
   indicator_requirements <- DBPOOL %>% db_create_entity_indicator_requirements(entity_type=what)
   
@@ -133,6 +115,31 @@ observeEvent(input$setup_program_create_action_button, {
   setup_indicators[,data_value:=trimws(data_value)]
   setup_indicators[!is.na(default_value) & is.na(data_value),
                    data_value:=as.character(default_value)]
+  
+  
+  reporting_asof_date <- as.character(setup_indicators[indicator_sys_category=="entity_creation_date",data_value])
+  
+  if (!isTruthy(reporting_asof_date) || is.na(suppressWarnings(ymd(reporting_asof_date)))) {
+    return(showNotification(type="error",
+                            h3("Error: Creation date must be completed")))
+    
+  }
+  
+  reporting_asof_date <- ymd(reporting_asof_date)
+  if (what != "program") {
+
+    reporting_frequency <- DBPOOL %>% dbGetQuery("select reporting_period from p_rsf.rsf_programs rp
+                                                  where rp.rsf_program_id = $1::int",
+                                                 rsf_program_id)
+    
+    reporting_frequency <- reporting_frequency$reporting_period
+  } else {
+    reporting_frequency <- "quarter" #system basically only enables quarterly reporting
+    
+  }
+  
+  reporting_asof_start <- floor_date(reporting_asof_date,reporting_frequency) #first date of current quarter
+  reporting_asof_date <- ceiling_date(reporting_asof_date,reporting_frequency) - days(1) #last day of current quarter
   
   if (!empty(setup_indicators[indicator_sys_category=="entity_local_currency_unit" & data_value %in% c("LCU","LCY")])) {
     return(showNotification(type="error",
@@ -210,6 +217,10 @@ observeEvent(input$setup_program_create_action_button, {
                                                 source_name="Program Created in JASON")
         LOAD_PROGRAM_ID(results$rsf_program_id)
           
+        updateTabsetPanel(session=session,
+                          inputId="tabset_setup_program",
+                          selected = "Setup Indicators")
+        
       } else {
         
         parent_rsf_pfcbl_id <- NULL
@@ -265,46 +276,56 @@ observeEvent(input$setup_program_create_action_button, {
         
         file.remove(export_filename)
         
-        
-          created_rsf_pfcbl_ids <- DBPOOL %>% dbGetQuery("select ids.rsf_pfcbl_id
-                                                          from p_rsf.reporting_cohorts rc
-                                                          inner join p_rsf.rsf_pfcbl_ids ids on ids.created_by_reporting_cohort_id = rc.reporting_cohort_id
-                                                          where rc.reporting_cohort_id = $1::int
-                                                             or rc.parent_reporting_cohort_id = $1::int",
-                                                         params=list(unique(results$reporting_cohort_id)))
+        #this utility can only create one at a time, so select last-created by this parent
+          created_rsf_pfcbl_ids <- DBPOOL %>% dbGetQuery("select fam.child_rsf_pfcbl_id as rsf_pfcbl_id
+                                                          from p_rsf.rsf_pfcbl_id_family fam 
+                                                          inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
+                                                          where fam.parent_rsf_pfcbl_id = $1::int
+                                                          and fam.child_pfcbl_category = $2::text
+                                                          order by ids.rsf_pfcbl_id desc
+                                                          limit 1",
+                                                         params=list(parent_rsf_pfcbl_id,
+                                                                     what))
+          
           created_rsf_pfcbl_ids <- unlist(created_rsf_pfcbl_ids)
           if (!isTruthy(created_rsf_pfcbl_ids)) created_rsf_pfcbl_ids <- NA
           
           LOAD_REPORTING_COHORT(results$reporting_cohort_id)
           if (what %in% c("facility","client")) LOAD_RSF_PFCBL_IDS(created_rsf_pfcbl_ids)
           
+          print(paste0("NEW CREATED RSF_PFCBL_IDS: ",paste0(created_rsf_pfcbl_ids,collapse=", ")))
+          
           if (!any(as.character(unique(results$reporting_asof_date)) %in% as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))) {
             new_dates <- setdiff(sort(as.character(unique(results$reporting_asof_date))),as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))
             LOAD_VALID_REPORTING_DATE(new_dates)
           }
           
-          # DASH_LOAD_DASHBOARD(reporting_asof_date=unique(results$reporting_asof_date),
-          #                     rsf_pfcbl_ids=created_rsf_pfcbl_ids,
-          #                     indicator_ids=c(),
-          #                     display_report_id=NA,
-          #                     display_currency="LCU",
-          #                     display_timeline=FALSE,
-          #                     display_timeline_format="html",
-          #                     display_flags=TRUE,
-          #                     filter_flags=as.character(NA),
-          #                     filter_text=paste0("SYSID:",paste0(created_rsf_pfcbl_ids,collapse=",")),
-          #                     filter_indicator_types=c("USER"),
-          #                     indicator_ids.sorted=FALSE)
-          
-          showNotification(type="message",
-                           ui=h3(paste0("Edit additional information for this ",toupper(what)," using the dashboard OR download RSF SETUP FILE")))
-          
-        
-        
-        updateSelectizeInput(session=session,
-                             inputId="setup_program_create_what",
-                             selected="")
-        
+          #browser()
+          #program has its own clause
+          if (what %in% c("facility","client")) {
+            
+            updateSelectizeInput(session=session,
+                                 inputId="setup_program_create_what",
+                                 selected="")
+            
+            updateTabsetPanel(session=session,
+                              inputId="tabset_setup_program",
+                              selected = "Setup Indicators")
+            
+            modal_ui <-div(p("Setup indicators and Setup checks for this ",toupper(what)," to encode RSA definitions and requirements"),
+                           p("Colored indicators are monitored.  Grayed-out are not.  Check the box and click the cross-arrows icon button to toggle monitoring status"),
+                           p("Calculated indicators use formulas: RSAs often have different definitions. Verify the default formula or set the correct one using the calculator icon button"),
+                           p("RSA Facility Parameters (purple indicators) must setup the parameter value.  For example, if the RSA defines natural termination as 4-years after Signing Date, update the 'facility_termination_RSA_duration_MONTHS' to 48 MONTHS.  And also set the formula for the 'facility_termination_date' to be relative to SIGNING DATE (and change from the RSA default from effective date)"),
+                           p("The filters on this page have been selected for you for SETUP MODE: This allows you to double-click on the 'Value@' column, to active an editing box.  Type in the value defined in the RSA.  You can also double-click on 'Notes' column to comment on this indicator's setup"))
+            
+            showModal(ui=modalDialog(title=paste0("Setup this ",toupper(what)),
+                                     modal_ui,
+                                     size="l",
+                                     footer=actionButton(inputId="server_setup_create_setup_indicators",
+                                                         label=paste0("Setup ",toupper(what)," Now"),
+                                                         class="btn-primary")))
+            
+          }
       }
     })
   },
@@ -324,6 +345,30 @@ observeEvent(input$setup_program_create_action_button, {
     
   })
   
+})
+
+observeEvent(input$server_setup_create_setup_indicators, {
+
+  
+  recently_created_id <- max(SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id)
+  if (!isTruthy(recently_created_id)) return(NULL)
+  
+  updateTabsetPanel(session=session,
+                    inputId="tabset_setup_program",
+                    selected = "Setup Indicators")
+  
+  updateSelectizeInput(session=session,
+                       inputId="ui_setup__indicator_program_facilities",
+                       selected=recently_created_id)
+  
+  showElement(id="ui_setup__indicator_setup_filter_ui",
+              anim=FALSE)
+  
+  updateSelectizeInput(session=session,
+                       inputId="ui_setup__indicator_setup_filter",
+                       selected=TRUE)
+  
+  removeModal()  
 })
 
 observeEvent(input$setup_program_create_what, {
@@ -563,25 +608,29 @@ output$setup_program_create_ui <- renderUI({
     
     #Querying VIEW to ensure fully available valid reporting dates, eg, if user is creating entity whose start date is beyond the currentest program reporting date
     #They will be able to do so.  This should prompt a refresh of SELECTED_PROGRAM_VALID_REPORTING_DATES() so the new date becomes available in drop downs.
-    program_dates <- DBPOOL %>% dbGetQuery("select rd.valid_reporting_date::text as valid_reporting_date 
-                                            from p_rsf.rsf_program_generate_reporting_dates($1::int,now()::date) as rd
-                                            order by rd.valid_reporting_date",
-                                           params=list(SELECTED_PROGRAM_ID()))
+    # program_dates <- DBPOOL %>% dbGetQuery("select rd.valid_reporting_date::text as valid_reporting_date 
+    #                                         from p_rsf.rsf_program_generate_reporting_dates($1::int,now()::date) as rd
+    #                                         order by rd.valid_reporting_date",
+    #                                        params=list(SELECTED_PROGRAM_ID()))
+    # 
+    # program_dates <- as.character(program_dates$valid_reporting_date)
     
-    program_dates <- as.character(program_dates$valid_reporting_date)
+    #create_title <- "Reporting Period"
+    # create_title <- fcase(what=="facility","Reporting Period: Facility IFC first commitment date (required)",
+    #                       what=="client","Reporting Period: Client signing date (required)",
+    #                       what=="borrower","Reporting Period: Borrower became RSF client (required)",
+    #                       what=="loan","Reporting Period: Loan commitment date (required)",
+    #                       default="Error")
     
-    create_title <- fcase(what=="facility","Reporting Period: Facility IFC first commitment date (required)",
-                          what=="client","Reporting Period: Client signing date (required)",
-                          what=="borrower","Reporting Period: Borrower became RSF client (required)",
-                          what=="loan","Reporting Period: Loan commitment date (required)",
-                          default="Error")
-    
-    reporting_ui <- fluidRow(column(12,
-                                    selectizeInput(inputId="setup_program_create_setup_reporting_asof_date",
-                                                   label=create_title,
-                                                   choices=program_dates,
-                                                   selected=program_dates[length(program_dates)],
-                                                   options=list(placeholder="Select reporting date"))))
+    #is now responsive to indicator_sys_category=entity_creation_date to auto-set End-of-Quarter as people consistently never set this and always screwed things up!
+    # reporting_ui <- fluidRow(column(12,
+    #                                 disabled(
+    #                                 selectizeInput(inputId="setup_program_create_setup_reporting_asof_date",
+    #                                                label=create_title,
+    #                                                choices=program_dates,
+    #                                                selected=program_dates[length(program_dates)],
+    #                                                options=list(placeholder="Select reporting date")))))
+    reporting_ui <- tagList()
     ui_requirements <- append(list(reporting_ui),ui_requirements)
   }
   ui_requirements <- tagList(ui_requirements)

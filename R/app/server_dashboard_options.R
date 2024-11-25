@@ -7,6 +7,7 @@ SERVER_DASHBOARD_OPTIONS_SYSCOLS <- c(`REPORTING_asof_date`="reporting_asof_date
                                       `SYSNAME`="SYSNAME",                        #must be kept and only filtered-out aesthetically (for upload matching)
                                                                                   #SYSNAME NOT in rsf_data  
                                       `REPORTING_status`="reporting_status",
+                                      `REPORTING_happened`="reporting_happened",
                                       `REPORTING_expected`="reporting_expected",
                                       `REPORTING_qdate`="reporting_qdate",
                                       `RSFNAME`="rsf_full_name")

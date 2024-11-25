@@ -44,7 +44,8 @@ db_data_get_current <- function(pool,
                       sn.sys_name,
                       nids.rsf_full_name,
                       status.quarter_end_reporting_status as reporting_status,
-                      status.quarter_reporting_expected as reporting_expected
+                      status.quarter_reporting_expected as reporting_expected,
+                      status.quarter_reporting_exists as reporting_happened
 
                     from p_rsf.get_data_by_family_tree(input_rsf_pfcbl_ids_familytree => string_to_array($1::text,',')::int[], 
                     																	 input_indicator_ids => string_to_array($2::text,',')::int[],
@@ -191,7 +192,7 @@ db_data_get_current <- function(pool,
                   as.character(reporting_current_date),
                   ".  No available fx rate exists for the requested currency and date.  Is this a valid currency? Are calculations up to date?"))
     }
-    
+
     if (any(rsf_data$current_unit=="ERROR",na.rm = T)) {
       stop("Bad data units contain ERROR")
     }
@@ -210,6 +211,7 @@ db_data_get_current <- function(pool,
              by=.(indicator_id)]
         
         if (any(rsf_data$n > 1,na.rm=T)) {
+          rsf_data[n>1]
           stop("Bad data units")
         }
         

@@ -137,7 +137,7 @@ tabPanel("Dashboard",value="dashboard",
                                label=NULL,
                                width="100%",
                                multiple=FALSE,
-                               choices=c("",DATA="DATA",NAME="NAME",DATE="DATE"),
+                               choices=c("",DATA="DATA",NAME="NAME",DATE="DATE",NONE="NONE"),
                                selected = "",
                                options=list(placeholder="Pivot"))),
             

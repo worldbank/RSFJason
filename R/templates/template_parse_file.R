@@ -123,8 +123,28 @@ template_parse_file <- function(pool,
           
           else {
             
-            status_message(class="error","Unable to identify appropriate template format for file: ",template_file,"\n")
-            stop("Unable to continue.")
+            if (length(grep("(summary)|(current qreport)",snames,ignore.case=T)) > 0 ||
+                any(grepl("S_DET|S_QDD",nregions,ignore.case=F))) {
+              
+              #paste0(grep("(summary)|(current qreport)",snames,ignore.case=T,value=T),collapse=", ")
+              #paste0(grep("S_DET|S_QDD",nregions,ignore.case=F,value=T))
+              
+              status_message(class="error",
+                             "It looks like you are trying to upload an IFC RSF QReport template?\n",
+                             "Jason identifies templates by reading from Sheets called 'Summary' and 'Current QReport' (or 1. Summary and 2. Current QReport)\n",
+                             "And it expects a defined named rage of S_DET or S_QDD\n",
+                             "This sheet defines these sheets (there should be two and only two): \n",
+                             paste0(paste0("[",grep("(summary)|(current qreport)",snames,ignore.case=T,value=T),"]"),collapse=" & ")," \n",
+                             "and these named ranges (there may be one or two):\n", 
+                             paste0(grep("S_DET|S_QDD",nregions,ignore.case=F,value=T)),"\n",
+                             "If this message sees multiple Sheet names, be sure to look in hidden sheets in your file and either delete or rename those that are not relevant")
+              
+              stop("Unable to identify template: possible IFC QR Template that has multiple sheets or incorrectly named sheets or named ranges.")
+            } else {
+            
+              status_message(class="error","Unable to identify appropriate template format for file: ",template_file,"\n")
+              stop("Unable to continue.")
+            }
           }
         }
         
@@ -200,6 +220,7 @@ template_parse_file <- function(pool,
     #it IS a valid RSF template
     else { #It IS an RSF template
       
+      
       #note: Only RSF-PROGRAMS-TEMPLATE is allowed to submit without a program_id
       if (is.na(rsf_program_id) && template$template_settings$template_is_setup==FALSE) {
         stop("NA rsf_program_id submitted and template is not a valid setup template")
@@ -223,6 +244,11 @@ template_parse_file <- function(pool,
 
       }
       
+      #PFCBL templates are far less likely to experience these types of errors.
+      #More importantly they are more likely to upload/overwrite data that will correct such errors
+      #And very likely to be generated via a web UI upload where the upload is unrelated to an error and a failure will cause a user to lose data
+      #and have no idea what caused the failure.
+      template$fail_on_incomplete_cohorts <- FALSE
       
       if (is.na(template$rsf_program_id) && template$template_settings$template_is_setup==FALSE) {
         stop("Template does not define a PROGRAM #")
@@ -259,6 +285,9 @@ template_parse_file <- function(pool,
         if (!identical(as.integer(template$rsf_program_id),as.integer(rsf_program_id))) {
           rsf_program_id <- template$rsf_program_id
         }
+        
+        #Setup templates are more likely to overwrite everything, anyway.
+        #
       }
       
       #Generated through "Create New" UI in Programs Setup when creating a new facility, etc through UI
@@ -266,6 +295,14 @@ template_parse_file <- function(pool,
         
         template <- parse_template_rsf_create_entities(pool=pool,
                                                        template=template)
+        
+        # if (!"CRITICAL" %in% toupper(template$get_program_setting("on_upload_cohort_fail_on_check_class"))) {
+        #   
+        #   #Critical errors on create generally mean a real and legitimate timeline issue (eg, created a new facility in the future or something).
+        #   #These should be nearly impossible, but if they exist, really don't allow it.
+        #   template$program_settings$on_upload_cohort_fail_on_check_class <- "CRITICAL"   
+        # }
+        
         
       }
     
@@ -277,6 +314,9 @@ template_parse_file <- function(pool,
                                                        template_file=template_file,
                                                        reporting_user_id=reporting_user_id,
                                                        rsf_indicators=rsf_indicators)
+        
+        #pisses off users if they don't know why their edits didn't work.
+        #template$program_settings$on_upload_cohort_fail_on_check_class <- "None"
       } 
       
       else if (template$template_name=="PFCBL-DASHBOARD-TEMPLATE") {
@@ -371,6 +411,21 @@ template_parse_file <- function(pool,
         ps
       }
     }
+
+    if (template$template_name %in% c("PFCBL-EDITOR-TEMPLATE",
+                                      "RSF-ENTITIES-TEMPLATE",
+                                      "RSF-SETUP-TEMPLATE")) {
+
+      template$fail_on_incomplete_cohorts <- FALSE
+      
+      if (template$template_name %in% c("PFCBL-EDITOR-TEMPLATE",
+                                        "RSF-SETUP-TEMPLATE")) {
+        
+        template$program_settings$on_upload_cohort_fail_on_check_class <- "None"    
+      }
+      
+
+    }
     
     #Create a new reporting cohort, user-created cohort will be parent of any subsequent sys-created cohorts
     #must be created first, for this chronology to have an entry for potenitally new rsf_ids yet to be created under a specific reporting cohort
@@ -396,7 +451,8 @@ template_parse_file <- function(pool,
                                            source_note=source_note,
                                            reporting_pfcbl_categories=reporting_pfcbl_categories,
                                            fail_on_check_class = template$get_program_setting("on_upload_cohort_fail_on_check_class"),
-                                           fail_on_check_submitted_indicators = unique(template$template_data$indicator_name))
+                                           fail_on_check_submitted_indicators = unique(template$template_data$indicator_name),
+                                           fail_on_incomplete_cohorts=template$fail_on_incomplete_cohorts)
       
       if (all(is.na(reporting_cohort))) stop(paste0("Failed to create a reporting cohort for ",source_name))
       

@@ -20,7 +20,24 @@ observeEvent(input$ui_setup__indicator_program_facilities, {
                          selected = selected_rsf_pfcbl_id)
   }
   
-  
+  if (!empty(SELECTED_PROGRAM_FACILITIES_LIST()[rsf_pfcbl_id==selected_rsf_pfcbl_id & pfcbl_category=="facility"])) {
+    
+    showElement(id="ui_setup__indicator_setup_filter_ui",
+                anim=FALSE)
+    
+  } else {
+    
+    updateSelectizeInput(session=session,
+                         inputId="ui_setup__indicator_setup_filter",
+                         selected=FALSE)
+    
+    updateSelectizeInput(session=session,
+                         inputId="ui_setup__indicator_calculated_filter",
+                         selected = "")
+    
+    hideElement(id="ui_setup__indicator_setup_filter_ui",
+                anim=FALSE)
+  }
   
   # if (selected_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) {
   #   updateSelectizeInput(session=session,

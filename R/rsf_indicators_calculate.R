@@ -437,6 +437,73 @@ rsf_indicators_calculate <- function(pool,
                                            report_conversions))
         }
         
+        
+        #comp_data <- as.data.table(as.data.frame(calc_data))
+        #calc_data <- as.data.table(as.data.frame(comp_data))
+        #p_date <- as.data.frame(rbindlist(calc_data$client_risk_sharing_fee_amount_due.all))
+        #c_date <- as.data.frame(rbindlist(calc_data$client_risk_sharing_fee_amount_due.all))
+        #ts_fx_col <- "client_portfolio_supervision_fee_amount_due"
+        timeseries_parameters <- parameters[for_fx==TRUE & parameter_variable=="all"]
+        if (!empty(timeseries_parameters)) {
+          
+          for (ts_fx_col in timeseries_parameters$parameter_indicator_name) {
+            ts_fx_col.all <- paste0(ts_fx_col,".all")
+            
+            #timeseries_fx_calc_data <- calc_data[,..ts_fx_cols]
+            timeseries_fx_calc_data <- calc_data[,unlist(get(ts_fx_col.all),recursive = F),
+                                                 by=.(rsf_pfcbl_id,row_id,grouping)]
+            
+            fx_calculation <- as.list(calculation)
+            fx_ts_parameters <- timeseries_parameters[parameter_indicator_name==ts_fx_col,
+                                           .(parameter_indicator_name,
+                                             parameter_indicator_id,
+                                             parameter_data_type,
+                                             for_calculation,
+                                             for_sort,
+                                             for_fx)]
+            
+            fx_ts_parameters <- fx_ts_parameters[data.table(parameter_indicator_name=ts_fx_col,
+                                                            parameter_variable=c("timeseries",
+                                                                                 "timeseries.unit",
+                                                                                 "timeseries.reporteddate")),
+                             on=.(parameter_indicator_name)]
+            fx_ts_parameters[,parameter_column_name:=paste0(parameter_indicator_name,".",parameter_variable)]
+            
+            fx_calculation$parameters_dt <- list(fx_ts_parameters)
+            fx_calculation <- as.data.table(fx_calculation)
+            
+            
+            setnames(timeseries_fx_calc_data,
+                     old=grep("^timeseries",names(timeseries_fx_calc_data),value=T),
+                     new=paste0(ts_fx_col,".",grep("^timeseries",names(timeseries_fx_calc_data),value=T)))
+            
+            ts_fx_data <- rsf_computation_fx_conversion(pool=pool,
+                                                        computation=fx_calculation,
+                                                        comp_data=timeseries_fx_calc_data,
+                                                        computation_asof_date=calculation$calculate_asof_date,
+                                                        fx_table=fx_table,
+                                                        update_fx_table_function=update_fx_table_function, 
+                                                        add_data_flag_function=add_data_flag_function, #we don't flag the flags
+                                                        add_fx_conversions_function=add_fx_conversions_function)
+            
+            setnames(ts_fx_data,
+                     old=grep(paste0("^",ts_fx_col,"\\.timeseries"),names(ts_fx_data),value=T),
+                     new=gsub(paste0("^",ts_fx_col,"\\.timeseries"),"timeseries",grep(paste0("^",ts_fx_col,"\\.timeseries"),names(ts_fx_data),value=T)))
+            
+            #all(names(timeseries_fx_calc_data)==names(ts_fx_data))
+            setcolorder(ts_fx_data,
+                        neworder=names(timeseries_fx_calc_data))
+            
+            ts_fx_data <- ts_fx_data[,
+                                     .(fx_col=list(.SD)),
+                                     by=.(rsf_pfcbl_id,row_id,grouping),
+                                     .SDcols=names(ts_fx_data)[!names(ts_fx_data) %in% c("rsf_pfcbl_id","row_id","grouping")]]
+            
+            calc_data[ts_fx_data,
+                      c(ts_fx_col.all) := i.fx_col,
+                      on=.(rsf_pfcbl_id,row_id,grouping)]
+          }
+        }        
         calc_data <- rsf_computation_fx_conversion(pool=pool,
                                                    computation=calculation,
                                                    comp_data=calc_data,

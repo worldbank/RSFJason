@@ -1,7 +1,8 @@
 db_indicator_update <- function(pool,
                                 indicator,
                                 labels,
-                                formulas) {
+                                formulas,
+                                user_id) {
   
   if (length(unique(indicator$indicator_id)) != 1) stop("Only one indicator may be updated at a time.")
 
@@ -106,8 +107,9 @@ db_indicator_update <- function(pool,
        is_periodic_or_flow_reporting = coalesce($10::bool,false),
        default_subscription = coalesce(NULLIF($11::text,'NA')::bool,true)::bool,
        sort_preference = NULLIF($12::text,'NA')::int2,
+       modified_by_user_id = $13::text,
        modification_time = (timeofday())::timestamptz
-    where indicator_id = $13::int
+    where indicator_id = $14::int
     ",params=list(indicator$indicator_name,
                   indicator$data_category,
                   indicator$data_type,
@@ -120,6 +122,7 @@ db_indicator_update <- function(pool,
                   indicator$data_frequency,
                   indicator$default_subscription,
                   indicator$sort_preference,
+                  user_id,
                   indicator$indicator_id))
   
   #conn <- poolCheckout(pool)
@@ -172,7 +175,8 @@ db_indicator_update <- function(pool,
                                            formula_title,
                                            formula_notes,
                                            formula_unit_set_by_indicator_id,
-                                           is_primary_default)
+                                           is_primary_default,
+                                           modified_by_user_id)
       select
         tf.formula_id,
         tf.indicator_id,
@@ -183,7 +187,8 @@ db_indicator_update <- function(pool,
         coalesce(NULLIF(tf.formula_title,''),'Missing Formula Title'),
         NULLIF(tf.formula_notes,''),
         ind.indicator_id as formula_unit_set_by_indicator_id,
-        coalesce(tf.is_primary_default,false)
+        coalesce(tf.is_primary_default,false),
+        $1::text
       from _temp_formulas tf
       left join p_rsf.indicators ind on ind.indicator_name = tf.formula_unit_set_by_indicator_name
       on conflict(formula_id)
@@ -196,7 +201,9 @@ db_indicator_update <- function(pool,
           formula_title = excluded.formula_title,
           formula_notes = excluded.formula_notes,
           formula_unit_set_by_indicator_id = excluded.formula_unit_set_by_indicator_id,
-          is_primary_default = excluded.is_primary_default;")
+          is_primary_default = excluded.is_primary_default,
+          modified_by_user_id = excluded.modified_by_user_id;",
+      params=list(user_id))
     
   })
     

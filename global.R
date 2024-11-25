@@ -20,8 +20,8 @@ LOCATIONS <- list(ARL="/credentials/credentials-remote-ARL.yaml",
                   Jason_DEV="/credentials/credentials-rsfjson-rsfdev.yaml",
                   Jason_PROD="/credentials/credentials-rsfjson-rsfprod.yaml")
 
-#LOCATION <- "Jason_DEV"
-LOCATION <- "Jason_PROD"
+LOCATION <- "Jason_DEV"
+#LOCATION <- "Jason_PROD"
 
 if (grepl("DEV",LOCATION)==TRUE) {
   #options(shiny.erctror = browser)

@@ -22,9 +22,11 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
       coalesce(has.reported,false) as has_reported,
       case when fis.is_auto_subscribed = true then NULL::bool
            else fis.is_subscribed end
-      as user_subscription
+      as user_subscription,
+      ifv.indicator_id is NOT NULL as calculation_has_variety
     from p_rsf.view_rsf_program_facility_indicator_subscriptions fis
     left join p_rsf.indicator_formulas indf on indf.formula_id = fis.formula_id
+    left join p_rsf.view_rsf_program_facility_indicator_formula_variety ifv on ifv.indicator_id = fis.indicator_id
     left join lateral (select exists(select * from p_rsf.view_rsf_pfcbl_id_family_tree ft
                                      inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
                                      where ft.from_rsf_pfcbl_id = fis.rsf_pfcbl_id
@@ -105,12 +107,38 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
 },
 ignoreInit  = FALSE,ignoreNULL=FALSE) %>% debounce(millis=100)
 
+SERVER_SETUP_INDICATORS_MODE_IS_SETUP <- eventReactive(input$ui_setup__indicator_setup_filter, {
+
+  sf <- as.logical(input$ui_setup__indicator_setup_filter)
+  if (is.na(sf)) { 
+    
+    return (FALSE)
+    
+  } else {
+    
+    if (sf==TRUE) {
+      
+      updateSelectizeInput(session=session,
+                           inputId="ui_setup__indicator_calculated_filter",
+                           selected = c("reported","formulas"))
+      
+      updateSelectizeInput(session=session,
+                           inputId="ui_setup__indicator_monitoring_filter",
+                           selected = c("all"))
+    }
+    
+    return (sf)
+  }
+},ignoreNULL=FALSE,ignoreInit = FALSE)
+
 SERVER_SETUP_INDICATORS_LIST_FILTERED <- eventReactive(c(SERVER_SETUP_INDICATORS_LIST(),
                                                          input$ui_setup__indicator_monitoring_filter,
                                                          input$ui_setup__indicator_category_filter,
                                                          input$ui_setup__indicator_search_filter,
-                                                         input$ui_setup__indicator_calculated_filter), {
+                                                         input$ui_setup__indicator_calculated_filter,
+                                                         SERVER_SETUP_INDICATORS_MODE_IS_SETUP()), {
   
+  setup <- as.logical(input$ui_setup__indicator_setup_filter)
   mfilter <- input$ui_setup__indicator_monitoring_filter
   cfilter <- tolower(input$ui_setup__indicator_category_filter)
   sfilter <- tolower(input$ui_setup__indicator_search_filter)
@@ -150,23 +178,86 @@ SERVER_SETUP_INDICATORS_LIST_FILTERED <- eventReactive(c(SERVER_SETUP_INDICATORS
     monitored_indicators <- monitored_indicators[default_subscription==FALSE]
   }
   
-  if (isTruthy(xfilter) && xfilter=="calculated") {
-    monitored_indicators <- monitored_indicators[is_calculated==TRUE]
-  } else if (isTruthy(xfilter) && xfilter=="reported") {
-    monitored_indicators <- monitored_indicators[is_calculated==FALSE]
+  xfilter_selected <- FALSE
+  if (!isTruthy(xfilter) || any(xfilter=="") || any(xfilter=="all")) xfilter_selected <- TRUE
+  
+  if (isTruthy(xfilter) && any(xfilter=="calculated")) {
+    xfilter_selected <- xfilter_selected | monitored_indicators$is_calculated==TRUE
+  } 
+  if (isTruthy(xfilter) && any(xfilter=="reported")) {
+    xfilter_selected <- xfilter_selected | monitored_indicators$is_calculated==FALSE
+  }
+  if (isTruthy(xfilter) && any(xfilter=="formulas")) {
+    xfilter_selected <- xfilter_selected | monitored_indicators$calculation_has_variety==TRUE
+  }
+  monitored_indicators <- monitored_indicators[xfilter_selected]
+  
+  if (SERVER_SETUP_INDICATORS_MODE_IS_SETUP()) {
+    cfilter <- c("facility","client")
   }
   
-  if (isTruthy(cfilter) && any(cfilter==monitored_indicators$data_category)) {
-   monitored_indicators <- monitored_indicators[data_category==cfilter]
+  if (isTruthy(cfilter) && any(cfilter %in% monitored_indicators$data_category)) {
+   monitored_indicators <- monitored_indicators[data_category %in% cfilter]
   }
   
+  if (SERVER_SETUP_INDICATORS_MODE_IS_SETUP()) {
+    selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
+    setup_data <- DBPOOL %>% dbGetQuery("
+      select 
+        ids.rsf_pfcbl_id,
+        fis.indicator_id,
+        fis.is_calculated is false and pfcbl_category = 'facililty' as is_editable,
+        ids.created_in_reporting_asof_date,
+        case when rdc.data_id is NULL then '{MISSING}'
+             when rdc.data_value is NULL then '{NOTHING}'
+        		 when rdc.data_unit is NOT NULL then rdc.data_value || ' ' || rdc.data_unit
+        		 else rdc.data_value end as data_value_text,
+        rdc.data_id
+        from p_rsf.rsf_pfcbl_ids ids
+        inner join p_rsf.view_rsf_program_facility_indicator_subscriptions fis on fis.rsf_pfcbl_id = ids.rsf_pfcbl_id
+        inner join p_rsf.indicators ind on ind.indicator_id = fis.indicator_id
+        left join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
+                                            and rdc.indicator_id = fis.indicator_id
+                                            and rdc.reporting_asof_date = ids.created_in_reporting_asof_date
+      where ids.rsf_pfcbl_id = $1::int
+        and ids.pfcbl_category = 'facility'
+      	and ind.data_category in ('facility','client')",
+      params=list(selected_rsf_pfcbl_id))
+    
+    setDT(setup_data)
+    monitored_indicators <- setup_data[monitored_indicators,
+                                       on=.(rsf_pfcbl_id,
+                                            indicator_id),
+                                       nomatch=NULL]
+
+  }
   
   return (monitored_indicators)
 },
-ignoreInit = FALSE, ignoreNULL=FALSE)
+ignoreInit = FALSE, ignoreNULL=FALSE) %>% debounce(250)
 ####################
 ###########OBSERVERS
 ####################
+
+observeEvent(input$ui_setup__indicator_search_filter, {
+  search <- input$ui_setup__indicator_search_filter
+  
+  if (isTruthy(search) && nchar(search) >=3) {
+    updateSelectizeInput(session=session,
+                         inputId="ui_setup__indicator_monitoring_filter",
+                         selected="")
+    
+    updateSelectizeInput(session=session,
+                         inputId="ui_setup__indicator_category_filter",
+                         selected="")
+    
+    updateSelectizeInput(session=session,
+                         inputId="ui_setup__indicator_calculated_filter",
+                         selected="")
+    
+  }
+  
+},ignoreNULL=FALSE,ignoreInit=TRUE)
 
 observeEvent(input$action_setup_program_recalculate_reset, {
   program <- SELECTED_PROGRAM()
@@ -721,26 +812,117 @@ output$server_setup_indicators__recalculate_pendingcount <- renderText({
 observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
   
   clicked_cell <- input$ui_setup__indicators_monitored_table_cell_edit
-    
+  
+  
   if (!isTruthy(clicked_cell) || length(clicked_cell) == 0) return (NULL)
-  monitored_indicator <- SERVER_SETUP_INDICATORS_LIST_FILTERED()[clicked_cell$row,
-                                                                 .(rsf_pfcbl_id,
-                                                                   indicator_id,
-                                                                   formula_id,
-                                                                   is_subscribed,
-                                                                   sort_preference,
-                                                                   subscription_comments)]
+  monitored_indicator <- SERVER_SETUP_INDICATORS_LIST_FILTERED()[clicked_cell$row]
   
   monitored_indicator <- as.list(monitored_indicator)
-  if (clicked_cell$col==4) { 
-    monitored_indicator[["sort_preference"]] <- as.numeric(clicked_cell$value)
+  
+  is_setup_mode <- SERVER_SETUP_INDICATORS_MODE_IS_SETUP()
+  
+  order_col <- 5
+  notes_col <- 4
+  
+  if (is_setup_mode) {
+    order_col <- 6
+    notes_col <- 5
     
-    
-  } else if (clicked_cell$col==5) {
-    monitored_indicator[["subscription_comments"]] <- as.character(clicked_cell$value)
+    #Edited the cell's setup value!
+    if (clicked_cell$col==4) {
+      
+      withProgress(session=session,
+                   message="Saving Setup Data", {
+                     
+        ind <- RSF_INDICATORS()[indicator_id==monitored_indicator$indicator_id]
+        
+        setup_data <- as.data.table(monitored_indicator)[,.(reporting_template_row_group="SETUP1",
+                                                            rsf_pfcbl_id,
+                                                            indicator_id,
+                                                            indicator_name,
+                                                            indicator_sys_category=ind$indicator_sys_category,
+                                                            data_category=ind$data_category,
+                                                            reporting_asof_date=created_in_reporting_asof_date,
+                                                            reporting_submitted_data_unit=as.character(NA),
+                                                            reporting_submitted_data_value=as.character(clicked_cell$value),
+                                                            reporting_submitted_data_formula=as.character(NA)
+                                                            )]
+        
+        setup_data <- parse_data_formats(template_data=setup_data,
+                                         rsf_indicators=RSF_INDICATORS())
+        
+        data_flags <- rbindlist(setup_data$data_flags_new)
+        
+        if (!empty(data_flags)) {
+          data_flags[RSF_CHECKS(),
+                     check_class:=i.check_class,
+                     on=.(check_name)]
+          data_flags <- data_flags[check_class != "info"]
+        }
+        
+        if (!empty(data_flags)) {
+          
+          flags <- paste0(paste0(data_flags$check_name,": ",data_flags$check_message),
+                          collapse="
+                           ")
+          
+          showNotification(duration=NULL,
+                            ui=h3(div(paste0("Failed to update value to ",as.character(clicked_cell$value))),
+                                  div(paste0("Errors Found: ")),
+                                  div(flags)))
+        } else {
+          
+          
+          valid_cols <- c("reporting_asof_date",
+                          "rsf_pfcbl_id",
+                          "indicator_id",
+                          "data_value",
+                          "data_unit",
+                          "data_submitted",
+                          "data_source_row_id")
+          
+          setup_data <- setup_data[,
+                                   .(reporting_asof_date,
+                                     rsf_pfcbl_id,
+                                     indicator_id,
+                                     data_value,
+                                     data_unit,
+                                     data_submitted,
+                                     data_source_row_id=as.character(NA))]
+          
+          reporting_cohort <- DBPOOL %>% dbGetQuery("
+            select 
+              coalesce(rc.parent_reporting_cohort_id,rc.reporting_cohort_id) as reporting_cohort_id, 
+              rc.reporting_user_id,
+              rc.reporting_asof_date,
+              rc.rsf_program_id
+            from p_Rsf.rsf_pfcbl_ids ids
+            inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id= ids.created_by_reporting_cohort_id
+            where ids.rsf_pfcbl_Id = $1::int",
+            params=list(setup_data$rsf_pfcbl_id))
+          
+          setDT(reporting_cohort)
+          DBPOOL %>% db_add_update_data_user(reporting_cohort,
+                                             cohort_upload_data=setup_data,
+                                             template_has_static_row_ids=FALSE,
+                                             is_redundancy_reporting=FALSE)
+        }
+      
+      })
+    }
   }
   
-  DBPOOL %>% dbExecute("
+  #regardless of it being setup mode, user edited ordering or made notes.
+  if (clicked_cell$col %in% c(order_col,notes_col)) {
+    if (clicked_cell$col==order_col) { 
+      monitored_indicator[["sort_preference"]] <- as.numeric(clicked_cell$value)
+      
+      
+    } else if (clicked_cell$col==notes_col) {
+      monitored_indicator[["subscription_comments"]] <- as.character(clicked_cell$value)
+    }
+    
+    DBPOOL %>% dbExecute("
     insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
                                                       indicator_id,
                                                       formula_id,
@@ -761,7 +943,7 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
               $5::int2 as sort_preference,
               $6::text as subscription_comments
             from p_rsf.rsf_pfcbl_ids ids
-            inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
+            cross join p_rsf.indicators ind
             left join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
                                                    and indf.formula_id = $3::int
             where ids.rsf_pfcbl_id = $1::int
@@ -779,6 +961,8 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
                 monitored_indicator$is_subscribed,
                 monitored_indicator$sort_preference,
                 monitored_indicator$subscription_comments))
+    
+  }
 })
 
 output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
@@ -786,6 +970,7 @@ output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
   
   selected_rsf_program_id <- SELECTED_PROGRAM_ID() ##Reactive on selected program_id
   monitored_indicators <- SERVER_SETUP_INDICATORS_LIST_FILTERED()
+  is_setup_mode <- isolate(SERVER_SETUP_INDICATORS_MODE_IS_SETUP())
   
   if (!isTruthy(selected_rsf_program_id)) {
     return (DT::datatable(data.frame(Error="A Program must be selected first."),
@@ -815,42 +1000,121 @@ output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
                              onclick='event.stopPropagation();Shiny.setInputValue(\"server_setup_indicators__toggle_subscriptions\",-1,{priority:\"event\"})'>
                         </i></div>")
   
+  padding <- max(c(1,nchar(as.character(monitored_indicators$sort_preference))),na.rm=T)
   
-  monitored_indicators <- monitored_indicators[,
-                                               .(toggle_box,
-                                                 indicator_html,
-                                                 formula_name_html,
-                                                 formula_view,
-                                                 sort_preference=ifelse(is.na(sort_preference),"",
-                                                                              as.character(sort_preference)),
-                                                 subscription_comments=ifelse(is_inherited==TRUE,
-                                                                              "[program setting]",
-                                                                              subscription_comments))]
+  if (is_setup_mode) {
+    #browser()
+    reporting_asof_date <- ymd(unique(as.character(monitored_indicators$created_in_reporting_asof_date)))
+    setorder(monitored_indicators,
+             data_category_rank,
+             sort_preference,
+             na.last=TRUE)
+    
+    monitored_indicators <- monitored_indicators[,
+                                                 .(toggle_box,
+                                                   indicator_html,
+                                                   formula_name_html,
+                                                   formula_view,
+                                                   data_value_text,
+                                                   subscription_comments=ifelse(is_inherited==TRUE,
+                                                                                "[program setting]",
+                                                                                subscription_comments),
+                                                   sort_preference=ifelse(is.na(sort_preference),
+                                                                          "",
+                                                                          str_pad(as.character(sort_preference),
+                                                                                  width=padding,
+                                                                                  pad="0"))
+                                                 )]
+    dd <- DT::datatable(monitored_indicators,
+                        rownames = FALSE,
+                        fillContainer=TRUE,
+                        #extensions = "Select",
+                        selection = "none",
+                        colnames=c(toggleButton,
+                                   "Indicator Name",
+                                   "Calculation",
+                                   "Formula",
+                                   paste0("Value@",format_asof_date_label(reporting_asof_date)),
+                                   "Notes",
+                                   "Order"),
+                        editable=list(target = 'cell',
+                                      disable = list(columns = c(0,1,2,3),
+                                                     rows=which(monitored_indicators$is_editable==FALSE))), #c(0,1)))
+                        escape = FALSE, #Shouldn't be any HTML escapable text
+                        options=list(
+                          dom="t",
+                          bSort=T,
+                          scrollY="70vh",
+                          ordering=F,
+                          paging=F,
+                          columnDefs = list(
+                            list(targets = c(0,1), className = 'dt-left')))) %>%
+   
+      formatStyle(columns="data_value_text",
+                  target="cell",
+                  `width` = "150px",
+                  `white-space`="nowrap") %>%
+      
+      formatStyle(columns="sort_preference",
+                  target="cell",
+                  `width` = "50px",
+                  `white-space`="nowrap") %>%
+      
+      formatStyle(columns="subscription_comments",
+                  target="cell",
+                  `width` = "200px",
+                  `white-space`="normal",
+                  `text-overflow`="ellipsis",
+                  `overflow`="hidden")
+    
+  } else {
+    
+    monitored_indicators <- monitored_indicators[,
+                                                 .(toggle_box,
+                                                   indicator_html,
+                                                   formula_name_html,
+                                                   formula_view,
+                                                   subscription_comments=ifelse(is_inherited==TRUE,
+                                                                                "[program setting]",
+                                                                                subscription_comments),
+                                                   sort_preference=ifelse(is.na(sort_preference),
+                                                                          "",
+                                                                          str_pad(as.character(sort_preference),
+                                                                                  width=padding,
+                                                                                  pad="0"))
+                                                   )]
+    
+    dd <- DT::datatable(monitored_indicators,
+                  rownames = FALSE,
+                  fillContainer=TRUE,
+                  #extensions = "Select",
+                  selection = "none",
+                  colnames=c(toggleButton,"Indicator Name","Calculation","Formula","Notes","Order"),
+                  editable=list(target = 'cell', disable = list(columns = c(0,1,2,3))), #c(0,1)))
+                  escape = FALSE, #Shouldn't be any HTML escapable text
+                  options=list(
+                    dom="t",
+                    bSort=T,
+                    scrollY="70vh",
+                    ordering=T,
+                    paging=F,
+                    columnDefs = list(
+                      list(targets = c(0,2,3,4), orderable = FALSE),
+                      list(targets = c(0,1), className = 'dt-left')))) %>%
+      
+      formatStyle(columns="sort_preference",
+                  target="cell",
+                  `width` = "50px",
+                  `white-space`="nowrap") %>%
+      
+      formatStyle(columns="subscription_comments",
+                  target="cell",
+                  `width` = "200px",
+                  `white-space`="normal",
+                  `text-overflow`="ellipsis",
+                  `overflow`="hidden")
+  }
   
-  DT::datatable(monitored_indicators,
-                rownames = FALSE,
-                fillContainer=TRUE,
-                colnames=c(toggleButton,"Indicator Name","Calculation","Formula","Order","Notes"),
-                editable=list(target = 'cell', disable = list(columns = c(0,1,2,3))), #c(0,1)))
-                escape = FALSE, #Shouldn't be any HTML escapable text
-                options=list(
-                  dom="t",
-                  bSort=T,
-                  scrollY="70vh",
-                  ordering=F,
-                  paging=F,
-                  columnDefs = list(list(className = 'dt-left', targets = c(0,1))))) %>%
-    
-    formatStyle(columns="sort_preference",
-                target="cell",
-                `width` = "50px",
-                `white-space`="nowrap") %>%
-    
-    formatStyle(columns="subscription_comments",
-                target="cell",
-                `width` = "150px",
-                `white-space`="normal",
-                `text-overflow`="ellipsis",
-                `overflow`="hidden")
+  return (dd)
   
 })

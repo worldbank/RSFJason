@@ -17,6 +17,7 @@ rsf_program_perform_calculations <- function(pool,
   t1 <- Sys.time()
   #setups
   {
+    #browser()
     #datac <<- as.data.frame(current_data)
     #ri <<- as.data.frame(rsf_indicators)
     
@@ -54,6 +55,7 @@ rsf_program_perform_calculations <- function(pool,
   
   }  
     
+  #Uploads
   {
     #setup indicators to calculate based on the current rank AND ALSO any stale calculations that MAY HAVE been added as a result of the previous calculations cycle.
     { 

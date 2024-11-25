@@ -37,10 +37,15 @@ rsf_computation_fx_conversion <- function(pool,
     
     parameters <- rbindlist(computation$parameters_dt)
     
-    if (!any(parameters$for_fx)) {
+    #.all parameteters should already have been converted individually and re-grouped in a list. 
+    #In any case, ignore the list itself.
+    parameters <- parameters[!(parameter_variable=="all")]
+    
+    if (!any(parameters$for_fx,na.rm=T)) {
       #nothing to convert.  If this is  a currency calculation, it must be hard-coded and not parameter based.  Onus of correct conversion is on calculation!
       return (comp_data)
     }
+    
     fx_indicator_unit_colnames <- parameters[for_fx==TRUE & 
                                              grepl("unit$",parameter_variable),
                                              parameter_column_name]

@@ -79,7 +79,8 @@ SERVER_ADMIN_INDICATORS_DO_RECALCULATE <- function(rsf_pfcbl_ids=NA,
           select distinct dce.rsf_pfcbl_id from p_rsf.rsf_data_calculation_evaluations dce
           where dce.indicator_id = $1::int",
           params=list(indicator_id))
-            rsf_pfcbl_ids <- all_ids$rsf_pfcbl_id
+        
+        rsf_pfcbl_ids <- all_ids$rsf_pfcbl_id
     }
   }
   
@@ -499,7 +500,7 @@ observeEvent(input$server_admin_indicators__create_indicator, {
     session = shiny::getDefaultReactiveDomain()
   )
   
-  new_indicator <- DBPOOL %>% db_indicator_create()
+  new_indicator <- DBPOOL %>% db_indicator_create(created_by_user_id=USER_ID())
   if (is.null(new_indicator)) { #will return NULL if empty
     removeModal()
     showNotification(type="error",
@@ -761,7 +762,8 @@ observeEvent(input$server_admin_indicators__save_indicator, {
                                                              formula_title,
                                                              formula_notes,
                                                              formula_unit_set_by_indicator_name,
-                                                             is_primary_default)])
+                                                             is_primary_default)],
+                                     user_id=USER_ID())
       TRUE
     },
     warning = function(w) {

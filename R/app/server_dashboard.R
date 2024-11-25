@@ -478,7 +478,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
   }
   
   include.rsf_name <- any("rsf_full_name" %in% SERVER_DASHBOARD_RUN_OPTIONS$syscols)
-  include.status <- any(c("reporting_status","reporting_expected") %in% SERVER_DASHBOARD_RUN_OPTIONS$syscols)
+  include.status <- any(c("reporting_status","reporting_expected","reporting_happened") %in% SERVER_DASHBOARD_RUN_OPTIONS$syscols)
   fx_concatenate_LCU <- SERVER_DASHBOARD_RUN_OPTIONS$fx_concatenate_LCU
   sys_cols <- SERVER_DASHBOARD_RUN_OPTIONS$syscols
   
@@ -544,8 +544,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
     }
   }
 
-  exclude_indicators <- grep("^:exclude:",selected_indicators$indicator_name,value=T)
-  if (length(exclude_indicators) > 0) {
+  if (any(grepl("^:[a-z]+:.*$",selected_indicators$indicator_name))) {
     
     query_indicators <- DBPOOL %>% dbGetQuery("
     select 
@@ -553,7 +552,8 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
       fis.indicator_name,
       bool_and(ind.is_system) as is_system,
       bool_or(fis.is_subscribed) as is_subscribed,  --is subscribed by any
-      bool_and(fis.formula_id is NOT NULL AND coalesce(indf.overwrite='allow',false)) as is_calculated --is calculated by all, all the time (ie, overwritten always)
+      bool_and(fis.formula_id is NOT NULL AND coalesce(indf.overwrite='allow',false)) as is_calculated, --is calculated by all, all the time (ie, overwritten always),
+      max(fis.sort_preference) as sort_preference
     from p_rsf.rsf_pfcbl_id_family fam 
     inner join p_rsf.view_rsf_program_facility_indicator_subscriptions fis on fis.rsf_pfcbl_id = fam.parent_rsf_pfcbl_id
     inner join p_rsf.indicators ind on ind.indicator_id = fis.indicator_id
@@ -568,6 +568,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
     setDT(query_indicators)
     exclude_ids <- c()
     
+    exclude_indicators <- grep("^:exclude:",selected_indicators$indicator_name,value=T)
     if (":exclude:reported" %in% exclude_indicators) {
       exclude_rank <- selected_indicators[indicator_name==":exclude:reported",sort]
       exclude_ids <-  c(exclude_ids,
@@ -600,11 +601,19 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
     }
     
     selected_indicators <- selected_indicators[!(indicator_id %in% exclude_ids)]
+    
+    #sort preference is only relevant in :template: or :include:loan/borrower/etc indicator selections
+    selected_indicators[query_indicators,
+                        sort:=ifelse(!is.na(i.sort_preference),
+                                     i.sort_preference,
+                                     sort),
+                        on=.(indicator_id)]
   }
   
   setorder(selected_indicators,
            sort,
            indicator_name)
+  
   selected_indicators[,sort:=1:.N]
   setorder(selected_indicators,
            sort)
@@ -1039,6 +1048,8 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
                                                    
  #dashboard_data <- rsf_family_data
  selected_indicators <- SERVER_DASHBOARD_SELECTED_INDICATORS()
+ 
+ #selected_indicators <-  
  #selected_indicators <<- SERVER_DASHBOARD_SELECTED_INDICATORS()
  #dfilters <<- SERVER_DASHBOARD_DATA_DISPLAY_UPDATE()
  dfilters <- SERVER_DASHBOARD_DATA_DISPLAY_UPDATE()
@@ -1080,7 +1091,9 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
  
 
  pivot <- toupper(dfilters$format_pivot)
- if (!pivot %in% c("DATA","NAME","DATE")) pivot <- "DATA"
+ if (!isTruthy(pivot) || 
+     !pivot %in% c("DATA","NAME","DATE","NONE")) pivot <- "DATA"
+ 
  format_pivot_category <- dfilters$format_pivot_category
  
  eufilter <- toupper(dfilters$format_filter)
@@ -1311,6 +1324,7 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
  if (!empty(dashboard_data[,.(n=.N),by=.(SYSID,REPORTING_asof_date,INDICATOR,PARAMETER)][n>1])) stop("Duplicated values")
  
  #browser()
+ #dd <<- as.data.frame(dashboard_data)
  #dashboard_data <- as.data.table(dd);dashboard_data[,SYSCATEGORY:=NULL];pivot <- "DATA"
  {
    #ffilter by pivot
@@ -1323,6 +1337,7 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
          if (pivot=="DATA") byon <- c("SYSID","REPORTING_asof_date")
          else if (pivot=="NAME") byon <- c("REPORTING_asof_date","INDICATOR")
          else if (pivot=="DATE") byon <- c("SYSID","INDICATOR")
+         else if (pivot=="NONE") byon <- c("SYSID","INDICATOR","REPORTING_asof_date")
        }
        
        #filter will be TRUE if any of the pivoted date columns have any flag
@@ -1368,6 +1383,7 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
    
    
    
+   
    } else if (pivot=="DATE") {
      
      date_cols <- grep("^[A-Z]+.*date$",names(dashboard_data),value=T)
@@ -1383,9 +1399,15 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
        cast_var <- grep("asof_date",date_cols,value=T)
        omitcols <- date_cols[-which(date_cols==cast_var)]
      }
+   
+   } else if (pivot=="NONE") {
+     if (any(names(dashboard_data)=="PIVOTCAT",na.rm=T)) dashboard_data[,PIVOTCAT:=NULL] #Nothing to pivot as pivot by indicator name is default
+     cast_var <- "NONE"
    }
    
-   if (!cast_var %in% names(dashboard_data)) stop(paste0("Cannot find cast column '",cast_var,"'"))
+   if (is.na(cast_var)) stop("Pivot cast_var is NA")
+   if (cast_var != "NONE" &&
+       !cast_var %in% names(dashboard_data)) stop(paste0("Cannot find cast column '",cast_var,"'"))
    
    
    #PIVOT on CATEGORY
@@ -1421,10 +1443,11 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
    
    
    #PIVOT on CAST_VAR
-   {
-     if (length(omitcols) > 0) dashboard_data[,(omitcols):=NULL]  
-     id_vars <- names(dashboard_data)[-which(names(dashboard_data) %in% c(cast_var,"VALUE"))]
-     
+   
+  if (length(omitcols) > 0) dashboard_data[,(omitcols):=NULL]  
+  id_vars <- names(dashboard_data)[-which(names(dashboard_data) %in% c(cast_var,"VALUE"))]
+  
+  if (cast_var != "NONE") {  
      cast_formula <- as.formula(paste0(paste(paste0("`",id_vars,"`"),collapse="+")," ~ ",cast_var))
      
      dashboard_data <- dcast.data.table(dashboard_data,
@@ -1535,10 +1558,9 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
  #SORT Columns/Rows by SELECTED INDICATOR order
  #indicator name is a ROW
  
-
  #Pivot format may affect if indicator names are in columns or rows or both
  #because @LCU etc will distort the names
- sorted_indicators <- lapply(paste0("^",selected_indicators$indicator_name),
+ sorted_indicators <- lapply(paste0("^",SERVER_DASHBOARD_CURRENT_INDICATORS()$indicator_name),
                              grep,
                              x=names(dashboard_data),
                              value=T)
@@ -1704,7 +1726,7 @@ observeEvent(input$server_dashboard__format_pivot, {
   
   if (!isTruthy(SERVER_DASHBOARD_RUN_OPTIONS$format_pivot)) SERVER_DASHBOARD_RUN_OPTIONS$format_pivot <- "DATA"
   else SERVER_DASHBOARD_RUN_OPTIONS$format_pivot <- intersect(toupper(as.character(input$server_dashboard__format_pivot)),
-                                                              c("DATA","NAME","DATE"))
+                                                              c("DATA","NAME","DATE","NONE"))
 },ignoreNULL = FALSE)
 
 observeEvent(input$server_dashboard__flags_filter, {
@@ -2249,12 +2271,12 @@ output$action_server_dashboard__download <- downloadHandler(
   content=function(file) {
 
 
-    #dd_dt <- DASH_DATA_DISPLAY()
+    #dd_dt <<- SERVER_DASHBOARD_DATA_DISPLAY()
     export_data <- SERVER_DASHBOARD_RENDER_DISPLAY(view="value",
                                                    display_data=SERVER_DASHBOARD_DATA_DISPLAY())
     if (!isTruthy(export_data)) return (NULL)
 
-
+    #exd <<- export_data
     report_note <- c()
     asof_dates <- SERVER_DASHBOARD_RUN_ASOF_DATES()
     opts <- reactiveValuesToList(SERVER_DASHBOARD_RUN_OPTIONS)

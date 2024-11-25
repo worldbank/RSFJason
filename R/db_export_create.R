@@ -69,6 +69,24 @@ db_export_create <- function(pool,
                                   params=list(paste0(exporting_pfcbl_ids,collapse=",")))
  
     
+    #nothing here.  Probably due to multiple programs being selected in an export.  Otherwise, this shouldn't happen!
+    if (empty(exporting_parent)) {
+      exporting_parent  <- dbGetQuery(conn,"
+                    select
+                                  nid.rsf_program_id,
+                                  nid.rsf_pfcbl_id as exporting_rsf_pfcbl_id,
+                                  nid.rsf_pfcbl_id,
+                                  nid.pfcbl_category,
+                                  nid.rsf_id,name,
+                                  nid.nickname,
+                                  nid.id,
+                                  nid.rank_id,
+                                  nid.rsf_name,
+                                  nid.rsf_full_name
+                                  from p_rsf.view_current_entity_names_and_ids nid 
+                                  where nid.rsf_pfcbl_id = 0
+      ")
+    }
     exporting_cohort <- dbGetQuery(conn,"insert into p_rsf.exporting_cohorts(rsf_program_id,
                                                                              exporting_user_id,
                                                                              exporting_rsf_pfcbl_id,

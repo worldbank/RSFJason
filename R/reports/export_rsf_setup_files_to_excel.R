@@ -250,7 +250,10 @@ export_rsf_setup_files_to_excel <- function(pool,
                                            monitored=toupper(as.character(monitored)),
                                            is_auto_subscribed,
                                            FRMID=formula_id,
-                                           formula_title)]
+                                           formula_title,
+                                           sort_preference,
+                                           subscription_comments,
+                                           comments_user_id)]
     
     excelwb <- rsf_reports_create_excel_sheet(excelwb=excelwb,
                                               sheet_name="PROGRAM_INDICATORS",
@@ -278,7 +281,9 @@ export_rsf_setup_files_to_excel <- function(pool,
                                        check_type,
                                        check_formula_title,
                                        monitored=toupper(as.character(monitored)),
-                                       is_auto_subscribed)]
+                                       is_auto_subscribed,
+                                       subscription_comments,
+                                       comments_user_id)]
     
     excelwb <- rsf_reports_create_excel_sheet(excelwb=excelwb,
                                               sheet_name="PROGRAM_CHECKS",

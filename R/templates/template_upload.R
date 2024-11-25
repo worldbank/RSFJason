@@ -154,7 +154,10 @@ template_upload <- function(pool,
     if (!empty(template$setup_data$PROGRAM_INDICATORS)) {
       
       program_indicators <- template$setup_data$PROGRAM_INDICATORS
-      if (!setequal(names(program_indicators),c("INDID","FRMID","SYSNAME","indicator_name","monitored","formula_title","is_auto_subscribed"))) {
+      if (!setequal(names(program_indicators),
+                    c("INDID","FRMID","SYSNAME","indicator_name","monitored","formula_title","is_auto_subscribed",
+                      "sort_preference","subscription_comments","comments_user_id"))) {
+        
         status_message(class="error",
                        "Failed to import PROGRAM INDICATORS.  Expected columns: ",paste0(c("INDID","FRMID","SYSNAME","indicator_name","monitored","formula_title"),collapse=", "))
       } else {
@@ -198,6 +201,9 @@ template_upload <- function(pool,
                                                            is_subscribed bool,
                                                            is_auto_subscribed bool,
                                                            formula_id int,
+                                                           sort_preference int2,
+                                                           subscription_comments text,
+                                                           comments_user_id text,
                                                            rsf_pfcbl_id int)
                   on commit drop;")
           
@@ -207,7 +213,10 @@ template_upload <- function(pool,
                                                     indicator_id,
                                                     is_subscribed=monitored,
                                                     is_auto_subscribed,
-                                                    formula_id)])
+                                                    formula_id,
+                                                    sort_preference,
+                                                    subscription_comments,
+                                                    comments_user_id)])
           
           dbExecute(conn,"analyze _temp_indicators")
           
@@ -231,7 +240,10 @@ template_upload <- function(pool,
                                                                     rsf_program_id,
                                                                     rsf_facility_id,
                                                                     is_subscribed,
-                                                                    is_auto_subscribed)
+                                                                    is_auto_subscribed,
+                                                                    sort_preference,
+                                                                    subscription_comments,
+                                                                    comments_user_id)
                   select 
                   ti.rsf_pfcbl_id,
                   ti.indicator_id,
@@ -239,7 +251,10 @@ template_upload <- function(pool,
                   ids.rsf_program_id,
                   ids.rsf_facility_id,
                   ti.is_subscribed,
-                  coalesce(ti.is_auto_subscribed,false) as is_auto_subscribed
+                  coalesce(ti.is_auto_subscribed,false) as is_auto_subscribed,
+                  ti.sort_preference,
+                  ti.subscription_comments,
+                  ti.comments_user_id
                   from _temp_indicators ti
                   inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ti.rsf_pfcbl_id
                   left join p_rsf.indicator_formulas indf on indf.formula_id = ti.formula_id
@@ -258,7 +273,10 @@ template_upload <- function(pool,
                     rsf_program_id,
                     rsf_facility_id,
                     is_subscribed,
-                    is_auto_subscribed
+                    is_auto_subscribed,
+                    sort_preference,
+                    subscription_comments,
+                    comments_user_id
                   from p_rsf.rsf_program_facility_indicators pfi
                   where pfi.rsf_program_id = $1::int
                   
@@ -267,7 +285,10 @@ template_upload <- function(pool,
                   set formula_id = EXCLUDED.formula_id,
                       rsf_facility_id = EXCLUDED.rsf_facility_id,
                       is_subscribed = EXCLUDED.is_subscribed,
-                      is_auto_subscribed = EXCLUDED.is_auto_subscribed;",
+                      is_auto_subscribed = EXCLUDED.is_auto_subscribed,
+                      sort_preference = EXCLUDED.sort_preference,
+                      subscription_comments = EXCLUDED.subscription_comments,
+                      comments_user_id = EXCLUDED.comments_user_id;",
                   params=list(template$rsf_program_id))
           
         })
@@ -276,11 +297,14 @@ template_upload <- function(pool,
     
     if (!empty(template$setup_data$PROGRAM_CHECKS)) {
       program_checks <- template$setup_data$PROGRAM_CHECKS
-      if (!setequal(names(program_checks),c("CHKID","FRMID","SYSNAME","check_name","check_class","check_type","check_formula_title","monitored","is_auto_subscribed"))) {
+      if (!setequal(names(program_checks),
+                    c("CHKID","FRMID","SYSNAME","check_name","check_class","check_type","check_formula_title","monitored","is_auto_subscribed",
+                      "subscription_comments","comments_user_id"))) {
 
         status_message(class="error",
                        "Program template does not correctly define checks. Manually import checks. Expecting columns: ",
-                       paste0(c("CHKID","FRMID","SYSNAME","check_name","check_class","check_type","check_formula_title","monitored"),collapse=", "))
+                       paste0(c("CHKID","FRMID","SYSNAME","check_name","check_class","check_type","check_formula_title","monitored",
+                                "subscription_comments","comments_user_id"),collapse=", "))
         
       } else {
         
@@ -316,6 +340,8 @@ template_upload <- function(pool,
                                                        indicator_check_id int,
                                                        is_subscribed bool,
                                                        is_auto_subscribed bool,
+                                                       subscription_comments text,
+                                                       comments_user_id text,
                                                        rsf_pfcbl_id int
                   )
                   on commit drop;")
@@ -326,7 +352,9 @@ template_upload <- function(pool,
                                                        check_formula_id,
                                                        indicator_check_id,
                                                        is_subscribed=monitored,
-                                                       is_auto_subscribed)]))
+                                                       is_auto_subscribed,
+                                                       subscription_comments,
+                                                       comments_user_id)]))
           
           dbExecute(conn,"analyze _temp_checks")
           
@@ -347,7 +375,9 @@ template_upload <- function(pool,
                                                                  rsf_program_id,
                                                                  rsf_facility_id,
                                                                  is_subscribed,
-                                                                 is_auto_subscribed)
+                                                                 is_auto_subscribed,
+                                                                 subscription_comments,
+                                                                 comments_user_id)
                   select 
                     tc.rsf_pfcbl_id,
                     icf.check_formula_id,
@@ -355,7 +385,9 @@ template_upload <- function(pool,
                     ids.rsf_program_id,
                     ids.rsf_facility_id,
                     tc.is_subscribed,
-                    coalesce(tc.is_auto_subscribed,false) as is_auto_subscribed
+                    coalesce(tc.is_auto_subscribed,false) as is_auto_subscribed,
+                    tc.subscription_comments,
+                    tc.comments_user_id
                   from _temp_checks tc
                   inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = tc.rsf_pfcbl_id
                   inner join p_rsf.indicator_check_formulas icf on icf.check_formula_id = tc.check_formula_id
@@ -370,7 +402,9 @@ template_upload <- function(pool,
                    rsf_program_id,
                    rsf_facility_id,
                    is_subscribed,
-                   is_auto_subscribed
+                   is_auto_subscribed,
+                   subscription_comments,
+                   comments_user_id
                   from p_rsf.rsf_program_facility_checks pfc
                   where pfc.rsf_program_id = $1::int
                   
@@ -378,7 +412,9 @@ template_upload <- function(pool,
                   do update
                   set rsf_facility_id = EXCLUDED.rsf_facility_id,
                       is_subscribed = EXCLUDED.is_subscribed,
-                      is_auto_subscribed = EXCLUDED.is_auto_subscribed",
+                      is_auto_subscribed = EXCLUDED.is_auto_subscribed,
+                      subscription_comments = EXCLUDED.subscription_comments,
+                      comments_user_id = EXCLUDED.comments_user_id",
                   params=list(template$rsf_program_id))
           
         })

@@ -319,7 +319,11 @@
   assign(x="timeseries",
          envir=CALCULATIONS_ENVIRONMENT,
          value=function(...,
-                        by,
+                        by=NULL,
+                        values=NULL,
+                        #fill will "fill down" NA values into missing timeseries dates
+                        #EXCEPT when those timeseries dates are reported as NA
+                        #Warning: periodic data expects to zero-out non-reported periods. For periodic indicators fill should be FALSE, or NA, or 0 !!
                         fill=TRUE) {
            
            vars <- list(...)
@@ -331,9 +335,49 @@
                          " (number of timeseries columns plus one by column)"))
            }
            
+           if (is.null(by) && is.null(values)) stop(paste0("Either 'by' or 'values' must be defined (and not both). ",
+                                                           "By=indicator will return data for all requested indicators using the 'by' indicators timeseries dates as ",
+                                                           "the reference timeline. ",
+                                                           "Values=indicator will return the 'timeseries' data for the requested indicator and is a shortcut for ",
+                                                           "indicator.all[[1]]$timeseries"))
+           
+           #browser()
+           if (!is.null(values)) {
+             
+             if (length(vars) > 0) {
+               stop("When timeseries(values=X) is used, only one indicator can be requested.  Did you mean to use timeseries(by=X,...)?")
+             }
+             
+             if (!identical(fill,TRUE) && 
+                 !identical(as.logical(fill),as.logical(NA)) &&
+                 !identical(fill,FALSE)) {
+               stop("Fill is not used when timeseries() is passed a values argument (nothing is filled).  Either leave as default setting or use fill=NA")
+             }
+             
+             if (is.list(values) && all(unlist(lapply(values,is.data.table)))) values <- rbindlist(values)
+             else if (!is.data.table(values)) stop("Timeseries values argument expects to receive an indicator with a '.all' parameter, eg, values=loan_risk_balance.all")
+
+             if (!all(c("indicator_name",
+                        "timeseries.reporteddate",
+                        "reporting_current_date",
+                        "timeseries") %in% names(values))) {
+               stop("Timeseries arguments require columns with .all specified, eg: loan_risk_balance.all to provide a data.table with columns: timeseries, timeseries.unit, timeseries.reporteddate, timeseries.changed, timeseries.updated")
+             }
+             
+            return(values$timeseries)
+          }
+             
            if (is.null(by)) stop("by column is required")
            
-           if (is.null(names(by)) && !is.null(names(by[[1]]))) by <- by[[1]]
+           if (is.list(by) && all(unlist(lapply(by,is.data.table)))) {
+             
+             if (length(by) > 1 && length(vars) > 0) {
+               stop(paste0("By variable has a length greater than 1 (multiple elements in this list). ",
+                           "This is not allowed when passing a list of other variables too."))
+             }
+             
+             by <- rbindlist(by)
+           }
            
            if (!all(c("indicator_name",
                       "timeseries.reporteddate",
@@ -398,18 +442,28 @@
                col[reporting_current_date==col_origin,
                    reporting_current_date:=timeline_origin]
              }
+             col[,has_NA_value:=is.na(timeseries)]
+             
              timeline <- col[timeline,
                              on=.(reporting_current_date)]
+             
              
              if (as.logical(this_fill) %in% TRUE) {
                timeline <- tidyr::fill(timeline,
                                        timeseries,
                                        .direction="down")
-             } else if (!is.na(this_fill)) {
+             
+             } else if (!is.na(this_fill) &&
+                        !identical(this_fill,FALSE)) {
                suppressWarnings(timeline[is.na(timeseries),
                                          timeseries:=this_fill])
              }    
              
+             #we don't want fill to fill down NA values that are REPORTED as NA
+             timeline[!is.na(timeseries) & has_NA_value %in% TRUE,
+                      timeseries:=NA]
+             
+             timeline[,has_NA_value:=NULL]
              
              setnames(timeline,
                       old="timeseries",

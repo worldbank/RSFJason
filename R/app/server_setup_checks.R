@@ -27,20 +27,26 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
       fcs.rsf_pfcbl_id,
       fcs.indicator_check_id,
       fcs.check_formula_id,
-      fcs.rank_id,
-      fcs.check_formula_title,
-      fcs.check_pfcbl_category,
-      fcs.check_name,
-      fcs.check_type,
-      fcs.check_class,
+      
+      icf.check_formula_title,
+      icf.check_pfcbl_category,
+      ic.check_name,
+      ic.check_type,
+      ic.check_class,
       ict.check_type_name,
       coalesce(has.reported,false) as has_flag,
       fcs.is_subscribed,
       fcs.is_auto_subscribed,
       case when fcs.is_auto_subscribed = true then NULL::bool
-           else fcs.is_subscribed end as user_subscription
+           else fcs.is_subscribed end as user_subscription,
+      fcs.pfcbl_category_setting,
+      fcs.subscription_comments,
+      fcs.comments_user_id,
+      fcs.is_inherited
     from p_rsf.view_rsf_program_facility_check_subscriptions fcs
-    inner join p_rsf.indicator_check_types ict on ict.check_type = fcs.check_type
+    inner join p_rsf.indicator_checks ic on ic.indicator_check_id = fcs.indicator_check_id
+    inner join p_Rsf.indicator_check_formulas icf on icf.check_formula_id = fcs.check_formula_id
+    inner join p_rsf.indicator_check_types ict on ict.check_type = ic.check_type
     left join (select distinct
     						ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
     						rdc.check_formula_id,
@@ -51,14 +57,13 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
     						  and rdc.check_formula_id is not null) as has on has.rsf_pfcbl_id = fcs.rsf_pfcbl_id
     																												  and has.check_formula_id = fcs.check_formula_id
     where fcs.rsf_pfcbl_id = $1::int
-    order by 
-      fcs.data_category_rank desc,
-      case when fcs.check_class = 'critical' then 1
-           when fcs.check_class = 'error' then 2
-           when fcs.check_class = 'warning' then 3
+     order by 
+      case when ic.check_class = 'critical' then 1
+           when ic.check_class = 'error' then 2
+           when ic.check_class = 'warning' then 3
            else 4 end,
-      fcs.check_name,
-      fcs.check_formula_title",
+      ic.check_name,
+      icf.check_formula_title",
     params=list(selected_rsf_pfcbl_id))
                                                            
    setDT(monitored_checks)
@@ -534,6 +539,61 @@ output$server_setup_checks__recheck_pending_UI <- renderText({
 #   return (tc)
 # })
 
+observeEvent(input$ui_setup__checks_monitored_table_cell_edit, {
+  
+  clicked_cell <- input$ui_setup__checks_monitored_table_cell_edit
+  
+  if (!isTruthy(clicked_cell) || length(clicked_cell) == 0) return (NULL)
+  
+  monitored_check <- SERVER_SETUP_CHECKS__FILTERED_CHECKS()[clicked_cell$row,
+                                                                 .(rsf_pfcbl_id,
+                                                                   check_formula_id,
+                                                                   is_subscribed,
+                                                                   subscription_comments)]
+  
+  monitored_check <- as.list(monitored_check)
+  if (clicked_cell$col==5) {
+    monitored_check[["subscription_comments"]] <- as.character(clicked_cell$value)
+  } else {
+    return (NULL) #should not be able to do this
+  }
+  
+  DBPOOL %>% dbExecute("
+    insert into p_rsf.rsf_program_facility_checks(rsf_pfcbl_id,
+                                                  check_formula_id,
+                                                  indicator_check_id,
+                                                  rsf_program_id,
+                                                  rsf_facility_id,
+                                                  is_subscribed,
+                                                  is_auto_subscribed,
+                                                  subscription_comments,
+                                                  comments_user_id)
+            select 
+              ids.rsf_pfcbl_id,
+              icf.check_formula_id,
+              icf.indicator_check_id,
+              ids.rsf_program_id,
+              ids.rsf_facility_id,
+              $3::bool as is_subscribed,
+              false as is_auto_subscribed,
+              $4::text as subscription_comments,
+              $5::text as comments_user_id
+            from p_rsf.rsf_pfcbl_ids ids,p_rsf.indicator_check_formulas icf
+            where ids.rsf_pfcbl_id = $1::int
+              and icf.check_formula_id = $2::int
+            on conflict (rsf_pfcbl_id,check_formula_id)
+            do update
+            set is_subscribed = EXCLUDED.is_subscribed,
+                is_auto_subscribed = EXCLUDED.is_auto_subscribed,
+                subscription_comments = EXCLUDED.subscription_comments,
+                comments_user_id = EXCLUDED.comments_user_id",
+    params=list(monitored_check$rsf_pfcbl_id,
+                monitored_check$check_formula_id,
+                monitored_check$is_subscribed,
+                monitored_check$subscription_comments,
+                USER_ID()))
+})
+
 output$ui_setup__checks_monitored_table <- DT::renderDataTable({
   
   
@@ -574,11 +634,15 @@ output$ui_setup__checks_monitored_table <- DT::renderDataTable({
                                      type_class_label,
                                      check_name_html,
                                      check_formula_title_html,
+                                     subscription_comments=ifelse(is_inherited==TRUE,
+                                                                  paste("[",pfcbl_category_setting," setting]"),
+                                                                  subscription_comments),
                                      view_check_html)]
   DT::datatable(display_checks,
                 rownames = FALSE,
                 fillContainer=TRUE,
-                colnames=c(toggleButton,"Applied On","Check Type","Check Name","Formula Title","Goto Check"),
+                colnames=c(toggleButton,"Applied On","Check Type","Check Name","Formula Title","Comments","Goto Check"),
+                editable=list(target = 'cell', disable = list(columns = c(0,1,2,3,4,6))), #c
                 escape = FALSE, #Shouldn't be any HTML escapable text
                 options=list(
                   dom="t",
@@ -587,6 +651,13 @@ output$ui_setup__checks_monitored_table <- DT::renderDataTable({
                   #scrollCollapse=TRUE,
                   ordering=F,
                   paging=F,
-                  columnDefs = list(list(className = 'dt-left', targets = c(0,1)))))
+                  columnDefs = list(list(className = 'dt-left', targets = c(0,1))))) %>%
+    
+    formatStyle(columns="subscription_comments",
+                target="cell",
+                `width` = "200px",
+                `white-space`="normal",
+                `text-overflow`="ellipsis",
+                `overflow`="hidden")
   
 })

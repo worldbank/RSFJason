@@ -147,6 +147,7 @@ db_create_new_rsf_ids <- function(pool,
                                                                   as.character(reporting_cohort$reporting_asof_date)," reporting date"),
                                               reporting_pfcbl_categories=NA,
                                               fail_on_check_class = "none",
+                                              fail_on_incomplete_cohorts = FALSE,
                                               linked_reporting_cohort_id=reporting_cohort$reporting_cohort_id)
           }
           parent_reporting_cohort_id <- linked_cohort$reporting_cohort_id

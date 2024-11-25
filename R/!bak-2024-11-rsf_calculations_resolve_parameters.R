@@ -34,8 +34,6 @@ rsf_calculations_resolve_parameters <- function(calculations,
                               on=.(parameter_indicator_name=indicator_name)]
   
   #For .all, a .timeseries value is resolved.  Which should not be a resolved parameter as it is a list element of .all
-  #so resolve parameter requirements based on all
-  #but we don't want to automatically include timeries.unit or timeseries.reporteddate since these are present generally for a .all request
   if (any(request_indicator_variables$parameter_variable=="timeseries",na.rm=T)) {
     request_indicator_variables <- request_indicator_variables[!(parameter_variable=="timeseries")]
   }
@@ -64,13 +62,8 @@ rsf_calculations_resolve_parameters <- function(calculations,
   #For fx and currency conversions (which are not necessarily needed for the calculator to calculate it)
   {
     #for FX we want to add .unit and .reporteddate to all currency data types
-    #but .all will be done separately since we don't need to add any .unit or .reporteddate parameters to the request
     fx_variable_requirements <- request_indicator_variables[parameter_data_type=="currency" &
                                                             grepl("(current|previous|first)$",parameter_variable)]
-    
-    request_indicator_variables[parameter_data_type=="currency" &
-                                grepl("all$",parameter_variable),
-                                for_fx:=TRUE]
     
     if (!empty(fx_variable_requirements)) {
       

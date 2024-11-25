@@ -933,11 +933,17 @@ db_program_get_data  <- function(pool,
                  data_asof_date,
                  data_id)
         
-        query_rsf_data[,
-                       `:=`(data_value_changed=!(paste0(data_value,data_unit)==shift(paste0(data_value,data_unit),type="lag",n=1)),
-                            reportnumber=1:.N),
-                       by=.(rsf_pfcbl_id,indicator_id)]
+        #There may not be any "all" if indicator was never reported.  So add a placeholder before calculating these values
+        query_rsf_data[,`:=`(data_value_changed=as.logical(NA),
+                             reportnumber=as.numeric(NA))]
         
+        
+        if (!empty(query_rsf_data)) {
+          query_rsf_data[,
+                         `:=`(data_value_changed=!(paste0(data_value,data_unit)==shift(paste0(data_value,data_unit),type="lag",n=1)),
+                              reportnumber=1:.N),
+                         by=.(rsf_pfcbl_id,indicator_id)]
+        }        
         
         setcolorder(query_rsf_data,neworder=names(rsf_data))
         rsf_data <- rbindlist(list(rsf_data,

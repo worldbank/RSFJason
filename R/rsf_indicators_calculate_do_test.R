@@ -2,8 +2,8 @@
 
 # rsf_program_id <- 107122
 # reporting_current_date <- '2024-09-30'
-# indicator_id <-  157694           
-# formula_pfcbl_id.familytree <- 107131                        
+# indicator_id <-  157572
+# formula_pfcbl_id.familytree <- 107137
 #x<-rsf_indicators_calculate_do_test(pool,rsf_program_id,reporting_current_date,indicator_id,formula_pfcbl_id.familytree)
 
 rsf_indicators_calculate_do_test <- function(pool,
@@ -358,6 +358,25 @@ rsf_indicators_calculate_do_test <- function(pool,
     # }
     
     for(d in omit_cols) set(inputs,j=d,value=NULL)
+    
+    #For .all parameters in formulas
+    if (any(sapply(inputs,is.list))) {
+      list_cols <- names(inputs)[sapply(inputs,is.list)]
+      for (col in list_cols) {
+        set(inputs,
+            i=NULL,
+            j=col,
+            value=    as.character(sapply(inputs[[list_cols]],
+                               function(x) {
+                                 if (is.data.table(x) && all(c("timeseries","timeseries.unit") %in% names(x))) {
+                                   return (paste(paste(x$timeseries,x$timeseries.unit),collapse=", "))
+                                 } else {
+                                   return (paste(x,collapse=", "))
+                                 }
+                               }))
+        )
+      }
+    }
     
     #Without all ID columns can be more simple
     inputs <- unique(inputs)

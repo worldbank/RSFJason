@@ -669,6 +669,8 @@ observeEvent(SERVER_DASHBOARD_REPORT_SELECTED(), {
                            for_indicator_names=for_indicator_names,
                            for_asof_dates=for_asof_dates,
                            dashboard_parameters=report$report_parameters[[1]])
+  
+  browser()
 },
 priority = 10) #need this observer to fire before observeEvent(SERVER_DASHBOARD_INDICATORS()
 
