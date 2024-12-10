@@ -709,11 +709,13 @@ SELECTED_COHORT_INDICATOR_FLAGS_FILTERED <- eventReactive(c(input$cohort_view_fl
     indicator_classifications <- SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION()
     
     if (filter=="all") {
-      flags <- flags[indicator_id %in% indicator_classifications$indicator_id]  
+      flags <- flags[indicator_id %in% indicator_classifications$indicator_id |
+                     check_class %in% "critical"]  
     } else {
       
       indicator_classifications <- indicator_classifications[indicator_name==filter]
-      flags <- flags[indicator_id %in% indicator_classifications$indicator_id]
+      flags <- flags[indicator_id %in% indicator_classifications$indicator_id |
+                     check_class %in% "critical"]
     }
     
   }

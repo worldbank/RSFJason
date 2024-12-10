@@ -210,6 +210,48 @@ tabPanel("Reports",value="reports",
       
       
   )
-)  
+),
+
+####################
+tabPanel("Export Templates",value="templates",
+         fluidRow(style='padding-top:10px;padding-bottom:10px;',
+                  column(10,align="left",style='display:inline-block;',
+                         div(style="display:flex;flex-flow:row nowrap;",
+                             div(selectizeInput(inputId="server_dashboard_exports__selected_template",
+                                                label="Select Export Template",
+                                                choices=character(0),
+                                                selected=NULL,
+                                                width="450px",
+                                                multiple=FALSE,
+                                                options=list(placeholder="Select a Template to View or Launch"))),
+                             div(style="padding-left:15px;",
+                                 textInput(inputId="server_dashboard_exports__search",
+                                           label="Search Indicators",
+                                           value="",
+                                           width="200px",
+                                           placeholder="Enter keywords")),
+                             div(style="padding-left:5px;padding-top:25px;",
+                                 actionButton(inputId="server_dashboard_exports__clear",
+                                              label=NULL,
+                                              icon=icon("xmark"),
+                                              class="btn-default")),
+                             div(style="justify-self:start;flex-grow:1;padding-left:10px;padding-top:25px;",
+                                 actionButton(inputId="server_dashboard_exports__create_export_template",
+                                              label="Create New Template",
+                                              class="btn-primary",
+                                              icon=icon("puzzle-piece")))))
+         ),
+         fluidRow(column(12,align="center",
+                         panel(
+                           heading="Export Template",
+                           footer=NULL,
+                           div(align="left",
+                               uiOutput(outputId="server_dashboard_exports__template_ui"))
+                         ))
+         )
+         
+)
+
+##############end templates
 ) #end tabsetPanel
 ) #end div

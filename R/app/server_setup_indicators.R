@@ -471,7 +471,10 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
                                                       formula_id,
                                                       rsf_program_id,
                                                       rsf_facility_id,
-                                                      is_subscribed)
+                                                      is_subscribed,
+                                                      is_auto_subscribed,
+                                                      subscription_comments,
+                                                      comments_user_id)
     select
       ids.rsf_pfcbl_id,
       $3::int as indicator_id,
@@ -481,18 +484,27 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
 			   and indf.formula_id = $2::int) as formula_id,
       ids.rsf_program_id,
       ids.rsf_facility_id,
-      true as is_subscribed
+      true as is_subscribed,
+      false as is_auto_subscribed,
+      'Formula set by ' || $4::text || ' on ' || timeofday()::date as subscription_comments,
+      $5::text as comments_user_id
     from p_rsf.rsf_pfcbl_ids ids
     where ids.rsf_pfcbl_id = $1::int
     on conflict (rsf_pfcbl_id,indicator_id)
     do update
     set
+      formula_id = EXCLUDED.formula_id,
       is_subscribed = EXCLUDED.is_subscribed,
-      formula_id = EXCLUDED.formula_id
+      is_auto_subscribed = EXCLUDED.is_auto_subscribed,
+      subscription_comments = concat(rsf_program_facility_indicators.subscription_comments || '; ',EXCLUDED.subscription_comments),
+      comments_user_id = EXCLUDED.comments_user_id
+      
     returning formula_id;",
     params=list(selected_rsf_pfcbl_id,
                 formula_id,
-                selected_indicator_id))
+                selected_indicator_id,
+                USER_NAME(),
+                USER_ID()))
     
   if (empty(success) || !identical(as.numeric(success$formula_id),as.numeric(formula_id))) {
     return(showNotification(type="error",

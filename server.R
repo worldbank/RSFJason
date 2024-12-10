@@ -89,6 +89,7 @@ server <- function(input, output, session)
                          cookie_name="ARL-applications")
   
   USER_ID <- eventReactive(USER_ACCOUNT$user_account_id, { USER_ACCOUNT$user_account_id },ignoreNULL = FALSE)
+  USER_NAME <- eventReactive(USER_ACCOUNT$user_name, {  format_name_abbreviation(USER_ACCOUNT$user_name) },ignoreNULL=FALSE)
   LOGGEDIN <- reactive({ isTruthy(USER_ACCOUNT$user_account_id) && isTruthy(USER_ACCOUNT$application_session_id) })
   
   login_initialize <- observeEvent(USER_ID(),{ 
@@ -101,10 +102,11 @@ server <- function(input, output, session)
     source("./R/app/server_dashboard_options.R",local=serverENV)
     source("./R/app/server_dashboard_reports.R",local=serverENV)
     source("./R/app/server_dashboard_edit.R",local=serverENV)
-    
+    source("./R/app/server_dashboard_exports.R",local=serverENV)
+    source("./R/app/server_dashboard_exports_reports.R",local=serverENV)
     source("./R/app/server_datasets.R",local=serverENV)
     source("./R/app/server_datasets_review_flags.R",local=serverENV)
-#    source("./R/app/server_datasets_indicatorflags_module.R",local=serverENV)
+
     source("./R/app/server_datasets_upload.R",local=serverENV)
   
     #When permissions are implemented, only load administrateive modules if an admin

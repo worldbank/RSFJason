@@ -2,7 +2,7 @@
 
 # rsf_program_id <- 107122
 # reporting_current_date <- '2024-09-30'
-# indicator_id <-  157572
+# indicator_id <-  43456
 # formula_pfcbl_id.familytree <- 107137
 #x<-rsf_indicators_calculate_do_test(pool,rsf_program_id,reporting_current_date,indicator_id,formula_pfcbl_id.familytree)
 
@@ -303,7 +303,7 @@ rsf_indicators_calculate_do_test <- function(pool,
     
     setnames(results,
              old="calculated_data_value",
-             new=paste0("calculated:",calculation$indicator_name))
+             new=paste0("calculated:",unique(calculation$indicator_name))) #calculations can have multiple because of different formula_ids
   }
   
   #omit inputs fields
@@ -315,7 +315,7 @@ rsf_indicators_calculate_do_test <- function(pool,
     inputs[,SYSID:=sys_ids]
   
     setnames(inputs,
-             old=paste0("rsf_pfcbl_id.",calculation$data_category),
+             old=paste0("rsf_pfcbl_id.",unique(calculation$data_category)),
              new="rsf_pfcbl_id")
       
     omit_cols <- c("reporting_current_date",
@@ -471,8 +471,13 @@ rsf_indicators_calculate_do_test <- function(pool,
                                                                    i=NULL,
                                                                    j=p,
                                                                    value=as.character(results[[p]]))
-        results[,
-                formula_calculation:=calculation$formula]
+        results[calculation,
+                formula_calculation:=i.formula,
+                on=.(formula_id)]
+        
+        # results[,
+        #         formula_calculation:=calculation$formula]
+        # 
         
         setcolorder(results,
                     neworder = c(grep("^calculated",names(results),value=T),

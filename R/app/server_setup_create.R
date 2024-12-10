@@ -204,14 +204,16 @@ observeEvent(input$setup_program_create_action_button, {
                            c("entity_creation_date",
                              "name",
                              "nickname",
+                             "id",
                              "entity_local_currency_unit"))) > 0) {
-          stop("Create program only recognizes fields: entity_creation_date, name, nickname, entity_local_currency_unit")
+          stop("Create program only recognizes fields: entity_creation_date, name, nickname, entity_local_currency_unit, id")
         }
         
         results <- DBPOOL %>% db_program_create(program_name=setup_indicators[indicator_sys_category=="name",data_value],
                                                 program_nickname=setup_indicators[indicator_sys_category=="nickname",data_value],
                                                 program_inception_date=ymd(setup_indicators[indicator_sys_category=="entity_creation_date",data_value]),
                                                 program_lcu=setup_indicators[indicator_sys_category=="entity_local_currency_unit",data_value],
+                                                program_id=setup_indicators[indicator_sys_category=="id",data_value],
                                                 reporting_user_id=USER_ID(),
                                                 program_reporting_frequency="quarter",
                                                 source_name="Program Created in JASON")

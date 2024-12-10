@@ -643,6 +643,7 @@ observeEvent(input$server_dashboard_reports__edit_delete_report, {
 
 observeEvent(SERVER_DASHBOARD_REPORT_SELECTED(), {
   
+
   report <- SERVER_DASHBOARD_REPORT_SELECTED()
   dashboard_indicators <- SERVER_DASHBOARD_INDICATORS()
   if (length(report)==0) return (NULL)
@@ -670,7 +671,7 @@ observeEvent(SERVER_DASHBOARD_REPORT_SELECTED(), {
                            for_asof_dates=for_asof_dates,
                            dashboard_parameters=report$report_parameters[[1]])
   
-  browser()
+
 },
 priority = 10) #need this observer to fire before observeEvent(SERVER_DASHBOARD_INDICATORS()
 
@@ -736,3 +737,5 @@ output$server_dashboard_reports__list <- DT::renderDataTable({
                                               list(className = 'dt-center', targets = c(0,3)))))
               
 })
+
+

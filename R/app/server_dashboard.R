@@ -948,6 +948,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
     # showNotification(type="message",
     #                  h3("RAW mode is selected: use Export to download dataset. Dashboard browser is not available in RAW mode."))
     # return (NULL)
+  
   } else {
     
     rsf_family_data <- db_data_pivot_family(rsf_data=rsf_data,
@@ -971,6 +972,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
     }  
   }
   #browser()
+  
   setnames(rsf_family_data,
            old="current_asof_date",
            new="REPORTING_asof_date")
@@ -1021,6 +1023,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
   }
   
   SERVER_DASHBOARD_CURRENT_QUERY(rsf_family_data)
+  
 }, ignoreInit=TRUE,priority=-1)
 #############################################################################################
 
@@ -1041,7 +1044,7 @@ SERVER_DASHBOARD_DATA_DISPLAY_UPDATE <- eventReactive(c(SERVER_DASHBOARD_CURRENT
                reporting_filter=SERVER_DASHBOARD_RUN_OPTIONS$reporting_filter,
                format_pivot_category=SERVER_DASHBOARD_RUN_OPTIONS$format_pivot_category))
                                                            
-}) %>% debounce(250)
+}) #%>% debounce(250)
 
 #Applies pivot: appearance, columns
 SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPDATE(), {

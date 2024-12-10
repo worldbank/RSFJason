@@ -307,8 +307,10 @@ template_process <- function(pool,
     } 
     
     else if (template$template_ids_method=="pfcbl_id") {
-      template_data_ids <- na.omit(template$template_data[,unique(SYSID)])
-      if (!all(template$reporting_cohort$reporting_rsf_pfcbl_id %in% template_data_ids)) {
+      template_data_ids <- na.omit(template$template_data[SYSID>0,unique(SYSID)])
+      #browser()
+      if (length(template_data_ids) > 0 &&
+          !all(template$reporting_cohort$reporting_rsf_pfcbl_id %in% template_data_ids)) {
         family_match = dbGetQuery(pool,"
                                   select fam.parent_rsf_pfcbl_id,count(distinct child_rsf_pfcbl_id) as members
                                   from p_rsf.rsf_pfcbl_id_family fam

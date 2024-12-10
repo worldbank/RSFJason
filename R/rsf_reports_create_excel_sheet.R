@@ -13,7 +13,7 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
                                            reporting_entity,
                                            reporting_asof_date,
                                            reporting_user,
-                                           reporting_time=as.character(now()),
+                                           reporting_time=as.character(format.Date(now(),"%Y%b%d %Hh%M")),
                                            reporting_notes="",
                                            protect="IFCRSF")
 {
@@ -23,6 +23,11 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
   if (length(template_key) != 1 || all(is.na(template_key))) {
     stop("A valid template key must be provided")
   }
+  named_region_prefix <- "RSF"
+  if (!sheet_data_table_name %in% "RSF_TEMPLATE_DATA") named_region_prefix <- paste0(sheet_data_table_name,"_")
+  
+  named_region_prefix <- gsub("\\s+|_+","_",named_region_prefix)
+  named_region_prefix <- paste0(named_region_prefix,"_")
   
   if (all(is.na(reporting_asof_date))) stop("Excel header requires reporting_asof_date")
 
@@ -76,13 +81,13 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
   
   openxlsx::writeData(excelwb,sheet=sheet,x=header,colNames=FALSE,rowNames=FALSE,startCol=1,startRow=1)
   
-  if (sheet==1) {
-    createNamedRegion(excelwb,sheet=sheet,rows=1,cols=2,name="RSF_REPORT_KEY")
-    createNamedRegion(excelwb,sheet=sheet,rows=2,cols=2,name="RSF_DATA_INTEGRITY_KEY")
+  #if (sheet==1) {
+    createNamedRegion(excelwb,sheet=sheet,rows=1,cols=2,name=paste0(named_region_prefix,"REPORT_KEY"))
+    createNamedRegion(excelwb,sheet=sheet,rows=2,cols=2,name=paste0(named_region_prefix,"DATA_INTEGRITY_KEY"))
     
-    createNamedRegion(excelwb,sheet=sheet,rows=3,cols=2,name="RSF_REPORTING_ENTITY")
-    createNamedRegion(excelwb,sheet=sheet,rows=4,cols=2,name="RSF_REPORTING_DATE")
-  }
+    createNamedRegion(excelwb,sheet=sheet,rows=3,cols=2,name=paste0(named_region_prefix,"REPORTING_ENTITY"))
+    createNamedRegion(excelwb,sheet=sheet,rows=4,cols=2,name=paste0(named_region_prefix,"REPORTING_DATE"))
+  #}
   
   
   

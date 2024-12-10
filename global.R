@@ -89,6 +89,7 @@ source("./R/db_cohort_get_data.R")
 source("./R/db_cohort_create.R")
 source("./R/db_cohort_upload_file.R")
 source("./R/db_cohort_download_file.R")
+source("./R/db_export_template_download_file.R")
 
 source("./R/db_rsf_reports_list.R")
 
