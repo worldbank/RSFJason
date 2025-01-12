@@ -14,9 +14,42 @@ server <- function(input, output, session)
   #   poolClose(DBPOOL)
   # }
   
-  DBPOOL <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
-  if (!is.null(DBPOOL) && pool::dbIsValid(DBPOOL)) { print("DBPOOL (MAIN) Started")
-  } else { print("DBPOOL (MAIN) FAILED TO START") }
+  # DBPOOL <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
+  # if (!is.null(DBPOOL) && pool::dbIsValid(DBPOOL)) { print("DBPOOL (MAIN) Started")
+  # } else { print("DBPOOL (MAIN) FAILED TO START") }
+  
+  
+  
+  observeEvent(session, { 
+    print("Session information")
+    print(reactiveValuesToList(session$clientData))
+    print(session$user)
+    
+    dbserver <- NULL
+    if (grepl("rsf-prod",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_PROD"]]
+    } else if (grepl("rsf-dev",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_DEV"]]
+    } else { dbserver <- LOCATIONS[[LOCATION]] }
+    
+    if (grepl("rsf-prod",session$clientData$url_pathname) && !identical(LOCATION,"Jason_PROD")) {
+      
+      showNotification(type="error",
+                       ui=h3(paste0("rsf-prod deployment does not match location setting: ",LOCATION)))
+      
+      stop(paste0("rsf-prod deployment does not match location setting: ",LOCATION))
+    }
+    
+    if (grepl("rsf-dev",session$clientData$url_pathname) && !identical(LOCATION,"Jason_DEV")) {
+      showNotification(type="error",
+                       ui=h3(paste0("rsf-dev deployment does not match location setting: ",LOCATION)))
+      stop(paste0("rsf-dev deployment does not match location setting: ",LOCATION))
+    }
+    
+    
+    DBPOOL <<- dbStart(credentials_file=paste0(getwd(),dbserver))
+    if (!is.null(DBPOOL) && pool::dbIsValid(DBPOOL)) { print("DBPOOL (MAIN) Started")
+    } else { print("DBPOOL (MAIN) FAILED TO START") }
+    
+  },once=T,priority = 1)
   
   #pool <- DBPOOL
   #
@@ -128,6 +161,8 @@ server <- function(input, output, session)
     source("./R/app/server_admin_checks_formulas.R",local=serverENV)
     source("./R/app/server_admin_checks_review.R",local=serverENV)
     
+    source("./R/app/server_admin_users.R",local=serverENV)
+    
     source("./R/app/server_datasets_guidance_module.R",local=serverENV)
     login_initialize$destroy()
     
@@ -182,7 +217,7 @@ server <- function(input, output, session)
 
   onStop(function() {
     if (!is.null(DBPOOL) && any(pool::dbIsValid(DBPOOL)==TRUE,DBPOOL$valid)) {
-      print("Closing DBPOOL")
+
       poolClose(DBPOOL)
     }
   })

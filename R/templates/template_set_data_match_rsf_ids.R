@@ -1262,7 +1262,7 @@ template_set_data_match_rsf_ids <- function(pool,
                                                                       parent_rsf_pfcbl_id,
                                                                       creation_asof_date)])
           create_new[new_pfcbl_ids,
-                     `:=`(rsf_id=i.new_rsf_id,
+                     `:=`(rsf_id=i.new_rsf_pfcbl_id,
                           rsf_pfcbl_id=i.new_rsf_pfcbl_id),
                      on=.(unique_new_entity_row_id,
                           parent_rsf_pfcbl_id)]

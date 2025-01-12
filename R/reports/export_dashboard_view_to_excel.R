@@ -17,11 +17,13 @@ export_dashboard_view_to_excel <- function(pool,
                                            EXPORT_SHEET_NAME = "RSF DATA") {
   
   # ed <<- as.data.table(export_data)
+  # cd <<- as.data.table(export_data_flags)
   # exporting_user_id <<- exporting_user_id
   # report_id <<- report_id
   # report_note <<- report_note
   # export_asof_date <<- export_asof_date
-  # export_data <<- export_data
+  # export_data <- as.data.table(ed)
+  # export_data_flags <- as.data.table(cd)
   # opts <<- options
   # export_data <- as.data.table(as.data.frame(ed))
   #browser()
@@ -304,62 +306,54 @@ export_dashboard_view_to_excel <- function(pool,
   #   # print(paste0("Dropdowns created: ",(Sys.time()-t1)))
   # }
   
-  #print("Writing data")  
-  #openxlsx::writeData(excelwb,sheet=1,x=rheaders,colNames=FALSE,rowNames=FALSE)
-
-  #createNamedRegion(excelwb,sheet=1,cols=3,rows=1,name="REPORT_KEY")
-  #createNamedRegion(excelwb,sheet=1,cols=3,rows=2,name="DATA_INTEGRITY_KEY")
-  #createNamedRegion(excelwb,sheet=1,cols=3,rows=3,name="REPORTING_DATE")
-
   
-  #openxlsx::writeData(excelwb, sheet=1, x=program_info$name, colNames=FALSE, rowNames=FALSE, startRow = 1, startCol = 7) #right-aligned
-  #openxlsx::insertImage(excelwb,sheet=1,startRow=4,startCol=8,file="IFC-CMCO_Horizontal_RGB_TransparentBG-high.png",units="px",width=3060/4,height=777/4) #don't understand the measures, but dims are 244x62  
-  # 
-  # openxlsx::writeDataTable(excelwb, 
-  #                          sheet=1, 
-  #                          x=export_data,
-  #                          colNames=TRUE, 
-  #                          rowNames=FALSE, 
-  #                          startRow = START_ROW, 
-  #                          startCol = 1,
-  #                          tableStyle="none",
-  #                          tableName="rsf_template_data")
   
   #currently disabled
-  # if (FALSE & !empty(export_data_flags)) {
-  #   
-  #   #print("Generating flags")
-  #   #stop("Write flags currently disabled")
-  #   #t1 <- Sys.time()
-  #   flagStyle <- createStyle(fontSize=9)
-  #   
-  #   for (cname in (names(export_data)[data_cols])) {
-  #     col_flags <- export_data_flags[[cname]]
-  #     col_flags[nchar(col_flags)==0] <- as.character(NA)
-  #     
-  #     if (all(is.na(col_flags))) next;
-  #     
-  #     col_num <- which(names(export_data)==cname)
-  #     for (row_num in 1:length(col_flags)) {
-  #       flagtext <- col_flags[[row_num]]
-  #       if (is.na(flagtext)) next
-  #       
-  #       comment <- createComment(author="System",
-  #                                comment=flagtext,
-  #                                visible=FALSE,
-  #                                style=flagStyle,
-  #                                height=4,
-  #                                width=3)
-  #       
-  #       writeComment(excelwb,
-  #                    sheet=1,
-  #                    col = col_num,
-  #                    row = START_ROW+row_num,
-  #                    comment = comment)
-  #     }
-  #   }
-  # }
+  if (!is.null(export_data_flags) && !empty(export_data_flags)) {
+
+    #print("Generating flags")
+    #stop("Write flags currently disabled")
+    #t1 <- Sys.time()
+    flagStyle <- createStyle(fontSize=9)
+
+    for (cname in (names(export_data))) {
+      col_flags <- export_data_flags[[cname]]
+      col_flags[nchar(col_flags)==0] <- as.character(NA)
+
+      if (all(is.na(col_flags))) next;
+
+      col_num <- which(names(export_data)==cname)
+      for (row_num in 1:length(col_flags)) {
+        flagtext <- col_flags[[row_num]]
+        if (is.na(flagtext)) next
+
+        comment <- createComment(author="System",
+                                 comment=flagtext,
+                                 visible=FALSE,
+                                 style=flagStyle,
+                                 height=4,
+                                 width=3)
+
+        writeComment(excelwb,
+                     sheet=1,
+                     col = col_num,
+                     row = START_ROW+row_num,
+                     comment = comment)
+      }
+    }
+  }
   
+  # x <- createComment(author="System",
+  #                    comment=c("comment 1","comment 2"),
+  #                    visible=F,
+  #                    style=c(flagStyle,flagStyle),
+  #                    height=4,
+  #                    width=3)
+  # writeComment(excelwb,
+  #              sheet=1,
+  #              col=1,
+  #              row=c(1,2),
+  #              comment=x)
   # print("Applying styles")
   # t1 <- Sys.time()
   # 

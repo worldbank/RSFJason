@@ -27,20 +27,33 @@ GLOBAL_CURRENCIES <- reactive({
 
 USER_PROGRAMS <- eventReactive(c(LOGGEDIN(),
                                  LOAD_PROGRAM_ID()), {
-  print(paste0("user programs loggedin/",LOGGEDIN()))
+                                   
   if (LOGGEDIN()==FALSE) return (NULL)
   
   if(SYS_PRINT_TIMING) debugtime("reactive: USER_PROGRAMS",reset=TRUE)
   programs <- DBPOOL %>% dbGetQuery("
                                     select 
+                                    nids.rsf_pfcbl_id,
                                     nids.rsf_program_id,
-                                    nids.rsf_name as program_name
+                                    nids.rsf_name as program_name,
+                                    array_to_string(array_agg(fpg.permission_name),',') as permissions
                                     from p_rsf.view_current_entity_names_and_ids nids
+                                    inner join users.view_rsf_pfcbl_id_family_permissions_granted fpg on fpg.rsf_pfcbl_id = nids.rsf_pfcbl_id
                                     where nids.pfcbl_category in ('program','global')
+                                      and fpg.account_id = $1::text
+                                    group by
+                                    nids.rsf_pfcbl_id,
+                                    nids.rsf_program_id,
+                                    nids.rsf_name
+                                    having 'LIST' = any(array_agg(fpg.permission_name))
                                     order by
-                                    nids.rsf_program_id = 0,program_name")
+                                    nids.rsf_program_id = 0,
+                                    nids.rsf_name",
+                                    params=list(USER_ID()))
   
-  if (empty(programs)) programs <- data.frame(rsf_program_id=NA,program_name='Error: No defined Programs')
+  if (empty(programs)) programs <- data.frame(rsf_program_id=NA,program_name='Error: No defined Programs (or no permissions granted to any programs)')
+  setDT(programs)
+  programs[,permissions:=mapply(strsplit,x=permissions,split=",",fixed=T)]
   programs
 })
 
@@ -120,18 +133,37 @@ SELECTED_PROGRAM_FACILITIES_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
       nids.nickname,
       nids.name,
       nids.id,
-      ids.created_in_reporting_asof_date
+      ids.created_in_reporting_asof_date,
+      array_to_string(array_agg(fpg.permission_name),',') as permissions
     from 
     p_rsf.rsf_pfcbl_ids ids
     inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
+    inner join users.view_rsf_pfcbl_id_family_permissions_granted fpg on fpg.rsf_pfcbl_id = nids.rsf_pfcbl_id
     where ids.rsf_program_id = $1::int
       and ids.pfcbl_category = 'facility'
+      and fpg.account_id = $2::text
+    group by
+      ids.rsf_program_id,
+      ids.rsf_facility_id,
+      ids.rsf_pfcbl_id,
+      ids.pfcbl_category,
+      coalesce(nids.nickname,nids.name,'RSF' || ids.rsf_facility_id),
+      nids.rsf_name,
+      nids.nickname,
+      nids.name,
+      nids.id,
+      ids.created_in_reporting_asof_date
+    having 'LIST' = any(array_agg(fpg.permission_name))
     order by facility_nickname",
-  params=list(selected_program_id))
-  setDT(facilities)
+  params=list(selected_program_id,
+              USER_ID()))
   
+  setDT(facilities)
+  facilities[,permissions:=mapply(strsplit,x=permissions,split=",",fixed=T)]
+  
+
   return (facilities)
-})
+}, ignoreNULL=FALSE)
 
 SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST <- eventReactive(c(SELECTED_PROGRAM_FACILITIES_LIST(),
                                                                 SELECTED_PROGRAM()), {
@@ -150,7 +182,7 @@ SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST <- eventReactive(c(SELECTED_PROGRAM
                                rsf_facility_id,
                                nickname=facility_nickname)]))
   return (pf)
-})
+}, ignoreNULL = FALSE)
 
 SELECTED_PROGRAM_CLIENTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
                                                  LOAD_RSF_PFCBL_IDS()), { 
@@ -180,8 +212,13 @@ SELECTED_PROGRAM_CLIENTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
     where ids.pfcbl_category_rank <= 3
       and ids.pfcbl_category <> 'program'
       and ids.rsf_program_id = $1::int
+      and exists(select * from users.view_rsf_pfcbl_id_family_permissions_granted fpg 
+                 where fpg.rsf_pfcbl_id = ids.rsf_pfcbl_id
+                   and fpg.account_id = $2::text
+                   and fpg.permission_name = 'LIST')
     order by ids.rsf_program_id,ids.rsf_facility_id,ids.rsf_client_id nulls last",
-    params=list(selected_program_id))
+    params=list(selected_program_id,
+                USER_ID()))
   
   setDT(clients)
   

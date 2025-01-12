@@ -57,7 +57,9 @@ SERVER_DASHBOARD_RUN_OPTIONS_INIT <- list(rsf_pfcbl_ids=numeric(0),
                                           fx_force_global=TRUE,
                                           fx_concatenate_LCU=TRUE, #when different currency units in same col, merge number+unit
                                           fx_reported_date=FALSE,
-                                          fx_audit=FALSE)
+                                          fx_audit=FALSE,
+                                          
+                                          download_flags=TRUE)
 
 SERVER_DASHBOARD_RUN_OPTIONS <- reactiveValues()
 
@@ -1029,7 +1031,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
 
 #Applies filters: subsets
 SERVER_DASHBOARD_DATA_DISPLAY_UPDATE <- eventReactive(c(SERVER_DASHBOARD_CURRENT_QUERY(),
-                                                        input$server_dashboard__name_filter,
+                                                        SERVER_DASHBOARD_RUN_OPTIONS$name_filter,
                                                         SERVER_DASHBOARD_RUN_OPTIONS$format_pivot,
                                                         SERVER_DASHBOARD_RUN_OPTIONS$format_filter,
                                                         SERVER_DASHBOARD_RUN_OPTIONS$flags_filter,
@@ -1037,7 +1039,7 @@ SERVER_DASHBOARD_DATA_DISPLAY_UPDATE <- eventReactive(c(SERVER_DASHBOARD_CURRENT
                                                         SERVER_DASHBOARD_RUN_OPTIONS$format_pivot_category), {
 
   return (list(current_query=SERVER_DASHBOARD_CURRENT_QUERY(),
-               name_filter=input$server_dashboard__name_filter,
+               name_filter=SERVER_DASHBOARD_RUN_OPTIONS$name_filter,
                format_pivot=SERVER_DASHBOARD_RUN_OPTIONS$format_pivot,
                format_filter=SERVER_DASHBOARD_RUN_OPTIONS$format_filter,
                flags_filter=SERVER_DASHBOARD_RUN_OPTIONS$flags_filter,
@@ -1100,6 +1102,7 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
  format_pivot_category <- dfilters$format_pivot_category
  
  eufilter <- toupper(dfilters$format_filter)
+ 
  ##name filter
  {
    nfilter <- as.numeric(dfilters$name_filter)
@@ -1756,6 +1759,17 @@ observeEvent(input$server_dashboard__reporting_filter, {
   }
 })
 
+observeEvent(input$server_dashboard__name_filter, {
+  
+  if (setequal(input$server_dashboard__name_filter,SERVER_DASHBOARD_RUN_OPTIONS$name_filter)) return (NULL)
+  
+  if (!isTruthy(as.numeric(unique(input$server_dashboard__name_filter)))) {
+    SERVER_DASHBOARD_RUN_OPTIONS$name_filter <- c()
+  } else {
+    SERVER_DASHBOARD_RUN_OPTIONS$name_filter <- as.numeric(unique(input$server_dashboard__name_filter))
+  }
+})
+
 observeEvent(SERVER_DASHBOARD_SELECTED_INDICATORS(), {
   
   SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1) 
@@ -1974,7 +1988,7 @@ SERVER_DASHBOARD_RENDER_DISPLAY <- function(display_data=SERVER_DASHBOARD_DATA_D
                                             view="html") {
   
   if (empty(SERVER_DASHBOARD_DATA_DISPLAY())) return (NULL)
-  if (!view %in% c("html","text","value","id")) stop("View must be: html, text, value, id")
+  if (!view %in% c("html","text","value","id","checks")) stop("View must be: html, text, value, id")
   dashboard_data <- display_data[PARAMETER==view]
   dashboard_data[,PARAMETER:=NULL]
   return(dashboard_data)
@@ -2278,21 +2292,29 @@ output$action_server_dashboard__download <- downloadHandler(
     export_data <- SERVER_DASHBOARD_RENDER_DISPLAY(view="value",
                                                    display_data=SERVER_DASHBOARD_DATA_DISPLAY())
     if (!isTruthy(export_data)) return (NULL)
-
+    export_data_flags <- NULL
+    
     #exd <<- export_data
     report_note <- c()
     asof_dates <- SERVER_DASHBOARD_RUN_ASOF_DATES()
     opts <- reactiveValuesToList(SERVER_DASHBOARD_RUN_OPTIONS)
+    
+    if (opts$download_flags %in% TRUE) {
+      export_data_flags <- SERVER_DASHBOARD_RENDER_DISPLAY(view="checks",
+                                                           display_data=SERVER_DASHBOARD_DATA_DISPLAY())
+    }
+    
     opts$rsf_pfcbl_ids <- NULL
     opts$indicator_ids <- NULL
     opts$indicator_names <- NULL
     opts$asof_dates <- asof_dates
     opts$syscols <- NULL
     opts[grepl("format",names(opts))] <- NULL
-     
+    opts$download_flags <- NULL
+    
     report_note <- paste0(sapply(names(opts),function(x) { paste0(x,": ",paste0(as.character(opts[[x]]),collapse=", ")) }),collapse=" & ")
 
-    export_data_flags <- NULL
+    
 
     savedwb <- withProgress(message=paste0("Generating Excel report.  This may take a few moments...."),value=0.3, {
 

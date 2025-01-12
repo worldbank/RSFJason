@@ -25,7 +25,7 @@ LOCATION_SKIN  <- switch(LOCATION,
 accounts_NS <- NS("accounts_server")
 
 ui_htmlHead <- tagList(
-  tags$head(tags$script('Shiny.addCustomMessageHandler("cookies", function(arg) {  Shiny.onInputChange("cookie_report", document.cookie); });')),
+  tags$head(tags$script(paste0('Shiny.addCustomMessageHandler("cookies", function(arg) {  Shiny.setInputValue("',accounts_NS("cookie_report"),'", document.cookie, {priority: "event"}); });'))),
   #tags$link(rel = "stylesheet", type = "text/css", href = "research.css"),
   tags$style(".shiny-notification { position:fixed; top: calc(50%); left: calc(25%); width:800px; }
             
@@ -215,7 +215,7 @@ ui_htmlHead <- tagList(
               .icon-client { color: #990000; }
               .icon-facility { color: #660066; }
               .icon-program { color: #000066; }
-              
+              .icon-global { color: #00ffea; }
 
             
               .indicator_bubble.indicator { background-color: #cc0000; }
@@ -427,7 +427,8 @@ ui_header_IN <- dashboardHeader(title=div(ifelse(grepl("DEV",LOCATION)==TRUE,"DE
                                          div(style="margin-right:5px;color:white;font-size:22px;font-weight:bold;vertical-align:middle;padding-top:8px;display:inline-block",
                                              div(style="padding-right:10px;display:inline-block",textOutput(outputId=accounts_NS("login_who"))),
                                              div(style="padding-right:5px;display:inline-block",
-                                                 actionButton(inputId=accounts_NS("login_logout_action"),label="Exit",icon=icon("sign-out-alt"),class="btn btn-primary")))))
+                                                 actionButton(inputId=accounts_NS("login_logout_action"),
+                                                              label="Exit",icon=icon("sign-out-alt"),class="btn btn-primary")))))
 
 ui_sidebar_OUT <- dashboardSidebar(
   width = sidebar_width,
@@ -448,65 +449,72 @@ ui_sidebar_IN <- dashboardSidebar(
     #          href="https://qlik.worldbank.org/hub/stream/aaec8d41-5201-43ab-809f-3063750dfafd",
     #          icon = icon("arrow-up-right-from-square")),
     
-    menuItem("Reporting", tabName = "dashboard", icon = icon("chart-area")),
-    menuItem("Datasets",  tabName = "datasets", icon = icon("table-list")),
-    menuItem("RSF Setup", tabName = "setup", icon = icon("sliders")),
-
-    menuItem("System", tabName = "system", icon = icon("cogs"))
+    
+    div(id="ui_reporting",
+        style="padding-left:25px;width=245px;padding-top:10px;",
+        menuItem("Reporting", tabName = "dashboard", icon = icon("chart-area"))),
+    
+    div(id="ui_datasets",
+        style="padding-left:25px;width=245px;padding-top:10px;",
+        menuItem("Datasets",  tabName = "datasets", icon = icon("table-list"))),
+        
+    div(id="ui_setup",
+        style="padding-left:25px;width=245px;padding-top:10px;",
+        menuItem("RSF Setup", tabName = "setup", icon = icon("sliders"))),
+    
+    div(id="ui_system",
+        style="padding-left:25px;width=245px;padding-top:10px;",
+        menuItem("System", tabName = "system", icon = icon("cogs"))),
+    
+    hidden(
+    div(id="ui_users",
+        style="padding-left:25px;width=245px;padding-top:10px;",
+        menuItem("Admin", tabName = "users", icon = icon("user"))))
+    
+    # HTML('<li id="users_ui" style="vasibility:hidden">
+    #       <a href="#shiny-tab-users" data-toggle="tab" data-value="users">
+    #         <i class="far fa-user" role="presentation" aria-label="user icon"></i>
+    #         <span>Admin</span>
+    #         </a>
+    #       </li>')
   ))
 
 
 
 
-# ui_body_OUT <- dashboardBody(id="dashboardBody",
-#                              div(style="width:300px;margin:auto;text-align:left;margin-top:10%;",
-#                                  #div(style="width:300px;text-align:left;margin-top:10%;",
-#                                  wellPanel(id="location-login_panel",
-#                                            textInput(inputId=accounts_NS("login_username"),label="Username"),
-#                                            passwordInput(inputId=accounts_NS("login_password"),label="Password"),
-#                                            hidden(div(id=accounts_NS("login_change_reset"),style="color:black;padding-top:5px;",
-#                                                       p("Your password has been reset"),
-#                                                       "Check your email for a temporary password")),
-#                                            div(id=accounts_NS("login_button"),
-#                                                div(style="width:100%;display:inline-block",
-#                                                    div(actionButton(inputId=accounts_NS("login_action"),label="Login",icon=icon("sign-in-alt"),class="btn btn-success")),
-#                                                    div(align="right",checkboxInput(inputId=accounts_NS("login_rememberme"),label="Remember Sign-in",value=TRUE)))),
-#                                            hidden(div(id=accounts_NS("login_failed"),style="color:red;","Login Attempt ",textOutput(outputId=accounts_NS("login_attempts"),inline=TRUE)," Failed.")),
-#                                            hidden(div(id=accounts_NS("login_change_password"),style="padding-top:10px;border-top:double black 4px;",
-#                                                       passwordInput(inputId=accounts_NS("login_new_password1"),label="New Password"),
-#                                                       passwordInput(inputId=accounts_NS("login_new_password2"),label="Verify Password"),
-#                                                       actionButton(inputId=accounts_NS("login_change_action"),label="Login",icon=icon("sign-in-alt"),class="btn btn-success"),
-#                                                       hidden(div(id=accounts_NS("login_change_failed"),style="color:red;padding-top:5px;",
-#                                                                  textOutput(outputId=accounts_NS("login_change_failed_message"),inline=TRUE))))))))
-
 ui_body_OUT <- dashboardBody(id="dashboardBody",
   div(style="width:400px;margin:auto;text-align:left;margin-top:10%;",
       wellPanel(id="location-login_panel",
-                textInput(inputId=accounts_NS("login_username"),label="Username"),
+                div(id=accounts_NS("login_rememberme_ui"),
+                                   style="width:100%;height:25px;display:flex;flex-direction:row;flex-wrap:nowrap;position:relative;top:15px;",
+                    div(style="display:flex;flex-grow:1;justify-content:flex-end;padding-top:10px",tags$label("Remember Sign-in")),
+                    div(style="display:flex;flex-shrink:1;padding-left:5px;",checkboxInput(inputId=accounts_NS("login_rememberme"),
+                                  label=NULL,
+                                  value=TRUE))),
+      
+                textInput(inputId=accounts_NS("user_login"),label="Username"),
                 passwordInput(inputId=accounts_NS("login_password"),label="Password"),
                 hidden(div(id=accounts_NS("login_change_reset"),style="color:black;padding-top:5px;",
                            p("Your password has been reset"),
                            "Check your email for a temporary password")),
-                div(id=accounts_NS("login_button"),
-                    div(style="width:100%;display:inline-block",
-                        div(column(6, actionButton(inputId=accounts_NS("login_action"),
-                                                   label="Login",icon=icon("sign-in-alt"),class="btn btn-success"),
-                                   checkboxInput(inputId=accounts_NS("login_rememberme"),
-                                                 label="Remember Sign-in",value=TRUE), align = "left"),
-                            column(6, actionButton(inputId=accounts_NS("forgot_password"),
-                                                   label="Forgot password",icon=icon("fas fa-question"), class="btn btn-success"), align = "right")
-                        ))),
+                       div(id=accounts_NS("login_button"),
+                           div(style="width:100%;display:inline-block;padding-top:10px;",
+                               div(column(6, actionButton(inputId=accounts_NS("login_action"),
+                                                           label="Login",icon=icon("sign-in-alt"),class="btn btn-success")),
+                                   column(6, actionButton(inputId=accounts_NS("forgot_password"),
+                                                           label="Forgot password",icon=icon("fas fa-question"), class="btn btn-success"), align = "right")
+                                ))),
                 
-                hidden(div(id="login_failed1",style="color:red;","Login Attempt ",
+                hidden(div(id=accounts_NS("login_failed1"),style="color:red;","Login Attempt ",
                            textOutput(outputId=accounts_NS("login_attempts"),
                                       inline=TRUE)," Failed.")),
-                hidden(div(id="login_failed2",style="color:red;","Wrong login")),
-                hidden(div(id="login_failed3",style="color:red;","You have no permission")),
-                hidden(div(id="login_failed4",style="color:red;","Your password was reseted. Check your email")),
-                hidden(div(id="reset_password",style="color:black;","Get Temporary Password ", 
+                hidden(div(id=accounts_NS("login_failed2"),style="color:red;","Wrong login")),
+                hidden(div(id=accounts_NS("login_failed3"),style="color:red;","You have no permission")),
+                hidden(div(id=accounts_NS("login_failed4"),style="color:red;","Your password was reseted. Check your email")),
+                hidden(div(id=accounts_NS("reset_password"),style="color:black;","Get Temporary Password ", 
                            actionButton(inputId=accounts_NS("reset_password_button"),
                                         label="Send email",icon=icon("envelope"),class="btn btn-success"))),
-                hidden(div(id="login_change_password",style="padding-top:10px;border-top:double black 4px;",
+                hidden(div(id=accounts_NS("login_change_password"),style="padding-top:10px;border-top:double black 4px;",
                            passwordInput(inputId=accounts_NS("login_new_password1"),
                                          label="New Password"),
                            passwordInput(inputId=accounts_NS("login_new_password2"),
@@ -523,12 +531,12 @@ ui_body_IN <- dashboardBody(id="dashboardBody",
                                  tabItems(
                                    tabItem(tabName = "dashboard",source("./R/app/ui_dashboard.R",local=TRUE)$value),
                                    tabItem(tabName = "datasets",source("./R/app/ui_datasets.R",local=TRUE)$value),
-                                   # tabItem(tabName = "reports",
-                                   #         h2("Reports tab content")
-                                   # ),
+                                   
                                    tabItem(tabName = "setup",source("./R/app/ui_setup.R",local=TRUE)$value),
-                                   #tabItem(tabName = ""),
-                                   tabItem(tabName = "system",source("./R/app/ui_admin.R",local=TRUE)$value)
+                                   
+                                   tabItem(tabName = "system",source("./R/app/ui_admin.R",local=TRUE)$value),
+                                   
+                                   tabItem(tabName = "users",source("./R/app/ui_users.R",local=TRUE)$value)
                                  )
                                )
                         )

@@ -183,7 +183,6 @@ db_program_get_data  <- function(pool,
       pfcbl_ids <- dbGetQuery(pool,
                               "select
                                 ids.rsf_pfcbl_id,
-                              	ids.rsf_id,
                               	ids.pfcbl_category,
                               	ids.rsf_program_id,
                               	ids.rsf_facility_id,

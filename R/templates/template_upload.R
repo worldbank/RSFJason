@@ -1327,6 +1327,7 @@ template_upload <- function(pool,
         
         #conn <- poolCheckout(pool)
         #dbBegin(conn)
+        #dbRollback(conn)
         poolWithTransaction(pool,function(conn) {
           
           dbExecute(conn,"
@@ -1340,8 +1341,9 @@ template_upload <- function(pool,
           
           dbExecute(conn,"
           update p_rsf.rsf_data_checks rdc
-          set check_status = dca.check_status,
-              check_status_comment = dca.check_status_comment,
+          set evaluation_id = tr.archive_id, -- this reverts to the original evaluation_id that was archived and also prevents database from checking user rights to update
+              check_status = dca.check_status,
+              check_status_comment = coalesce(dca.check_status_comment,'{MISSING COMMENT}'),
               check_status_user_id = dca.check_status_user_id
           from _temp_restore tr
           inner join p_rsf.rsf_data_checks_archive dca on dca.archive_id = tr.archive_id

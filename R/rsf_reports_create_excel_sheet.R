@@ -15,7 +15,8 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
                                            reporting_user,
                                            reporting_time=as.character(format.Date(now(),"%Y%b%d %Hh%M")),
                                            reporting_notes="",
-                                           protect="IFCRSF")
+                                           protect="IFCRSF",
+                                           protect_full=FALSE) #protect just headers or full sheet
 {
 
   START_ROW <- 10 #start row for data table
@@ -65,56 +66,90 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
   header <- matrix(data=NA,7,ncol=sheet_cols)
   
   if (!is.na(report_key)) {
-    header[1,c(1,2)] <- c("Report Key",paste0(toupper(report_key),":",toupper(template_key)))
+    #header[1,c(1,2)] <- c("Report Key",paste0(toupper(report_key),":",toupper(template_key)))
+    header[1,1] <- c(paste0(toupper(report_key),":",toupper(template_key)))
   } else {
-    header[1,c(1,2)] <- c("Template Key",toupper(template_key))
+    #header[1,c(1,2)] <- c("Template Key",toupper(template_key))
+    header[1,1] <- c(toupper(template_key))
   }
+  #header[2,c(1,2)] <- c("Data Integrity Key",data_integrity_key)
+  header[2,1] <- c(data_integrity_key)
   
-  header[2,c(1,2)] <- c("Data Integrity Key",data_integrity_key)
-  header[3,c(1,2)] <- c("Reporting Entity",reporting_entity)
-  header[4,c(1,2)] <- c("Reporting As-Of Date",reporting_asof_date)
+  header[3,c(1,2)] <- c("Entity",reporting_entity)
+  header[4,c(1,2)] <- c("Data As-Of Date",reporting_asof_date)
   header[5,c(1,2)] <- c("Created By",reporting_user)
   header[6,c(1,2)] <- c("Notes",reporting_notes)
-  header[7,c(1,2)] <- c("Export Time",reporting_time)
+  header[7,c(1,2)] <- c("Time",reporting_time)
   
-  header[1,4] <- program_name
+  header[1,3] <- program_name
   
   openxlsx::writeData(excelwb,sheet=sheet,x=header,colNames=FALSE,rowNames=FALSE,startCol=1,startRow=1)
   
-  #if (sheet==1) {
-    createNamedRegion(excelwb,sheet=sheet,rows=1,cols=2,name=paste0(named_region_prefix,"REPORT_KEY"))
-    createNamedRegion(excelwb,sheet=sheet,rows=2,cols=2,name=paste0(named_region_prefix,"DATA_INTEGRITY_KEY"))
-    
-    createNamedRegion(excelwb,sheet=sheet,rows=3,cols=2,name=paste0(named_region_prefix,"REPORTING_ENTITY"))
-    createNamedRegion(excelwb,sheet=sheet,rows=4,cols=2,name=paste0(named_region_prefix,"REPORTING_DATE"))
-  #}
+  # createNamedRegion(excelwb,sheet=sheet,rows=1,cols=2,name=paste0(named_region_prefix,"REPORT_KEY"))
+  # createNamedRegion(excelwb,sheet=sheet,rows=2,cols=2,name=paste0(named_region_prefix,"DATA_INTEGRITY_KEY"))
+  createNamedRegion(excelwb,sheet=sheet,rows=1,cols=1,name=paste0(named_region_prefix,"REPORT_KEY"))
+  createNamedRegion(excelwb,sheet=sheet,rows=2,cols=1,name=paste0(named_region_prefix,"DATA_INTEGRITY_KEY"))
   
-  
-  
+  createNamedRegion(excelwb,sheet=sheet,rows=3,cols=2,name=paste0(named_region_prefix,"REPORTING_ENTITY"))
+  createNamedRegion(excelwb,sheet=sheet,rows=4,cols=2,name=paste0(named_region_prefix,"REPORTING_DATE"))
 
-  tableKeysStyle <- createStyle(fontSize = 11, fontColour = "black", halign = "left", fgFill = "dimgrey")
+  
   tableSysStyle  <- createStyle(fontSize = 11, fontColour = "black", halign = "left", fgFill = "gainsboro", textDecoration = "bold")
   tableProgStyle <- createStyle(fontSize = 16, fontColour = "white", textDecoration="bold", halign = "left", valign="center")
   
 
-  #Light grey keys table
-  addStyle(excelwb,sheet=sheet,tableKeysStyle,rows=1:2,cols=1:sheet_cols,gridExpand = TRUE)
-  
-  #White border under keys table
-  addStyle(excelwb,sheet=sheet,createStyle(border="bottom", borderColour = "white",borderStyle = "thin"),rows=2,cols=1:sheet_cols,stack=TRUE)
+  #Keys and system data
+  {
+    tableKeysStyle <- createStyle(fontSize = 11, fontColour = "dimgrey", halign = "left", fgFill = "dimgrey")
+    addStyle(wb=excelwb,
+             sheet=sheet,
+             tableKeysStyle,
+             rows=1:2,
+             cols=1:sheet_cols,
+             gridExpand = TRUE)
+    
+    setRowHeights(
+      wb=excelwb,
+      sheet=sheet,
+      rows=1:2,
+      heights=27)
+    
+    #White border under keys table
+    addStyle(excelwb,sheet=sheet,createStyle(border="bottom", borderColour = "white",borderStyle = "thin"),rows=2,cols=1:sheet_cols,stack=TRUE)
+    
+    #Big white program title  
+    addStyle(excelwb,
+             sheet=sheet,
+             tableProgStyle,
+             rows=1:2,
+             cols=3:sheet_cols,
+             gridExpand = TRUE,
+             stack=TRUE)
+    
+    mergeCells(wb=excelwb,
+               sheet=sheet,
+               cols=3:sheet_cols,
+               rows=1:2)
+    
+    if (!is.na(program_image)) {
+      openxlsx::insertImage(excelwb,
+                             sheet=sheet,
+                             startRow=1,
+                             startCol=1,
+                             file=program_image,units="px",width=3060/program_image_scaling,height=777/program_image_scaling)
+      
+      #offset image from edge by approx 5px (50,000 is 5 px??)
+      excelwb$drawings[[1]][[1]] <- gsub("\\d+</xdr:colOff>","50000</xdr:colOff>",excelwb$drawings[[1]][[1]])
+      excelwb$drawings[[1]][[1]] <- gsub("\\d+</xdr:rowOff>","50000</xdr:rowOff>",excelwb$drawings[[1]][[1]])
+    }
+  }  
   
   #medium grey report info table
   addStyle(excelwb,sheet=sheet,tableSysStyle,rows=3:7,cols=1:sheet_cols,gridExpand = TRUE)
 
-  #Big white program title  
-  addStyle(excelwb,sheet=sheet,tableProgStyle,rows=1:2,cols=4:sheet_cols,gridExpand = TRUE,stack=TRUE)
+ 
   
-  if (!is.na(program_image)) openxlsx::insertImage(excelwb,
-                                                   sheet=sheet,
-                                                   startRow=4,
-                                                   startCol=4,
-                                                   file=program_image,units="px",width=3060/program_image_scaling,height=777/program_image_scaling)
-
+ 
   
   openxlsx::writeDataTable(excelwb, 
                            sheet=sheet, 
@@ -165,8 +200,16 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
              gridExpand = TRUE)
   }
   
+  #sets the active cell to A9, the top of the datatable
+  excelwb$worksheets[[sheet]]$sheetViews <-  '<sheetViews>  
+  <sheetView tabSelected="1" workbookViewId="0" zoomScale="100">  
+    <selection activeCell="A9" sqref="A9"/>  
+    </sheetView>  
+  </sheetViews>'
+  
   protect <- trimws(protect)
   if (is.null(protect)==FALSE && all(is.na(protect))==FALSE & nchar(protect) >= 3) {
+    
     protectWorksheet(excelwb,
                      sheet=sheet,
                      protect = TRUE,
@@ -181,6 +224,19 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
                      lockInsertingColumns = TRUE,
                      lockDeletingColumns = TRUE,
                      lockDeletingRows=TRUE)
+    
+    if (protect_full==FALSE) {
+
+      n_rows <- max((excelwb$worksheets[[sheet]])$sheet_data$rows)
+      
+      addStyle(wb=excelwb, 
+               sheet=sheet,
+               style = createStyle(locked = FALSE),
+               rows=START_ROW:n_rows, 
+               cols=1:sheet_cols,
+               gridExpand = T)
+      
+    }
   }  
   return(excelwb)
 }

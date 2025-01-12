@@ -56,18 +56,18 @@ template_parse_process_and_upload <- function(pool,
                             status_message=status_message)
       },
       warning = function(w) {
-        status_message(class="error",conditionMessage(w))
+        #status_message(class="error",conditionMessage(w))
         error_message <<- conditionMessage(w)
         NULL;
       },
       error = function(e) {
-        status_message(class="error",conditionMessage(e))
+        #status_message(class="error",conditionMessage(e))
         error_message <<- conditionMessage(e)
         NULL;
       })
       
       if (is.null(template) && continue_on_error==FALSE) {
-        stop(paste0("Failed to process file because: \n",error_message))
+        stop(paste0("Failed to process file because: \n",gsub("^(.*)CONTEXT.*$","\\1",error_message)))
       } else if (is.null(template)) {
         status_message(class="error","Continuing on error")
         next;
@@ -100,12 +100,12 @@ template_parse_process_and_upload <- function(pool,
                        status_message=status_message)
     },
     warning = function(w) {
-      status_message(class="error",conditionMessage(w))
+      #status_message(class="error",conditionMessage(w))
       error_message <<- conditionMessage(w)
       NULL;
     },
     error = function(e) {
-      status_message(class="error",conditionMessage(e))
+      #status_message(class="error",conditionMessage(e))
       error_message <<- conditionMessage(e)
       NULL;
     })
@@ -121,7 +121,7 @@ template_parse_process_and_upload <- function(pool,
                   params=list(current_cohort_id))
       }
       if (continue_on_error==FALSE) {
-        stop(paste0("Failed to process file because: \n",error_message))
+        stop(paste0("Failed to process file because: \n",gsub("^(.*)CONTEXT.*$","\\1",error_message)))
       } else {
         status_message(class="error","Continuing on error")
         next;
@@ -135,12 +135,12 @@ template_parse_process_and_upload <- function(pool,
                       status_message=status_message)
     },
     warning = function(w) {
-      status_message(class="error",conditionMessage(w))
+      #status_message(class="error",conditionMessage(w))
       error_message <<- conditionMessage(w)
       NULL;
     },
     error = function(e) {
-      status_message(class="error",conditionMessage(e))
+      #status_message(class="error",conditionMessage(e))
       error_message <<- conditionMessage(e)
       NULL;
     })
@@ -157,7 +157,7 @@ template_parse_process_and_upload <- function(pool,
       }
 
       if (continue_on_error==FALSE) {
-        stop(paste0("Failed to process file because: \n",error_message))
+        stop(paste0("Failed to process file because: \n",gsub("^(.*)CONTEXT:.*$","\\1",error_message)))
       } else {
         status_message(class="error","Continuing on error")
         next;

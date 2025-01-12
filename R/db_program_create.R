@@ -3,6 +3,7 @@ db_program_create <- function(pool,
                               program_nickname,
                               program_inception_date,
                               program_lcu,
+                              program_id=NA, #optional
                               reporting_user_id,
                               #program_reporting_frequency=c("quarter","month"),
                               program_reporting_frequency="quarter",
@@ -61,7 +62,7 @@ db_program_create <- function(pool,
   #dbBegin(conn)
   #dbRollback(conn)
   
-    reporting_cohort <- poolWithTransaction(pool,function(conn) {
+  reporting_cohort <- poolWithTransaction(pool,function(conn) {
 
       
       
@@ -77,7 +78,8 @@ db_program_create <- function(pool,
                                    params=list(program_reporting_frequency))
 
       rsf_program_id <- new_program$rsf_program_id
-      new_program_rsf_pfcbl_id <- dbGetQuery(conn,"select nextval('p_rsf.rsf_pfcbl_ids_rsf_pfcbl_id_seq'::regclass)::int")
+      new_program_rsf_pfcbl_id <- rsf_program_id #dbGetQuery(conn,"select nextval('p_rsf.rsf_pfcbl_ids_rsf_pfcbl_id_seq'::regclass)::int")
+      #new_program_rsf_pfcbl_id <- dbGetQuery(conn,"select nextval('p_rsf.rsf_pfcbl_ids_rsf_pfcbl_id_seq'::regclass)::int")
       new_program_rsf_pfcbl_id <- as.numeric(unlist(new_program_rsf_pfcbl_id))
 
       
@@ -98,7 +100,7 @@ db_program_create <- function(pool,
                                                                    rsf_client_id,
                                                                    rsf_borrower_id,
                                                                    rsf_loan_id,
-                                                                   rsf_id,
+                                                                   rsf_pf_id,
                                                                    pfcbl_category,
                                                                    pfcbl_category_rank,
                                                                    created_by_reporting_cohort_id,
@@ -110,7 +112,7 @@ db_program_create <- function(pool,
                                      NULL::int as rsf_client_id,
                                      NULL::int as rsf_borrower_id,
                                      NULL::int as rsf_loan_id,
-                                     $4::int as rsf_id, --pfcbl_category = 'program' assures this is true
+                                     $4::int as rsf_pf_id, --pfcbl_category = 'program' assures this is true
                                      rpc.pfcbl_category,
                                      rpc.pfcbl_rank,
                                      $2::int as created_by_reporting_cohort_id,
@@ -210,34 +212,7 @@ db_program_create <- function(pool,
       
       reporting_cohort
     })
-    
-    
-    # dbExecute(pool,"
-    #   insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
-    # 																										indicator_id,
-    # 																										formula_id,
-    # 																										rsf_program_id,
-    # 																										rsf_facility_id,
-    # 																										is_subscribed,
-    # 																										is_auto_subscribed)
-    # 	select
-    # 		$1::int as rsf_pfcbl_id,
-    # 		ind.indicator_id,
-    # 		indf.formula_id,
-    # 		$2::int as rsf_program_id,
-    # 		NULL as rsf_facility_id, -- only program level auto subscribes
-    # 		true as is_subscribed,
-    # 		true as is_auto_subscribed
-    # 	from p_rsf.indicators ind
-    #   left join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
-    #                                          and indf.is_primary_default is true
-    #   where ind.default_subscription is true
-    #     and ind.data_category <> 'global'
-    #   on conflict(rsf_pfcbl_id,indicator_id)
-    # 	do nothing;",
-    #   params=list(reporting_cohort$reporting_rsf_pfcbl_id,
-    #               reporting_cohort$rsf_program_id))
-      
+
   if (empty(reporting_cohort)) stop("Failed to create new program")
   
   nodefault_setup_indicators <- c('name',
@@ -251,7 +226,8 @@ db_program_create <- function(pool,
                                             ind.data_unit,
                                             ind.data_type,
                                             ind.default_value,
-                                            ind.indicator_sys_category
+                                            ind.indicator_sys_category,
+                                            ind.is_setup
                                           from p_rsf.indicators ind
                                           where ind.data_category = 'program' and ind.is_setup IS NOT NULL")
   setDT(program_create_indicators)
@@ -270,13 +246,20 @@ db_program_create <- function(pool,
   
   program_create_indicators[,data_value:=as.character(NA)]
   program_create_indicators[indicator_sys_category=="name",data_value:=program_name]
+  
+  if (length(program_id)==1 &&
+      !is.na(program_id) && 
+      !is.na(suppressWarnings(as.numeric(program_id)))) {
+    program_create_indicators[indicator_sys_category=="id",data_value:=program_id]
+  }
+  
   program_create_indicators[indicator_sys_category=="nickname",data_value:=program_nickname]
   program_create_indicators[indicator_sys_category=="entity_creation_date",data_value:=as.character(program_inception_date)]
   program_create_indicators[indicator_sys_category=="entity_local_currency_unit",data_value:=as.character(program_lcu)]
   program_create_indicators[indicator_sys_category=="SYSID",data_value:=as.character(rsf_pfcbl_id)]
   program_create_indicators[!(indicator_sys_category %in% nodefault_setup_indicators),data_value:=default_value]
 
-  if (any(is.na(program_create_indicators$data_value))) {
+  if (any(is.na(program_create_indicators[is_setup=="required",data_value]))) {
     stop(paste0("Failed to create program due to {MISSING} values for required setup indicators: ",
                 paste0(program_create_indicators[is.na(data_value),indicator_name],collapse=" & ")))
   }
@@ -307,7 +290,8 @@ db_program_create <- function(pool,
                           is_redundancy_reporting=FALSE)
   
   program <- data.table(rsf_program_id=reporting_cohort$rsf_program_id,
-                        rsf_pfcbl_id=reporting_cohort$reporting_rsf_pfcbl_id)
+                        rsf_pfcbl_id=reporting_cohort$reporting_rsf_pfcbl_id,
+                        linked_reporting_cohort_id=reporting_cohort$reporting_cohort_id)
   
   return (program)
 }

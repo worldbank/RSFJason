@@ -1,11 +1,12 @@
-db_user_login_change_password <- function(pool,application_hashid,request_by_account_id,username,old_password,new_password) {
+db_user_login_change_password <- function(pool,
+                                          application_hashid,
+                                          request_by_account_id,
+                                          username,
+                                          old_password,
+                                          new_password) {
+  
   print(paste0("db_user_login_change_password application_hashid=",application_hashid," username=",username," old_password=",old_password," new_password=",new_password))
-  
-  application_hashid <- if.nanu(application_hashid,NA)
-  username <- if.nanu(username,NA)
-  old_password <- if.nanu(old_password,NA)
-  new_password <- if.nanu(new_password,NA)
-  
+
   user_account_id <- dbGetQuery(pool,
                                 "select * 
                                 from arlapplications.accounts_change_password(NULLIF($1::text,'NA'),

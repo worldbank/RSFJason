@@ -5,6 +5,8 @@ SERVER_DASHBOARD_EXPORTS_TEMPLATES_REFRESH <- reactiveVal(0)
 SERVER_DASHBOARD_EXPORTS_TEMPLATES <- eventReactive(c(SERVER_DASHBOARD_REPORTS_LIST(),
                                                       SERVER_DASHBOARD_EXPORTS_TEMPLATES_REFRESH()), {
   
+  if (!LOGGEDIN()) return (NULL)
+                                                        
   reports <- SERVER_DASHBOARD_REPORTS_LIST()
   report_ids <- paste0(reports$report_id,collapse=",")
   if (empty(reports)) report_ids <- NA

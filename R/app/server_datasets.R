@@ -66,7 +66,11 @@ COHORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
                                       rci.data_count_reported,
                                       rci.data_count_calculated,
                                       rci.data_current_count_reported,
-                                      rci.data_current_count_calculated
+                                      rci.data_current_count_calculated,
+                                      rci.reporting_cohort_id is not null 
+                                          and rc.parent_reporting_cohort_id is NULL
+                                          and rc.linked_reporting_cohort_id is NULL 
+                                      as is_deletable
 
                                     from p_rsf.reporting_cohorts rc
                                     inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
@@ -215,7 +219,7 @@ COHORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
   cohorts[,flags:=paste0(flags,"</div>")]
   
   #https://stackoverflow.com/questions/51145207/r-shiny-datatable-how-to-prevent-row-selection-deselection-in-columns-containing    
-  cohorts[,delete:=paste0("<input type='checkbox' name='cohort_actions' value=",reporting_cohort_id," onmousedown='event.stopPropagation();' onclick='Shiny.setInputValue(\"action_cohort_selected\",",reporting_cohort_id,",{priority:\"event\"})' />")] 
+  cohorts[,delete:=paste0("<input type='checkbox' ",ifelse(is_deletable==FALSE,"disabled='disabled'","")," name='cohort_actions' value=",reporting_cohort_id," onmousedown='event.stopPropagation();' onclick='Shiny.setInputValue(\"action_cohort_selected\",",reporting_cohort_id,",{priority:\"event\"})' />")] 
   cohorts[,
           actions:=paste0("<div style='display:inline-block;'>
 <div onmousedown='event.stopPropagation();'  style='display:inline-block;'>
@@ -526,13 +530,15 @@ SELECTED_COHORT_INDICATOR_FLAGS_FILTERS <- eventReactive(c(SELECTED_COHORT_FLAGS
   if (length(view_data_classes)>0) {
     cohort_indicator_flags <- cohort_indicator_flags[check_class %in% view_data_classes]
   }
-  
+
   rsf_check_types <- RSF_CHECK_TYPES()
   view_flag_types <- tolower(input$cohort_view_flag_types)
-  view_flag_types <- intersect(c(rsf_check_types$type_class),view_flag_types)
+  
+  view_flag_types <- intersect(c(rsf_check_types$type_class,unique(cohort_indicator_flags$data_category)),view_flag_types)
   
   if (length(view_flag_types) >0) {
-    cohort_indicator_flags <- cohort_indicator_flags[check_type %in% rsf_check_types[type_class %in% view_flag_types,check_type]]
+    cohort_indicator_flags <- cohort_indicator_flags[check_type %in% rsf_check_types[type_class %in% view_flag_types,check_type] |
+                                                     data_category %in% view_flag_types]
   }
   
   if (empty(cohort_indicator_flags)) { 
@@ -901,13 +907,22 @@ observeEvent(SELECTED_COHORT_FLAGS(), {
       cohort_types <- rsf_check_types[check_type %in% unique(flags_data$check_type),unique(type_class)]
       cohort_types <- tolower(cohort_types)
       
+      data_types <- unique(flags_data$data_category)
+
       type.choices <- c(`Any Flag Types`="")
       if ("contract" %in% cohort_types) type.choices <- c(type.choices,setNames("contract","Contract Compliance <i class='fa-solid fa-square' style='color:limegreen'></i>"))
       if ("business" %in% cohort_types) type.choices <- c(type.choices,setNames("business","Business Rules <i class='fa-solid fa-square' style='color:skyblue'></i>"))
       if ("data" %in% cohort_types) type.choices <- c(type.choices,setNames("data","Data Validity <i class='fa-solid fa-square' style='color:violet'></i>"))
       if ("none" %in% cohort_types) type.choices <- c(type.choices,setNames("none","Unclassified <i class='fa-solid fa-square' style='color:pink'></i>"))
       
-      types.selected <- ""
+      if ("loan" %in% data_types) type.choices <- c(type.choices,setNames("loan","<i class='fa-solid fa-circle icon-loan'></i> Loan"))
+      if ("borrower" %in% data_types) type.choices <- c(type.choices,setNames("borrower","<i class='fa-solid fa-circle icon-borrower'></i> Borrower"))
+      if ("client" %in% data_types) type.choices <- c(type.choices,setNames("client","<i class='fa-solid fa-circle icon-client'></i> Client"))
+      if ("facility" %in% data_types) type.choices <- c(type.choices,setNames("facility","<i class='fa-solid fa-circle icon-facility'></i> Facility"))
+      if ("program" %in% data_types) type.choices <- c(type.choices,setNames("program","<i class='fa-solid fa-circle icon-program'></i> Program"))
+      if ("global" %in% data_types) type.choices <- c(type.choices,setNames("global","<i class='fa-solid fa-circle icon-global'></i> Global"))
+      
+      types.selected <- "" #By default none selected.
       #if (isTruthy(input$cohort_view_flag_types)) types.selected <- input$cohort_view_flag_types
       
       updateSelectizeInput(session = session,
@@ -974,10 +989,17 @@ observeEvent(input$action_cohort_delete, {
                  
                  incProgress(amount=0.20,message="Deleting datasets . . . ")
                  
-                 DBPOOL %>% dbExecute("delete
-                                       from p_rsf.reporting_cohorts rc
-                                       where rc.reporting_cohort_id = any(select unnest(string_to_array($1::text,','))::int)",
-                                       params=list(paste0(delete_cohort_ids,collapse=",")))
+                 # DBPOOL %>% dbExecute("delete
+                 #                       from p_rsf.reporting_cohorts rc
+                 #                       where rc.reporting_cohort_id = any(select unnest(string_to_array($1::text,','))::int)",
+                 #                       params=list(paste0(delete_cohort_ids,collapse=",")))
+
+                 DBPOOL %>% dbExecute("insert into p_rsf.deleted_reporting_cohorts(reporting_cohort_id,deleting_user_id)
+                                       select
+                                         unnest(string_to_array($1::text,','))::int,
+                                         $2::text",
+                                      params=list(paste0(delete_cohort_ids,collapse=","),
+                                                  USER_ID()))
                  
                  #If program doesnt exist after delete then it means we've deleted the entire program
                  exists <- DBPOOL %>% dbGetQuery("select exists(select * from p_rsf.rsf_programs 
@@ -1056,6 +1078,7 @@ observeEvent(input$action_cohort_selected, {
   
 },ignoreNULL = FALSE,ignoreInit = TRUE)
 
+#OBSOLETE: intended to display in dashboard precisely what was uploaded.  Not used/useful
 #Button to View Dashboard from Upload Review panel
 SERVER_DATASETS_COHORT_DASHBOARD <- function(selected_cohort_id=SELECTED_COHORT_ID(),
                                              flags_filter="",
@@ -1162,10 +1185,58 @@ SERVER_DATASETS_COHORT_DASHBOARD <- function(selected_cohort_id=SELECTED_COHORT_
   
 }
 
+#Dashboard button in Review Datasets panel
 observeEvent(input$cohort_action_dashboard, {
  
+  # SERVER_DATASETS_COHORT_DASHBOARD(flags_filter = input$action_indicator_flags_review)
+  
+  cohort_info <- SELECTED_COHORT_INFO()
+  
+  if (empty(cohort_info)) return(NULL)
+  
+  
+  filtered_flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()
+ 
+  for_indicator_names <- unique(filtered_flags$indicator_name)
+  for_indicator_names <- c(for_indicator_names,":include:IDs")
+  
+  
+  dashboard_parameters <- SERVER_DASHBOARD_RUN_OPTIONS_INIT
+  #dashboard_parameters$flags_filter <- "any"
+  #dashboard_parameters$flags_display <- "active"
+  dashboard_parameters$format_unchanged <- "black"
+  
+  dashboard_parameters$name_filter <- unique(SELECTED_COHORT_FLAGS()[evaluation_id %in% unlist(filtered_flags$evaluation_ids),rsf_pfcbl_id])
+  dashboard_parameters$format_pivot <- "DATA"
+  
+  if (length(dashboard_parameters$name_filter) <= length(for_indicator_names)) {
+    dashboard_parameters$format_pivot <- "NAME"
+  }
+  
+  for_client_sys_names <- SELECTED_PROGRAM_CLIENTS_LIST()[rsf_program_id %in% cohort_info$rsf_program_id &
+                                                            rsf_facility_id %in% cohort_info$rsf_facility_id,
+                                                          rsf_pfcbl_id]
+  
+  
+  ad_hoc_title <- paste0(toupper(cohort_info$pfcbl_category),": ",
+                         cohort_info$entity_name,
+                         " as-of ",
+                         cohort_info$reporting_asof_date,
+                         " Datasets Review #",as.numeric(input$cohort_action_dashboard))
+  
   SERVER_DASHBOARD_REPORT_SELECTED(list())
-  SERVER_DATASETS_COHORT_DASHBOARD(flags_filter = input$action_indicator_flags_review)
+  SERVER_DASHBOARD_REPORT_SELECTED(list(report_id=0,
+                                        report_title=ad_hoc_title,
+                                        for_client_sys_names=for_client_sys_names,
+                                        for_indicator_names=for_indicator_names,
+                                        for_asof_dates=cohort_info$reporting_asof_date,
+                                        report_parameters=list(dashboard_parameters)))
+  
+  # SERVER_DASHBOARD_DO_LOAD(for_client_sys_names=for_client_sys_names,
+  #                          for_indicator_names=for_indicator_names,
+  #                          for_asof_dates=cohort_info$reporting_asof_date,
+  #                          dashboard_parameters=dashboard_parameters)
+  
   
 })
 

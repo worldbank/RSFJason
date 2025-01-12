@@ -57,7 +57,7 @@ library(rlang)
 library(RPostgres)
 library(pool)
 library(yaml)
-#library(sendmailR)
+library(sendmailR)
 
 
 source("./R/openxlsx_get_formulas.R")
@@ -68,6 +68,7 @@ source('./accounts/db_user_login_change_password.R')
 source('./accounts/db_user_login_reset_check.R')
 source('./accounts/db_user_check_email_exists.R')
 source('./accounts/db_user_reset_password.R')
+source('./accounts/db_user_check_permission.R')
 source('./accounts/db_user_login.R')
 source('./accounts/db_user_logout.R')
 
@@ -83,7 +84,6 @@ source("./R/db_data_get_fx_ratio.R")
 source("./R/db_data_get_current.R")
 source("./R/db_data_pivot_family.R")
 
-source("./R/db_cohort_delete.R")
 source("./R/db_cohort_get_data.R")
 
 source("./R/db_cohort_create.R")
@@ -404,10 +404,18 @@ is.same_number <- function(a,b,sig_digits=CALCULATIONS_ENVIRONMENT$SIG_DIGITS) {
   x
 }
 
-user_send_email <- function(pool,from="ARL System <sheitmann@ifc.org>",to,subject,html) {
+user_send_email <- function(pool,
+                            from="\"RSF JASON\"<noreply@positconnect.int.worldbank.org>",
+                            to,
+                            subject,
+                            html) {
   
-  lookup <- db_user_check_email_exists(pool,APPLICATION_ID,to)
-  valid <- ifelse(is.nanu(lookup),FALSE,TRUE)
+  lookup <- db_user_check_email_exists(pool=pool,
+                                       RSF_MANAGEMENT_APPLICATION_ID,
+                                       to)
+  
+  #to <- "sheitmann@ifc.org"
+  valid <- !empty(lookup)
   
   if (!valid) stop(paste0("Invalid email address: ",to))
   
@@ -428,7 +436,11 @@ user_send_email <- function(pool,from="ARL System <sheitmann@ifc.org>",to,subjec
   msg[["headers"]][["Content-Type"]] <- "text/html"
   
   tryCatch({
-    sendmail(from, to, subject, msg=msg)
+    sendmail(from=from,
+             to=to,
+             subject=subject,
+             msg=msg,
+             control=list(smtpServer="lmail.worldbank.org"))
   },
   error=function(e) {
     print(conditionMessage(e))

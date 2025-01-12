@@ -9,7 +9,7 @@ db_create_new_rsf_ids <- function(pool,
   #https://postgres.ai/blog/20220106-explain-analyze-needs-buffers-to-improve-the-postgres-query-optimization-process
   {
     t1 <- Sys.time()  
-    #if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_ids","start")
+    #if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids","start")
     # rc <<- as.data.frame(reporting_cohort)
     # ni <<- as.data.frame(new_ids)
     # 
@@ -32,8 +32,8 @@ db_create_new_rsf_ids <- function(pool,
                   "parent_rsf_pfcbl_id",
                   "creation_asof_date")
     
-    if (!all(new_cols %in% names(new_ids))) stop("new_rsf_ids must define columns: parent_rsf_pfcbl_id, unique_new_entity_row_id")
-    new_rsf_ids <- new_ids[,..new_cols]
+    if (!all(new_cols %in% names(new_ids))) stop("new_rsf_pfcbl_ids must define columns: parent_rsf_pfcbl_id, unique_new_entity_row_id")
+    new_rsf_pfcbl_ids <- new_ids[,..new_cols]
     
     #That the Excel/CSV row order rank will correspond with the rsf_pfcbl_id rank, ie, those with higher row numbers are presumably
     #added to the portfolio later and are newer, and so the database will maintain than rank ordering.
@@ -47,22 +47,22 @@ db_create_new_rsf_ids <- function(pool,
     # group_by_cols <- names(new_ids)[-which(names(new_ids) == "reporting_template_row_group")]
     # 
     # 
-    # new_rsf_ids <- new_ids[,
+    # new_rsf_pfcbl_ids <- new_ids[,
     #                        .(reporting_template_row_groups=paste0(unique(reporting_template_row_group),collapse=",")),
     #                        by=group_by_cols]
     
     
-    #if (!empty(new_rsf_ids[,.(n=.N),by=.(reporting_template_row_groups)][n>1])) stop("unique_new_entity_row_id row_id is not unique across ")
+    #if (!empty(new_rsf_pfcbl_ids[,.(n=.N),by=.(reporting_template_row_groups)][n>1])) stop("unique_new_entity_row_id row_id is not unique across ")
   
-    setorder(new_rsf_ids,
+    setorder(new_rsf_pfcbl_ids,
              creation_asof_date,
              unique_new_entity_row_id) #Important: row_id sort will mean first-to-appear in dataset will receive first next val ID in database and rsf_ids will be chronological, a last-resort for any sorting/disambiguation needs
     
-    # new_rsf_ids <- new_rsf_ids[,.(unique_new_entity_row_id,
+    # new_rsf_pfcbl_ids <- new_rsf_pfcbl_ids[,.(unique_new_entity_row_id,
     #                               parent_rsf_pfcbl_id,
     #                               reporting_template_row_groups)]
   
-    #for_pfcbl_category <- unique(new_rsf_ids[,for_pfcbl_category])
+    #for_pfcbl_category <- unique(new_rsf_pfcbl_ids[,for_pfcbl_category])
     for_pfcbl_category_col <- paste0("rsf_",for_pfcbl_category,"_id")
     parent_pfcbl_category_col <- paste0("rsf_",parent_pfcbl_category,"_id")
     
@@ -87,7 +87,7 @@ db_create_new_rsf_ids <- function(pool,
     
     
     if (any(as.character(new_ids$creation_asof_date) != as.character(reporting_cohort$reporting_asof_date))) {
-      if (anyNA(new_ids$creation_asof_date)) stop("NA creation_asof_date passed to db_create_new_rsf_ids")
+      if (anyNA(new_ids$creation_asof_date)) stop("NA creation_asof_date passed to db_create_new_rsf_pfcbl_ids")
       message(paste0("Call to create new ",for_pfcbl_category," outside of current reporting timeline ",as.character(reporting_cohort$reporting_asof_date)))
     }
     
@@ -97,9 +97,8 @@ db_create_new_rsf_ids <- function(pool,
     
   }
   
-  
-
-  #lobstr::obj_size(new_rsf_ids)
+ 
+  #lobstr::obj_size(new_rsf_pfcbl_ids)
   pfcbl_ids <- NULL
   {
     creation_groups <- sort(unique(new_ids$creation_group))
@@ -172,7 +171,7 @@ db_create_new_rsf_ids <- function(pool,
               prc.rsf_program_id,
               prc.reporting_rsf_pfcbl_id as reporting_rsf_pfcbl_id,
               prc.reporting_asof_date as reporting_asof_date,
-              $1::text as reporting_user_id,
+              prc.reporting_user_id,
               TIMEOFDAY()::timestamptz as reporting_time,
               prc.data_asof_date,
               prc.from_reporting_template_id,
@@ -202,35 +201,35 @@ db_create_new_rsf_ids <- function(pool,
       new_pfcbl_ids <- poolWithTransaction(pool,function(conn) {
         
        
-        dbExecute(conn,"create temp table _temp_new_rsf_ids(unique_new_entity_row_id int,
-                                                            parent_rsf_pfcbl_id int,
-                                                            new_rsf_id int,
-                                                            new_rsf_pfcbl_id int)
+        dbExecute(conn,"create temp table _temp_new_rsf_pfcbl_ids(unique_new_entity_row_id int,
+                                                                  parent_rsf_pfcbl_id int,
+                                                                  --new_rsf_id int,
+                                                                  new_rsf_pfcbl_id int)
                         ON COMMIT DROP")
         
         dbAppendTable(conn=conn,
-                      name="_temp_new_rsf_ids",
+                      name="_temp_new_rsf_pfcbl_ids",
                       value=id_group[,.(unique_new_entity_row_id,
                                         parent_rsf_pfcbl_id)])
         
-        #dbExecute(conn,"alter table _temp_new_rsf_ids add primary key(unique_new_entity_row_id)")
-        dbExecute(conn,"analyze _temp_new_rsf_ids")
+        #dbExecute(conn,"alter table _temp_new_rsf_pfcbl_ids add primary key(unique_new_entity_row_id)")
+        dbExecute(conn,"analyze _temp_new_rsf_pfcbl_ids")
         
-        #if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_ids","_temp_new_rsf_ids created",as.numeric(Sys.time()-t1,"secs"))
+        #if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids","_temp_new_rsf_pfcbl_ids created",as.numeric(Sys.time()-t1,"secs"))
     
         #3.0ms
         
         dbExecute(conn,"
-                  update _temp_new_rsf_ids tnri
-                  set new_rsf_id = nextval('p_rsf.rsf_pfcbl_ids_rsf_pfcbl_id_seq'::regclass)::int")
+                  update _temp_new_rsf_pfcbl_ids tnri
+                  set new_rsf_pfcbl_id = nextval('p_rsf.rsf_pfcbl_ids_rsf_pfcbl_id_seq'::regclass)::int")
         
-        #x <- dbGetQuery(conn,"select * from _temp_new_rsf_ids");x
-        #if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_ids","_temp_new_rsf_ids keys and new IDs",as.numeric(Sys.time()-t1,"secs"))
+        #x <- dbGetQuery(conn,"select * from _temp_new_rsf_pfcbl_ids");x
+        #if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids","_temp_new_rsf_pfcbl_ids keys and new IDs",as.numeric(Sys.time()-t1,"secs"))
         #5.2ms
         # x<-dbGetQuery(conn,"select distinct
         # ids.rsf_id as parent_rsf_id,
-        # nri.new_rsf_id
-        # from _temp_new_rsf_ids nri
+        # nri.new_rsf_pfcbl_id
+        # from _temp_new_rsf_pfcbl_ids nri
         # inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = nri.parent_rsf_pfcbl_id")
         # 
         
@@ -239,25 +238,26 @@ db_create_new_rsf_ids <- function(pool,
           dbExecute(conn,
                     glue("insert into p_rsf.{rsf_table_name}({parent_pfcbl_category_col},{for_pfcbl_category_col})
                          select distinct
-                          ids.rsf_id as parent_rsf_id,
-                          nri.new_rsf_id
-                         from _temp_new_rsf_ids nri
+                          ids.rsf_pfcbl_id as parent_rsf_id,
+                          nri.new_rsf_pfcbl_id
+                         from _temp_new_rsf_pfcbl_ids nri
                         inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = nri.parent_rsf_pfcbl_id"))
         }
         
-        dbExecute(conn,"alter table _temp_new_rsf_ids add primary key(new_rsf_id)")
-        #dbExecute(conn,"create unique index _temp_new_rsf_ids_rsf_udx on _temp_new_rsf_ids(new_rsf_id);")
+        dbExecute(conn,"alter table _temp_new_rsf_pfcbl_ids add primary key(new_rsf_pfcbl_id)")
+        #dbExecute(conn,"create unique index _temp_new_rsf_pfcbl_ids_rsf_udx on _temp_new_rsf_pfcbl_ids(new_rsf_pfcbl_id);")
         #25ms
         
         t2 <- Sys.time()
         
         dbExecute(conn,"
-                  insert into p_rsf.rsf_pfcbl_ids(rsf_program_id,
+                  insert into p_rsf.rsf_pfcbl_ids(rsf_pfcbl_id,
+                                                  rsf_program_id,
                                                   rsf_facility_id,
                                                   rsf_client_id,
                                                   rsf_borrower_id,
                                                   rsf_loan_id,
-                                                  rsf_id,
+                                                  rsf_pf_id,
                                                   pfcbl_category,
                                                   pfcbl_category_rank,
                                                   parent_rsf_pfcbl_id,
@@ -265,12 +265,13 @@ db_create_new_rsf_ids <- function(pool,
                                                   created_in_reporting_asof_date)
         
                   select 
+                    ordered_ids.rsf_id as rsf_pfcbl_id,
                     ordered_ids.rsf_program_id,
                     ordered_ids.rsf_facility_id,
                     ordered_ids.rsf_client_id,
                     ordered_ids.rsf_borrower_id,
                     ordered_ids.rsf_loan_id,
-                    ordered_ids.rsf_id,
+                    coalesce(ordered_ids.rsf_facility_id,ordered_ids.rsf_program_id) as rsf_pf_id,
                     ordered_ids.pfcbl_category,
                     ordered_ids.pfcbl_category_rank,
                     ordered_ids.parent_rsf_pfcbl_id,
@@ -280,43 +281,43 @@ db_create_new_rsf_ids <- function(pool,
                   (
                   	 select 
                   		 case when rpc.pfcbl_category = 'program' 
-                  		      then nids.new_rsf_id
+                  		      then nids.new_rsf_pfcbl_id
                   					else pids.rsf_program_id
                   		 end as rsf_program_id,
                   		 
                   		 case when rpc.pfcbl_category = 'facility' 
-                  		      then nids.new_rsf_id
+                  		      then nids.new_rsf_pfcbl_id
                   					else pids.rsf_facility_id
                   		 end as rsf_facility_id,
                   		 
                   		 case when rpc.pfcbl_category = 'client' 
-                  		      then nids.new_rsf_id
+                  		      then nids.new_rsf_pfcbl_id
                   					else pids.rsf_client_id
                   		 end as rsf_client_id,
                   		 
                   		 case when rpc.pfcbl_category = 'borrower' 
-                  		      then nids.new_rsf_id
+                  		      then nids.new_rsf_pfcbl_id
                   					else pids.rsf_borrower_id
                   		 end as rsf_borrower_id,
                   		 
                   		 case when rpc.pfcbl_category = 'loan' 
-                  		      then nids.new_rsf_id
+                  		      then nids.new_rsf_pfcbl_id
                   					else pids.rsf_loan_id
                   		 end as rsf_loan_id,		 
                   		 
-                       nids.new_rsf_id as rsf_id,
+                       nids.new_rsf_pfcbl_id as rsf_id,
                   		 rpc.pfcbl_category,
                   		 rpc.pfcbl_rank as pfcbl_category_rank,
                   		 coalesce(pids.rsf_pfcbl_id,0) as parent_rsf_pfcbl_id,
                   		 $1::int as created_by_reporting_cohort_id,
                   		 $2::date as created_in_reporting_asof_date
                   
-                  	from _temp_new_rsf_ids nids	 
+                  	from _temp_new_rsf_pfcbl_ids nids	 
                   	inner join p_rsf.rsf_pfcbl_categories rpc on rpc.pfcbl_category = $3::text
                   	-- left join is only relevant for new programs, else all other categories will have a parent
                     left join p_rsf.rsf_pfcbl_ids pids on pids.rsf_pfcbl_id = nids.parent_rsf_pfcbl_id
                   	order by 
-                  	nids.new_rsf_id,
+                  	nids.new_rsf_pfcbl_id,
                   	nids.parent_rsf_pfcbl_id
                   	
                   ) as ordered_ids ",
@@ -329,17 +330,17 @@ db_create_new_rsf_ids <- function(pool,
         new_pfcbl_ids <- dbGetQuery(conn,"select distinct
                                                     nri.unique_new_entity_row_id,
                                                     nri.parent_rsf_pfcbl_id,
-                                                    nri.new_rsf_id,
+                                                    nri.new_rsf_pfcbl_id,
                                                     ids.rsf_pfcbl_id as new_rsf_pfcbl_id
-                                                  from _temp_new_rsf_ids nri
-                                                  inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_id = nri.new_rsf_id
+                                                  from _temp_new_rsf_pfcbl_ids nri
+                                                  inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = nri.new_rsf_pfcbl_id
                                                                                     and ids.pfcbl_category = $2::text
                                                   where ids.created_by_reporting_cohort_id = $1::int",
                                     params=list(creation_cohort$reporting_cohort_id,
                                                 for_pfcbl_category))
 
-        if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_ids",nrow(new_pfcbl_ids)," new ",toupper(for_pfcbl_category)," IDs created in database in ",format(Sys.time()-t2))                                
-        #dbExecute(conn,"drop table _temp_new_rsf_ids")
+        if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids",nrow(new_pfcbl_ids)," new ",toupper(for_pfcbl_category)," IDs created in database in ",format(Sys.time()-t2))                                
+        #dbExecute(conn,"drop table _temp_new_rsf_pfcbl_ids")
                   
                   
                   
@@ -358,10 +359,10 @@ db_create_new_rsf_ids <- function(pool,
   }  
 
   
-#  if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_ids","completed database actions in ",format(Sys.time()-t1))
+#  if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids","completed database actions in ",format(Sys.time()-t1))
 
   
-  if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_ids","Done!",as.numeric(Sys.time()-t1,"secs"))
+  if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids","Done!",as.numeric(Sys.time()-t1,"secs"))
   
   return (pfcbl_ids)
 }
