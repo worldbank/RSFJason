@@ -113,8 +113,8 @@ flag_text <- function(check_class,check_name,check_message,check_status,evaluati
 }
 
 normalizeSystemName <- function(x) {
-  x <- gsub("%","pct",x)
-  x <- gsub("[^A-Za-z0-9_]+","_",x)
+  x <- gsub("%","pct",x)  #no % in names -- this could conflict with dataase like 'acme%' sql
+  x <- gsub("[^A-Za-z0-9_]+","_",x) #non letters and numbers and underscores
   x <- gsub("^_+|_+$","",x)
   return (x)
 }
@@ -163,7 +163,8 @@ normalizeSyscategory_name <- function(x) {
   x <- gsub("[[:cntrl:]]+"," ",x,perl=T) #remove line breaks
   x <- gsub("\\s+"," ",x,perl=T)
   x <- trimws(x,whitespace="[ \\t\\r\\n\\v\\h\\s]")
-  x[grepl("^[[:punct:][:blank:]]+$",x,perl=T)] <- NA
+  x[grepl("^[[:punct:][:blank:]]+$",x,perl=T)] <- NA #Names that are only punctuation are invalid, consider as blanks
+  
   x[!is.na(x) & nchar(x)==0] <- NA
   x <- toupper(x)
   return (x)

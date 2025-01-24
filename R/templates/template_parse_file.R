@@ -24,44 +24,44 @@ template_parse_file <- function(pool,
     t1 <- Sys.time()
     rsf_program_id <- suppressWarnings(as.numeric(rsf_program_id))
       
-      status_message(class="none","Parsing template: ",basename(template_file),"\n")
+    status_message(class="none","Parsing template: ",basename(template_file),"\n")
+    
+    
+    template <- db_export_load_report(pool=pool,
+                                      template_file=template_file,
+                                      reporting_user_id=reporting_user_id,
+                                      rsf_data_sheet="RSF_DATA")
+    
+    rsf_indicators <- db_indicators_get_labels(pool=pool)
+    
+    if (any(rsf_indicators$redundancy_error,na.rm=T)) {
+      bad_indicators <- rsf_indicators[redundancy_error==TRUE,
+                                   .(indicator_name,
+                                     labels)]
+      bad_indicators <- bad_indicators[,unlist(labels,recursive=F),
+                                       by=.(indicator_name)][redundancy_error==TRUE]
       
-      
-      template <- db_export_load_report(pool=pool,
-                                        template_file=template_file,
-                                        reporting_user_id=reporting_user_id,
-                                        rsf_data_sheet="RSF_DATA")
-      
-      rsf_indicators <- db_indicators_get_labels(pool=pool)
-      
-      if (any(rsf_indicators$redundancy_error,na.rm=T)) {
-        bad_indicators <- rsf_indicators[redundancy_error==TRUE,
-                                     .(indicator_name,
-                                       labels)]
-        bad_indicators <- bad_indicators[,unlist(labels,recursive=F),
-                                         by=.(indicator_name)][redundancy_error==TRUE]
+      if (nrow(bad_indicators) > 1) {
         
-        if (nrow(bad_indicators) > 1) {
-          
-          
-          setorder(bad_indicators,
-                   label_normalized,
-                   -is_primary)
-          
-          status_message(class="error","Error: Redundant indicator titles have been added for different indicators.  These MUST be corrected in Indicator Admin before new templates can be uploaded\n")
-          
-          ui <- tagList()
-          for (i in 1:nrow(bad_indicators)) {
-            status_message(class="none",
-                           paste(unlist(bad_indicators[i,.(indicator_name,
-                                                           key=paste0(key_type,"=",label_key),
-                                                           paste0("'",label,"'"),
-                                                           primary=ifelse(is_primary," (primary)"," (alias) <- should this one be deleted?"))]),collapse=" "),"\n")
-          }
-          status_message(class="error",
-                         "If a template is using redundant lables (this is bad practice), these may be specified in RSF Setup -> Template Setup, where header instructions may be added to dis-ambiguate these labels\n")
+        
+        setorder(bad_indicators,
+                 label_normalized,
+                 -is_primary)
+        
+        status_message(class="error","Error: Redundant indicator titles have been added for different indicators.  These MUST be corrected in Indicator Admin before new templates can be uploaded\n")
+        
+        ui <- tagList()
+        for (i in 1:nrow(bad_indicators)) {
+          status_message(class="none",
+                         paste(unlist(bad_indicators[i,.(indicator_name,
+                                                         key=paste0(key_type,"=",label_key),
+                                                         paste0("'",label,"'"),
+                                                         primary=ifelse(is_primary," (primary)"," (alias) <- should this one be deleted?"))]),collapse=" "),"\n")
         }
+        status_message(class="error",
+                       "If a template is using redundant lables (this is bad practice), these may be specified in RSF Setup -> Template Setup, where header instructions may be added to dis-ambiguate these labels\n")
       }
+    }
   }  
   
   {

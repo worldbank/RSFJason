@@ -5,7 +5,7 @@ options(stringsAsFactors = FALSE)
 options(scipen=999)
 options(warning.length=8170)
 #options(shiny.maxRequestSize=30*1024^2)
-options(shiny.maxRequestSize=300*1024^2)
+options(shiny.maxRequestSize=500*1024^2) #500MB
 
 #options(warn=2, error=recover)
 options(warn=0, error=NULL)
@@ -146,7 +146,7 @@ source("./R/rsf_reports_create_excel_sheet.R")
 source("./R/rsf_reports_excel_read_rsf_data.R")
 
 source("./R/db_rsf_get_pfcbl_from_sys_ids.R")
-
+source("./R/db_get_rsf_pfcbl_id_by_sys_name.R")
 source("./R/slgp_helpers_trim.R")
 source("./R/rsf_database.R")
 source("./R/rsf_calculations_environment.R")

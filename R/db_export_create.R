@@ -54,39 +54,27 @@ db_export_create <- function(pool,
                                     limit 1
                                   )
                                   select
-                                  nid.rsf_program_id,
-                                  nid.rsf_pfcbl_id as exporting_rsf_pfcbl_id,
-                                  nid.rsf_pfcbl_id,
-                                  nid.pfcbl_category,
-                                  nid.name,
-                                  nid.nickname,
-                                  nid.id,
-                                  nid.rank_id,
-                                  nid.rsf_name,
-                                  nid.rsf_full_name
-                                  from p_rsf.view_current_entity_names_and_ids nid 
-                                  where nid.rsf_pfcbl_id = (select rsf_pfcbl_id from parent)",
+                                    ids.rsf_program_id,
+                                    ids.rsf_pfcbl_id as exporting_rsf_pfcbl_id,
+                                    ids.pfcbl_category
+                                  from p_rsf.rsf_pfcbl_ids ids
+                                  where ids.rsf_pfcbl_id = (select rsf_pfcbl_id from parent)",
                                   params=list(paste0(exporting_pfcbl_ids,collapse=",")))
  
     
     #nothing here.  Probably due to multiple programs being selected in an export.  Otherwise, this shouldn't happen!
     if (empty(exporting_parent)) {
       exporting_parent  <- dbGetQuery(conn,"
-                    select
-                                  nid.rsf_program_id,
-                                  nid.rsf_pfcbl_id as exporting_rsf_pfcbl_id,
-                                  nid.rsf_pfcbl_id,
-                                  nid.pfcbl_category,
-                                  nid.name,
-                                  nid.nickname,
-                                  nid.id,
-                                  nid.rank_id,
-                                  nid.rsf_name,
-                                  nid.rsf_full_name
-                                  from p_rsf.view_current_entity_names_and_ids nid 
-                                  where nid.rsf_pfcbl_id = 0
+        select
+          ids.rsf_program_id,
+          ids.rsf_pfcbl_id as exporting_rsf_pfcbl_id,
+          ids.pfcbl_category
+        from p_rsf.rsf_pfcbl_ids ids
+        where ids.rsf_pfcbl_id
+        where ids.rsf_pfcbl_id = 0
       ")
     }
+    
     exporting_cohort <- dbGetQuery(conn,"insert into p_rsf.exporting_cohorts(rsf_program_id,
                                                                              exporting_user_id,
                                                                              exporting_rsf_pfcbl_id,
@@ -127,19 +115,25 @@ db_export_create <- function(pool,
 
   program_info <- dbGetQuery(pool,
                             "select
-                              rsf_program_id,
-                              coalesce(nickname,rsf_name) as name
-                            from p_rsf.view_current_entity_names_and_ids nids
-                            where pfcbl_category = 'program' and nids.rsf_program_id = $1",
-                            params=list(exporting_cohort$rsf_program_id))
+                              coalesce(nickname,name,pfcbl_name) as name
+                             from p_rsf.rsf_data_current_names_and_ids nai
+                            where nai.rsf_pfcbl_id = $1
+                              and nai.reporting_asof_date <= $2::date
+                            order by nai.reporting_asof_date desc
+                            limit 1",
+                            params=list(exporting_cohort$rsf_program_id,
+                                        exporting_asof_date))
   
   sys_name <- dbGetQuery(pool,
                          "select
-                              sn.rsf_program_id,
-                              sn.sys_name
-                            from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
-                            where sn.rsf_pfcbl_id = $1::int",
-                         params=list(exporting_cohort$exporting_rsf_pfcbl_id))
+                            nai.sys_name
+                          from p_rsf.rsf_data_current_names_and_ids nai
+                          where nai.rsf_pfcbl_id = $1::int
+                            and nai.reporting_asof_date <= $2::date
+                          order by nai.reporting_asof_date desc
+                          limit 1",
+                         params=list(exporting_cohort$exporting_rsf_pfcbl_id,
+                                     exporting_asof_date))
   
   exporting_cohort[,program_name:=program_info$name]
   exporting_cohort[,exporting_entity_name:=sys_name$sys_name]

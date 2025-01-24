@@ -197,12 +197,12 @@ export_rsf_setup_files_to_excel <- function(pool,
   
   exporting <- dbGetQuery(pool,"
     select 
-      sys_name, 
-      coalesce(nids.nickname,nids.name,'RSF ' || nids.pfcbl_category) as name
-    from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
-    inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = sn.rsf_pfcbl_id
-    where sn.rsf_program_id = $1::int
-      and sn.pfcbl_category = 'program'",
+      nai.sys_name, 
+      coalesce(nai.nickname,nai.name,nai.pfcbl_name,'RSF ' || nai.pfcbl_category) as name
+    from p_rsf.rsf_data_current_names_and_ids nai
+    where nai.rsf_pfcbl_id = $1::int
+    order by nai.reporting_asof_date desc
+    limit 1",
     params=list(rsf_program_id))
   
   exporting_entity_name  <- exporting$sys_name

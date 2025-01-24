@@ -40,10 +40,14 @@ export_create_entity_to_excel <- function(pool,
   
   parent_name <- dbGetQuery(pool,"
                             select
-                              sys_name
-                            from p_rsf.view_rsf_pfcbl_id_current_sys_names
-                            where rsf_pfcbl_id = $1::int",
-                            params=list(parent_rsf_pfcbl_id))
+                              nai.sys_name
+                            from p_rsf.rsf_data_current_names_and_ids nai
+                            where nai.rsf_pfcbl_id = $1::int
+                              and nai.reporting_asof_date <= $2::date
+                            order by nai.reporting_asof_date desc
+                            limit 1",
+                            params=list(parent_rsf_pfcbl_id,
+                                        reporting_asof_date))
   parent_name <- unlist(parent_name)
   
   #Some entities pre-date parent creation dates (and that's okay)

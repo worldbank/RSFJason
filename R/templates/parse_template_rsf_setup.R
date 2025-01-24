@@ -167,16 +167,17 @@ parse_template_rsf_setup <- function(pool,
       stop(paste0("Multiple program names not allowed: ",paste0(prog_names,collapse=", ")))
     }
     
-    exists <- dbGetQuery(pool,"
-                         select 
-                           ids.rsf_pfcbl_id,
-                           ids.rsf_program_id
-                         from p_rsf.rsf_pfcbl_ids ids
-                         inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                         where ids.pfcbl_category = 'program'
-                           and sn.sys_name = $1::text",
-                         params=list(prog_names))
     
+    
+    exists <- dbGetQuery(pool,"
+      select
+        ids.rsf_program_id,
+        ids.rsf_pfcbl_id
+      from p_rsf.rsf_pfcbl_ids ids
+      where ids.rsf_pfcbl_id = (select p_rsf.get_rsf_pfcbl_id_by_sys_name($1::text) as rsf_pfcbl_id)
+        and ids.pfcbl_category = 'program'
+    ",params=list(prog_names))
+
     #We expect it to be empty, but possible user has re-uploaded file, so don't re-create
     if (!empty(exists)) {
       
@@ -318,30 +319,32 @@ parse_template_rsf_setup <- function(pool,
                   name="_temp_sysnames",
                   value=lookups[,.(sys_name,
                                    indicator_id,
-                                   data_value)])
+                                   data_value)])  #data_value equals the "id" value and indicator it's category's ID indicator
     
     dbExecute(conn,"analyze _temp_sysnames")
     
     dbGetQuery(conn,"
                select 
-               sn.rsf_pfcbl_id,
-               sn.sys_name
-               from _temp_sysnames tsn 
-               inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.sys_name = tsn.sys_name
+                found.rsf_pfcbl_id,
+                found.sys_name
+               from (
+                 select 
+                   p_rsf.get_rsf_pfcbl_id_by_sys_name(sn.sys_name) as rsf_pfcbl_id,
+                   sn.sys_name
+                 from (select distinct tsn.sys_name from _temp_sysnames tsn) sn
                
-               union 
-               
-               select
-               ids.rsf_pfcbl_id,
-               tsn.sys_name
-               from _temp_sysnames tsn
-               inner join p_rsf.indicators ind on ind.indicator_id = tsn.indicator_id
-               inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_program_id = $1::int
-                                                 and ids.pfcbl_category = ind.data_category
-               inner join p_rsf.rsf_data rdc on rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                            and rdc.indicator_id = ind.indicator_id
-                                            and rdc.data_value = tsn.data_value
-               ",
+                 union 
+                 
+                 select
+                  nai.rsf_pfcbl_id,
+                  tsn.sys_name
+                 from _temp_sysnames tsn
+                 inner join p_rsf.indicators ind on ind.indicator_id = tsn.indicator_id
+                 inner join p_rsf.rsf_data_current_names_and_ids nai on nai.id = tsn.data_value
+                                                                    and nai.pfcbl_category = ind.data_category
+               ) as found
+               inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = found.rsf_pfcbl_id
+               where ids.rsf_program_id = $1::int",
                params=list(template$rsf_program_id))
   })
   setDT(existing_ids)

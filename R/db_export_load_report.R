@@ -155,11 +155,10 @@ db_export_load_report <- function(pool,
 
   #Reporting IDs
   {
-    reporting_rsf_pfcbl_id <- dbGetQuery(pool,"select sn.rsf_pfcbl_id
-                                             from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
-                                             inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = sn.rsf_pfcbl_id
-                                             where sn.sys_name = $1::text",
-                                         params=list(template_reporting_entity))
+    reporting_rsf_pfcbl_id <- dbGetQuery(pool,"
+      select p_rsf.get_rsf_pfcbl_id_by_sys_name($1::text) as rsf_pfcbl_id",
+      params=list(template_reporting_entity))
+    
     reporting_rsf_pfcbl_id <- unlist(reporting_rsf_pfcbl_id)
     if (length(reporting_rsf_pfcbl_id)==0) reporting_rsf_pfcbl_id <- as.numeric(NA)
     
@@ -278,23 +277,43 @@ db_export_load_report <- function(pool,
           }
           rsf_data[,SYSID:=as.integer(NA)]
           
-          sysnameids <- dbGetQuery(pool,"
-                                   select 
-                                    ft.to_family_rsf_pfcbl_id::int,
-                                    sn.sys_name as \"SYSNAME\"
-                                    from p_rsf.view_rsf_pfcbl_id_family_tree ft 
-                                    inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-                                    where ft.from_rsf_pfcbl_id = $1::int
-                                      and sn.sys_name = any(select unnest(string_to_array($2::text,','))::text)
-                                   ",params=list(reporting_rsf_pfcbl_id,
-                                                 paste0(sysnames,collapse=",")))
+          sysnameids <- db_get_rsf_pfcbl_id_by_sys_name(pool=pool,
+                                                        sys_names=sysnames,
+                                                        rsf_pfcbl_id.family_tree=reporting_rsf_pfcbl_id,
+                                                        error.if.missing=FALSE)
+          
+          # sysids <- NULL
+          # sysnameids <- dbGetQuery(pool,"
+          # select 
+          #   sn.sys_name as \"SYSNAME\",
+          #   rsf_pfcbl_id
+          # from
+          # (select unnest(string_to_array($2::text,','))::text as sys_name) as sn
+          # left join lateral p_rsf.get_rsf_pfcbl_id_by_sys_name(sn.sys_name) as rsf_pfcbl_id on true
+          # where rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+          #                          from p_rsf.view_rsf_pfcbl_id_family_tree ft 
+          #                          where ft.from_rsf_pfcbl_id= $1::int)
+          # ",params=list(reporting_rsf_pfcbl_id,
+          #               paste0(sysnames,collapse=",")))
+          
+          # sysnameids <- dbGetQuery(pool,"
+          #                          select 
+          #                           ft.to_family_rsf_pfcbl_id::int,
+          #                           sn.sys_name as \"SYSNAME\"
+          #                           from p_rsf.view_rsf_pfcbl_id_family_tree ft 
+          #                           inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+          #                           where ft.from_rsf_pfcbl_id = $1::int
+          #                             and sn.sys_name = any(select unnest(string_to_array($2::text,','))::text)
+          #                          ",params=list(reporting_rsf_pfcbl_id,
+          #                                        paste0(sysnames,collapse=",")))
           setDT(sysnameids)
           rsf_data[sysnameids,
-                   SYSID:=as.integer(i.to_family_rsf_pfcbl_id),
-                   on=.(SYSNAME)]
+                   SYSID:=as.integer(i.rsf_pfcbl_id),
+                   on=.(SYSNAME=lookup_sys_name)]
           
-          if (anyNA(rsf_data$SYSID)) {
-            badids <- rsf_data[is.na(SYSID),unique(SYSNAME)]
+          #In case they're creating new entities by having blank rows with no entry for SYSNAME and SYSID
+          if (anyNA(rsf_data[!is.na(SYSNAME)]$SYSID)) {
+            badids <- rsf_data[!is.na(SYSNAME) & is.na(SYSID),unique(SYSNAME)]
             stop(paste0("RSF Template error: Failed to lookup SYSID using SYSNAME for: ",
                         paste0(badids,collapse=", ")))
           }
@@ -331,14 +350,6 @@ db_export_load_report <- function(pool,
   template$template_settings$template_has_static_row_ids <- export$template_has_static_row_ids
   template$template_settings$template_is_reportable <- export$is_reportable
   template$template_settings$template_is_setup <- export$is_setup_template
-  # #if (export$template_name != report_name) stop(paste0("Export keys are for ",export$template_name," but template is for ",report_name))
-  #   
-  # 
-  #   export$exporting_pfcbl_parents <- as.numeric(strsplit(export$exporting_pfcbl_parents,',')[[1]])
-  #   
-  # } else {
-  #   stop(paste0("Failed to load template for file ",template_file,".  Found RSF_REPORT_KEY=",reporting_key," DATA_INTEGRITY_KEY=",data_integrity_key,". File or keys may have been corrupted."))
-  # }
   
   return(template)
 }

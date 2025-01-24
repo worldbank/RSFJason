@@ -46,16 +46,26 @@ parse_template_csv_backup_data <- function(pool,
       stop(paste0("SYSNAME resolved '",entity,"' but backup files can only be generated at the program or facility levels"))
     }
     
-    ids <- dbGetQuery(pool,"
-      select
-        sn.rsf_program_id,
-        sn.rsf_pfcbl_id
-      from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
-      where sn.sys_name = $1::text
-        and sn.pfcbl_category = $2::text
-    ",params=list(entity,entity_category))
     
-    if (empty(ids) || nrow(ids) != 1) {
+    ids <- db_get_rsf_pfcbl_id_by_sys_name(pool=pool,
+                                           sys_names=unique(entity),
+                                           rsf_program_id=NA,
+                                           error.if.missing=FALSE)
+    
+    ids <- sysids[pfcbl_category==entity_category]
+    
+    # 
+    # 
+    # ids <- dbGetQuery(pool,"
+    #   select
+    #     ids.rsf_program_id,
+    #     ids.rsf_pfcbl_id
+    #   from p_rsf.rsf_pfcbl_ids ids
+    #   where ids.rsf_pfcbl_id = (select p_rsf.get_rsf_pfcbl_id_by_sys_name($1::text) as rsf_pfcbl_id)
+    #     and ids.pfcbl_category = $2::text
+    # ",params=list(entity,entity_category))
+    
+    if (empty(ids) || nrow(ids) != 1 || anyNA(ids$rsf_pfcbl_id)) {
       stop("Failed to look up reporting entity ID and rsf_program_id")
     }
   }

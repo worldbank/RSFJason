@@ -948,8 +948,7 @@ observeEvent(SELECTED_COHORT_FLAGS(), {
 
 observeEvent(input$action_dataset_review_filter_clear, {
   
-  
-  runjs("Shiny.setInputValue(\"action_cohort_view\",'',{priority:\"event\"})'")
+  shinyjs::runjs(paste0("Shiny.setInputValue('action_cohort_view','',{priority:'event'})"))
   
   updateTextInput(session=session,inputId="dataset_review_filter",value="")
   updateTextInput(session=session,inputId="dataset_review_filter_client",value="")
