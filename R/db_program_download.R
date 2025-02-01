@@ -144,6 +144,7 @@ db_program_download <- function(pool,
                                          file_path=out_path,
                                          unpack_and_remove=TRUE))
   
+  download_files <- unlist(download_files)
   # archive_name <- paste0(paste0(rep(x="0",nchar(nrow(program_upload_files))),collapse = ""),"-",file_path_sans_ext(archive_name))
   
   if (!is.null(programs_export)) {

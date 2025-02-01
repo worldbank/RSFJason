@@ -73,6 +73,7 @@ template_upload <- function(pool,
         for (lcu_rank in lcus) {
           #lcu_rank <- lcus[1]
           #lcu_rank <- lcus[2]
+          t2 <- Sys.time()
           lcu_pfcbl_data <- redundancy_pfcbl_data[reporting_lcu_rank==lcu_rank]
           inserted_rows <- db_add_update_data_user(pool=pool,
                                                     reporting_cohort=template$reporting_cohort,
@@ -86,6 +87,9 @@ template_upload <- function(pool,
                                                                                         data_source_row_id)],
                                                     template_has_static_row_ids=template$template_settings$template_has_static_row_ids,
                                                     is_redundancy_reporting=(redundancy_rank > 0))
+          
+          status_message(class="info","\nUploaded ",format(nrow(lcu_pfcbl_data),big.mark = ",")," data",
+                         " in ",format(round(Sys.time()-t2,2),units="secs"))
           
           template$pfcbl_data[lcu_pfcbl_data[inserted_rows,
                                              .(data_source_row_id,

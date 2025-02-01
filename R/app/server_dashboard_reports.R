@@ -1,11 +1,12 @@
 SERVER_DASHBOARD_REPORTS_LIST_REFRESH <- reactiveVal(0)
 SERVER_DASHBOARD_REPORT_SELECTED <- reactiveVal(list())
-SERVER_DASHBOARD_REPORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
+SERVER_DASHBOARD_REPORTS_LIST <- eventReactive(c(LOGGEDIN(),
+                                                 SELECTED_PROGRAM_ID(),
                                                  SERVER_DASHBOARD_REPORTS_LIST_REFRESH()), {
 
   program_id <- SELECTED_PROGRAM_ID()
   SERVER_DASHBOARD_REPORT_SELECTED(list())
-  if (!isTruthy(program_id)) return (NULL) 
+  if (!LOGGEDIN()) return (NULL) 
   
   reports <- DBPOOL %>% dbGetQuery("
   select 
@@ -20,10 +21,10 @@ SERVER_DASHBOARD_REPORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
     coalesce(re.for_asof_dates,'[null]'::jsonb) as for_asof_dates,
     coalesce(re.report_parameters,'[null]'::jsonb) as report_parameters
   from p_rsf.reports re 
-  inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.sys_name = re.for_program_sys_name
-                                                         and sn.pfcbl_category in ('global','program')
   left join p_rsf.view_account_info vai on vai.account_id = re.created_by_user_id
-  where sn.rsf_program_id = $1::int
+  where exists(select * from p_rsf.rsf_data_current_names_and_ids nai
+               where nai.rsf_pfcbl_id = $1::int
+                 and nai.sys_name = re.for_program_sys_name)
   
   union all
   
@@ -81,6 +82,35 @@ SERVER_DASHBOARD_REPORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
   
 },ignoreNULL=FALSE,ignoreInit = FALSE)
 
+SERVER_DASHBOARD_REPORTS_LIST_FILTERED <- eventReactive(c(SERVER_DASHBOARD_REPORTS_LIST(),
+                                                           input$server_dashboard_reports__owner,
+                                                           input$server_dashboard_reports__search), {
+                                                             
+  reports <- SERVER_DASHBOARD_REPORTS_LIST()
+  if (empty(reports)) return (NULL)
+  
+  if (isTruthy(input$server_dashboard_reports__owner)) {
+    reports <- reports[users_name %in% input$server_dashboard_reports__owner]
+  }
+  
+  if (isTruthy(input$server_dashboard_reports__search)) {
+    keywords <- trimws(unlist(strsplit(input$server_dashboard_reports__search,"[^[:alnum:]]")))
+    
+    matches <- lapply(keywords,FUN=function(kw) { 
+      rowSums(as.data.frame(lapply(reports[,.(users_name,report_title,report_notes,for_client_sys_names,for_indicator_names)],
+                                   FUN=grepl,
+                                   pattern=kw,
+                                   ignore.case=TRUE))) > 0
+    })
+    
+    matches <- which(Reduce(f=`&`,
+                            x=matches))
+    
+    reports <- reports[matches]
+  }
+  
+  return (reports)
+})
 
 observeEvent(input$server_dashboard_reports__action_view, {
   selected_report_id <- suppressWarnings(as.numeric(input$server_dashboard_reports__action_view))
@@ -105,7 +135,7 @@ SERVER_DASHBOARD_DO_LOAD <- function(for_client_sys_names=NA,
                                      for_asof_dates=NA,
                                      dashboard_parameters) {
   
-
+  if (!LOGGEDIN()) return (NULL)
   #SERVER_DASHBOARD_AUTORUN(FALSE)
   #runjs(paste0('Shiny.setInputValue("server_dashboard__autorun",false,{priority: "event"})'))
   if (!is.null(dashboard_parameters) &&
@@ -224,6 +254,21 @@ SERVER_DASHBOARD_DO_LOAD <- function(for_client_sys_names=NA,
   
 }
 
+observeEvent(SERVER_DASHBOARD_REPORTS_LIST(), {
+  
+  users <- c("",sort(unique(SERVER_DASHBOARD_REPORTS_LIST()$users_name)))
+  
+  updateSelectizeInput(session=session,
+                       inputId="server_dashboard_reports__owner",
+                       choices=users,
+                       selected="")
+  
+  updateTextInput(session=session,
+                  inputId="server_dashboard_reports__search",
+                  value="")
+  
+})
+
 observeEvent(input$action_server_dashboard_reports__save_as, {
   
   
@@ -231,8 +276,9 @@ observeEvent(input$action_server_dashboard_reports__save_as, {
   has_flag_filter <- isTruthy(input$server_dashboard__flags_filter)
   program <- SELECTED_PROGRAM()
   
-  if (empty(program)) {
-    return (NULL)
+  if (empty(SERVER_DASHBOARD_SELECTED_INDICATORS())) {
+    return (showNotification(type="error",
+                             ui=h3("One or more indicators must be selected to save a report.")))
   }
   
   all_clients_selected <- setequal(SERVER_DASHBOARD_CLIENTS_LIST()$rsf_pfcbl_id,
@@ -363,7 +409,7 @@ observeEvent(input$server_dashboard_reports__save_clients, {
 
 observeEvent(input$server_dashboard_reports__action_save, {
   
-  if (!isTruthy(SELECTED_PROGRAM_ID())) return (NULL)
+  if (!LOGGEDIN()) return (NULL)
   
   dashboard_settings <- reactiveValuesToList(SERVER_DASHBOARD_RUN_OPTIONS)
   
@@ -422,6 +468,7 @@ observeEvent(input$server_dashboard_reports__action_save, {
   if (all(valid_dates$date_rank %in% SERVER_DASHBOARD_RUN_OPTIONS$asof_dates) ||
       any(SERVER_DASHBOARD_RUN_OPTIONS$asof_dates=="Inf")) {
     for_asof_dates <- c("Inf")
+  
   } else {
     valid_dates <- SERVER_DASHBOARD_VALID_ASOF_DATES()
     run_dates <- na.omit(suppressWarnings(as.numeric(SERVER_DASHBOARD_RUN_OPTIONS$asof_dates)))
@@ -459,11 +506,30 @@ observeEvent(input$server_dashboard_reports__action_save, {
   dashboard_settings$filter_names <- filter_names
   dashboard_settings$filter_flags <- filter_flags
   
-  report_title <- input$server_dashboard_reports__title
+  report_title <- trimws(input$server_dashboard_reports__title)
   report_notes <- input$server_dashboard_reports__notes
   report_is_public <- isTruthy(input$server_dashboard_reports__public)
   
   user_id <- USER_ID()
+
+  version <- ""
+  if (grepl("V\\.\\d+$",report_title)) {
+    version <- gsub("^.*(V\\.\\d+)$","\\1",report_title)
+    report_title <- trimws(gsub(paste0(version,"$"),"",report_title))
+  }
+
+  versions <- DBPOOL %>% dbGetQuery("
+    select count(*) as counts
+    from p_rsf.reports re
+    where re.report_title like ($1::text || '%')",
+  params=list(report_title))
+  
+  if (!empty(versions)) {
+    
+    report_title <- paste0(report_title," V.",(as.numeric(versions$counts)+1))
+  }
+  
+  #permissions not checked... 
   
   report_id <- withProgress(message="Saving report...", {
     DBPOOL %>% dbGetQuery("
@@ -510,18 +576,36 @@ observeEvent(input$server_dashboard_reports__action_save, {
 
 observeEvent(input$server_dashboard_reports__action_edits_save, {
   
-  if (!isTruthy(SELECTED_PROGRAM_ID())) return (NULL)
+  if (!LOGGEDIN()) return (NULL)
   
   selected_report_id <- as.numeric(input$server_dashboard_reports__action_edit)
   if (!isTruthy(selected_report_id) ||
       !selected_report_id %in% SERVER_DASHBOARD_REPORTS_LIST()$report_id) return (NULL)
 
-  update_title <- input$server_dashboard_reports__edit_title
+  update_title <- trimws(input$server_dashboard_reports__edit_title)
   update_notes <- input$server_dashboard_reports__edit_notes
   update_is_public <- isTruthy(input$server_dashboard_reports__edit_public)
-  
 
+  version <- ""
+  if (grepl("V\\.\\d+$",update_title)) {
+    version <- gsub("^.*(V\\.\\d+)$","\\1",update_title)
+    update_title <- trimws(gsub(paste0(version,"$"),"",update_title))
+  }
+  
   report_id <- withProgress(message="Saving report...", {
+    
+    versions <- DBPOOL %>% dbGetQuery("
+      select re.report_id
+      from p_rsf.reports re
+      where re.report_title like ($1::text || '%')",
+      params=list(update_title))
+    
+    if (!empty(versions) & !all(versions$report_id==selected_report_id)) {
+      
+      update_title <- paste0(update_title," V.",which(versions$report_id==selected_report_id))
+      
+    }
+        
     DBPOOL %>% dbGetQuery("
     update p_rsf.reports re
     set is_public = $1::bool,
@@ -547,7 +631,7 @@ observeEvent(input$server_dashboard_reports__action_edits_save, {
 
 observeEvent(input$server_dashboard_reports__action_edit, {
   
-  if (!isTruthy(SELECTED_PROGRAM_ID())) return (NULL)
+  if (!LOGGEDIN()) return (NULL)
   
   selected_report_id <- as.numeric(input$server_dashboard_reports__action_edit)
   if (!isTruthy(selected_report_id) ||
@@ -618,7 +702,7 @@ observeEvent(input$server_dashboard_reports__action_edit, {
 
 observeEvent(input$server_dashboard_reports__edit_delete_report, {
   
-  if (!isTruthy(SELECTED_PROGRAM_ID())) return (NULL)
+  if (!LOGGEDIN()) return (NULL)
   
   selected_report_id <- as.numeric(input$server_dashboard_reports__action_edit)
   if (!isTruthy(selected_report_id) ||
@@ -716,12 +800,12 @@ output$server_dashboard_reports__list <- DT::renderDataTable({
   
   req(SERVER_DASHBOARD_REPORTS_LIST())
   
-  reports <- SERVER_DASHBOARD_REPORTS_LIST()
+  reports <- SERVER_DASHBOARD_REPORTS_LIST_FILTERED()
   reports <- reports[,
-                     .(Edit=edit,
+                     .(Launch=launch,
                        Title=report_title,
                        Owner=owner,
-                       Launch=launch)]
+                       Edit=edit)]
   
   DT::datatable(reports,
                 rownames = FALSE,
