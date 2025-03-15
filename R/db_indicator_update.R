@@ -129,6 +129,7 @@ db_indicator_update <- function(pool,
   #dbBegin(conn)
   #dbRollback(conn)
   poolWithTransaction(pool,function(conn) {
+
     dbExecute(conn,"
       create temp table _temp_formulas(indicator_id int,
                                        formula_id int,
@@ -138,6 +139,7 @@ db_indicator_update <- function(pool,
                                        formula_fx_date text,
                                        formula_title text,
                                        formula_notes text,
+                                       formula_labels text,
                                        formula_unit_set_by_indicator_name text,
                                        is_primary_default bool)
       on commit drop;")
@@ -153,6 +155,7 @@ db_indicator_update <- function(pool,
                                    formula_fx_date,
                                    formula_title,
                                    formula_notes,
+                                   formula_labels,
                                    formula_unit_set_by_indicator_name,
                                    is_primary_default)])
     
@@ -204,7 +207,21 @@ db_indicator_update <- function(pool,
           is_primary_default = excluded.is_primary_default,
           modified_by_user_id = excluded.modified_by_user_id;",
       params=list(user_id))
-    
+
+    #This was a bad idea, just created a lot of UI stuff -- moved formula definition matching into header actions    
+    # dbExecute(conn,"
+    # insert into p_rsf.labels(label_id,label_key,primary_label,label_id_group)
+    # select 
+    #   lid.label_id,
+    #   'RSA' as label_key,
+    #   tf.formula_labels,
+    #   lid.label_id_group
+    # from p_rsf.label_ids lid
+    # inner join p_rsf.indicator_formulas indf on indf.label_id = lid.label_id
+    # inner join _temp_formulas tf on tf.formula_id = indf.formula_id
+    # on conflict(label_id,label_key) 
+    # do update
+    # set primary_label = EXCLUDED.primary_label")
   })
     
   return (TRUE)

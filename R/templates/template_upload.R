@@ -66,7 +66,7 @@ template_upload <- function(pool,
       if (!any(redundancies==0)) stop("No non-zero redundancy ranks in the current data set")
       #high to low: 0==end-of-period data
       for (redundancy_rank in redundancies) {
-        #redundancy_rank <- redundancies[1]
+        #redundancy_rank <- redundancies[5]
         redundancy_pfcbl_data <- chronology_pfcbl_data[reporting_redundancy_rank==redundancy_rank]
         lcus <- sort(redundancy_pfcbl_data[,unique(reporting_lcu_rank)],decreasing=TRUE) #FROM X to ZERO (high to low)
         

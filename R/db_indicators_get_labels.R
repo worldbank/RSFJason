@@ -54,8 +54,8 @@ db_indicators_get_labels <- function(pool) {
                                   from p_rsf.view_indicator_labels lab
                                   left join p_rsf.label_keys lk on lk.label_key = lab.label_key")  
     setDT(indicator_labels)
-    indicator_labels <- indicator_labels[is.na(key_type) |
-                                         key_type=="language"]
+    # indicator_labels <- indicator_labels[is.na(key_type) |
+    #                                      key_type=="language"]
     
     indicator_labels[,
                      label_normalized:=normalizeLabel(label)]

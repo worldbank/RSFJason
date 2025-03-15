@@ -21,6 +21,9 @@ server_admin_indicator_formulas.module_ui_indicator_formula <- function(id,
   formula_notes <- formula$formula_notes
   if (!isTruthy(formula_notes)) formula_notes <- ""
   
+  # formula_labels <- formula$formula_labels
+  # if (!isTruthy(formula_labels)) formula_labels <- ""
+  
   #To know how large to size the default text area
   formula_eq <- formula$formula
   if (!isTruthy(formula_eq)) formula_eq <- ""
@@ -31,7 +34,7 @@ server_admin_indicator_formulas.module_ui_indicator_formula <- function(id,
   
   ui <- div(name="formula_box",id=ns("ui"),
             box(title=uiOutput(outputId=ns("box_formula_title")),collapsible=TRUE,collapsed=start.collapsed,width=12,
-                fluidRow(column(4,style='padding:0 3px 0 15px;',
+                fluidRow(column(6,style='padding:0 3px 0 15px;',
                                 textInput(inputId=ns("formula_title"),
                                           label="Formula Title",
                                           width="100%",
@@ -45,7 +48,7 @@ server_admin_indicator_formulas.module_ui_indicator_formula <- function(id,
                                                          `If Unchanged`="unchanged",
                                                          `Deny`="deny"),
                                                selected=formula$formula_overwrite)),
-                         column(3,style='padding:0 3px 0 3px;',
+                         column(2,style='padding:0 3px 0 3px;',
                                 selectizeInput(inputId=ns("formula_fx_date"),
                                                label="FX Date Method",
                                                choices=c(`Computation Date`="calculation",
@@ -54,7 +57,7 @@ server_admin_indicator_formulas.module_ui_indicator_formula <- function(id,
                                                          `Not applicable`=""),
                                                selected=formula$formula_fx_date)),
                 
-                         column(3,align="right",style='float:right;',
+                         column(2,align="right",style='float:right;',
                                 actionButton(inputId=ns("formula_test"),
                                              label="Test Formula",
                                              icon=icon("flask"),
@@ -96,14 +99,30 @@ server_admin_indicator_formulas.module_ui_indicator_formula <- function(id,
                          
                 ),
                 
-                fluidRow(column(12,style='padding:0px 15px 0 15px;',
+                fluidRow(column(10,style='padding:0px 15px 0 15px;',
                                 textAreaInput(inputId=ns("formula_notes"),
                                               label=NULL,
                                               width="100%",
                                               value=formula_notes,
-                                              placeholder="Formula description, comments, notes..."))
+                                              placeholder="Formula description, comments, notes...")),
+                         column(2,style='padding:0px 15px 0 15px;',""
+                                # actionButton(inputId=ns("formula_show_labels"),
+                                #              label="RSA Definitions",
+                                #              icon=icon("tags"))
+                                )
                 ),
-                
+#Nope, bad idea.  Moved out of Formula UI and feature implemented via template header actions                
+#                 hidden(div(id=ns("formula_qualitative_ui"),
+#                     fluidRow(column(12,
+#                                 textAreaInput(inputId=ns("formula_labels"),
+#                                               value=formula_labels,
+#                                               label="Qualitative Formulas (RSA)",
+#                                               placeholder = "Enter qualitative text of formula as written in the RSA.  If multiple formulas are entered, use  #### to separate.  For example:
+# 
+# ####NOTES About Formula#### 
+# 
+#                                               ")
+#                                 )))),
                 fluidRow(align="left",
                          style='padding-bottom:5px;',
                          column(12,div(tags$label("Programs monitoring this Indicator Formula"),"Todo"))),
@@ -326,6 +345,10 @@ server_admin_indicator_formulas.module_session_indicator_formula <- function(id,
       
     })
     
+    # o6 <- observeEvent(input$formula_show_labels, { 
+    #   toggleElement(id="formula_qualitative_ui")
+    # })
+    
     output$box_formula_title <- renderUI({
       #print(this.id())
       #print(SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS())
@@ -355,6 +378,7 @@ server_admin_indicator_formulas.module_session_indicator_formula <- function(id,
     modules[[length(modules)+1]] <- o3
     modules[[length(modules)+1]] <- o4
     modules[[length(modules)+1]] <- o5
+    #modules[[length(modules)+1]] <- o6
     
     SERVER_ADMIN_INDICATORS.MODULES(modules)
   })

@@ -52,10 +52,11 @@ db_program_facility_checks_add_update_guidance <- function(pool,
            and icg.for_indicator_id = $2
       )
       delete from p_rsf.rsf_program_facility_check_guidance pfcg
-      where exists(select * from p_rsf.get_rsf_pfcbl_id_family_tree($3::int) ft 
-                   where pfcg.rsf_pfcbl_id = ft.rsf_pfcbl_id
-                     and exists(select * from guidance gu
-                                where gu.indicator_check_guidance_id = pfcg.indicator_check_guidance_id))",
+      where pfcg.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+                                    from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                                    where ft.from_rsf_pfcbl_id = $3::int)
+        and exists(select * from guidance gu
+                   where gu.indicator_check_guidance_id = pfcg.indicator_check_guidance_id))",
       params=list(indicator_check_id,
                   indicator_id,
                   for_rsf_pfcbl_id))
@@ -75,7 +76,9 @@ db_program_facility_checks_add_update_guidance <- function(pool,
               )
               delete from p_rsf.rsf_program_facility_check_guidance pfcg
               where pfcg.indicator_check_guidance_id = $1::int
-                and exists(select * from p_rsf.get_rsf_pfcbl_id_family_tree($2::int) ft
+                and pfcg.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+                                            from p_rsf.view_rsf_pfcbl_id_family_tree ft 
+                                            where ft.from_rsf_pfcbl_id = $2:int)
                            where pfcg.rsf_pfcbl_id = ft.rsf_pfcbl_id)
               ",
               params=list(guidance_id,
@@ -228,9 +231,10 @@ db_program_facility_checks_add_update_guidance <- function(pool,
   rsf_pfcbl_id <- poolWithTransaction(pool,function(conn) {
     rsf_pfcbl_id <- dbGetQuery(conn,
                                "
-                                select ft.rsf_pfcbl_id
-                                from p_rsf.get_rsf_pfcbl_id_family_tree($1::int) ft
-                                where ft.pfcbl_category = $2",
+                                select ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id
+                                from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                                where ft.from_rsf_pfcbl_id = $1::int
+                                  and ft.to_pfcbl_category = $2",
                                 params=list(for_rsf_pfcbl_id,
                                             current_guidance_pfcbl_category))
     
@@ -318,8 +322,8 @@ db_program_facility_checks_add_update_guidance <- function(pool,
                                 rdc.evaluation_id
                               from p_rsf.indicator_check_guidance icg
                               inner join p_rsf.rsf_program_facility_check_guidance pfcg on pfcg.indicator_check_guidance_id = icg.indicator_check_guidance_id
-                              inner join lateral p_rsf.get_rsf_pfcbl_id_family_tree(pfcg.rsf_pfcbl_id) ft on true
-                              inner join p_rsf.rsf_data rd on rd.rsf_pfcbl_id = ft.rsf_pfcbl_id
+                              inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = pfcg.rsf_pfcbl_id
+                              inner join p_rsf.rsf_data rd on rd.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
                                                           and rd.indicator_id = icg.for_indicator_id
                               inner join p_rsf.rsf_data_checks rdc on rdc.data_id = rd.data_id
                               																	  and rdc.indicator_check_id = icg.indicator_check_id
@@ -330,7 +334,7 @@ db_program_facility_checks_add_update_guidance <- function(pool,
                                       OR 
                                       (rdc.check_status = 'active' AND check_status_user_id is NULL)
                                       OR 
-                                      (rdc.check_status_comment = NULLIF($2::text,'NA')))
+                                      (rdc.check_status_comment is not distinct from NULLIF($2::text,'NA')))
                                 
                             )
                             update p_rsf.rsf_data_checks rdc

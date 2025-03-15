@@ -16,10 +16,11 @@ RSF_MANAGEMENT_APPLICATION_ID <- "4608A309E2E38860DC98FAC53F967CF2"
 LOCATIONS <- list(ARL="/credentials/credentials-remote-ARL.yaml",
                   #SSA_DEV="/credentials/credentials-remote-dev.yaml",
                   #SSA_PROD="/credentials/credentials-remote-RSF.yaml",
-                  Jason_DEVB="/credentials/credentials-rsfjson-rsfdevb.yaml",
+                  Jason_DEV_Shafique="/credentials/credentials-rsfjson-rsfshafique.yaml",
                   Jason_DEV="/credentials/credentials-rsfjson-rsfdev.yaml",
                   Jason_PROD="/credentials/credentials-rsfjson-rsfprod.yaml")
 
+#LOCATION <- "Jason_DEV_Shafique"
 LOCATION <- "Jason_DEV"
 #LOCATION <- "Jason_PROD"
 
@@ -28,6 +29,7 @@ if (grepl("DEV",LOCATION)==TRUE) {
   options(shiny.error = NULL)
 }
 
+library(pdftools)
 library(lubridate)
 library(stringr)
 library(data.table)
@@ -118,9 +120,11 @@ source("./R/db_program_get_stale_calculations.R")
 source("./R/db_program_get_stale_checks.R")
 source("./R/db_program_facility_checks_add_update_guidance.R")
 source("./R/db_indicators_get_labels.R")
+source("./R/db_indicators_get_header_actions.R")
 source("./R/db_indicator_update.R")
 source("./R/db_indicator_create.R")
 source("./R/db_indicator_delete.R")
+source("./R/db_indicators_get_formulas.R")
 
 source("./R/rsf_indicators_calculate_do_test.R")
 source("./R/rsf_calculations_recalculate.R")
@@ -128,6 +132,7 @@ source("./R/rsf_calculations_recalculate.R")
 
 source("./R/db_check_create.R")
 source("./R/db_check_update.R")
+source("./R/db_checks_get_formulas.R")
 
 source("./R/db_rsf_options_create.R")
 source("./R/db_rsf_options_update.R")
@@ -182,6 +187,42 @@ source('./R/templates/parse_template_csv_backup_data.R')
 
 source('./R/templates/parse_template_pfcbl_editor_report.R')
 source('./R/templates/parse_template_rsf_create_entities.R')
+
+# ########################
+# source("./R/app/server_dashboard.R",local=serverENV)
+# source("./R/app/server_dashboard_options.R",local=serverENV)
+# source("./R/app/server_dashboard_reports.R",local=serverENV)
+# source("./R/app/server_dashboard_edit.R",local=serverENV)
+# source("./R/app/server_dashboard_exports.R",local=serverENV)
+# source("./R/app/server_dashboard_exports_reports.R",local=serverENV)
+# source("./R/app/server_datasets.R",local=serverENV)
+# source("./R/app/server_datasets_review_flags.R",local=serverENV)
+# 
+# source("./R/app/server_datasets_upload.R",local=serverENV)
+# 
+# #When permissions are implemented, only load administrateive modules if an admin
+# source("./R/app/server_setup.R",local=serverENV)
+# source("./R/app/server_setup_program.R",local=serverENV)
+# source("./R/app/server_setup_indicators.R",local=serverENV)
+# source("./R/app/server_setup_checks.R",local=serverENV)
+# source("./R/app/server_setup_templates.R",local=serverENV)
+# source("./R/app/server_setup_create.R",local=serverENV)
+# 
+# source("./R/app/server_admin_options.R",local=serverENV)
+# source("./R/app/server_admin_options_module.R",local=serverENV)
+# 
+# source("./R/app/server_admin_indicators.R",local=serverENV)
+# source("./R/app/server_admin_indicator_formulas.R",local=serverENV)
+# source("./R/app/server_admin_indicators_review.R",local=serverENV)
+# 
+# source("./R/app/server_admin_checks.R",local=serverENV)
+# source("./R/app/server_admin_checks_formulas.R",local=serverENV)
+# source("./R/app/server_admin_checks_review.R",local=serverENV)
+# 
+# source("./R/app/server_admin_users.R",local=serverENV)
+# 
+# source("./R/app/server_datasets_guidance_module.R",local=serverENV)
+# #######################
 
 
 DASH_DISPLAY_BLUE_C <- "35,150,240,0.2"

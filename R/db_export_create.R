@@ -70,7 +70,6 @@ db_export_create <- function(pool,
           ids.rsf_pfcbl_id as exporting_rsf_pfcbl_id,
           ids.pfcbl_category
         from p_rsf.rsf_pfcbl_ids ids
-        where ids.rsf_pfcbl_id
         where ids.rsf_pfcbl_id = 0
       ")
     }

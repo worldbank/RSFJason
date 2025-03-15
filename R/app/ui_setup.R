@@ -201,7 +201,24 @@ tabPanel("Setup Templates",
                          uiOutput(outputId="ui_setup__templates_add_mapping_UI"))),
 
          fluidRow(column(12,
-                         uiOutput(outputId="ui_setup__templates_mapping_UI")))),
+                         
+                          div(name="template_header_box",
+                              id="ui_setup__templates_mapping_labels",
+                              div(style="display:flex;flex-flow:row nowrap;justify-content:left;align-items:start;",
+                                div(style="display:flex;flex-flow:row nowrap;min-width:100px;width:200px;padding:0 0 0 2px;white-space:nowrap;",
+                                    tags$label("Location")),
+                                div(style="display:flex;flex-flow:row nowrap;min-width:450px;padding:0 0 0 2px;flex-grow:1;white-space:nowrap;",
+                                    tags$label("Template Header or Match Value")),
+                                div(style="display:flex;flex-flow:row nowrap;min-width:175px;width:175px;padding:0 0 0 2px;white-space:nowrap;",
+                                    tags$label("Action")),
+                                div(style="display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;white-space:nowrap;",
+                                    tags$label("Target")),
+                                div(style="display:flex;flex-flow:row nowrap;min-width:150px;padding:0 0 0 2px;white-space:nowrap;",
+                                    tags$label("Comment")),
+                                div(style=paste0("display:flex;flex-flow:row nowrap;width:40px;padding:0 0 0 2px;"),"")
+                              )
+                          ),
+                          uiOutput(outputId="ui_setup__templates_mapping_UI")))),
 
 #################
 ###TAB CREATE NEW

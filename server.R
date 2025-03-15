@@ -125,45 +125,80 @@ server <- function(input, output, session)
   USER_NAME <- eventReactive(USER_ACCOUNT$user_name, {  format_name_abbreviation(USER_ACCOUNT$user_name) },ignoreNULL=FALSE)
   LOGGEDIN <- reactive({ isTruthy(USER_ACCOUNT$user_account_id) && isTruthy(USER_ACCOUNT$application_session_id) })
   
+  source("./R/app/server_dashboard.R",local=serverENV)
+  source("./R/app/server_dashboard_options.R",local=serverENV)
+  source("./R/app/server_dashboard_reports.R",local=serverENV)
+  source("./R/app/server_dashboard_edit.R",local=serverENV)
+  source("./R/app/server_dashboard_exports.R",local=serverENV)
+  source("./R/app/server_dashboard_exports_reports.R",local=serverENV)
+  source("./R/app/server_datasets.R",local=serverENV)
+  source("./R/app/server_datasets_review_flags.R",local=serverENV)
+  
+  source("./R/app/server_datasets_upload.R",local=serverENV)
+  
+  #When permissions are implemented, only load administrateive modules if an admin
+  source("./R/app/server_setup.R",local=serverENV)
+  source("./R/app/server_setup_program.R",local=serverENV)
+  source("./R/app/server_setup_indicators.R",local=serverENV)
+  source("./R/app/server_setup_checks.R",local=serverENV)
+  source("./R/app/server_setup_templates.R",local=serverENV)
+  source("./R/app/server_setup_create.R",local=serverENV)
+  
+  source("./R/app/server_admin_options.R",local=serverENV)
+  source("./R/app/server_admin_options_module.R",local=serverENV)
+  
+  source("./R/app/server_admin_indicators.R",local=serverENV)
+  source("./R/app/server_admin_indicator_formulas.R",local=serverENV)
+  source("./R/app/server_admin_indicators_review.R",local=serverENV)
+  
+  source("./R/app/server_admin_checks.R",local=serverENV)
+  source("./R/app/server_admin_checks_formulas.R",local=serverENV)
+  source("./R/app/server_admin_checks_review.R",local=serverENV)
+  
+  source("./R/app/server_admin_users.R",local=serverENV)
+  
+  source("./R/app/server_datasets_guidance_module.R",local=serverENV)
+  
+  
   login_initialize <- observeEvent(USER_ID(),{ 
   
     if (!isTruthy(USER_ID())) return (NULL)
     #if (INITIALIZED()) return (NULL) #Don't want to re-re-load if user logs out and logs back in.
 
     t1 <- Sys.time()
-    source("./R/app/server_dashboard.R",local=serverENV)
-    source("./R/app/server_dashboard_options.R",local=serverENV)
-    source("./R/app/server_dashboard_reports.R",local=serverENV)
-    source("./R/app/server_dashboard_edit.R",local=serverENV)
-    source("./R/app/server_dashboard_exports.R",local=serverENV)
-    source("./R/app/server_dashboard_exports_reports.R",local=serverENV)
-    source("./R/app/server_datasets.R",local=serverENV)
-    source("./R/app/server_datasets_review_flags.R",local=serverENV)
-
-    source("./R/app/server_datasets_upload.R",local=serverENV)
-  
-    #When permissions are implemented, only load administrateive modules if an admin
-    source("./R/app/server_setup.R",local=serverENV)
-    source("./R/app/server_setup_program.R",local=serverENV)
-    source("./R/app/server_setup_indicators.R",local=serverENV)
-    source("./R/app/server_setup_checks.R",local=serverENV)
-    source("./R/app/server_setup_templates.R",local=serverENV)
-    source("./R/app/server_setup_create.R",local=serverENV)
-    
-    source("./R/app/server_admin_options.R",local=serverENV)
-    source("./R/app/server_admin_options_module.R",local=serverENV)
-    
-    source("./R/app/server_admin_indicators.R",local=serverENV)
-    source("./R/app/server_admin_indicator_formulas.R",local=serverENV)
-    source("./R/app/server_admin_indicators_review.R",local=serverENV)
-    
-    source("./R/app/server_admin_checks.R",local=serverENV)
-    source("./R/app/server_admin_checks_formulas.R",local=serverENV)
-    source("./R/app/server_admin_checks_review.R",local=serverENV)
-    
-    source("./R/app/server_admin_users.R",local=serverENV)
-    
-    source("./R/app/server_datasets_guidance_module.R",local=serverENV)
+    # source("./R/app/server_dashboard.R",local=serverENV)
+    # source("./R/app/server_dashboard_options.R",local=serverENV)
+    # source("./R/app/server_dashboard_reports.R",local=serverENV)
+    # source("./R/app/server_dashboard_edit.R",local=serverENV)
+    # source("./R/app/server_dashboard_exports.R",local=serverENV)
+    # source("./R/app/server_dashboard_exports_reports.R",local=serverENV)
+    # source("./R/app/server_datasets.R",local=serverENV)
+    # source("./R/app/server_datasets_review_flags.R",local=serverENV)
+    # 
+    # source("./R/app/server_datasets_upload.R",local=serverENV)
+    # 
+    # #When permissions are implemented, only load administrateive modules if an admin
+    # source("./R/app/server_setup.R",local=serverENV)
+    # source("./R/app/server_setup_program.R",local=serverENV)
+    # source("./R/app/server_setup_indicators.R",local=serverENV)
+    # source("./R/app/server_setup_checks.R",local=serverENV)
+    # source("./R/app/server_setup_templates.R",local=serverENV)
+    # source("./R/app/server_setup_create.R",local=serverENV)
+    # 
+    # source("./R/app/server_admin_options.R",local=serverENV)
+    # source("./R/app/server_admin_options_module.R",local=serverENV)
+    # 
+    # source("./R/app/server_admin_indicators.R",local=serverENV)
+    # source("./R/app/server_admin_indicator_formulas.R",local=serverENV)
+    # source("./R/app/server_admin_indicators_review.R",local=serverENV)
+    # 
+    # source("./R/app/server_admin_checks.R",local=serverENV)
+    # source("./R/app/server_admin_checks_formulas.R",local=serverENV)
+    # source("./R/app/server_admin_checks_review.R",local=serverENV)
+    # 
+    # source("./R/app/server_admin_users.R",local=serverENV)
+    # 
+    # source("./R/app/server_datasets_guidance_module.R",local=serverENV)
     login_initialize$destroy()
     
   })

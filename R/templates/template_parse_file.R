@@ -12,7 +12,7 @@ template_parse_file <- function(pool,
   
     if (!all(file.exists(template_file))) stop(paste0("File note found: ",template_file))
   
-    if (!grepl("\\.xlsx?|\\.csv|\\.csv\\.gz$",template_file,ignore.case = TRUE)) {
+    if (!grepl("\\.xlsx?|\\.csv|\\.csv\\.gz|.pdf$",template_file,ignore.case = TRUE)) {
       status_message(class="error","Error: Only .xlsx or .csv files can be uploaded: ",template_file," is not allowed.\n")
       #.xls files are prohibbted because openxlsx package cannot read them and this package is used to manage the excel sheets, downloads, etc.
       if (grepl("\\.xls$",template_file,ignore.case = TRUE)) status_message(class="info","Older .xls files cannot be uploaded.  In Excel, use 'Save As' to save the file to a modern version format.\n")
@@ -105,7 +105,16 @@ template_parse_file <- function(pool,
               "RSF-CSV-TEMPLATE"
             }
           }
-          
+          else if (tolower(file_ext(template_file))=="pdf") {
+            
+            pfcbl_category <- dbGetQuery(pool,"select pfcbl_category from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id=$1::int",rsf_program_id)
+            
+            if (!pfcbl_category %in% "facility") {
+              stop("Only RSA agreements can be uploaded for .pdf documents.  When uploading an RSA, the RSF Program must be selected from the main drop-down menu AND ALSO the facility/client must be selected in the drop-down menu 'Client Filter' in the Datasets/Uploads List pane")
+            }
+            #only RSA template can be defined as pdf.
+            "IFC-RSA-TEMPLATE"
+          }
           ##################
           #NON JASON TEMPLATES#
           ##################
@@ -201,6 +210,23 @@ template_parse_file <- function(pool,
         
       }
       
+      else if (template_name=="IFC-RSA-TEMPLATE") {
+        
+        ids <- dbGetQuery(pool,"select rsf_program_id,rsf_facility_id from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id = $1::int",rsf_program_id)
+        template <- parse_template_RSA(pool=pool,
+                                       template_id = template_lookup$template_id,
+                                       rsf_facility_id=ids$rsf_facility_id, #This is checked in parse template
+                                       template_file=template_file,
+                                       rsf_indicators=rsf_indicators,
+                                       rsf_indicator_formulas=db_indicators_get_formulas(pool=pool),
+                                       rsf_check_formulas=db_checks_get_formulas(pool=pool),
+                                       status_message = status_message)
+        
+
+        template$rsf_program_id <- ids$rsf_program_id #only obtained via function argument for SLGP
+        template$template_source_reference <- "RSA Setup PDF File"
+        template$template_ids_method <- "pfcbl_id" #set as pfcbl_id for simplicity, but this file cannot create new entities (or match any entities)
+      }
       else {
         stop(paste0("Failed to find parse instructions for template: ",template_format))
       }

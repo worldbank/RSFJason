@@ -247,7 +247,7 @@ module_accounts_server <- function(id,
               
               showElement(id="login_change_reset",anim=TRUE,animType = "fade")
               hideElement(id="login_failed1")
-              updateTextInput(session=session,inputId="login_password",label="Temporary Reset Password",value="")  
+              updateTextInput(session=session,inputId="login_password",label="Temporary Password",value="")  
               
               user_send_email(pool=pool,
                               to=reset_code$login_email,
@@ -273,7 +273,7 @@ module_accounts_server <- function(id,
           
           updateTextInput(session=session,
                           inputId="login_password",
-                          label="Temporary Reset Password",
+                          label="Temporary Password",
                           value=pwd)
           
           hideElement(id="login_button",anim=TRUE,animType="fade")
@@ -404,7 +404,7 @@ module_accounts_server <- function(id,
           showElement(id = "login_change_reset",anim=TRUE,animType = "fade")
           showElement(id = "login_change_password",anim=TRUE,animType="fade")
           showElement(id = "login_password")
-          updateTextInput(session=session,inputId="login_password",label="Temporary Reset Password",value="")
+          updateTextInput(session=session,inputId="login_password",label="Temporary Password",value="")
         } else{
           show_error(3)
         }

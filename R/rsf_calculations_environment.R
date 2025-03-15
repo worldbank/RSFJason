@@ -341,7 +341,6 @@
                                                            "Values=indicator will return the 'timeseries' data for the requested indicator and is a shortcut for ",
                                                            "indicator.all[[1]]$timeseries"))
            
-           #browser()
            if (!is.null(values)) {
              
              if (length(vars) > 0) {
@@ -354,9 +353,16 @@
                stop("Fill is not used when timeseries() is passed a values argument (nothing is filled).  Either leave as default setting or use fill=NA")
              }
              
-             if (is.list(values) && all(unlist(lapply(values,is.data.table)))) values <- rbindlist(values)
-             else if (!is.data.table(values)) stop("Timeseries values argument expects to receive an indicator with a '.all' parameter, eg, values=loan_risk_balance.all")
-
+             if (is.list(values) && all(unlist(lapply(values,
+                                                      FUN=function(v) { is.null(v) | is.data.table(v) })))) {
+               values <- rbindlist(values)
+               
+               if (is.null(values) || empty(values)) return (NULL)
+               
+             } else if (!is.data.table(values)) {
+               stop("Timeseries values argument expects to receive an indicator with a '.all' parameter, eg, values=loan_risk_balance.all")
+             }
+             
              if (!all(c("indicator_name",
                         "timeseries.reporteddate",
                         "reporting_current_date",

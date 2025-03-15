@@ -118,10 +118,12 @@ showModal_indicator_check_guidance_new <- function(for_indicator_id,
   
   for_name <- DBPOOL %>% dbGetQuery("select 
                                       sn.sys_name,
-                                      ft.pfcbl_category
-                                     from p_rsf.get_rsf_pfcbl_id_family_tree($1::int) ft
-                                     inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ft.rsf_pfcbl_id
-                                     where ft.pfcbl_category in ('global','program','facility')",
+                                      sn.pfcbl_category
+                                     from p_rsf.view_rsf_pfcbl_id_current_sys_names sn 
+                                     where sn.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+                                                                 from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                                                                 where ft.from_rsf_pfcbl_id = $1::int)
+                                       and sn.pfcbl_category in ('global','program','facility')",
                                     params=list(rsf_pfcbl_id))
   
   setDT(for_name)
@@ -290,10 +292,12 @@ showModal_indicator_check_guidance_edit <- function(for_indicator_id,
   
   for_name <- DBPOOL %>% dbGetQuery("select 
                                       sn.sys_name,
-                                      ft.pfcbl_category
-                                     from p_rsf.get_rsf_pfcbl_id_family_tree($1::int) ft
-                                     inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ft.rsf_pfcbl_id
-                                     where ft.pfcbl_category in ('global','program','facility')",
+                                      sn.pfcbl_category
+                                     from p_rsf.view_rsf_pfcbl_id_current_sys_names sn 
+                                     where sn.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+                                                                 from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                                                                 where ft.from_rsf_pfcbl_id = $1::int)
+                                       and sn.pfcbl_category in ('global','program','facility')",
                                     params=list(rsf_pfcbl_id))
   
   setDT(for_name)
@@ -332,16 +336,14 @@ showModal_indicator_check_guidance_edit <- function(for_indicator_id,
                                       coalesce(icg.variance_threshold,0) as variance_threshold,
                                     	icg.for_indicator_id as indicator_id,
                                     	icg.indicator_check_id,
-                                    	array_to_string(array_agg(nids.rsf_full_name),',') as subscribed_names,
-                                    	bool_or(coalesce(ft.rsf_pfcbl_id = $3::int,false)) as current_reporting_cohort_subscription
+                                    	array_to_string(array_agg(nids.rsf_full_name),',') as subscribed_names
                                     from p_rsf.indicator_check_guidance icg
 
                                     left join p_rsf.rsf_program_facility_check_guidance pcg on pcg.indicator_check_guidance_id = icg.indicator_check_guidance_id
-                                    left join lateral p_rsf.get_rsf_pfcbl_id_family_tree(pcg.rsf_pfcbl_id) ft on ft.rsf_pfcbl_id = pcg.rsf_pfcbl_id
-                                                                                                             and ft.pfcbl_category in ('global','program','facility')
                                     left join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ft.rsf_pfcbl_id
                                     where icg.for_indicator_id = $1::int
                                       and icg.indicator_check_id = $2::int
+                                      and (icg.
                                     group by
                                     	icg.indicator_check_guidance_id,
                                     	icg.guidance,
@@ -349,8 +351,7 @@ showModal_indicator_check_guidance_edit <- function(for_indicator_id,
                                     	icg.for_pfcbl_category,
                                     	icg.overwrite_check_class,
                                     	icg.for_indicator_id,
-                                    	icg.indicator_check_id
-                                    order by current_reporting_cohort_subscription desc",
+                                    	icg.indicator_check_id",
                                     params=list(for_indicator_id,
                                                 indicator_check_id,
                                                 rsf_pfcbl_id))
@@ -375,8 +376,7 @@ showModal_indicator_check_guidance_edit <- function(for_indicator_id,
                              "for_pfcbl_category",
                              "indicator_id",
                              "indicator_check_id",
-                             "subscribed_names",
-                             "current_reporting_cohort_subscription"))
+                             "subscribed_names"))
     
     guidance[,ui_id:=1:.N]
     guidance[,subscribed_names:=mapply(str_split,string=subscribed_names,pattern=",")]

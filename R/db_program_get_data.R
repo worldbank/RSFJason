@@ -195,7 +195,6 @@ db_program_get_data  <- function(pool,
                               from p_rsf.rsf_pfcbl_ids ids
                               left join p_rsf.rsf_loan_issuance_series lis on lis.rsf_pfcbl_id = ids.rsf_pfcbl_id
                               where ids.created_in_reporting_asof_date <= $1::date
-                              --and (ids.rsf_program_id = $2 or ids.rsf_program_id = 0)
                               and exists(select * from p_rsf.rsf_pfcbl_id_family fam 
                               						 where ids.rsf_pfcbl_id = fam.parent_rsf_pfcbl_id
                               						   and fam.child_rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int))",
@@ -1188,7 +1187,7 @@ db_program_get_data  <- function(pool,
       #               data_value_updated=TRUE),
       #          on=.(rsf_pfcbl_id,
       #               reporting_asof_date=created_in_reporting_asof_date)] #reporting_asof_date == reporting_current_date, so in relation to now, is
-                       
+             
       #FLOW DATA
       #this the first data reported?
       rsf_data[

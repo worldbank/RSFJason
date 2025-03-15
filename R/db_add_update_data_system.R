@@ -1,5 +1,6 @@
 db_add_update_data_system <- function(pool,
-                                      system_upload_data)
+                                      system_upload_data,
+                                      calculator_user_id=CALCULATIONS_ENVIRONMENT$SYSTEM_CALCULATOR_ACCOUNT)
 {
   expected_cols <- c("current_data_id",
                      "rsf_pfcbl_id",
@@ -176,7 +177,7 @@ db_add_update_data_system <- function(pool,
                           	max(rc.reporting_cohort_id) as calculated_cohort_id
                           from _temp_upload_system_data usd
                           inner join p_rsf.reporting_cohorts rc on rc.parent_reporting_cohort_id = usd.reporting_cohort_id
-                          where rc.is_calculated_cohort = true
+                          where rc.is_calculated_cohort = true -- can ONLY allow calculated cohorts
                           group by
                             usd.reporting_cohort_id,
                             usd.rsf_pfcbl_id,
@@ -204,7 +205,7 @@ db_add_update_data_system <- function(pool,
                     																		source_reference,
                     																		source_note,
                     																		rsf_program_id,
-                    																		parent_reporting_cohort_Id,
+                    																		parent_reporting_cohort_id,
                     																		is_calculated_cohort,
                     																		is_reported_cohort,
                     																		is_redundancy_cohort,
@@ -213,7 +214,7 @@ db_add_update_data_system <- function(pool,
                     select 
                       rc.reporting_asof_date,
                       rc.reporting_rsf_pfcbl_id,
-                      rc.reporting_user_id,
+                      $1::text,
                       timeofday()::timestamptz as reporting_time,
                       rc.reporting_asof_date as data_asof_date,
                       rc.source_name,
@@ -237,7 +238,8 @@ db_add_update_data_system <- function(pool,
                   set calculated_cohort_id = cc.calculated_cohort_id
                   from create_cohorts cc
                   where cc.reporting_cohort_id = usd.reporting_cohort_id
-                    and usd.calculated_cohort_id is null;")
+                    and usd.calculated_cohort_id is null;",
+                  params=list(calculator_user_id))
       }
     
       {

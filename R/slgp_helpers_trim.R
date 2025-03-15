@@ -241,25 +241,29 @@ normalizeLabel <- function(x) {
   x <- gsub("'","",x,perl=T)                   #get rid of "'s"
   x <- gsub("N/A","na",x,ignore.case = TRUE,perl=T)
   x <- gsub("[[:space:]]+&[[:space:]]+"," and ",x,ignore.case = TRUE,perl=T)
-  x <- gsub("[^%#&@$<>\\/[:alnum:]]"," ",x,perl=T)
+  x <- gsub("[^%#&@$<>\\/[:alnum:]]"," ",x,perl=T) #Starting with punctuation
   x <- gsub("[[:space:]]*([[:punct:]])[[:space:]]*","\\1",x)
-  stringi::stri_trans_general(superTrim(x),"Latin-ASCII")
+  stringi::stri_trans_general(superTrim(x,trim.punct=FALSE),"Latin-ASCII")
 }
 
 superTrim <- function(x,
                       to.lower.case=TRUE,
+                      trim.punct=TRUE,
                       empty.is.NA=FALSE) {
   
   x <- as.character(x)
   nas <- is.na(x)
   x <- gsub("\\\\+","/",x,perl=T)
-  x <- gsub("[[:cntrl:]]+"," ",x,perl=T) #remove line breaks, eg Excel headers on multiple lines
+  x <- gsub("[[:cntrl:]]+"," ",x,perl=T)      #remove line breaks, eg Excel headers on multiple lines
   x <- gsub("\\s+"," ",x,perl=T)              #remove multipe spaces
   x <- gsub("\\s?(/)\\s?","\\1",x,perl=T)     #spaces in between or sign "/" eg, "Yes/ No" -> "Yes/No"
   x <- gsub("\\s+([,\\?\\.])","\\1",x,perl=T) #spaces followed by ? eg, "What ?" -> "What?"
   x <- trimws(x,whitespace="[ \\t\\r\\n\\v\\h\\s]")
-  x[grepl("^[\"' ]+$",x,perl=T)] <- ""  #The whole stirng is spaces or quotes, such as literal "" or ''
+  x[grepl("^[\"' ]+$",x,perl=T)] <- ""        #The whole string is spaces or quotes, such as literal "" or ''
   if (to.lower.case==TRUE) x <- tolower(x)
+  if (trim.punct==TRUE) {                     #remove trialing punctuation, eg "Yes!" -> "Yes" or "Yes." -> "Yes" 
+    x <- gsub("[\\.,!;:\\\\/%#?_+-]$","",x)
+  }
   if (empty.is.NA==TRUE) {
     blanks <- which(nchar(x)==0)
     if (length(blanks) > 0) x[blanks] <- as.character(NA)

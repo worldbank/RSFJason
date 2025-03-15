@@ -417,6 +417,7 @@ observeEvent(input$server_admin_users__create_action, {
                                          v_request_by_account_id => $2::text,
                                          v_name => $3::text,
                                          v_login => $4::text)",
+                                                         
     params=list(RSF_MANAGEMENT_APPLICATION_ID,
                 USER_ID(),
                 name,
@@ -431,7 +432,17 @@ observeEvent(input$server_admin_users__create_action, {
     
     email <- div(p(paste0("Dear ",tools::toTitleCase(name),",")),
                  p("Your ",tags$a(href="https://datanalytics-int.worldbank.org/rsf-prod/","RSF Jason")," account has been created."),
-                 p("Please use the link above to login for the first time and complete setting up your account with this temporary password: ",reset_code$reset_password))
+                 p("You username is your email: ",email),
+                 p("Please use the link above to login for the first time and complete setting up your account with this temporary password: ",reset_code$reset_password),
+                 p("First Time Account Creation Steps"),
+                 p("1: Click the ",tags$a(href="https://datanalytics-int.worldbank.org/rsf-prod/","RSF Jason")," link"),
+                 p("2: Enter your email address '",email,"' in the username field."),
+                 p("3: Enter your temporary password '",reset_code$reset_password,"' in the password field"),
+                 p("4: Click the Login button -> You will be redirected to change your temporary password"),
+                 p("5: Enter your temporary password '",reset_code$reset_password,"' in the tempoerary password field."),
+                 p("6: Enter your own personalized (memoarable and secure) password in the New Password field."),
+                 p("7: Again re-enter your own personalized password in the Verify Password field"),
+                 p("8: Click the Login button -> You will now be logged into the Jason system"))
     
     user_send_email(pool=DBPOOL_APPLICATIONS,
                     to=reset_code$login_email,

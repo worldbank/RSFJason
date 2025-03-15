@@ -534,7 +534,7 @@ observeEvent(input$action_server_dashboard__edit_save, {
                  overwrite=TRUE)
     
     incProgress(amount=0.10,message="Uploading edits...")
-browser()
+
     results <- tryCatch({
       template_parse_process_and_upload(pool=dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]])),
                                         rsf_program_id = SELECTED_PROGRAM_ID(),

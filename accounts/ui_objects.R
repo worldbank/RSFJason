@@ -25,6 +25,8 @@ LOCATION_SKIN  <- switch(LOCATION,
 accounts_NS <- NS("accounts_server")
 
 ui_htmlHead <- tagList(
+  # tags$head(HTML(paste0('
+  # <meta http-equiv="Content-Security-Policy" content="script-src \'self\' \'unsafe-inline\' \'unsafe-eval\';">'))),
   tags$head(tags$script(paste0('Shiny.addCustomMessageHandler("cookies", function(arg) {  Shiny.setInputValue("',accounts_NS("cookie_report"),'", document.cookie, {priority: "event"}); });'))),
   #tags$link(rel = "stylesheet", type = "text/css", href = "research.css"),
   tags$style(".shiny-notification { position:fixed; top: calc(50%); left: calc(25%); width:800px; }

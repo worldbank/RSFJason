@@ -1,9 +1,10 @@
 
-
-# rsf_program_id <- 107122
+# 
+# rsf_program_id <- 257571
 # reporting_current_date <- '2024-09-30'
-# indicator_id <-  43456
-# formula_pfcbl_id.familytree <- 107137
+# indicator_id <-  157542
+# formula_pfcbl_id.familytree <- 257584
+
 #x<-rsf_indicators_calculate_do_test(pool,rsf_program_id,reporting_current_date,indicator_id,formula_pfcbl_id.familytree)
 
 rsf_indicators_calculate_do_test <- function(pool,

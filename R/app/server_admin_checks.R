@@ -118,6 +118,13 @@ SERVER_ADMIN_CHECKS.SELECTED_CHECK <- eventReactive(c(RSF_CHECKS(),
   
 },ignoreInit=FALSE,ignoreNULL = FALSE)
 
+RSF_CHECK_FORMULAS <- eventReactive(RSF_CHECKS(), {
+  if (is.null(RSF_CHECKS())) return (NULL)
+  
+  return(db_checks_get_formulas(pool=DBPOOL))
+    
+},ignoreNULL=FALSE)
+
 observeEvent(LOGGEDIN(), {
   if (isTruthy(LOGGEDIN())) {
     SERVER_ADMIN_CHECKS.LOAD_RSF_CHECK(0)
