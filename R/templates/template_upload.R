@@ -1022,7 +1022,7 @@ template_upload <- function(pool,
         
         flow_repeats[is.na(check_message) & 
                      data_type=="date",
-                     check_messages:=paste0(data_value,
+                     check_message:=paste0(data_value,
                                             " reported repeatedly on ",reporting_asof_date,
                                             " and on ",previous_asof_date,". ",
                                             "This is a data-flow indicator (an increment or change) ",
@@ -1031,7 +1031,7 @@ template_upload <- function(pool,
         
         flow_repeats[is.na(check_message) & 
                      data_type %in% c("number","currency","percent"),
-                     check_messages:=paste0(data_value,
+                     check_message:=paste0(data_value,
                                             ifelse(is.na(data_unit),"",paste0(" ",data_unit)),
                                             " reported repeatedly on ",reporting_asof_date,
                                             " and on ",previous_asof_date,". ",
@@ -1039,6 +1039,14 @@ template_upload <- function(pool,
                                             " with a total sum value of ",
                                             ((suppressWarnings(as.numeric(total_data_value))) + (suppressWarnings(as.numeric(data_value)))),
                                             ifelse(is.na(data_unit),"",paste0(" ",data_unit)),
+                                            " since first reported in ",since_date,". ",
+                                            "Changing exactly the same amount in consecutive periods is uncommon; and if no change occured, then zero should be reported")]
+        
+        flow_repeats[is.na(check_message),
+                     check_message:=paste0(ifelse(is.na(data_value),"{MISSING}",data_value),
+                                            ifelse(is.na(data_unit),"",paste0(" ",data_unit)),
+                                            " reported repeatedly on ",reporting_asof_date,
+                                            " and on ",previous_asof_date,". ",
                                             " since first reported in ",since_date,". ",
                                             "Changing exactly the same amount in consecutive periods is uncommon; and if no change occured, then zero should be reported")]
         
@@ -1162,31 +1170,39 @@ template_upload <- function(pool,
       
       sys_flags <- unique(sys_flags)
       
+      #Grouping lots of similar messages with AND ALSO is not helpful...removed.  If lots of similar flags, better to download Excel extract and review.  Else messages are tough to differentiate
       sys_flags <- sys_flags[,
-                             n:=.N,
-                             by=.(rsf_pfcbl_id,
-                                  indicator_id,
-                                  reporting_asof_date,
-                                  indicator_check_id)]
+                             .(rsf_pfcbl_id,
+                               indicator_id,
+                               reporting_asof_date,
+                               indicator_check_id,
+                               check_message)]
       
-      if (any(sys_flags$n > 1)) {
-        #sys_flags[n>1 & is.na(data_source_row_id)==FALSE,
-        #          check_message:=paste0(check_message," on ROW ",data_source_row_id)]
-        sys_flags <- sys_flags[,
-                               .(check_message=paste0(check_message,collapse="; AND ALSO ")),
-                               by=.(rsf_pfcbl_id,
-                                    indicator_id,
-                                    reporting_asof_date,
-                                    indicator_check_id)]
-      } else {
-        sys_flags <- sys_flags[,
-                               .(rsf_pfcbl_id,
-                                 indicator_id,
-                                 reporting_asof_date,
-                                 indicator_check_id,
-                                 check_message)]
-      }
-     
+      # sys_flags <- sys_flags[,
+      #                        n:=.N,
+      #                        by=.(rsf_pfcbl_id,
+      #                             indicator_id,
+      #                             reporting_asof_date,
+      #                             indicator_check_id)]
+      # 
+      # if (any(sys_flags$n > 1)) {
+      #   #sys_flags[n>1 & is.na(data_source_row_id)==FALSE,
+      #   #          check_message:=paste0(check_message," on ROW ",data_source_row_id)]
+      #   sys_flags <- sys_flags[,
+      #                          .(check_message=paste0(check_message,collapse="; AND ALSO ")),
+      #                          by=.(rsf_pfcbl_id,
+      #                               indicator_id,
+      #                               reporting_asof_date,
+      #                               indicator_check_id)]
+      # } else {
+      #   sys_flags <- sys_flags[,
+      #                          .(rsf_pfcbl_id,
+      #                            indicator_id,
+      #                            reporting_asof_date,
+      #                            indicator_check_id,
+      #                            check_message)]
+      # }
+      # 
       sys_flags[is.na(rsf_pfcbl_id),rsf_pfcbl_id:=template$reporting_cohort$reporting_rsf_pfcbl_id]
       sys_flags[is.na(reporting_asof_date),reporting_asof_date:=template$reporting_cohort$reporting_asof_date]
       if (anyNA(sys_flags$indicator_id)) {
@@ -1300,6 +1316,16 @@ template_upload <- function(pool,
             am.evaluation_id 
           from archive_match am",
           params=list(template$reporting_cohort$reporting_cohort_id))
+        
+        
+        #Can't restore is because evaluation_id already used and conflict would arise.
+        #This can only exist in cross-database restores
+        dbExecute(conn,"
+                  delete from _temp_restore tr 
+                  where exists(select * from p_rsf.rsf_data_checks_archive dca where dca.archive_id = tr.archive_id) 
+                    and exists(select * from p_rsf.rsf_data_checks rdc where rdc.evaluation_id = tr.archive_id) 
+                    and tr.archive_id <> tr.evaluation_id
+                  ")
         
         restored <- dbGetQuery(conn,"
           select exists(select * from _temp_restore)::bool as restored")

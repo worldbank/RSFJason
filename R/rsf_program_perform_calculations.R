@@ -92,7 +92,9 @@ rsf_program_perform_calculations <- function(pool,
                              from p_rsf.indicator_formulas indf 
                              inner join p_rsf.indicators ind on ind.indicator_id = indf.indicator_id
                              left join p_rsf.rsf_pfcbl_categories grouping on grouping.pfcbl_rank = indf.formula_grouping_pfcbl_rank
-                             left join lateral (select array_agg(distinct 'rsf_pfcbl_id.' || ifp.parameter_pfcbl_category) as pfcbl_id_categories
+                             left join lateral (select 
+                                                  array_agg(distinct 'rsf_' || ifp.parameter_pfcbl_category || '_id') as pfcbl_id_categories
+                                                  --array_agg(distinct 'rsf_pfcbl_id.' || ifp.parameter_pfcbl_category) as pfcbl_id_categories
                               									from p_rsf.indicator_formula_parameters ifp 
                               									where ifp.formula_id = indf.formula_id) as pids on true
                              
@@ -157,7 +159,7 @@ rsf_program_perform_calculations <- function(pool,
       
       computation_groups <- sort(unique(calculations$computation_group))
       current_data[,calculated:=FALSE]
-      #compg <- computation_groups[[1]]
+      #compg <- computation_groups[[5]]
       for (compg in computation_groups) {
         
         calculations_group <- calculations[computation_group==compg]
@@ -185,28 +187,41 @@ rsf_program_perform_calculations <- function(pool,
           #entity that is requesting it.  For this reason, simplify.indicators = FALSE
            
           calculate_rsf_pfcbl_ids <- unique(unlist(calculations_group$calculate_rsf_pfcbl_ids))
-          
+
+          data_rsf_pfcbl_ids <- db_indicators_get_calculation_parameter_rsf_pfcbl_ids(pool=pool,
+                                                                                      calculate_rsf_pfcbl_ids=calculate_rsf_pfcbl_ids,
+                                                                                      calculate_indicator_ids=unique(calculations_group$calculate_indicator_id),
+                                                                                      calculate_asof_date=calculations_group$calculate_asof_date[[1]])          
           #TODO: need hierarchy to be 'sibling'
-          parameter_rsf_pfcbl_ids <- dbGetQuery(pool,"
-                                                  select 
-                                                    distinct cids.to_parameter_rsf_pfcbl_id as rsf_pfcbl_id
-                                                  from p_rsf.compute_calculation_to_parameter_rsf_pfcbl_ids cids
-                                                  where cids.from_calculate_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                                    and cids.from_calculate_indicator_id = any(select unnest(string_to_array($2::text,','))::int)
-                                                    and cids.parameter_rsf_pfcbl_id_created_date <= $3::date
-                                                    and cids.to_parameter_rsf_pfcbl_id <> cids.from_calculate_rsf_pfcbl_id
-                                                ",
-                                                params=list(paste0(calculate_rsf_pfcbl_ids,collapse=","),
-                                                            paste0(unique(calculations_group$calculate_indicator_id),collapse=","),
-                                                            as.character(calculations_group$calculate_asof_date[[1]])))
-    
+          # parameter_rsf_pfcbl_ids <- dbGetQuery(pool,"
+          #                                         select 
+          #                                           distinct cids.to_parameter_rsf_pfcbl_id as rsf_pfcbl_id
+          #                                         from p_rsf.compute_calculation_to_parameter_rsf_pfcbl_ids cids
+          #                                         where cids.from_calculate_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+          #                                           and cids.from_calculate_indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+          #                                           and cids.parameter_rsf_pfcbl_id_created_date <= $3::date
+          #                                           and cids.to_parameter_rsf_pfcbl_id <> cids.from_calculate_rsf_pfcbl_id
+          #                                       ",
+          #                                       params=list(paste0(calculate_rsf_pfcbl_ids,collapse=","),
+          #                                                   paste0(unique(calculations_group$calculate_indicator_id),collapse=","),
+          #                                                   as.character(calculations_group$calculate_asof_date[[1]])))
+          # 
+          # 
+          #  data_rsf_pfcbl_ids <- unique(c(calculate_rsf_pfcbl_ids,parameter_rsf_pfcbl_ids$rsf_pfcbl_id))
+          for_pfcbl_categories <- unique(c(calculations_group$formula_grouping_rsf_id,
+                                           unlist(calculations_group$formula_pfcbl_id_categories),
+                                           calculations_group$data_category))
           
-           data_rsf_pfcbl_ids <- unique(c(calculate_rsf_pfcbl_ids,parameter_rsf_pfcbl_ids$rsf_pfcbl_id))
-           rsf_data_wide <- db_program_get_data(pool=pool,
+          #some come in as rsf_X_id and others as a clean category
+          for_pfcbl_categories <- gsub("^rsf_([a-z]+)_id$","\\1",for_pfcbl_categories)
+          
+          
+          rsf_data_wide <- db_program_get_data(pool=pool,
                                                reporting_current_date=calculations_group$calculate_asof_date[[1]],
+                                               rsf_indicators=rsf_indicators,
                                                indicator_variables=request_indicator_variables, #a named vector of indicator_id values; names, a csv concatenated string of variable attribute requirements
                                                for_rsf_pfcbl_ids=data_rsf_pfcbl_ids,
-                                               indicator_ids.simplify=FALSE) #When TRUE, will return data columns specified in indicator_ids (and omit sys_reporting pseudo indicators); #Note that rsf_checks_calculate expects these for by() groupings
+                                               for_pfcbl_categories=for_pfcbl_categories)
        
         }      
           

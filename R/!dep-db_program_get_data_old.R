@@ -1,9 +1,8 @@
-db_program_get_data  <- function(pool,
+db_program_get_data_old  <- function(pool,
                                  reporting_current_date,  #When - current asof date
                                  indicator_variables,     #What - a named vector of indicator_id values; names, a csv concatenated string of variable attribute requirements
                                  for_rsf_pfcbl_ids,       #Who  - who do we want the data for?
-                                 for_pfcbl_categories=NULL,    #query rsf_x_id when NULL will query only what is reqeusted from indicator_variables' data_category.  This is needed for grouping formulas
-                                 rsf_indicators,
+                                 indicator_ids.simplify=TRUE, #When TRUE, will return data columns specified in indicator_ids (and omit sys_reporting pseudo indicators); #Note that rsf_checks_calculate expects these for by() groupings
                                  missing_indicators.use_default=TRUE)
 {
 
@@ -41,15 +40,8 @@ db_program_get_data  <- function(pool,
     if (anyNA(for_rsf_pfcbl_ids)) for_rsf_pfcbl_ids <- for_rsf_pfcbl_ids[-which(is.na(for_rsf_pfcbl_ids))]
     reporting_current_date <- as.Date(reporting_current_date)
   }  
-   # db_params <<- as.list(environment())[which(names(as.list(environment())) %in% c("reporting_current_date",
-   #                                                                                 "indicator_variables",
-   #                                                                                 "for_rsf_pfcbl_ids",
-   #                                                                                 "for_pfcbl_categories",
-   #                                                                                 "rsf_indicators",
-   #                                                                                 "missing_indicators.use_default"))]
-   
-   
-   # 
+  # db_params <<- as.list(environment())[which(names(as.list(environment())) %in% c("rsf_program_id","reporting_current_date","indicator_variables","for_rsf_pfcbl_ids","indicator_ids.simplify","missing_indicators.use_default"))]
+  
   # lapply(names(db_params),function(x) { assign(x,db_params[[x]],envir = globalenv()) })
 
   
@@ -73,7 +65,7 @@ db_program_get_data  <- function(pool,
       # valid_date <- valid_date$valid_date
       # if (valid_date==FALSE) stop(paste0("Program ID",rsf_program_id," does not have a reporting entry asof ",reporting_current_date))
       
-      #indicator_ids.keepfor <- NULL #Will be defined based on rsf_data query: if indicator_ids is specified (not NA) then filter-out to keep only requested indicators
+      indicator_ids.keepfor <- NULL #Will be defined based on rsf_data query: if indicator_ids is specified (not NA) then filter-out to keep only requested indicators
       #this has the primary effect of filtering out the sys_rsf_X_reporting indicators that are always pulled in to ensure joins.
       
 
@@ -91,42 +83,27 @@ db_program_get_data  <- function(pool,
       indicators_requested <- unique(as.numeric(indicator_variables))
       if (length(indicator_variables)==0 || all(is.na(indicator_variables))) indicators_requested <- NA
       
-      pfcbl_indicators <- rsf_indicators[indicator_id %in% indicators_requested,
-                                          .(indicator_id,
-                                            indicator_name,
-                                            indicator_pfcbl_rank,
-                                            data_category,
-                                            data_type,
-                                            indicator_sys_category,
-                                            default_value,
-                                            data_unit,
-                                            is_static_nonreporting,
-                                            is_periodic_or_flow_reporting)]
+      #Deliberate decision NOT to check if entry exists in rsf_program_indicators because non-subscribed indicators could be requested via
+      #formulas, checks, globals -- let the consumer function verify validity
+      pfcbl_indicators <- dbGetQuery(pool,
+                                     "
+                                     select
+                                      ind.indicator_id,
+                                      ind.indicator_name,
+                                      ind.data_category,
+                                      ind.data_type,
+                                      ind.indicator_sys_category,
+                                      ind.default_value,
+                                      ind.data_unit,
+                                      coalesce(ind.is_static_nonreporting,false) as is_static_nonreporting,
+                                      coalesce(ind.is_periodic_or_flow_reporting,false) as is_periodic_or_flow_reporting
+                                      from p_rsf.indicators ind
+                                      where ind.indicator_id = any(select unnest(string_to_array(nullif($1::text,'NA'),','))::int)
+                                        and ind.indicator_name ~ E'^rsf_' = false", #don't pull-in any newly created indicators
+                                     params=list(paste0(indicators_requested,collapse=",")))
       
-      pfcbl_indicators[is.na(is_static_nonreporting),is_static_nonreporting:=FALSE]
-      pfcbl_indicators[is.na(is_periodic_or_flow_reporting),is_periodic_or_flow_reporting:=FALSE]
       
-      # #Deliberate decision NOT to check if entry exists in rsf_program_indicators because non-subscribed indicators could be requested via
-      # #formulas, checks, globals -- let the consumer function verify validity
-      # pfcbl_indicators <- dbGetQuery(pool,
-      #                                "
-      #                                select
-      #                                 ind.indicator_id,
-      #                                 ind.indicator_name,
-      #                                 ind.data_category,
-      #                                 ind.data_type,
-      #                                 ind.indicator_sys_category,
-      #                                 ind.default_value,
-      #                                 ind.data_unit,
-      #                                 coalesce(ind.is_static_nonreporting,false) as is_static_nonreporting,
-      #                                 coalesce(ind.is_periodic_or_flow_reporting,false) as is_periodic_or_flow_reporting
-      #                                 from p_rsf.indicators ind
-      #                                 where ind.indicator_id = any(select unnest(string_to_array(nullif($1::text,'NA'),','))::int)
-      #                                   and ind.indicator_name ~ E'^rsf_' = false", #don't pull-in any newly created indicators
-      #                                params=list(paste0(indicators_requested,collapse=",")))
-      # 
-      # 
-      # setDT(pfcbl_indicators)
+      setDT(pfcbl_indicators)
       #pfcbl_indicators[,is_reporting_indicator:=FALSE]
       #pfcbl_indicators[indicator_sys_category=='entity_reporting',is_reporting_indicator:=TRUE]
       
@@ -136,11 +113,11 @@ db_program_get_data  <- function(pool,
                     paste0(indicators_requested[which(!indicators_requested %in% pfcbl_indicators$indicator_id)])))
       }
       
-      # if (length(indicators_requested)==0) {
-      #   indicator_ids.keepfor <- unique(pfcbl_indicators$indicator_id)
-      # } else {
-      #   indicator_ids.keepfor <- indicators_requested
-      # }
+      if (length(indicators_requested)==0) {
+        indicator_ids.keepfor <- unique(pfcbl_indicators$indicator_id)
+      } else {
+        indicator_ids.keepfor <- indicators_requested
+      }
       
       #Request a non-existent indicator_id
       if (any(!indicator_variables %in% pfcbl_indicators$indicator_id)) indicator_variables <- indicator_variables[-which(!indicator_variables %in% pfcbl_indicators$indicator_id)]
@@ -193,196 +170,178 @@ db_program_get_data  <- function(pool,
       query_indicators[,is_static_nonreporting:=NULL]
       
       query_indicators <- unique(query_indicators)
-      query_indicators[rsf_indicators,
-                       `:=`(indicator_name=i.indicator_name,
-                            indicator_name_variable=paste0(i.indicator_name,".",indicator_variable),
-                            pfcbl_category=i.data_category,
-                            data_type=i.data_type,
-                            default_value=i.default_value,
-                            data_unit=i.data_unit),
-                       on=.(indicator_id)]
     }
-    
-    
-    # pfcbl_ids_old <- as.data.frame(pfcbl_ids);setDT(pfcbl_ids_old)
-    # pfcbl_family_old <- as.data.frame(pfcbl_family);setDT(pfcbl_family_old)
-    # pfcbl_family_long_old <- as.data.frame(pfcbl_family_old); setDT(pfcbl_family_long_old)
     
     #get pfcbl_ids
     {
-
-      pfcbl_categories <- na.omit(c(for_pfcbl_categories,
-                                    pfcbl_indicators[order(indicator_pfcbl_rank),data_category]))
-
-      #previous data must lookup the last reported date at the program level
-      if (any(grepl("previous",query_indicators$indicator_variable)==TRUE &
-              grepl("issuances\\.previous",query_indicators$indicator_variable)==FALSE)) {
-        pfcbl_categories <- c("program",pfcbl_categories)
-      }
-      
-      pfcbl_categories <- unique(pfcbl_categories)
-      #passed a null/empty indicator request in.  So just request all pfcbl categories
-
-      if (length(pfcbl_categories)==0) {
-        pfcbl_categories <- c("program","facility","client","borrower","loan")
-      }
-      
-      
       #If we request a global indicator, add-in the global rsf_pfcbl_id
-      if (any(pfcbl_categories=="global")) {
-        
-        if (!any(for_rsf_pfcbl_ids==0)) {
-          for_rsf_pfcbl_ids <- c(0,for_rsf_pfcbl_ids)
-        }
-        if (!any(pfcbl_categories=="program")) {
-          pfcbl_categories <- c("program",pfcbl_categories)
-        }
-      
-        #because there is no rsf_global_id column to request.
-        pfcbl_categories <- pfcbl_categories[-which(pfcbl_categories=="global")]
+      if (any(pfcbl_indicators$data_category=="global") && !any(for_rsf_pfcbl_ids==0)) {
+        for_rsf_pfcbl_ids <- c(0,for_rsf_pfcbl_ids)
       }
 
-      #ordering by indicator_pfcbl_ranks ensures program>facility>client>borrower>loan ordering; which is important for filtering NA values below
-      #very important for removing extra NA values!!  Since only a child category can have NA but never a parent category
-      pfcbl_categories <- pfcbl_categories[order(match(pfcbl_categories,c("global","program","facility","client","borrower","loan")))]
-      
-      
-      
-      
-      
-      pfcbl_categories <- paste0("ids.rsf_",pfcbl_categories,"_id",collapse=",")
-      
-      pfcbl_sql <- paste0("select ",paste0(c("ids.rsf_pfcbl_id","ids.pfcbl_category",pfcbl_categories),collapse=","))
-      
-      if (any(query_indicators$indicator_variable == "info.createddate")) {
-        pfcbl_sql <- paste0(pfcbl_sql,", ids.created_in_reporting_asof_date")
-      }
 
-      #move this to issuances query
-      if (any(query_indicators$indicator_variable_class %in% c("issuances.current","issuances.previous")) ||
-          any(query_indicators$indicator_id==rsf_indicators[indicator_sys_category == "issuance_id",indicator_id])) {
-        pfcbl_sql <- paste0(pfcbl_sql,", lis.loan_issuance_series_id, lis.loan_issuance_series_rank")
-      }
-      
-      pfcbl_sql <- paste0(pfcbl_sql," from p_rsf.rsf_pfcbl_ids ids ")
-      
-
-      #move this to issuances query
-      if (any(query_indicators$indicator_variable_class %in% c("issuances.current","issuances.previous")) ||
-          any(query_indicators$indicator_id==rsf_indicators[indicator_sys_category == "issuance_id",indicator_id])) {
-        pfcbl_sql <- paste0(pfcbl_sql," left join p_rsf.rsf_loan_issuance_series lis on lis.rsf_pfcbl_id = ids.rsf_pfcbl_id")
-        
-      }
-
-      pfcbl_ids <- dbGetQuery(pool,glue(
-                              "{pfcbl_sql}
+      pfcbl_ids <- dbGetQuery(pool,
+                              "select
+                                ids.rsf_pfcbl_id,
+                              	ids.pfcbl_category,
+                              	ids.rsf_program_id,
+                              	ids.rsf_facility_id,
+                              	ids.rsf_client_id,
+                              	ids.rsf_borrower_id,
+                              	ids.rsf_loan_id,
+                              	ids.created_in_reporting_asof_date,
+                              	lis.loan_issuance_series_id,
+                              	lis.loan_issuance_series_rank
+                              from p_rsf.rsf_pfcbl_ids ids
+                              left join p_rsf.rsf_loan_issuance_series lis on lis.rsf_pfcbl_id = ids.rsf_pfcbl_id
                               where ids.created_in_reporting_asof_date <= $1::date
-                               and ids.rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int)"),
-                              params=list(reporting_current_date,
-                                          paste0(unique(for_rsf_pfcbl_ids),collapse=",")))
+                              and exists(select * from p_rsf.rsf_pfcbl_id_family fam 
+                              						 where ids.rsf_pfcbl_id = fam.parent_rsf_pfcbl_id
+                              						   and fam.child_rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int))",
+                                params=list(reporting_current_date,
+                                            paste0(unique(for_rsf_pfcbl_ids),collapse=",")))
       
       setDT(pfcbl_ids)
-      
-      
-      if (any(pfcbl_indicators$data_category=="global")) {
-        pfcbl_ids[,rsf_global_id:=as.integer(0)]
-        setcolorder(pfcbl_ids,
-                    neworder="rsf_global_id")
-      }
-      
-      if (any(names(pfcbl_ids)=="rsf_program_id")) {
-        pfcbl_ids[rsf_program_id==0,
-                  rsf_program_id:=as.integer(NA)]
-      }
-
-      pfcbl_family <- pfcbl_ids[,
-                                .SD,
-                                .SDcols=c(grep("^rsf_global_id|rsf_program_id|rsf_facility_id|rsf_client_id|rsf_borrower_id|rsf_loan_id$",names(pfcbl_ids),value=T))]
-      
-      pfcbl_ids <- pfcbl_ids[,
-                             .SD,
-                             .SDcols=setdiff(names(pfcbl_ids),names(pfcbl_family))]
-      
-      
-      if (any(sapply(pfcbl_family,anyNA))) {
-        
-        #For example: we request a client ID and a bunch of loan IDs and we request for a date where no loans have been created (say it's the date of creation, before effectiveness)
-        #rsf_loan_id column will be NA.  But rightly so, since client has no loans.
-        #And so the result sent will include only rsf_client_id (with a value), and rsf_loan_id (with nothing).  We can't remove the NA rsf_loan ID row because then there would be no
-        #rsf_client_id and just an empty result set.
-        
-        #to ensure that row i and i+1 will have the same parents, if possible.
-        setorderv(pfcbl_family,
-                  cols=names(pfcbl_family))
-        
-        na_rows <- which(is.na(pfcbl_family[[ncol(pfcbl_family)]]))
-        na_rows <- na_rows[length(na_rows):1] #reverse order
-        
-        for (i in na_rows) {
-          
-          if (i >= nrow(pfcbl_family)) next;
-          
-          pfcbl_row <- pfcbl_family[i]
-          
-          na_cols <- sum(is.na(pfcbl_row)) #Any entity with an ID must have a parent with an ID, so NAs sum-up from last to first
-          #Seems unlikely we could generate a query with all NAs, but maybe...
-          
-          if (na_cols==ncol(pfcbl_family)) {
-            pfcbl_family <- pfcbl_family[-i]
-            
-            
-            #says that for the current row with NA values, the non-NA values can be found in the next row
-            #and therefore, we can remove this NA row since it will not result in loss of any parent rsf_pfcbl_ids
-          } else if (empty(fsetdiff(pfcbl_row[,1:(ncol(pfcbl_family)-na_cols)],pfcbl_family[i+1,1:(ncol(pfcbl_family)-na_cols)]))) {
-            pfcbl_family <- pfcbl_family[-i]
-            
-            
-          }
-        }
-        
-      }
-      
-      #only for missing entities and just generates noise
-      #pfcbl_family[is.na(pfcbl_family)] <- -(1:sum(is.na(pfcbl_family))) #pseudo IDs for requested entities that don't exist
-      
-      #Because if we request for_rsf_pfcbl_ids, those may or may not explicitly include parents.  So this dcast will unnest parent entities without the need to explicitly query them.
-      missing_pfcbl_parent_ids <- melt.data.table(pfcbl_family,
-                                           id.vars=.I,
-                                           measure.vars=names(pfcbl_family),
-                                           variable.name="pfcbl_category",
-                                           value.name="rsf_pfcbl_id",
-                                           value.factor = F,
-                                           variable.factor = F)
-      missing_pfcbl_parent_ids <- unique(missing_pfcbl_parent_ids[!rsf_pfcbl_id %in% pfcbl_ids$rsf_pfcbl_id])
-      missing_pfcbl_parent_ids <- missing_pfcbl_parent_ids[!is.na(rsf_pfcbl_id)]
-      
-      if (!empty(missing_pfcbl_parent_ids)) {
-        missing_pfcbl_parent_ids[,pfcbl_category:=gsub("^rsf_([a-z]+)_id$","\\1",pfcbl_category)] 
-        
-        pfcbl_names <- setdiff(names(pfcbl_ids),names(missing_pfcbl_parent_ids))
-        if (length(pfcbl_names) > 0) {
-          missing_pfcbl_parent_ids[,
-                            (pfcbl_names):=NA]
-        }
-        
-        setcolorder(missing_pfcbl_parent_ids,
-                    neworder = names(pfcbl_ids))
-        
-        pfcbl_ids <- rbindlist(list(pfcbl_ids,
-                                    missing_pfcbl_parent_ids))
-      }
-
-      query_rsf_pfcbl_pfcbl_family_ids <- pfcbl_ids[pfcbl_category %in% pfcbl_indicators[,unique(data_category)],
-                                                    rsf_pfcbl_id]
-      
-     
+      #for_rsf_pfcbl_ids <- c(0,for_rsf_pfcbl_ids)
       
       if (empty(pfcbl_ids)) {
         stop("Empty pfcbl IDs")
       }
       
-      pfcbl_family[,
-                   reporting_current_date:=reporting_current_date]
+      
+      #pfcbl family
+      {
+        rsf_program_ids <- unique(pfcbl_ids$rsf_program_id)
+        if (anyNA(rsf_program_ids)) { 
+          stop("NA rsf_program_id in db_program_get_data")
+        }
+        if (length(rsf_program_ids[rsf_program_ids > 0]) > 1) {
+          stop("Data cannot be requested for multiple programs")
+        }
+        
+        rsf_program_id <- max(rsf_program_ids)
+        pfcbl_ids[,rsf_program_id:=max(rsf_program_ids)]
+        
+        loans <- pfcbl_ids[pfcbl_category=="loan",.(rsf_pfcbl_id.loan=rsf_pfcbl_id,rsf_borrower_id,rsf_loan_id)]
+        borrowers <- pfcbl_ids[pfcbl_category=="borrower",.(rsf_pfcbl_id.borrower=rsf_pfcbl_id,rsf_client_id,rsf_borrower_id)]
+        clients <- pfcbl_ids[pfcbl_category=="client",.(rsf_pfcbl_id.client=rsf_pfcbl_id,rsf_facility_id,rsf_client_id)]
+        facilities <- pfcbl_ids[pfcbl_category=="facility",.(rsf_pfcbl_id.facility=rsf_pfcbl_id,rsf_program_id,rsf_facility_id)]
+        programs <- pfcbl_ids[pfcbl_category == "program",.(rsf_pfcbl_id.program=rsf_pfcbl_id,rsf_program_id)]
+        #global <- pfcbl_ids[pfcbl_category == "global",.(rsf_pfcbl_id.program=rsf_pfcbl_id,rsf_program_id)]
+        
+        pfcbl_family <- loans[borrowers,
+                              on=.(rsf_borrower_id)
+                              ][clients,
+                                on=.(rsf_client_id)
+                                ][facilities,
+                                  on=.(rsf_facility_id)
+                                  ][programs,
+                                    on=.(rsf_program_id)]
+        
+        if (rsf_program_id==0) {
+          
+          pfcbl_family <- pfcbl_ids[pfcbl_category == "global",.(rsf_pfcbl_id.global=as.integer(rsf_pfcbl_id),
+                                                                 rsf_program_id=as.integer(0))]
+          pfcbl_family[,`:=`(rsf_pfcbl_id.program=as.integer(NA),
+                             rsf_pfcbl_id.facility=as.integer(NA),
+                             rsf_pfcbl_id.client=as.integer(NA),
+                             rsf_pfcbl_id.borrower=as.integer(NA),
+                             rsf_pfcbl_id.loan=as.integer(NA),
+                             rsf_facility_id=as.integer(NA),
+                             rsf_client_id=as.integer(NA),
+                             rsf_borrower_id=as.integer(NA),
+                             rsf_loan_id=as.integer(NA))]
+        
+        } else {
+          
+          pfcbl_family[,rsf_pfcbl_id.global:=as.integer(0)]
+          
+        }
+        
+        setcolorder(pfcbl_family,
+                    neworder=c("rsf_pfcbl_id.global",
+                               "rsf_pfcbl_id.program",
+                               "rsf_pfcbl_id.facility",
+                               "rsf_pfcbl_id.client",
+                               "rsf_pfcbl_id.borrower",
+                               "rsf_pfcbl_id.loan",
+                               "rsf_program_id",
+                               "rsf_facility_id",
+                               "rsf_client_id",
+                               "rsf_borrower_id",
+                               "rsf_loan_id"))
+        setorder(pfcbl_family,
+                 rsf_program_id,
+                 rsf_facility_id,
+                 rsf_client_id,
+                 rsf_borrower_id,
+                 rsf_loan_id)
+        
+        
+        
+        programs <- NULL
+        facilities <- NULL
+        clients <- NULL
+        borrowers <- NULL
+        loans <- NULL
+        
+        
+        pfcbl_ids[,
+                  `:=`(reporting_indicator_id=as.numeric(NA),
+                       reporting_indicator_name=as.character(NA))]
+      
+        pfcbl_family[,family_id:=1:.N]
+        
+        #Missing/non-existent entities should also have unique IDs (not NA)
+        pfcbl_family[is.na(rsf_facility_id),rsf_facility_id:=-1*(1:.N)]
+        pfcbl_family[is.na(rsf_client_id),rsf_client_id:=-1*(1:.N)]
+        pfcbl_family[is.na(rsf_borrower_id),rsf_borrower_id:=-1*(1:.N)]
+        pfcbl_family[is.na(rsf_loan_id),rsf_loan_id:=-1*(1:.N)]
+        
+        
+        pfcbl_family_long <- melt.data.table(pfcbl_family[,.(family_id,
+                                                             rsf_pfcbl_id.global,
+                                                             rsf_pfcbl_id.program,
+                                                             rsf_pfcbl_id.facility,
+                                                             rsf_pfcbl_id.client,
+                                                             rsf_pfcbl_id.borrower,
+                                                             rsf_pfcbl_id.loan)],
+                                             id.vars="family_id",
+                                             variable.name="rsf_pfcbl_id.category",
+                                             value.name="rsf_pfcbl_id")
+        
+        #Missing rsf_pfcbl_ids must also be unique
+        {
+          pfcbl_family_long[is.na(rsf_pfcbl_id),rsf_pfcbl_id:=-1*(1:.N)]
+  
+          #Must be a global reporting query if program ID is NA
+          pfcbl_family[pfcbl_family_long[rsf_pfcbl_id.category=="rsf_pfcbl_id.program",.(rsf_pfcbl_id.program=as.numeric(NA),family_id,rsf_pfcbl_id)],
+                       rsf_pfcbl_id.program:=i.rsf_pfcbl_id,
+                       on=.(family_id,
+                            rsf_pfcbl_id.program)]
+            
+          pfcbl_family[pfcbl_family_long[rsf_pfcbl_id.category=="rsf_pfcbl_id.facility",.(rsf_pfcbl_id.facility=as.numeric(NA),family_id,rsf_pfcbl_id)],
+                       rsf_pfcbl_id.facility:=i.rsf_pfcbl_id,
+                       on=.(family_id,
+                            rsf_pfcbl_id.facility)]
+          
+          pfcbl_family[pfcbl_family_long[rsf_pfcbl_id.category=="rsf_pfcbl_id.client",.(rsf_pfcbl_id.client=as.numeric(NA),family_id,rsf_pfcbl_id)],
+                       rsf_pfcbl_id.client:=i.rsf_pfcbl_id,
+                       on=.(family_id,
+                            rsf_pfcbl_id.client)]
+          
+          pfcbl_family[pfcbl_family_long[rsf_pfcbl_id.category=="rsf_pfcbl_id.borrower",.(rsf_pfcbl_id.borrower=as.numeric(NA),family_id,rsf_pfcbl_id)],
+                       rsf_pfcbl_id.borrower:=i.rsf_pfcbl_id,
+                       on=.(family_id,
+                            rsf_pfcbl_id.borrower)]
+          
+          pfcbl_family[pfcbl_family_long[rsf_pfcbl_id.category=="rsf_pfcbl_id.loan",.(rsf_pfcbl_id.loan=as.numeric(NA),family_id,rsf_pfcbl_id)],
+                       rsf_pfcbl_id.loan:=i.rsf_pfcbl_id,
+                       on=.(family_id,
+                            rsf_pfcbl_id.loan)]
+        }        
+        #if(SYS_PRINT_TIMING)  debugtime("db_program_get_data","pfcbl_family created with ",nrow(pfcbl_family)," members")
+      }
     }
     
     #get the data
@@ -404,11 +363,6 @@ db_program_get_data  <- function(pool,
       if (any(grepl("previous",query_indicators$indicator_variable)==TRUE &
               grepl("issuances\\.previous",query_indicators$indicator_variable)==FALSE)) {
         
-        pId <- pfcbl_ids[pfcbl_category=="program",unique(rsf_pfcbl_id)]
-        if (length(pId) !=1) {
-          stop("Multiple program IDs requested and not allowed")
-        }
-        
         query_previous_date <- dbGetQuery(pool,"
                                             select 
                                               prd.valid_reporting_date 
@@ -417,7 +371,7 @@ db_program_get_data  <- function(pool,
                                               and prd.valid_reporting_date < $2::date
                                             order by prd.valid_reporting_date desc
                                             limit 1",
-                                          params=list(pId,
+                                          params=list(rsf_program_id,
                                                       reporting_current_date))
         
         if (!empty(query_previous_date)) {
@@ -475,7 +429,7 @@ db_program_get_data  <- function(pool,
                                       										limit 1) end_period on true
                                       where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
                                       	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
-                               params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+                               params=list(paste0(unique(pfcbl_ids$rsf_pfcbl_id),collapse=","),
                                            paste0(query_indicator_ids,collapse=","),
                                            reporting_current_date))
   
@@ -535,7 +489,7 @@ db_program_get_data  <- function(pool,
                                       										limit 1) end_period on true
                                       where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
                                       	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
-                                     params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+                                     params=list(paste0(unique(pfcbl_ids$rsf_pfcbl_id),collapse=","),
                                                  paste0(query_indicator_ids,collapse=","),
                                                  program_previous_date))
         
@@ -588,7 +542,7 @@ db_program_get_data  <- function(pool,
                                           case when isnumeric(min_period.data_value) then (min_period.data_value::numeric) else NULL end asc nulls last,
                                           min_period.data_value asc nulls last,
                                           min_period.reporting_asof_date asc",
-                                        params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+                                        params=list(paste0(unique(pfcbl_ids$rsf_pfcbl_id),collapse=","),
                                                     paste0(query_mms_indicators_current[indicator_variable_class=="min.current",unique(indicator_id)],collapse=","),
                                                     reporting_current_date))
           
@@ -619,7 +573,7 @@ db_program_get_data  <- function(pool,
                                           case when isnumeric(max_period.data_value) then (max_period.data_value::numeric) else NULL end desc nulls last,
                                           max_period.data_value desc nulls last,
                                           max_period.reporting_asof_date desc",
-                                        params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+                                        params=list(paste0(unique(pfcbl_ids$rsf_pfcbl_id),collapse=","),
                                                     paste0(query_mms_indicators_current[indicator_variable_class=="max.current",unique(indicator_id)],collapse=","),
                                                     reporting_current_date))
             
@@ -649,7 +603,7 @@ db_program_get_data  <- function(pool,
                                           sum_period.rsf_pfcbl_id,
                                           sum_period.indicator_id,
                                           sum_period.reporting_asof_date desc",
-                                        params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+                                        params=list(paste0(unique(pfcbl_ids$rsf_pfcbl_id),collapse=","),
                                                     paste0(query_mms_indicators_current[indicator_variable_class=="sum.current",unique(indicator_id)],collapse=","),
                                                     reporting_current_date))
             
@@ -684,7 +638,7 @@ db_program_get_data  <- function(pool,
                                           case when isnumeric(min_period.data_value) then (min_period.data_value::numeric) else NULL end asc nulls last,
                                           min_period.data_value asc nulls last,
                                           min_period.reporting_asof_date asc",
-                                        params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+                                        params=list(paste0(unique(pfcbl_ids$rsf_pfcbl_id),collapse=","),
                                                     paste0(query_mms_indicators_previous[indicator_variable_class=="min.previous",unique(indicator_id)],collapse=","),
                                                     program_previous_date))
             
@@ -715,7 +669,7 @@ db_program_get_data  <- function(pool,
                                           case when isnumeric(max_period.data_value) then (max_period.data_value::numeric) else NULL end desc nulls last,
                                           max_period.data_value desc nulls last ,
                                           max_period.reporting_asof_date desc",
-                                        params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+                                        params=list(paste0(unique(pfcbl_ids$rsf_pfcbl_id),collapse=","),
                                                     paste0(query_mms_indicators_previous[indicator_variable_class=="max.previous",unique(indicator_id)],collapse=","),
                                                     program_previous_date))
             
@@ -745,7 +699,7 @@ db_program_get_data  <- function(pool,
                                           sum_period.rsf_pfcbl_id,
                                           sum_period.indicator_id,
                                           sum_period.reporting_asof_date desc",
-                                        params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+                                        params=list(paste0(unique(pfcbl_ids$rsf_pfcbl_id),collapse=","),
                                                     paste0(query_mms_indicators_previous[indicator_variable_class=="sum.previous",unique(indicator_id)],collapse=","),
                                                     program_previous_date))
             
@@ -807,7 +761,7 @@ db_program_get_data  <- function(pool,
                                       										limit 1) end_period on true
                                       where lis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
                                       	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
-                               params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+                               params=list(paste0(unique(pfcbl_ids$rsf_pfcbl_id),collapse=","),
                                            paste0(query_indicator_ids,collapse=","),
                                            reporting_current_date))
         
@@ -865,7 +819,7 @@ db_program_get_data  <- function(pool,
                                       										limit 1) end_period on true
                                       where lis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
                                       	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
-                                     params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+                                     params=list(paste0(unique(pfcbl_ids$rsf_pfcbl_id),collapse=","),
                                                  paste0(query_indicator_ids,collapse=","),
                                                  reporting_current_date))
 
@@ -920,7 +874,7 @@ db_program_get_data  <- function(pool,
                                       										limit 1) first_period on true
                                       where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
                                       	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
-                                     params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+                                     params=list(paste0(unique(pfcbl_ids$rsf_pfcbl_id),collapse=","),
                                                  paste0(query_indicator_ids,collapse=","),
                                                  reporting_current_date))
         
@@ -959,7 +913,7 @@ db_program_get_data  <- function(pool,
                                                                            and rdc.reporting_asof_date <= $3::date
                                       where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
                                       	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
-                                     params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+                                     params=list(paste0(unique(pfcbl_ids$rsf_pfcbl_id),collapse=","),
                                                  paste0(query_indicator_ids,collapse=","),
                                                  reporting_current_date))
         
@@ -1025,10 +979,6 @@ db_program_get_data  <- function(pool,
                                     data_class)]
         
         if (!empty(status_ids)) {
-          
-          #status function is obsolete.  
-          #replace checks that use info.status with 'loan_status_reporting.current'
-          
           if (any(query_indicators$indicator_variable == "info.status")) {
   
             info.status <- status_ids[data_class=="info.status"]
@@ -1162,7 +1112,6 @@ db_program_get_data  <- function(pool,
         }
       }
     }
-    
     #static indicators
     {
       static_indicators <- pfcbl_indicators[is_static_nonreporting==TRUE & indicator_id %in% query_indicators$indicator_id,
@@ -1283,67 +1232,116 @@ db_program_get_data  <- function(pool,
                                       "reportnumber"))
       
     }
+    #Defaults: requests for indicators that program isn't subscribed to (can happen when chacks require an input variable that program doesn't track--use default)
+    {
+      #missing_indicators <- indicator_variables[!indicator_variables %in% rsf_data$indicator_id]
+      missing_indicators <- query_indicators[!indicator_id %in% rsf_data$indicator_id,indicator_id]
+      if (length(missing_indicators) > 0 & missing_indicators.use_default==TRUE) {
+        entities <- pfcbl_family_long[,
+                                      .(data_category=gsub("^rsf_pfcbl_id\\.(.*)$","\\1",rsf_pfcbl_id.category),
+                                        rsf_pfcbl_id)] 
+        entities <- unique(entities)
+        default_values <- entities[pfcbl_indicators[indicator_id %in% missing_indicators,
+                                                   .(indicator_id,
+                                                     indicator_name,
+                                                     data_type,
+                                                     data_category,
+                                                     data_value=default_value,
+                                                     data_unit)][unique(query_indicators[,.(indicator_id,
+                                                                                            data_class=indicator_variable_class)]),
+                                                                 on=.(indicator_id),
+                                                                 nomatch=NULL],
+                                   .(rsf_pfcbl_id,
+                                     indicator_id,
+                                     indicator_name,
+                                     data_type,
+                                     data_value,
+                                     data_unit,
+                                     data_class),
+                                   on=.(data_category),
+                                   by=.EACHI,
+                                   nomatch=NULL]
+        
+        non_issuance_entities <- pfcbl_ids[is.na(loan_issuance_series_id)==TRUE,.(rsf_pfcbl_id)]
+        non_issuance_entities <- rbindlist(list(non_issuance_entities[,.(rsf_pfcbl_id,data_class="issuances.current")],
+                                                non_issuance_entities[,.(rsf_pfcbl_id,data_class="issuances.previous")]))
+        default_values[non_issuance_entities,
+                       data_value:=as.character(NA),
+                       on=.(rsf_pfcbl_id,
+                            data_class)]
+        
+        default_values[,reporting_asof_date:=as.Date(reporting_current_date)]
+        default_values[,reporting_current_date:=as.Date(reporting_asof_date)]
+        default_values[,`:=`(data_id=as.integer(NA),
+                               data_asof_date=as.Date(as.numeric(NA)),
+                               data_value_changed=as.logical(NA),
+                               data_value_updated=as.logical(FALSE),
+                               reportnumber=0)]
+        
+        setcolorder(default_values,
+                    neworder=names(rsf_data))
+        rsf_data <- rbindlist(list(rsf_data,
+                                   default_values))
+      }
+    }
     
+    #Missing data can generate duplicates when missing indicators AND missing entities both occur
+    {
+      missing_entities <- pfcbl_family_long[rsf_pfcbl_id < 0] 
+      if (!empty(missing_entities)) {
+        setnames(missing_entities,
+                 old="rsf_pfcbl_id.category",
+                 new="data_category")
+        
+        missing_entities[,data_category:=gsub("^rsf_pfcbl_id\\.(.*)$","\\1",data_category)]
+        
+        
+        missing_entities <- missing_entities[pfcbl_indicators[,.(indicator_id,
+                                                                 indicator_name,
+                                                                 data_type,
+                                                                 data_category,
+                                                                 data_value=default_value,
+                                                                 data_unit)][unique(query_indicators[,.(indicator_id,
+                                                                                                        data_class=indicator_variable_class)]),
+                                                                             on=.(indicator_id),
+                                                                             nomatch=NULL],
+                                             .(rsf_pfcbl_id,
+                                               indicator_id,
+                                               indicator_name,
+                                               data_type,
+                                               data_value,
+                                               data_unit,
+                                               data_class),
+                                             on=.(data_category),
+                                             by=.EACHI,
+                                             nomatch=NULL]
+        
+        missing_entities[,reporting_asof_date:=as.Date(reporting_current_date)]
+        missing_entities[,reporting_current_date:=reporting_asof_date]
+        missing_entities[,`:=`(data_id=as.integer(NA),
+                               data_asof_date=as.Date(as.numeric(NA)),
+                               data_value_changed=as.logical(NA),
+                               data_value_updated=as.logical(FALSE),
+                               reportnumber=0)]
+        
+        setcolorder(missing_entities,
+                    neworder=names(rsf_data))
+        
+        missing_entities[,duplicated:=FALSE]
+        missing_entities[rsf_data,
+                         duplicated:=TRUE,
+                         on=.(rsf_pfcbl_id,
+                              indicator_id,
+                              reporting_asof_date,
+                              data_id)]
+        missing_entities <- missing_entities[duplicated==FALSE]
+        missing_entities[,duplicated:=NULL]
+        
+        rsf_data <- rbindlist(list(rsf_data,
+                                   missing_entities))
+      }
+    }
     
-    # #Defaults: requests for indicators that program isn't subscribed to (can happen when checks require an input variable that program doesn't track--use default)
-    # {
-    #   #missing_indicators <- indicator_variables[!indicator_variables %in% rsf_data$indicator_id]
-    #   missing_indicators <- query_indicators[!indicator_id %in% rsf_data$indicator_id,indicator_id]
-    #   if (length(missing_indicators) > 0 & missing_indicators.use_default==TRUE) {
-    #     
-        # default_values <- pfcbl_ids[,.(rsf_pfcbl_id,data_category=pfcbl_category)
-        #                             ][pfcbl_indicators[indicator_id %in% missing_indicators,
-        #                                            .(indicator_id,
-        #                                              indicator_name,
-        #                                              data_type,
-        #                                              data_category,
-        #                                              data_value=default_value,
-        #                                              data_unit)][unique(query_indicators[,.(indicator_id,
-        #                                                                                     data_class=indicator_variable_class)]),
-        #                                                          on=.(indicator_id),
-        #                                                          nomatch=NULL],
-        #                            .(rsf_pfcbl_id,
-        #                              indicator_id,
-        #                              indicator_name,
-        #                              data_type,
-        #                              data_value,
-        #                              data_unit,
-        #                              data_class),
-        #                            on=.(data_category),
-        #                            by=.EACHI,
-        #                            nomatch=NULL]
-        # 
-        # #If it's missing, therefore it cannot have a current and previous issuance value
-        # #And if we've asked for the default value for missing values, then we need to construct the default current and default previous
-        # #for the missing entity's non-existent issuance.
-        # if (any(query_indicators$indicator_variable_class %in% c("issuances.current","issuances.previous")) &&
-        #     any(names(pfcbl_ids)=="loan_issuance_series_id")) {
-        # 
-        #   non_issuance_entities <- pfcbl_ids[is.na(loan_issuance_series_id)==TRUE,.(rsf_pfcbl_id)]
-        #   non_issuance_entities <- rbindlist(list(non_issuance_entities[,.(rsf_pfcbl_id,data_class="issuances.current")],
-        #                                           non_issuance_entities[,.(rsf_pfcbl_id,data_class="issuances.previous")]))
-        #   default_values[non_issuance_entities,
-        #                  data_value:=as.character(NA),
-        #                  on=.(rsf_pfcbl_id,
-        #                       data_class)]
-        # }
-    #     
-    #     default_values[,reporting_asof_date:=as.Date(reporting_current_date)]
-    #     default_values[,reporting_current_date:=as.Date(reporting_asof_date)]
-    #     default_values[,`:=`(data_id=as.integer(NA),
-    #                            data_asof_date=as.Date(as.numeric(NA)),
-    #                            data_value_changed=as.logical(NA),
-    #                            data_value_updated=as.logical(FALSE),
-    #                            reportnumber=0)]
-    #     
-    #     setcolorder(default_values,
-    #                 neworder=names(rsf_data))
-    #     rsf_data <- rbindlist(list(rsf_data,
-    #                                default_values))
-    #   }
-    # }
-    # 
-  
     #finalize rsf_data
     {
       rsf_data[pfcbl_indicators[is.na(default_value) == FALSE,
@@ -1362,8 +1360,39 @@ db_program_get_data  <- function(pool,
                data_id,
                -reporting_asof_date)
     }
+    
+    #pfcbl_reporting
+    {
+      
+      #Create family_reporting including reporting.status columns, if applicable
+      {
+        family_reporting <- pfcbl_family_long[,
+                                              .(family_id,
+                                                 rsf_pfcbl_id,
+                                                 reporting_current_date=reporting_current_date)]
+
+        family_reporting <- unique(family_reporting[,.(family_id,reporting_current_date)])
+        
+      }
+
+      if (nrow(pfcbl_family) != nrow(family_reporting)) {
+        #browser()
+        #abandoned_cohorts <- dbGetQuery(pool,"select distinct created_by_reporting_cohort_id from p_rsf.error_check_view_abandoned_rsf_ids")
+        print(paste0("rsf_program_id=",rsf_program_id))
+        print(paste0("reporting_current_date=",reporting_current_date))
+        print(paste0("indicator_variables: ",paste0(paste0(names(indicator_variables),"=",indicator_variables),collapse=", ")))
+        print(paste0("for_rsf_pfcbl_ids=",paste0(for_rsf_pfcbl_ids,collapse=",")))
+        stop(paste0("nrow(pfcbl_family) * nrow(reporting_dates) != nrow(family_reporting)) : ",nrow(pfcbl_family)," vs ",nrow(family_reporting)," ",
+                    "Probable cause: a template upload failed to upload completely and has left partial data. Try deleting Upload# in Datasets listing for #",
+                    paste0(abandoned_cohorts,collapse=", "),". Contact SYS Admin to run view_abandoned_rsf_ids_error_check to help resolve."))
+      }
+    }
+    
+    #if(SYS_PRINT_TIMING)  debugtime("db_program_get_data","rsf_data setup completed")
+    #Data formatting for current vs history
   }
   
+  #if(SYS_PRINT_TIMING)  debugtime("db_program_get_data","data formatting start")
 
   if (!empty(query_indicators)) {
     
@@ -1433,261 +1462,258 @@ db_program_get_data  <- function(pool,
         
         
         # current_indicator_ids <- unique(current_indicator_variables[variable_group==current_variable_group])
-        current_indicators_for_current_variable <- unique(current_indicators[indicator_variable==current_variable,.(indicator_id,pfcbl_category)])
         current_rsf_data <- type_rsf_data[current_indicators[indicator_variable==current_variable,.(indicator_id)],
                                           on=.(indicator_id),
                                           nomatch=NULL]
         
       
         
-        #current_rsf_entities_and_indicators <- unique(current_rsf_data[,.(rsf_pfcbl_id,indicator_name,reporting_current_date)])
+        current_rsf_entities_and_indicators <- unique(current_rsf_data[,.(rsf_pfcbl_id,indicator_name,reporting_current_date)])
         
         atts_data <- NULL
         #create data attributes and join onto family
         {
-          {
-            if (current_variable=="current") {
-              atts_data <- current_rsf_data[data_class=="current",
-                                            .(current=data_value),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="current.changed") {
-              atts_data <- current_rsf_data[data_class=="current",
-                                            .(current.changed=data_value_changed),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="current.updated") {
-              atts_data <- current_rsf_data[data_class=="current",
-                                            .(current.updated=data_value_updated),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="current.reporteddate") { #reportEDdate
-              atts_data <- current_rsf_data[data_class=="current",
-                                            .(current.reporteddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="current.unit") {
-              atts_data <- current_rsf_data[data_class=="current",
-                                            .(current.unit=data_unit),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-    
-            } else if (current_variable=="current.id") {  #obsolete
-              atts_data <- current_rsf_data[data_class=="current",
-                                            .(current.id=data_id),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="current.reportnumber") {
-              #special data_class
-              atts_data <- current_rsf_data[data_class=="current",
-                                            .(current.reportnumber=reportnumber),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="previous") {
-              atts_data <- current_rsf_data[data_class=="previous",
-                                            .(previous=data_value),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="previous.unit") { 
-             atts_data <- current_rsf_data[data_class=="previous",
-                                           .(previous.unit=data_unit),
-                                           by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="previous.reporteddate") {
-              atts_data <- current_rsf_data[data_class=="previous",
-                                            .(previous.reporteddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="min.current") {
-              atts_data <- current_rsf_data[data_class=="min.current",
-                                            .(min.current=data_value),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="min.current.unit") {
-              atts_data <- current_rsf_data[data_class=="min.current",
-                                            .(min.current.unit=data_unit),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="min.current.reporteddate") {
-              atts_data <- current_rsf_data[data_class=="min.current",
-                                            .(min.current.reporteddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-            } else if (current_variable=="max.current") {
-              atts_data <- current_rsf_data[data_class=="max.current",
-                                            .(max.current=data_value),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="max.current.unit") {
-              atts_data <- current_rsf_data[data_class=="max.current",
-                                            .(max.current.unit=data_unit),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="max.current.reporteddate") {
-              atts_data <- current_rsf_data[data_class=="max.current",
-                                            .(max.current.reporteddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-            } else if (current_variable=="sum.current") {
-              atts_data <- current_rsf_data[data_class=="sum.current",
-                                            .(sum.current=data_value),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="sum.current.unit") {
-              atts_data <- current_rsf_data[data_class=="sum.current",
-                                            .(sum.current.unit=data_unit),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="sum.current.reporteddate") {
-              atts_data <- current_rsf_data[data_class=="sum.current",
-                                            .(sum.current.reporteddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-            } else if (current_variable=="min.previous") {
-              atts_data <- current_rsf_data[data_class=="min.previous",
-                                            .(min.previous=data_value),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="min.previous.unit") {
-              atts_data <- current_rsf_data[data_class=="min.previous",
-                                            .(min.previous.unit=data_unit),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="min.previous.reporteddate") {
-              atts_data <- current_rsf_data[data_class=="min.previous",
-                                            .(min.previous.reporteddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-            } else if (current_variable=="max.previous") {
-              atts_data <- current_rsf_data[data_class=="max.previous",
-                                            .(max.previous=data_value),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="max.previous.unit") {
-              atts_data <- current_rsf_data[data_class=="max.previous",
-                                            .(max.previous.unit=data_unit),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="max.previous.reporteddate") {
-              atts_data <- current_rsf_data[data_class=="max.previous",
-                                            .(max.previous.reporteddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-            } else if (current_variable=="sum.previous") {
-              atts_data <- current_rsf_data[data_class=="sum.previous",
-                                            .(sum.previous=data_value),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="sum.previous.unit") {
-              atts_data <- current_rsf_data[data_class=="sum.previous",
-                                            .(sum.previous.unit=data_unit),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="sum.previous.reporteddate") {
-              atts_data <- current_rsf_data[data_class=="sum.previous",
-                                            .(sum.previous.reporteddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-            } else if (current_variable=="first") {
-              atts_data <- current_rsf_data[data_class=="first",
-                                            .(first=data_value),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="first.unit") { 
-              atts_data <- current_rsf_data[data_class=="first",
-                                            .(first.unit=data_unit),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="first.reporteddate") {
-              atts_data <- current_rsf_data[data_class=="first",
-                                            .(first.reporteddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+  
+          if (current_variable=="current") {
+            atts_data <- current_rsf_data[data_class=="current",
+                                          .(current=data_value),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
             
-           
-            } else if (current_variable=="issuances.current") {
-              atts_data <- current_rsf_data[data_class=="issuances.current",
-                                            .(issuances.current=data_value),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="issuances.current.unit") {
-              atts_data <- current_rsf_data[data_class=="issuances.current",
-                                            .(issuances.current.unit=data_unit),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="issuances.current.reporteddate") {
-              atts_data <- current_rsf_data[data_class=="issuances.current",
-                                            .(issuances.current.reporteddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="issuances.previous") {
-              atts_data <- current_rsf_data[data_class=="issuances.previous",
-                                            .(issuances.previous=data_value),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="issuances.previous.unit") {
-              atts_data <- current_rsf_data[data_class=="issuances.previous",
-                                            .(issuances.previous.unit=data_unit),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="issuances.previous.reporteddate") {
-              atts_data <- current_rsf_data[data_class=="issuances.previous",
-                                            .(issuances.previous.reporteddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="all") {
-              
-              atts_data <- current_rsf_data[data_class=="all"]
-              setnames(atts_data,
-                       old=c("data_value",
-                             "data_unit",
-                             "data_asof_date",
-                             "data_value_changed",
-                             "data_value_updated",
-                             "reportnumber"),
-                       new=c("timeseries",
-                             "timeseries.unit",
-                             "timeseries.reporteddate",
-                             "timeseries.changed",
-                             "timeseries.updated",
-                             "timeseries.reportnumber"))
-              
-              #atts_data[,currentdate:=reporting_current_date]
-              atts_data <- atts_data[data_class=="all",
-                                     .(all=list(.SD)),
-                                     .SDcols=c("indicator_name",
-                                               "reporting_current_date",
-                                               "timeseries",
-                                               "timeseries.unit",
-                                               "timeseries.reporteddate",
-                                               "timeseries.changed",
-                                               "timeseries.updated",
-                                               "timeseries.reportnumber"),
-                                     by=.(reporting_current_date,
-                                          rsf_pfcbl_id,
-                                          indicator_name)]
-              
-            } else if (current_variable=="info.computationdate") {
-              atts_data <- current_rsf_data[data_class=="info.computationdate",
-                                            .(info.computationdate=reporting_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="info.createddate") {
-              atts_data <- current_rsf_data[data_class=="info.createddate",
-                                            .(info.createddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="info.status") {
-              atts_data <- current_rsf_data[data_class=="info.status",
-                                            .(info.status=data_unit), #using data unit to carry value in query above, as if indicator data type is 
-                                                                       #numeric, date, etc then casting the text value will throw errors
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="info.name") {
-              atts_data <- current_rsf_data[data_class=="info.name",
-                                            .(info.name=data_unit), #using data unit to carry value in query above, as if indicator data type is 
-                                                                    #numeric, date, etc then casting the text value will throw errors
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else {
-              warning(paste0("Invalid variable attribute: ",current_variable))
-              next;
-            }
+          } else if (current_variable=="current.changed") {
+            atts_data <- current_rsf_data[data_class=="current",
+                                          .(current.changed=data_value_changed),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="current.updated") {
+            atts_data <- current_rsf_data[data_class=="current",
+                                          .(current.updated=data_value_updated),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="current.reporteddate") { #reportEDdate
+            atts_data <- current_rsf_data[data_class=="current",
+                                          .(current.reporteddate=data_asof_date),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="current.unit") {
+            atts_data <- current_rsf_data[data_class=="current",
+                                          .(current.unit=data_unit),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+  
+          } else if (current_variable=="current.id") {  #obsolete
+            atts_data <- current_rsf_data[data_class=="current",
+                                          .(current.id=data_id),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="current.reportnumber") {
+            #special data_class
+            atts_data <- current_rsf_data[data_class=="current",
+                                          .(current.reportnumber=reportnumber),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="previous") {
+            atts_data <- current_rsf_data[data_class=="previous",
+                                          .(previous=data_value),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="previous.unit") { 
+           atts_data <- current_rsf_data[data_class=="previous",
+                                         .(previous.unit=data_unit),
+                                         by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="previous.reporteddate") {
+            atts_data <- current_rsf_data[data_class=="previous",
+                                          .(previous.reporteddate=data_asof_date),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="min.current") {
+            atts_data <- current_rsf_data[data_class=="min.current",
+                                          .(min.current=data_value),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="min.current.unit") {
+            atts_data <- current_rsf_data[data_class=="min.current",
+                                          .(min.current.unit=data_unit),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="min.current.reporteddate") {
+            atts_data <- current_rsf_data[data_class=="min.current",
+                                          .(min.current.reporteddate=data_asof_date),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+          } else if (current_variable=="max.current") {
+            atts_data <- current_rsf_data[data_class=="max.current",
+                                          .(max.current=data_value),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="max.current.unit") {
+            atts_data <- current_rsf_data[data_class=="max.current",
+                                          .(max.current.unit=data_unit),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="max.current.reporteddate") {
+            atts_data <- current_rsf_data[data_class=="max.current",
+                                          .(max.current.reporteddate=data_asof_date),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+          } else if (current_variable=="sum.current") {
+            atts_data <- current_rsf_data[data_class=="sum.current",
+                                          .(sum.current=data_value),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="sum.current.unit") {
+            atts_data <- current_rsf_data[data_class=="sum.current",
+                                          .(sum.current.unit=data_unit),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="sum.current.reporteddate") {
+            atts_data <- current_rsf_data[data_class=="sum.current",
+                                          .(sum.current.reporteddate=data_asof_date),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+          } else if (current_variable=="min.previous") {
+            atts_data <- current_rsf_data[data_class=="min.previous",
+                                          .(min.previous=data_value),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="min.previous.unit") {
+            atts_data <- current_rsf_data[data_class=="min.previous",
+                                          .(min.previous.unit=data_unit),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="min.previous.reporteddate") {
+            atts_data <- current_rsf_data[data_class=="min.previous",
+                                          .(min.previous.reporteddate=data_asof_date),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+          } else if (current_variable=="max.previous") {
+            atts_data <- current_rsf_data[data_class=="max.previous",
+                                          .(max.previous=data_value),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="max.previous.unit") {
+            atts_data <- current_rsf_data[data_class=="max.previous",
+                                          .(max.previous.unit=data_unit),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="max.previous.reporteddate") {
+            atts_data <- current_rsf_data[data_class=="max.previous",
+                                          .(max.previous.reporteddate=data_asof_date),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+          } else if (current_variable=="sum.previous") {
+            atts_data <- current_rsf_data[data_class=="sum.previous",
+                                          .(sum.previous=data_value),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="sum.previous.unit") {
+            atts_data <- current_rsf_data[data_class=="sum.previous",
+                                          .(sum.previous.unit=data_unit),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="sum.previous.reporteddate") {
+            atts_data <- current_rsf_data[data_class=="sum.previous",
+                                          .(sum.previous.reporteddate=data_asof_date),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+          } else if (current_variable=="first") {
+            atts_data <- current_rsf_data[data_class=="first",
+                                          .(first=data_value),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="first.unit") { 
+            atts_data <- current_rsf_data[data_class=="first",
+                                          .(first.unit=data_unit),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="first.reporteddate") {
+            atts_data <- current_rsf_data[data_class=="first",
+                                          .(first.reporteddate=data_asof_date),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+          
+         
+          } else if (current_variable=="issuances.current") {
+            atts_data <- current_rsf_data[data_class=="issuances.current",
+                                          .(issuances.current=data_value),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="issuances.current.unit") {
+            atts_data <- current_rsf_data[data_class=="issuances.current",
+                                          .(issuances.current.unit=data_unit),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="issuances.current.reporteddate") {
+            atts_data <- current_rsf_data[data_class=="issuances.current",
+                                          .(issuances.current.reporteddate=data_asof_date),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="issuances.previous") {
+            atts_data <- current_rsf_data[data_class=="issuances.previous",
+                                          .(issuances.previous=data_value),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="issuances.previous.unit") {
+            atts_data <- current_rsf_data[data_class=="issuances.previous",
+                                          .(issuances.previous.unit=data_unit),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="issuances.previous.reporteddate") {
+            atts_data <- current_rsf_data[data_class=="issuances.previous",
+                                          .(issuances.previous.reporteddate=data_asof_date),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="all") {
+            
+            atts_data <- current_rsf_data[data_class=="all"]
+            setnames(atts_data,
+                     old=c("data_value",
+                           "data_unit",
+                           "data_asof_date",
+                           "data_value_changed",
+                           "data_value_updated",
+                           "reportnumber"),
+                     new=c("timeseries",
+                           "timeseries.unit",
+                           "timeseries.reporteddate",
+                           "timeseries.changed",
+                           "timeseries.updated",
+                           "timeseries.reportnumber"))
+            
+            #atts_data[,currentdate:=reporting_current_date]
+            atts_data <- atts_data[data_class=="all",
+                                   .(all=list(.SD)),
+                                   .SDcols=c("indicator_name",
+                                             "reporting_current_date",
+                                             "timeseries",
+                                             "timeseries.unit",
+                                             "timeseries.reporteddate",
+                                             "timeseries.changed",
+                                             "timeseries.updated",
+                                             "timeseries.reportnumber"),
+                                   by=.(reporting_current_date,
+                                        rsf_pfcbl_id,
+                                        indicator_name)]
+            
+          } else if (current_variable=="info.computationdate") {
+            atts_data <- current_rsf_data[data_class=="info.computationdate",
+                                          .(info.computationdate=reporting_asof_date),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="info.createddate") {
+            atts_data <- current_rsf_data[data_class=="info.createddate",
+                                          .(info.createddate=data_asof_date),
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="info.status") {
+            atts_data <- current_rsf_data[data_class=="info.status",
+                                          .(info.status=data_unit), #using data unit to carry value in query above, as if indicator data type is 
+                                                                     #numeric, date, etc then casting the text value will throw errors
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else if (current_variable=="info.name") {
+            atts_data <- current_rsf_data[data_class=="info.name",
+                                          .(info.name=data_unit), #using data unit to carry value in query above, as if indicator data type is 
+                                                                  #numeric, date, etc then casting the text value will throw errors
+                                          by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            
+          } else {
+            warning(paste0("Invalid variable attribute: ",current_variable))
+            next;
           }
-          
-          
+        
           if (!all(nrow(atts_data)==nrow(unique(atts_data[,.(reporting_current_date,rsf_pfcbl_id,indicator_name)])))) {
             atts_data[,n:=.N,
                  by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
@@ -1695,26 +1721,20 @@ db_program_get_data  <- function(pool,
             stop(paste0("dim(atts_data) != dim(unique(atts_data)) for ",current_variable," for ",paste0(current_data_type,collapse=" & ")))
           }
           
-          if (empty(atts_data)) next;
-          
-          # atts_data <- atts_data[pfcbl_family_long[current_rsf_entities_and_indicators,
-          #                                          .(family_id,
-          #                                            reporting_current_date,
-          #                                            indicator_name),
-          #                                          by=.EACHI,
-          #                                          on=.(rsf_pfcbl_id)],
-          #                        on=.(reporting_current_date,rsf_pfcbl_id,indicator_name)] #[,mget(atts_names)]
+          atts_data <- atts_data[pfcbl_family_long[current_rsf_entities_and_indicators,
+                                                   .(family_id,
+                                                     reporting_current_date,
+                                                     indicator_name),
+                                                   by=.EACHI,
+                                                   on=.(rsf_pfcbl_id)],
+                                 on=.(reporting_current_date,rsf_pfcbl_id,indicator_name)] #[,mget(atts_names)]
           
           atts_data <- tryCatch({
-                        # dcast.data.table(atts_data,
-                        #                 family_id + reporting_current_date ~ paste0(indicator_name,".",current_variable),
-                        #                 value.var=c(current_variable),
-                        #                 fun.aggregate = NULL) 
+                        dcast.data.table(atts_data,
+                                        family_id + reporting_current_date ~ paste0(indicator_name,".",current_variable),
+                                        value.var=c(current_variable),
+                                        fun.aggregate = NULL) 
             
-            dcast.data.table(atts_data,
-                             rsf_pfcbl_id + reporting_current_date ~ paste0(indicator_name,".",current_variable),
-                             value.var=c(current_variable),
-                             fun.aggregate = NULL) 
             
             # dcast.data.table(atts_data,
             #                  family_id + reporting_current_date ~ paste0(indicator_name,".",current_variable),
@@ -1734,41 +1754,18 @@ db_program_get_data  <- function(pool,
                          stop(paste0("db_program_get_data() dcast.data.table failed match equal dimensions: ",conditionMessage(m))) 
                        })
           
-          #atts_names <- grep(paste0("^.*\\.",current_variable,"$"),names(atts_data),value = T)
-          atts_names <- names(atts_data)[-which(names(atts_data) %in% c("rsf_pfcbl_id","reporting_current_date"))]
-          atts_categories <- unique(current_indicators_for_current_variable$pfcbl_category)
-          atts_categories <- atts_categories[order(match(atts_categories,c("global","program","facility","client","borrower","loan")))]
-          
-          for (category in atts_categories) {
-            
-            cat_atts_name <- atts_names[grepl(paste0("^sys_",category,"_|^",category,"_"),atts_names)]
-            setnames(pfcbl_family,
-                     old=paste0("rsf_",category,"_id"),
-                     new="rsf_pfcbl_id")
-            
-            pfcbl_family[atts_data,
-                         (cat_atts_name):=mget(paste0("i.",cat_atts_name)),
-                         on=.(rsf_pfcbl_id,
-                              reporting_current_date)]
-            
-            setnames(pfcbl_family,
-                     old="rsf_pfcbl_id",
-                     new=paste0("rsf_",category,"_id"))
-            cat_atts_name <- NULL
-          }
+          atts_names <- grep(paste0("^.*\\.",current_variable,"$"),names(atts_data),value = T)
+          family_reporting[atts_data,
+                           (atts_names):=mget(paste0("i.",atts_names)),
+                           on=.(family_id,reporting_current_date)]
           
           atts_data <- NULL
           atts_names <- NULL
         }
-        
-        current_indicators_for_current_variable <- NULL
-        current_rsf_data <- NULL
       }  
 
-      type_rsf_data_indicator_ids <- NULL
-      current_indicators <- NULL
       current_indicator_variables <- NULL
-      #current_rsf_entities_and_indicators <- NULL
+      current_rsf_entities_and_indicators <- NULL
       #current_indicator_variable_groups <- NULL
       type_rsf_data <- NULL
       
@@ -1776,78 +1773,23 @@ db_program_get_data  <- function(pool,
     
   }
 
-  missing_cols <- query_indicators[!indicator_name_variable %in% names(pfcbl_family)]
-  if (!empty(missing_cols)) {
-    missing_cols[,
-                 variable_action:=gsub("^.*\\.([a-z]+)$","\\1",indicator_variable)]
-    
-    missing_cols[,
-                 data_value:=fcase(variable_action=="unit",data_unit,
-                                   variable_action %in% c("current","previous","first","all"),default_value,
-                                   variable_action %in% "computationdate",as.character(reporting_current_date),
-                                   variable_action %in% c("updated","changed"),"FALSE",
-                                   variable_action %in% "reportnumber","0",
-                                   default=as.character(NA))]
-    
-    
-    #done individually as a lot of nuance between data type and variable action.
-    #and mostly missing cols are few to none.  So probably? not much efficiency in doing by group
-    for (i in 1:nrow(missing_cols)) {
-      
-      missing <- missing_cols[i]
-      
-      #actualy data type actions
-      if (missing$variable_action %in% c("current","previous","first","all")) {
-        if (missing$data_type %in% c("number","percent","currency_ratio","currency")) {
-          missing[,data_value:=as.numeric(data_value)]
-        } else if (missing$data_type %in% "logical") {
-          missing[,data_value:=as.logical(data_value)]
-        } else if (missing$data_type %in% "date") {
-          missing[,data_value:=as.Date(data_value)]
-        } else if (missing$data_type %in% "text") {
-          NULL;
-        }
-        
-        if (missing$variable_action %in% "all") {
-          missing[,data_value:=list(data.table(indicator_name=missing$indicator_name,
-                                               reporting_current_date=reporting_current_date,
-                                               timeseries=missing$data_value,
-                                               timeseries.unit=missing$data_unit,
-                                               timeseries.reporteddate=as.Date(NA),
-                                               timeseries.changed=FALSE,
-                                               timeseries.updated=FALSE,
-                                               timeseries.reportnumber=0))]
-        }
-      } else if (missing$variable_action %in% c("computationdate","reporteddate","createddate")) {
-        missing[,data_value:=as.Date(data_value)]
-      } else if (missing$variable_action %in% c("updated","changed")) {
-        missing[,data_value:=as.logical(data_value)]
-      } else if (missing$variable_action %in% c("unit","name","status")) {
-        missing[,data_value:=as.character(data_value)]
-      } else if (missing$variable_action %in% "reportnumber") {
-        missing[,data_value:=as.numeric(data_value)]
-      } else {
-        stop(paste0("Unrecognized action: ",missing$variable_action,": ",paste0(paste0(names(missing),"=",missing),collapse=", ")))
-      }
-      
-      set(pfcbl_family,
-          i=NULL,
-          j=missing$indicator_name_variable,
-          value=missing$data_value)
+  #current.reportingcount has a default value of 1.
+  if (any(query_indicators$indicator_variable=="current.reportingcount")) {
+    for (reportingrank_col in grep("\\.current.reportingcount",names(family_reporting))) {
+      set(family_reporting,
+          i=which(is.na(family_reporting[[reportingrank_col]])),
+          j=reportingrank_col,
+          value=1)
     }
   }
   
-  #current.reportingcount has a default value of 1.
-  # if (any(query_indicators$indicator_variable=="current.reportingcount")) {
-  #   for (reportingrank_col in grep("\\.current.reportingcount",names(pfcbl_family))) {
-  #     set(pfcbl_family,
-  #         i=which(is.na(pfcbl_family[[reportingrank_col]])),
-  #         j=reportingrank_col,
-  #         value=1)
-  #   }
-  # }
-  # 
-
+  family_col_ids <- names(pfcbl_family)
+  
+  family_reporting[pfcbl_family,
+                   (family_col_ids):=(mget(paste0("i.",family_col_ids))),
+                   on=.(family_id)] #adds all the rsf_id and pfcbl_id cols
+  
+  setnames(family_reporting,old="family_id",new="reporting_group")
 
   rsf_data <- NULL
   
@@ -1855,29 +1797,83 @@ db_program_get_data  <- function(pool,
   
   #Simplify columns and grab-back pfcbl_ids
   {
-    cnames <- names(pfcbl_family)
-    setcolorder(pfcbl_family,order(rsf_colranks(cnames),cnames))
+    requested_data_categories <- pfcbl_indicators[indicator_id %in% indicator_ids.keepfor,unique(data_category)]
+    
+    if (!any(requested_data_categories=="global")) {
+      if (any(names(family_reporting)=="rsf_global_id")) family_reporting[,rsf_global_id:=NULL]
+      if (any(names(family_reporting)=="rsf_pfcbl_id.global")) family_reporting[,rsf_pfcbl_id.global:=NULL] #was only added for joins and casts for potentially requested global indicators
+                                                   #this is always zero and not meaningful data.
+                                                   #unless we've actually requested global indicators, then we'll retain the placeholder.
+    } else {
+      family_reporting[,rsf_global_id:=0]
+      family_reporting[,rsf_pfcbl_id.global:=0]
+    }
+    
+    #If we requested Global then these will have been created as pseudo negative number IDs.  So correct them.
+    if (rsf_program_id==0) {
+      family_reporting[,rsf_pfcbl_id.program:=0]
+      family_reporting[,rsf_program_id:=0]
+      family_reporting[,rsf_global_id:=0]
+    } else {
+      family_reporting <- family_reporting[rsf_program_id >= 0]
+    }
+    
+    # #sys_program_reporting should be (nearly) identical and relevant // invert=TRUE
+    # notglobal_reporting <- grep("^sys_global_reporting\\..*",
+    #                             names(family_reporting),
+    #                             invert = T)
+    # 
+    # if (any(notglobal_reporting)) family_reporting <- family_reporting[,..notglobal_reporting]
+
+    if (indicator_ids.simplify && !is.null(indicator_ids.keepfor)) {
+      
+      keepcategories <- unique(pfcbl_indicators[all(is.na(indicator_ids.keepfor)) | indicator_id %in% indicator_ids.keepfor,data_category])
+      keepindicators <- unique(c(pfcbl_indicators[all(is.na(indicator_ids.keepfor)) | indicator_id %in% indicator_ids.keepfor,indicator_name]))
+      
+      if (any(keepcategories=="global") && !any(requested_data_categories=="global")) keepcategories <- keepcategories[-which(keepcategories=="global")]
+      
+      keep_pfcbl_ids <- paste0("rsf_pfcbl_id.",keepcategories)
+      keepcols <- c("reporting_group",
+                    "reporting_current_date",
+                    paste0("rsf_",keepcategories,"_id"),
+                    keep_pfcbl_ids)
+      
+      keepcols <- c(keepcols,
+                    names(family_reporting)[unique(unlist(sapply(paste0("^",keepindicators,"\\..*$"),grep,x=names(family_reporting))))])
+            
+      missingkeepcols <- which(!keepcols %in% names(family_reporting))
+      if (any(missingkeepcols)) keepcols <- keepcols[-missingkeepcols]
+      
+      family_reporting <- family_reporting[,..keepcols]
+      
+      if (nrow(family_reporting)==0) return (NA) #Simplified into nothing
+      family_reporting <- unique(family_reporting,
+                                 by=c("reporting_current_date",
+                                      keep_pfcbl_ids))
+
+    } 
+    
+    #This block should now be obsolete?
+    {
+      id_cols <- c(grep("^rsf_(global|program|facility|client|borrower|loan)_id$",names(family_reporting)),
+                   grep("^rsf_pfcbl_id\\.(global|program|facility|client|borrower|loan)$",names(family_reporting)))
+      
+      for (id in id_cols) set(family_reporting,i=which(family_reporting[[id]] < 0),j=id,value=as.numeric(NA))
+    }
+    
+    setorder(family_reporting,reporting_group,-reporting_current_date)    
+    cnames <- names(family_reporting)
+    setcolorder(family_reporting,order(rsf_colranks(cnames),cnames))
+    
   }
   
-  # pseudo_ids <- pfcbl_family[,
-  #                            .SD,
-  #                            .SDcols = grep("^rsf_.*_id$",names(pfcbl_family),value=T)]
-  # 
-  # if (any(pseudo_ids < 0)) {
-  #   
-  #   for (col in names(pseudo_ids)) {
-  #     
-  #     if (!any(pseudo_ids[[col]] < 0)) next;
-  #     set(pfcbl_family,
-  #         i=which(pseudo_ids[[col]] < 0),
-  #         j=col,
-  #         value=as.integer(NA))
-  #   }
-  #   #pfcbl_family[pseudo_ids] <- as.integer(NA)
+  # calc_time <- round(as.numeric(Sys.time()-t1,"secs"),2)
+  # if (calc_time > 5 & SYS_PRINT_TIMING) {
+  #   debugtime("db_program_get_data","Long calc time:",calc_time,"s. ",
+  #             "Total rows: ",nrow(family_reporting)," x ",ncol(family_reporting)," cols ")
   # }
-  # pseudo_ids <- NULL
   
   if(SYS_PRINT_TIMING) debugtime("db_program_get_data","Done!",format(Sys.time()-t1))
   
-  return (pfcbl_family)
+  return (family_reporting)
 }

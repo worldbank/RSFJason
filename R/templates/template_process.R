@@ -257,94 +257,30 @@ template_process <- function(pool,
       #no need to flag if somehow a system indicator is being reported (it's probably via a system extract?)
       #just omit it.
       bad_indicators <- bad_indicators[!(indicator_id %in% template$rsf_indicators[is_system==TRUE,indicator_id])]
-      
+
       if (!empty(bad_headers)) {
-        # 
-        # bad_headers <- unique(bad_headers[,
-        #                                   .(indicator_name,sheet_name)])
-        # bad_headers[,id:=1:.N]
-        # bad_headers[,
-        #             .(labels_submitted=strsplit(labels_submitted,split="||",fixed=T)),
-        #             by=.(id,sheet_name)]
-        # bad_headers[,
-        #             labels_normalized:=normalizeLabel(labels_submitted)]
-        # 
-        # template_ignore_headers <- dbGetQuery(pool,"
-        #                                     select distinct on (pft.template_id,ignore)
-        #                                       pft.template_id,
-        #                                       pft.rsf_pfcbl_id,
-        #                                       ignore as ignore_header,
-        #                                       nids.pfcbl_category || ':' || nids.rsf_full_name as ignore_name
-        #                                     from p_rsf.view_rsf_pfcbl_id_family_tree ft
-        #                                     inner join p_rsf.rsf_program_facility_templates pft on pft.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-        #                                     inner join lateral unnest(ignore_headers_list) as ignore on true
-        #                                     inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = pft.rsf_pfcbl_id
-        #                                     where ft.from_rsf_pfcbl_id = $1::int
-        #                                       and ft.to_pfcbl_rank <= ft.from_pfcbl_rank 
-        #                                       and pft.template_id = $2::int
-        #                                     order by pft.template_id,ignore,ft.to_pfcbl_rank",
-        #                                     params=list(template$reporting_cohort$reporting_rsf_pfcbl_id,
-        #                                                 template$template_id))
-        # setDT(template_ignore_headers)
-        # bad_headers[,ignore:=FALSE]
-        # if (!empty(template_ignore_headers)) {
-        #   template_ignore_headers[,
-        #                           ignore_header:=normalizeLabel(ignore_header)]
-        #   
-        #   template_ignore_headers <- bad_headers[template_ignore_headers,
-        #                                          on=.(labels_normalized=ignore_header)]
-        #   
-        #   if (!empty(template_ignore_headers)) {
-        #     bad_headers[id %in% template_ignore_headers$id,
-        #                 ignore:=TRUE]
-        #     
-        #     for (ind in unique(template_ignore_headers$labels_submitted)) {
-        #       status_message(class="info",paste0("Ignored Header: '",ind,"'\n"))
-        #     }
-        #     
-        #     template_ignore_headers <- template_ignore_headers[,
-        #                                                        .(message=paste0('[',ignore_name,'] ',
-        #                                                                         paste0(paste0('"',labels_submitted,'"'),
-        #                                                                                collapse=" & "))),
-        #                                                        by=.(ignore_name)]
-        #     template_ignore_headers <- paste0(template$template_name," SETUP is set to IGNORE HEADERS for ",
-        #                                       paste0(template_ignore_headers$message,collapse=" "))
-        #     
-        #     template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
-        #                                                      data.table(rsf_pfcbl_id=as.numeric(NA),
-        #                                                                 indicator_id=as.numeric(NA),
-        #                                                                 reporting_asof_date=template$reporting_cohort$reporting_asof_date,
-        #                                                                 check_name="sys_flag_indicator_ignored",
-        #                                                                 check_message=template_ignore_headers)))
-        #   }            
-        # }
-        # 
-        # bad_headers <- bad_headers[ignore==FALSE]
         
-        if (!empty(bad_headers)) {
-          
-        
-          for (ind in unique(bad_headers$indicator_name)) {
-            status_message(class="error",paste0("Unknown Indicator: '",ind,"' does not exist.  Ignored.\n"))
-          }
-          
-          bad_headers <- bad_headers[,
-                                     .(message=paste0('[IN SHEET ',sheet_name,'] ',
-                                                      paste0(paste0('"',labels_submitted,'"'),
-                                                             collapse=' & '))),
-                                     by=.(sheet_name)]
-          bad_headers <- paste0("Column header not defined recognized.\n  Recommended: either define an indicator or an alias in System Admin; OR, enter these columns in Template Ignore Colmns in Program Setup.\n ",
-                                paste0(bad_headers$message,collapse=" "))
-          
-          template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
-                                                           data.table(rsf_pfcbl_id=as.numeric(NA),
-                                                                      indicator_id=as.numeric(NA),
-                                                                      reporting_asof_date=template$reporting_cohort$reporting_asof_date,
-                                                                      check_name="sys_flag_indicator_not_found",
-                                                                      check_message=bad_headers)))
-        }
-      }
       
+        for (ind in unique(bad_headers$indicator_name)) {
+          status_message(class="error",paste0("Unknown Indicator: '",ind,"' does not exist.  Ignored.\n"))
+        }
+        
+        bad_headers <- bad_headers[,
+                                   .(message=paste0('[IN SHEET ',sheet_name,'] ',
+                                                    paste0(paste0('"',labels_submitted,'"'),
+                                                           collapse=' & '))),
+                                   by=.(sheet_name)]
+        bad_headers <- paste0("Column header not defined recognized.\n  Recommended: either define an indicator or an alias in System Admin; OR, enter these columns in Template Ignore Colmns in Program Setup.\n ",
+                              paste0(bad_headers$message,collapse=" "))
+        
+        template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
+                                                         data.table(rsf_pfcbl_id=as.numeric(NA),
+                                                                    indicator_id=as.numeric(NA),
+                                                                    reporting_asof_date=template$reporting_cohort$reporting_asof_date,
+                                                                    check_name="sys_flag_indicator_not_found",
+                                                                    check_message=bad_headers)))
+      }
+
       bad_headers <- NULL
       
       unsubscribed_indicators <- bad_indicators[is_unsubscribed==TRUE,
@@ -371,7 +307,9 @@ template_process <- function(pool,
                                                       paste0(" ",data_unit)))]
         template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
                                                          unsubscribed_indicators[,.(rsf_pfcbl_id,
-                                                                                    indicator_id,
+                                                                                    indicator_id=as.numeric(NA),
+                                                                                    #indicator_id, #cannot put it on this indicator ID because this data point has been omitted and will never upload
+                                                                                                  #must tag sys_X_reporting indicator!
                                                                                     reporting_asof_date,
                                                                                     check_name="sys_flag_indicator_not_monitored",
                                                                                     check_message=message)]))

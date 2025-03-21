@@ -93,9 +93,13 @@ rsf_checks_calculate <- function(pool,
     
     #Block start: checks
     {
-      check_rsf_pfcbl_id <- paste0("rsf_pfcbl_id.",check$check_pfcbl_category)
+      #check_rsf_pfcbl_id <- paste0("rsf_pfcbl_id.",check$check_pfcbl_category)
       #will be ordered
-      check_rsf_pfcbl_id_cols <- paste0("rsf_pfcbl_id.",unique(parameters$parameter_data_category))
+      #check_rsf_pfcbl_id_cols <- paste0("rsf_pfcbl_id.",unique(parameters$parameter_data_category))
+      
+      check_rsf_pfcbl_id <- paste0("rsf_",check$check_pfcbl_category,"_id")
+      #will be ordered
+      check_rsf_pfcbl_id_cols <- paste0("rsf_",unique(parameters$parameter_data_category),"_id")
       
       #2023-10-31
       #Changed on Halloween!  Let's hope it's not scary :-D

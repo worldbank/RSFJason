@@ -32,7 +32,7 @@
            #.info -- special category for internal and/or exogenously reported data
            #Like the current reporting date (whose lookup value will be triggered by sys_x_reporting)
            #Or system-assigned data, like the entity name or its issuance series information
-           "info.status",
+           "info.status", #removed 20MAR2025 -- wasn't used by any formulas and relies on a separate database function call and is probably not accurate.
            "info.computationdate", #Date at which the computation is running, ie, reporting_current_date
            "info.createddate",
            "info.name",

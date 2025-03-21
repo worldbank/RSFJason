@@ -51,27 +51,30 @@ rsf_program_calculate <- function(pool,
         
         
         #using_calculations_cohort_id <- using_reporting_cohort_id
-        #if(any(required_calculations$calculate_indicator_id==43451)) { stop("Found!") }
-        #required_calculations[rsf_indicators,on=.(calculate_indicator_id=indicator_id),nomatch=NULL][,sort(unique(indicator_name))]
+        #any(required_calculations$calculate_indicator_id==157394)
+        #if(any(required_calculations$calculate_indicator_id==157394)) { stop("Found!") }
+        #required_calculations[rsf_indicators,on=.(calculate_indicator_id=indicator_id),nomatch=NULL][,.(indicator_name=sort(unique(indicator_name)))][indicator_name=="client_risk_sharing_fee_billing_period_DAYS"]
         current_calculate_asof_date <- unique(as.character(required_calculations$calculate_asof_date))
 
         if (empty(required_calculations)) break;
        
-        if(SYS_PRINT_TIMING) debugtime("rsf_program_calculate","performing ",format(nrow(required_calculations),big.mark=",")," calculations") 
-        
-        if (!all(required_calculations[calculate_rsf_pfcbl_id != 0]$entity_local_currency_unit %in% CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES)) {
-          bad_currencies <- required_calculations[!entity_local_currency_unit %in% CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES]
-          print(head(bad_currencies))
-          stop(paste0("System calculator asked to calculate for entities with invalid currency units: ",
-                      paste0(unique(bad_currencies$entity_local_currency_unit)),collapse=" and "))
-        }
-        
-        #This can occur if we've had to CREATE a NEW Global FX ratio indicator and are now being prompted to calculated it: it will not be in the
-        #cashed rsf_indicators data table and therefore the various joins used for parameters, etc will yield NA and cause problems.
-        #So if an indicator isn't there--refresh it.
-        if (any(!required_calculations$calculate_indicator_id %in% rsf_indicators$indicator_id)) {
-          rsf_indicators <- db_indicators_get_labels(pool=pool)
-        }
+        {
+          if(SYS_PRINT_TIMING) debugtime("rsf_program_calculate","performing ",format(nrow(required_calculations),big.mark=",")," calculations") 
+          
+          if (!all(required_calculations[calculate_rsf_pfcbl_id != 0]$entity_local_currency_unit %in% CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES)) {
+            bad_currencies <- required_calculations[!entity_local_currency_unit %in% CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES]
+            print(head(bad_currencies))
+            stop(paste0("System calculator asked to calculate for entities with invalid currency units: ",
+                        paste0(unique(bad_currencies$entity_local_currency_unit)),collapse=" and "))
+          }
+          
+          #This can occur if we've had to CREATE a NEW Global FX ratio indicator and are now being prompted to calculated it: it will not be in the
+          #cashed rsf_indicators data table and therefore the various joins used for parameters, etc will yield NA and cause problems.
+          #So if an indicator isn't there--refresh it.
+          if (any(!required_calculations$calculate_indicator_id %in% rsf_indicators$indicator_id)) {
+            rsf_indicators <- db_indicators_get_labels(pool=pool)
+          }
+        }    
         
         #Create processing entry to avoid any infinite loops or excessive calculations due to errors that could come up.
         {

@@ -125,6 +125,8 @@ source("./R/db_indicator_update.R")
 source("./R/db_indicator_create.R")
 source("./R/db_indicator_delete.R")
 source("./R/db_indicators_get_formulas.R")
+source("./R/db_indicators_get_calculation_parameter_rsf_pfcbl_ids.R")
+source("./R/db_checks_get_calculation_parameter_rsf_pfcbl_ids.R")
 
 source("./R/rsf_indicators_calculate_do_test.R")
 source("./R/rsf_calculations_recalculate.R")

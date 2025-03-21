@@ -52,23 +52,9 @@ db_program_get_stale_calculations <- function(pool,
                                   	
                                   			 else coalesce(cd.current_data_unit,ind.data_unit)
                                   	end as calculate_indicator_data_unit,
-                                 
-                                  	/* old -- changed to ensure fx ratios are in alphabetic order by default
-                                  	case when ind.data_type in ('currency','currency_ratio')     -- only calculate relevant indicator types
-                                  				and ind.data_unit ~ 'LCU'
-                                  				and cd.current_data_unit is distinct from lcu.data_unit_value -- eg, this indicator hasn't been calculated yet, it's default 
-                                  			 then regexp_replace(ind.data_unit,'LCU',lcu.data_unit_value)
-                                  			 
-                                  			 when ind.data_type in ('currency','currency_ratio')
-                                  				and ind.data_unit ~ 'LCU' = false             -- its a defined value, eg a _USD or _EUR indicator: then this must be the calculated output
-                                  			 then ind.data_unit
-                                  	
-                                  			 else coalesce(cd.current_data_unit,ind.data_unit)
-                                  	end as calculate_indicator_data_unit,
-                                    */
+                                  
                                     calc.formula_unit_set_by_indicator_id,
                                     calc.computation_group,
-                                    --calc.formula_fx_date,
                                     calc.formula_id,
                                     ind.data_type,
                                     ind.is_periodic_or_flow_reporting,

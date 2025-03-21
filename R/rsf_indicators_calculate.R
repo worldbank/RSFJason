@@ -92,8 +92,9 @@ rsf_indicators_calculate <- function(pool,
     
     
     {
-      calculation_rsf_id_col <- paste0("rsf_",calculation$data_category,"_id")
-      calculation_rsf_pfcbl_id_col <- paste0("rsf_pfcbl_id.",calculation$data_category)
+      #calculation_rsf_id_col <- paste0("rsf_",calculation$data_category,"_id")
+      #calculation_rsf_pfcbl_id_col <- paste0("rsf_pfcbl_id.",calculation$data_category)
+      calculation_rsf_pfcbl_id_col <- paste0("rsf_",calculation$data_category,"_id")
       
       data_received_for_rsf_pfcbl_ids <- unique(rsf_data_wide[[calculation_rsf_pfcbl_id_col]])
       calculate_for_rsf_pfcbl_ids <- unlist(calculation$calculate_rsf_pfcbl_ids)
@@ -187,11 +188,11 @@ rsf_indicators_calculate <- function(pool,
           next;
         }
         
-        if (!calculation_rsf_id_col %in% names(rsf_data_wide)) {
-          status_message(class="error",paste0("\nCalculation failed: ",calculation$indicator_name,"\n  Formula unable to find sys_id colum for calculations: ",calculation_rsf_id_col,".  Skipping.\n"))
-          stop("This error should not occur -- db_program_get_data() should return void indicators")
-          next;
-        }
+        # if (!calculation_rsf_id_col %in% names(rsf_data_wide)) {
+        #   status_message(class="error",paste0("\nCalculation failed: ",calculation$indicator_name,"\n  Formula unable to find sys_id colum for calculations: ",calculation_rsf_id_col,".  Skipping.\n"))
+        #   stop("This error should not occur -- db_program_get_data() should return void indicators")
+        #   next;
+        # }
         
         if (!calculation_rsf_pfcbl_id_col %in% names(rsf_data_wide)) { 
           status_message(class="error",paste0("\nCalculation failed: ",calculation$indicator_name,"\n  Formula unable to find rsf_pfcbl_id colum for calculations: ",calculation_rsf_pfcbl_id_col,".  Skipping.\n"))
@@ -221,11 +222,12 @@ rsf_indicators_calculate <- function(pool,
         }
       }  
       
-      formula_rsf_ids <- unique(gsub("^rsf_pfcbl_id.([a-z]+)$","rsf_\\1_id",unlist(calculation$formula_pfcbl_id_categories)))
+      #formula_rsf_ids <- unique(gsub("^rsf_pfcbl_id.([a-z]+)$","rsf_\\1_id",unlist(calculation$formula_pfcbl_id_categories)))
+      formula_rsf_ids <- unique(unlist(calculation$formula_pfcbl_id_categories))
       
       cols <- c("reporting_current_date",
                 calculation_rsf_pfcbl_id_col,
-                calculation_rsf_id_col,
+                #calculation_rsf_id_col,
                 formula_rsf_ids,
                 parameters$parameter_column_name)
       
@@ -258,12 +260,15 @@ rsf_indicators_calculate <- function(pool,
       
       calc_data <- unique(rsf_data_wide[,..cols],
                           by=c("reporting_current_date",
-                               grep("^rsf_[a-z]+_id$",cols,value=T),
-                               grep("^rsf_pfcbl_id\\.[a-z]+$",cols,value=T)))
+                               grep("^rsf_[a-z]+_id$",cols,value=T)))
       
-      setnames(calc_data,
-               old=c(calculation_rsf_pfcbl_id_col),
-               new=c("rsf_pfcbl_id"))
+      # 
+      # calc_data <- unique(rsf_data_wide[,..cols],
+      #                     by=c("reporting_current_date",
+      #                          grep("^rsf_[a-z]+_id$",cols,value=T),
+      #                          grep("^rsf_pfcbl_id\\.[a-z]+$",cols,value=T)))
+      
+     
       
       #If we're calculating it for 2 new rsf_pfcbl_id loans, for example, but the grouping is at the client level, we can't filter the dataset for
       #only the entities being calculated if we need to review the entire dataset.
@@ -272,6 +277,9 @@ rsf_indicators_calculate <- function(pool,
       #calc_data <- calc_data[rsf_pfcbl_id %in% data_received_for_rsf_pfcbl_ids]
       
       #can happen if an entity comes in via a default or missing indicator
+
+      calc_data[,
+                rsf_pfcbl_id:=mget(calculation_rsf_pfcbl_id_col)]
       
       #missing_rsf_ids <- which(Reduce(any,sapply(calc_data[,..formula_rsf_ids],is.na))) #returns rows that have NA for any input rsf_ids
       missing_rsf_ids <- which(sapply(as.data.frame(t(calc_data[,..formula_rsf_ids])),anyNA))
@@ -308,7 +316,9 @@ rsf_indicators_calculate <- function(pool,
         }
       }
       
-    
+     # setnames(calc_data,
+     #           old=c(calculation_rsf_pfcbl_id_col),
+     #           new=c("rsf_pfcbl_id"))
       #this can happen if formula has variables with parent-level and child-level indicators whereby the parent does not have any defined children.
       #eg, facility level indicator compares loan level indicator but the facility client never uploaded any data and there are no loans... so the
       #application of calculation results at loan-level rsf_pfcbl_id will be NA.  This is an artifact of db program get data(...rsf_pfcbl.familytree.nomatch=NA) 

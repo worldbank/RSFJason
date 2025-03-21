@@ -94,27 +94,35 @@ rsf_program_perform_checks <- function(pool=pool,
     check_rsf_pfcbl_ids <- unique(unlist(checks$check_rsf_pfcbl_ids))
     
     
-    parameter_rsf_pfcbl_ids <- dbGetQuery(pool,"
-                                              select 
-                                                distinct cids.to_parameter_rsf_pfcbl_id as rsf_pfcbl_id
-                                              from p_rsf.compute_check_to_parameter_rsf_pfcbl_ids cids
-                                              where cids.from_check_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                                and cids.from_check_formula_id = any(select unnest(string_to_array($2::text,','))::int)
-                                                and cids.parameter_rsf_pfcbl_id_created_date <= $3::date
-                                                and cids.to_parameter_rsf_pfcbl_id <> cids.from_check_rsf_pfcbl_id
-                                            ",
-                                          params=list(paste0(check_rsf_pfcbl_ids,collapse=","),
-                                                      paste0(unique(checks$check_formula_id),collapse=","),
-                                                      as.character(check_asof_date)))
+    data_rsf_pfcbl_ids <- db_checks_get_calculation_parameter_rsf_pfcbl_ids(pool=pool,
+                                                                            check_rsf_pfcbl_ids=check_rsf_pfcbl_ids,
+                                                                            check_formula_ids=unique(checks$check_formula_id),
+                                                                            check_asof_date=check_asof_date)
+    # parameter_rsf_pfcbl_ids <- dbGetQuery(pool,"
+    #                                           select 
+    #                                             distinct cids.to_parameter_rsf_pfcbl_id as rsf_pfcbl_id
+    #                                           from p_rsf.compute_check_to_parameter_rsf_pfcbl_ids cids
+    #                                           where cids.from_check_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+    #                                             and cids.from_check_formula_id = any(select unnest(string_to_array($2::text,','))::int)
+    #                                             and cids.parameter_rsf_pfcbl_id_created_date <= $3::date
+    #                                             and cids.to_parameter_rsf_pfcbl_id <> cids.from_check_rsf_pfcbl_id
+    #                                         ",
+    #                                       params=list(paste0(check_rsf_pfcbl_ids,collapse=","),
+    #                                                   paste0(unique(checks$check_formula_id),collapse=","),
+    #                                                   as.character(check_asof_date)))
     
     
-    data_rsf_pfcbl_ids <- unique(c(check_rsf_pfcbl_ids,parameter_rsf_pfcbl_ids$rsf_pfcbl_id))
+    #data_rsf_pfcbl_ids <- unique(c(check_rsf_pfcbl_ids,parameter_rsf_pfcbl_ids$rsf_pfcbl_id))
 
+    for_pfcbl_categories <- unique(c(checks$check_pfcbl_category,
+                                     checks$grouping))
+    
     rsf_data_wide <- db_program_get_data(pool=pool,
                                          reporting_current_date=check_asof_date,
                                          indicator_variables=request_indicator_variables,
                                          for_rsf_pfcbl_ids=data_rsf_pfcbl_ids,
-                                         indicator_ids.simplify = FALSE)
+                                         for_pfcbl_categories = for_pfcbl_categories,
+                                         rsf_indicators=rsf_indicators)
   }
   #lobstr::obj_size(rsf_data_wide)
   computed_checks <- rsf_checks_calculate(pool=pool,
