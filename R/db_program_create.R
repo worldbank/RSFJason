@@ -286,8 +286,7 @@ db_program_create <- function(pool,
   db_add_update_data_user(pool=pool,
                           reporting_cohort=reporting_cohort,
                           cohort_upload_data=program_create_indicators,
-                          template_has_static_row_ids=FALSE,
-                          is_redundancy_reporting=FALSE)
+                          template_has_static_row_ids=FALSE)
   
   program <- data.table(rsf_program_id=reporting_cohort$rsf_program_id,
                         rsf_pfcbl_id=reporting_cohort$reporting_rsf_pfcbl_id,

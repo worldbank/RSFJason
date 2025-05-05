@@ -51,10 +51,10 @@ db_add_update_data_system <- function(pool,
       #format(object.size(cohort_upload_data[,..upload_cols]),units="KB") -- on testing cuts IO size nearly in half to filter uploaded
       #format(object.size(cohort_upload_data[,.(rsf_pfcbl_id,indicator_id,reporting_asof_date,reporting_rsf_pfcbl_id,data_flags,data_value,data_type,data_unit,data_submitted)]),units="KB")
       #format(object.size(cohort_upload_data[,.(rsf_pfcbl_id,indicator_id,reporting_asof_date,reporting_rsf_pfcbl_id,data_flags,data_value,data_type,data_unit,indicator_name,data_submitted)]),units="KB")
-      
+      t2 <- Sys.time()
       {
         
-        print(paste0("- - - - Uploading ",nrow(system_upload_data)," data points"))
+        #print(paste0("- - - - Uploading ",nrow(system_upload_data)," data points"))
         
         
         dbExecute(conn,"create TEMP TABLE _temp_upload_system_data(current_data_id int,
@@ -73,9 +73,9 @@ db_add_update_data_system <- function(pool,
                       name="_temp_upload_system_data",
                       value=system_upload_data)
         
-        dbExecute(conn,"alter table _temp_upload_system_data add primary key(rsf_pfcbl_id,
-                                                                               indicator_id,
-                                                                               reporting_asof_date)")
+        # dbExecute(conn,"alter table _temp_upload_system_data add primary key(rsf_pfcbl_id,
+        #                                                                        indicator_id,
+        #                                                                        reporting_asof_date)")
         
         #Has meanwhile been overwritten since validation calculation or something else amiss.  So reset it to be revalidated.
         dbExecute(conn,"update _temp_upload_system_data usd
@@ -100,7 +100,7 @@ db_add_update_data_system <- function(pool,
         #somehow non-changed data got into the upload... so don't upload it, but do update its validation, ie, report that it's been calculated (with the result equal to the current value)
         #possibly a re-calculation for a flow data type?
         nx <- dbExecute(conn,"
-                        with redundancies as MATERIALIZED (
+                        with redundancies as  (
                           delete from _temp_upload_system_data usd
                           where p_rsf.data_value_is_meaningfully_different(usd.rsf_pfcbl_id,
                                                                            usd.indicator_id,
@@ -169,7 +169,7 @@ db_add_update_data_system <- function(pool,
                                        and rc.parent_reporting_cohort_id is NULL);") #ensure it is a parent-level cohort that was selected
        
         #x <- dbGetQuery(conn,"select * from _temp_upload_system_data");setDT(x);x
-        dbExecute(conn,"with calculations as MATERIALIZED (
+        dbExecute(conn,"with calculations as  (
                           select
                           	usd.rsf_pfcbl_id,
                           	usd.indicator_id,
@@ -259,7 +259,8 @@ db_add_update_data_system <- function(pool,
       
                        
       }    
-    
+      t3 <- Sys.time()
+    if(SYS_PRINT_TIMING) debugtime("db_add_update_data_system","poolWithTransaction",format(t3-t2))
       return (nx)
   })
   

@@ -46,6 +46,12 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                        check_message=character(0))
   
     template_data[,data_id:=1:.N]
+    if (!all(c("data_category","indicator_sys_category") %in% names(template_data))) {
+      template_data[rsf_indicators,
+                    `:=`(data_category=i.data_category,
+                         indicator_sys_category=i.indicator_sys_category),
+                    on=.(indicator_id)]
+    }
     
     indicator_data <- template_data[,
                                     .(reporting_template_row_group,
@@ -472,6 +478,17 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                 j="data_value",
                 value=as.character(suppressWarnings(as.numeric(regular_data$data_value[sci_notation]))))
           }
+        }
+        
+        #Units are included (assumes any unit has at least one :alpha: letter), ie, any submited number that has a letter, has submitted units
+        words_data_numerics <- regular_data$data_type %in% c("number","currency","currency_ratio","percent") &
+                               is.na(regular_data$data_value)==FALSE &
+                               grepl("[[:alpha:]]",regular_data$data_value,perl=T)
+        
+        if (any(words_data_numerics)) {
+          words_data_numerics <- words_data_numerics & grepl("zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|teen",regular_data$data_value,perl=T,ignore.case = T)
+          regular_data[words_data_numerics,
+                       data_value:=sapply(data_value,words_to_numbers)]
         }
         
         #Units are included (assumes any unit has at least one :alpha: letter), ie, any submited number that has a letter, has submitted units

@@ -35,8 +35,9 @@ db_check_update <- function(pool,
           check_type = $4::text,
           grouping = nullif($5::text,''),
           subgrouping = nullif($6::text,''),
-          definition = coalesce($7::text,'No definition')
-      where ic.indicator_check_id = $8::int",
+          definition = coalesce($7::text,'No definition'),
+          auto_subscribe = coalesce($8::bool,false)
+      where ic.indicator_check_id = $9::int",
       params=list(check_data$check_name,
                   check_data$check_class,
                   check_data$check_pfcbl_category,
@@ -44,6 +45,7 @@ db_check_update <- function(pool,
                   check_data$grouping,
                   check_data$subgrouping,
                   check_data$definition,
+                  check_data$check_auto_subscribe,
                   check_data$indicator_check_id))
       
     check_formulas <- check_formulas[edited==TRUE,

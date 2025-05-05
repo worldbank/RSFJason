@@ -11,6 +11,22 @@ template_process <- function(pool,
     stop("Template must define a reporting_cohort (this will be created in a call first to template_parse_file")
   }
   
+  
+  #Upload input file for archiving and logging before any data are inserted.
+  {
+    status_message(class="info","\nSaving backup:",basename(template$template_file),"\n"); 
+    
+    t2 <- Sys.time()
+    uploaded <- db_cohort_upload_file(pool=pool,
+                                      file_path=template$template_file,
+                                      reporting_cohort_id=template$reporting_cohort$reporting_cohort_id)
+    
+    if (!uploaded) {
+      stop(paste0("Failed to save file ",paste0("'",basename(template$template_file),"'")))
+    }
+    template$backup_time <- Sys.time()-t2
+  }
+  
   #RSF ID vs PFCBL ID template matching
   {
     #Set defined rsf_pfcbl_ids
@@ -168,9 +184,12 @@ template_process <- function(pool,
   #parse indicators
   #some templates will filter these out on read-in.  Others won't so double check.
   {
+    #also pulls in program-facility ID to ensure facility-level uploads
     indicator_subscriptions <- dbGetQuery(pool,"
                                           select 
                                           pis.rsf_pfcbl_id,
+                                          pis.rsf_program_id,
+                                          pis.rsf_facility_id,
                                           pis.indicator_id,
                                           pis.is_unsubscribed,
                                           pis.rsf_program_id,
@@ -186,6 +205,7 @@ template_process <- function(pool,
                         is_unsubscribed:=i.is_unsubscribed,
                         on=.(rsf_pfcbl_id,
                              indicator_id)]
+    
     
     #indicator_subscriptions <- NULL
     data_flags <- template$pfcbl_data[,
@@ -326,9 +346,9 @@ template_process <- function(pool,
     #set in the template for an existing rsf_pfcbl_id entity in the template without violating the key. But also opens the door for some issues such as misalignment.
     #Database "instead" insert trigger should deny (and throw error) any misalignments as well--it would be a big problem.
     template <- template_remove_data_category_misalignments(template=template)
-  }
   
-  {
+  
+  
     keep_cols <- c("reporting_template_row_group",
                    "rsf_pfcbl_id",
                    "indicator_id",
@@ -421,21 +441,51 @@ template_process <- function(pool,
     }
     
     template <- template_set_redundancy_reporting(pool=pool,
+                                                  indicator_subscriptions=indicator_subscriptions,
                                                   template=template)
 
-    template$pfcbl_data[,reporting_chronology_rank:=frank(template$pfcbl_data,
-                                                          reporting_asof_date,
-                                                          ties.method = "dense")-1] #zero-based index
+    #Facility ranks
+    {
+      facilities <- unique(indicator_subscriptions[,.(rsf_pfcbl_id,
+                                                      rsf_program_id,
+                                                      rsf_facility_id)])[rsf_pfcbl_id %in% unique(template$pfcbl_data$rsf_pfcbl_id)]
+      if (nrow(facilities) > 1) {
+        setorder(facilities,
+                 rsf_pfcbl_id)
+        facilities[,reporting_rsf_pfcbl_id:=pmax(rsf_program_id,rsf_facility_id,na.rm=T)]
+        
+        template$pfcbl_data[facilities,
+                            reporting_rsf_pfcbl_id:=i.reporting_rsf_pfcbl_id,
+                            on=.(rsf_pfcbl_id)]
+        
+      } else {
+        template$pfcbl_data[,
+                            reporting_rsf_pfcbl_id:=template$reporting_cohort$reporting_rsf_pfcbl_id]
+      }
+    }    
     
-    base_rank <- template$pfcbl_data[reporting_asof_date==template$reporting_cohort$reporting_asof_date,
-                                     unique(reporting_chronology_rank)]
+    setorder(template$pfcbl_data,
+             reporting_rsf_pfcbl_id,
+             reporting_asof_date)
     
-    if (length(base_rank)==0) base_rank <- 0
+    template$pfcbl_data[,
+                        reporting_chronology_rank:=(.GRP)-1,
+                        by=.(reporting_rsf_pfcbl_id,
+                             reporting_asof_date)]
+    
+    # template$pfcbl_data[,reporting_chronology_rank:=frank(template$pfcbl_data,
+    #                                                       reporting_asof_date,
+    #                                                       ties.method = "dense")-1] #zero-based index
+    
+    # base_rank <- template$pfcbl_data[reporting_asof_date==template$reporting_cohort$reporting_asof_date,
+    #                                  unique(reporting_chronology_rank)]
+    
+    #if (length(base_rank)==0) base_rank <- 0
     #Past are negative numbers.
     #Current is zero
     #Future are positive numbers
-    template$pfcbl_data[,
-                        reporting_chronology_rank:=reporting_chronology_rank-base_rank]
+    # template$pfcbl_data[,
+    #                     reporting_chronology_rank:=reporting_chronology_rank-base_rank]
   }
 
   #change row names as used in database
@@ -580,6 +630,11 @@ template_process <- function(pool,
       }
     }
   }
+  
+  
+    
+  
+  
   template$process_time <- as.numeric(Sys.time()-t1,"secs")
   if(SYS_PRINT_TIMING) debugtime("template_process"," Process time: ",format(Sys.time()-t1))
   return (template)

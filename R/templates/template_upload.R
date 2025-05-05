@@ -22,21 +22,6 @@ template_upload <- function(pool,
     status_message(class="none",paste0("Uploading data for: ",template$reporting_cohort$source_reference," ...\n"))
   } #Validating Formats
 
-  #Upload input file for archiving and logging before any data are inserted.
-  {
-    status_message(class="info","\nSaving backup:",basename(template$template_file),"\n"); 
-    
-    t2 <- Sys.time()
-    uploaded <- db_cohort_upload_file(pool=pool,
-                                      file_path=template$template_file,
-                                      reporting_cohort_id=template$reporting_cohort$reporting_cohort_id)
-    
-    if (!uploaded) {
-      stop(paste0("Failed to save file ",paste0("'",basename(template$template_file),"'")))
-    }
-    template$backup_time <- Sys.time()-t2
-  }
-  
   #Do the uploads
   {
     status_message(class="info","\nUploading ",format(nrow(template$pfcbl_data),big.mark=","), " data points\n"); 
@@ -53,62 +38,84 @@ template_upload <- function(pool,
     
     template$pfcbl_data[,inserted:=FALSE]
     
-    chronologies <- sort(template$pfcbl_data[,unique(reporting_chronology_rank)],decreasing=FALSE) #FROM PAST TO FUTURE (low to high)
-    for (chronology_rank in chronologies) {
-      #chronology_rank <- chronologies[[1]]
-      chronology_pfcbl_data <- template$pfcbl_data[reporting_chronology_rank==chronology_rank]
-      current_asof_date <- unique(chronology_pfcbl_data$reporting_asof_date)
+    reporting_ids <- sort(unique(template$pfcbl_data$reporting_rsf_pfcbl_id))
+    #reporting_id <- reporting_ids[[1]]
+    for (reporting_id in reporting_ids) {
       
-      if (length(current_asof_date) != 1) stop(paste0("Current asof date has multiple reporting dates: ",paste0(current_asof_date,collapse=",")))
+      reporting_cohort <- NULL
+      reporting_data <- template$pfcbl_data[reporting_rsf_pfcbl_id==reporting_id]
+      if (reporting_id==template$reporting_cohort$reporting_rsf_pfcbl_id) {
+        reporting_cohort <- template$reporting_cohort
+      } else {
+        reporting_cohort <- db_cohort_create(pool,
+                                             rsf_program_id=template$reporting_cohort$rsf_program_id,
+                                             reporting_user_id=template$reporting_cohort$reporting_user_id,
+                                             reporting_asof_date=min(reporting_data$reporting_asof_date),
+                                             data_asof_date=min(reporting_data$reporting_asof_date), 
+                                             cohort_pfcbl_id=reporting_id,
+                                             from_reporting_template_id=template$reporting_cohort$from_reporting_template_id,
+                                             source_reference="Reporting entity segment",
+                                             source_name=template$reporting_cohort$source_name,
+                                             source_note="Segmenting rsf_facility data under its own reporting_rsf_pfcbl_id",
+                                             reporting_pfcbl_categories=NA,
+                                             fail_on_check_class=c("critical"),       #Relevant for checking on flags and whether to fail to create because so
+                                             fail_on_check_submitted_indicators=NULL, #If user is submitting an indicator that has a failed check, allow it to pass
+                                             fail_on_incomplete_cohorts=TRUE, #If a child entity has a cohort with cohort_processing_completed = false, fail to create a new cohort
+                                             linked_reporting_cohort_id=template$reporting_cohort$reporting_cohort_id)
+      }
       
-      redundancies <- sort(chronology_pfcbl_data[,unique(reporting_redundancy_rank)],decreasing=TRUE) #FROM X to ZERO (high to low)
-      
-      if (!any(redundancies==0)) stop("No non-zero redundancy ranks in the current data set")
-      #high to low: 0==end-of-period data
-      for (redundancy_rank in redundancies) {
-        #redundancy_rank <- redundancies[5]
-        redundancy_pfcbl_data <- chronology_pfcbl_data[reporting_redundancy_rank==redundancy_rank]
-        lcus <- sort(redundancy_pfcbl_data[,unique(reporting_lcu_rank)],decreasing=TRUE) #FROM X to ZERO (high to low)
+      chronologies <- sort(reporting_data[,unique(reporting_chronology_rank)],decreasing=FALSE) #FROM PAST TO FUTURE (low to high)
+      for (chronology_rank in chronologies) {
+        #chronology_rank <- chronologies[[1]]
+        chronology_pfcbl_data <- reporting_data[reporting_chronology_rank==chronology_rank]
+        current_asof_date <- unique(chronology_pfcbl_data$reporting_asof_date)
         
-        for (lcu_rank in lcus) {
-          #lcu_rank <- lcus[1]
-          #lcu_rank <- lcus[2]
-          t2 <- Sys.time()
-          lcu_pfcbl_data <- redundancy_pfcbl_data[reporting_lcu_rank==lcu_rank]
-          inserted_rows <- db_add_update_data_user(pool=pool,
-                                                    reporting_cohort=template$reporting_cohort,
-                                                    cohort_upload_data=lcu_pfcbl_data[,
-                                                                                      .(reporting_asof_date,
-                                                                                        rsf_pfcbl_id,
-                                                                                        indicator_id,
-                                                                                        data_value,
-                                                                                        data_unit,
-                                                                                        data_submitted,
-                                                                                        data_source_row_id)],
-                                                    template_has_static_row_ids=template$template_settings$template_has_static_row_ids,
-                                                    is_redundancy_reporting=(redundancy_rank > 0))
+        if (length(current_asof_date) != 1) stop(paste0("Current asof date has multiple reporting dates: ",paste0(current_asof_date,collapse=",")))
+        
+        #redundancies <- sort(chronology_pfcbl_data[,unique(reporting_redundancy_rank)],decreasing=TRUE) #FROM X to ZERO (high to low)
+        
+        
+          #redundancy_rank <- redundancies[5]
+          #redundancy_pfcbl_data <- chronology_pfcbl_data[reporting_redundancy_rank==redundancy_rank]
+          lcus <- sort(chronology_pfcbl_data[,unique(reporting_lcu_rank)],decreasing=TRUE) #FROM X to ZERO (high to low)
           
-          status_message(class="info","\nUploaded ",format(nrow(lcu_pfcbl_data),big.mark = ",")," data",
-                         " in ",format(round(Sys.time()-t2,2),units="secs"))
-          
-          template$pfcbl_data[lcu_pfcbl_data[inserted_rows,
-                                             .(data_source_row_id,
-                                               rsf_pfcbl_id,
-                                               indicator_id,
-                                               reporting_asof_date)],
-                              inserted:=TRUE,
-                              on=.(data_source_row_id,
-                                   rsf_pfcbl_id,
-                                   indicator_id,
-                                   reporting_asof_date)]
-        }
+          for (lcu_rank in lcus) {
+            #lcu_rank <- lcus[1]
+            #lcu_rank <- lcus[2]
+            t2 <- Sys.time()
+            lcu_pfcbl_data <- chronology_pfcbl_data[reporting_lcu_rank==lcu_rank]
+            inserted_rows <- db_add_update_data_user(pool=pool,
+                                                     reporting_cohort=reporting_cohort,
+                                                     cohort_upload_data=lcu_pfcbl_data[,
+                                                                                        .(reporting_asof_date,
+                                                                                          rsf_pfcbl_id,
+                                                                                          indicator_id,
+                                                                                          data_value,
+                                                                                          data_unit,
+                                                                                          data_submitted,
+                                                                                          data_source_row_id)],
+                                                      template_has_static_row_ids=template$template_settings$template_has_static_row_ids)
+            
+            status_message(class="info","\nUploaded ",format(nrow(lcu_pfcbl_data),big.mark = ",")," data",
+                           " in ",format(round(Sys.time()-t2,2),units="secs"),"\n")
+            
+            template$pfcbl_data[lcu_pfcbl_data[inserted_rows,
+                                               .(data_source_row_id,
+                                                 rsf_pfcbl_id,
+                                                 indicator_id,
+                                                 reporting_asof_date)],
+                                inserted:=TRUE,
+                                on=.(data_source_row_id,
+                                     rsf_pfcbl_id,
+                                     indicator_id,
+                                     reporting_asof_date)]
+          }
+        
       }
     }
   }
   
   if(SYS_PRINT_TIMING) debugtime("template_upload"," Data Upload time: ",format(Sys.time()-t1))
-  
-
   #Because guidance can be at the rsf_facility level, must be performed here after setup template has potentially created new facilities.
   #And uploaded their names and IDs to match against sys_name
   #But before the system checker has been run and performed any checks that might be subject to guidance contained in the setup file.
@@ -745,7 +752,6 @@ template_upload <- function(pool,
     }
   }
   
-
   #saveRDS(template,"template.RDS")
   #template <- readRDS("template.RDS")
   #Checks and flags
@@ -794,7 +800,6 @@ template_upload <- function(pool,
     {
       key_characteristics <- template$pfcbl_data[rsf_pfcbl_id %in% template$match_results[match_action != "new",rsf_pfcbl_id] &
                                                  indicator_id %in% template$rsf_indicators[is.na(is_setup)==FALSE,indicator_id] &
-                                                 redundancy_rank == 0 &
                                                  inserted==TRUE,
                                                  .(rsf_pfcbl_id,
                                                    indicator_id,
@@ -856,45 +861,45 @@ template_upload <- function(pool,
       }
     }    
     
-    #Multiple reporting flagged
-    {
-      template$pfcbl_data[,has_multiple_reporting:=FALSE]
-      template$pfcbl_data[,
-                          has_multiple_reporting:=any(inserted==TRUE & 
-                                                        redundancy_rank > 0),
-                          by=.(rsf_pfcbl_id,
-                               indicator_id,
-                               reporting_asof_date)]
-      
-      if (any(template$pfcbl_data$has_multiple_reporting)) {
-        multiple_reportings <- template$pfcbl_data[has_multiple_reporting==TRUE &
-                                                   indicator_id %in% template$program_indicators[is_system==FALSE,indicator_id]]
-        
-        
-        if (!empty(multiple_reportings)) {
-          multiple_reportings <- multiple_reportings[,.(check_message=paste0("These values should be the same: ",
-                                                                        paste0(
-                                                                          paste0("{",
-                                                                                 ifelse(is.na(data_value),
-                                                                                        data_submitted,
-                                                                                        data_value),
-                                                                               "} on row ",data_source_row_id)
-                                                                        ),
-                                                                        collapse=" AND ALSO ")),
-                                                     by=.(rsf_pfcbl_id,
-                                                          indicator_id,
-                                                          reporting_asof_date)]
-          
-          multiple_reportings <- multiple_reportings[,.(rsf_pfcbl_id,
-                                                        indicator_id,
-                                                        reporting_asof_date,
-                                                        check_name='sys_flag_multiple_data_points_reported',
-                                                        check_message)]
-          sys_flags <- rbindlist(list(sys_flags,
-                                      multiple_reportings))
-        }
-      }
-    }
+    # #Multiple reporting flagged
+    # {
+    #   template$pfcbl_data[,has_multiple_reporting:=FALSE]
+    #   template$pfcbl_data[,
+    #                       has_multiple_reporting:=any(inserted==TRUE & 
+    #                                                     redundancy_rank > 0),
+    #                       by=.(rsf_pfcbl_id,
+    #                            indicator_id,
+    #                            reporting_asof_date)]
+    #   
+    #   if (any(template$pfcbl_data$has_multiple_reporting)) {
+    #     multiple_reportings <- template$pfcbl_data[has_multiple_reporting==TRUE &
+    #                                                indicator_id %in% template$program_indicators[is_system==FALSE,indicator_id]]
+    #     
+    #     
+    #     if (!empty(multiple_reportings)) {
+    #       multiple_reportings <- multiple_reportings[,.(check_message=paste0("These values should be the same: ",
+    #                                                                     paste0(
+    #                                                                       paste0("{",
+    #                                                                              ifelse(is.na(data_value),
+    #                                                                                     data_submitted,
+    #                                                                                     data_value),
+    #                                                                            "} on row ",data_source_row_id)
+    #                                                                     ),
+    #                                                                     collapse=" AND ALSO ")),
+    #                                                  by=.(rsf_pfcbl_id,
+    #                                                       indicator_id,
+    #                                                       reporting_asof_date)]
+    #       
+    #       multiple_reportings <- multiple_reportings[,.(rsf_pfcbl_id,
+    #                                                     indicator_id,
+    #                                                     reporting_asof_date,
+    #                                                     check_name='sys_flag_multiple_data_points_reported',
+    #                                                     check_message)]
+    #       sys_flags <- rbindlist(list(sys_flags,
+    #                                   multiple_reportings))
+    #     }
+    #   }
+    # }
     
     #Facility/client data without ammendment
     {
@@ -971,7 +976,6 @@ template_upload <- function(pool,
     #Identical flow data reported
     {
       flow_reporting <- template$pfcbl_data[inserted==TRUE &
-                                            reporting_redundancy_rank==0 &
                                             indicator_id %in% template$rsf_indicators[is_periodic_or_flow_reporting==TRUE,indicator_id],
                                             .(rsf_pfcbl_id,
                                               indicator_id)]
@@ -1236,6 +1240,7 @@ template_upload <- function(pool,
       
     }
   }  
+  
   
   t2 <- Sys.time()
   processed_calculations <- rsf_program_calculate(pool=pool,

@@ -212,7 +212,11 @@ template_parse_file <- function(pool,
       
       else if (template_name=="IFC-RSA-TEMPLATE") {
         
-        ids <- dbGetQuery(pool,"select rsf_program_id,rsf_facility_id from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id = $1::int",rsf_program_id)
+        ids <- dbGetQuery(pool,"select rsf_program_id,rsf_facility_id from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id = $1::int",rsf_program_id) #This template will pass the rsf_facility_id to rsf_program_id, hacky
+        if (empty(ids) || is.na(ids$rsf_facility_id)) {
+          stop(paste0("IFC-RSA-TEMPLATE must pass rsf_facility_id but facility could not be found for: ",rsf_program_id))
+        }
+        
         template <- parse_template_RSA(pool=pool,
                                        template_id = template_lookup$template_id,
                                        rsf_facility_id=ids$rsf_facility_id, #This is checked in parse template
@@ -220,6 +224,7 @@ template_parse_file <- function(pool,
                                        rsf_indicators=rsf_indicators,
                                        rsf_indicator_formulas=db_indicators_get_formulas(pool=pool),
                                        rsf_check_formulas=db_checks_get_formulas(pool=pool),
+                                       reporting_user_id=reporting_user_id,
                                        status_message = status_message)
         
 
@@ -227,6 +232,7 @@ template_parse_file <- function(pool,
         template$template_source_reference <- "RSA Setup PDF File"
         template$template_ids_method <- "pfcbl_id" #set as pfcbl_id for simplicity, but this file cannot create new entities (or match any entities)
       }
+      
       else {
         stop(paste0("Failed to find parse instructions for template: ",template_format))
       }

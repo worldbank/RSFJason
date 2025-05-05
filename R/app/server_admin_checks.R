@@ -20,7 +20,8 @@ RSF_CHECKS <- eventReactive(SERVER_ADMIN_CHECKS.LOAD_RSF_CHECK(), {
     ic.grouping,
     ic.subgrouping,
     ic.definition,
-    ic.auto_resolve_system_check
+    ic.auto_resolve_system_check,
+    ic.auto_subscribe
   from p_rsf.indicator_checks ic")
 
   if (empty(checks)) return (NULL)
@@ -294,7 +295,7 @@ observeEvent(input$server_admin_checks__edit_check_save, {
   check_class <- input$server_admin_checks__edit_check_class
   check_type <- input$server_admin_checks__edit_check_type
   check_category <- input$server_admin_checks__edit_check_category
-  
+  auto_subscribe <- as.logical(input$server_admin_checks__edit_auto_subscribe)
   grouping <- input$server_admin_checks__edit_check_grouping
   subgrouping <- input$server_admin_checks__edit_check_subgrouping
   definition <- input$server_admin_checks__edit_check_definition
@@ -327,11 +328,14 @@ observeEvent(input$server_admin_checks__edit_check_save, {
   if (!isTruthy(grouping)) grouping <- NA
   if (!isTruthy(subgrouping)) subgrouping <- NA
   
+  if (is.na(auto_subscribe)) auto_subscribe <- FALSE
+  
   check_data <- data.table(indicator_check_id=check$indicator_check_id,
                            check_name=check_name,
                            check_class=check_class,
                            check_pfcbl_category=check_category,
                            check_type=check_type,
+                           check_auto_subscribe=auto_subscribe,
                            grouping=grouping,
                            subgrouping=subgrouping,
                            definition=definition)
@@ -351,20 +355,23 @@ observeEvent(input$server_admin_checks__edit_check_save, {
                                                         indicator_check_id,
                                                         rsf_program_id,
                                                         rsf_facility_id,
-                                                        is_subscribed)
+                                                        is_subscribed,
+                                                        is_auto_subscribed)
           select 
             fcs.rsf_pfcbl_id,
             fcs.check_formula_id,
             fcs.indicator_check_id,
             fcs.rsf_program_id,
             fcs.rsf_facility_id,
-            true as is_subscribed
+            true as is_subscribed,
+            true as is_auto_subscribed
           from p_rsf.view_rsf_program_settings rps
           inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_program_id = rps.rsf_program_id
           inner join p_rsf.view_rsf_program_facility_check_subscribable fcs on fcs.rsf_pfcbl_id = ids.rsf_pfcbl_id
           where setting_name = 'auto_monitor_new_checks' and setting_value = 'true'
             and ids.pfcbl_category = 'program'
           	and fcs.is_subscribable = true
+          	and fcs.auto_subscribe = true
           	and fcs.indicator_check_id = $1::int
           on conflict
           do nothing
@@ -558,6 +565,9 @@ output$server_admin_checks__edit_check_UI <- renderUI({
   is_system <- as.logical(check$is_system)
   if (!isTruthy(is_system)) is_system <- FALSE
   
+  auto_subscribe <- as.logical(check$auto_subscribe)
+  if (is.na(auto_subscribe)) auto_subscribe <- FALSE
+  
   check_name <- check$check_name
 
   class_choices <- c("critical","error","warning","info")
@@ -670,17 +680,26 @@ output$server_admin_checks__edit_check_UI <- renderUI({
             ifelse(is_system==FALSE,
                   list(tagList(
                     fluidRow(
-                             column(4,enabled(state=editable & !is_system,
+                      
+                            column(2,
+                                   selectizeInput(inputId="server_admin_checks__edit_auto_subscribe",
+                                                  label="Subscribe",
+                                                  choices=c(`Auto`=TRUE,
+                                                            `Manual`=FALSE),
+                                                  selected=auto_subscribe)),
+                            
+                             column(3,enabled(state=editable & !is_system,
                                               selectizeInput(inputId="server_admin_checks__edit_check_grouping",
                                                      label="Formula Grouping",
                                                      choices=grouping_choices,
                                                      selected=grouping_selected,
                                                      options=list(placeholder="Advanced Formulas: Grouping")))),
-                             column(8,enabled(state=editable & !is_system,
-                                              textInput(inputId="server_admin_checks__edit_check_subgrouping",
+                             column(7,enabled(state=editable & !is_system,
+                                              textAreaInput(inputId="server_admin_checks__edit_check_subgrouping",
                                                         label="Sub-Grouping",
                                                         width="100%",
                                                         value=check_subgrouping,
+                                                        rows=1,
                                                         placeholder="Advanced Formulas: Sub-Grouping. Blank by default.")))
                     ),
                     fluidRow(align="left",style="padding-bottom:5px;",

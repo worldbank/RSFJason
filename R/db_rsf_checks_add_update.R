@@ -3,6 +3,8 @@ db_rsf_checks_add_update <- function(pool,
                                      data_checks,
                                      consolidation_threshold) 
 {
+
+  #3 seconds for just setting up and getting guidances!
   #setups
   {
   
@@ -14,7 +16,7 @@ db_rsf_checks_add_update <- function(pool,
     #if (!empty(data_checks[is.na(indicator_id) & is.na(check_formula_id)])) stop("system checks must submit NA check_formula_id and a value for indicator_id and user checks, the inverse")
     #if (length(using_reporting_cohort_id) != 1) { stop("Only one using_reporting_cohort_id value allowed, NA by default") }
     #lobstr::obj_size(data_checks)
-    t1 <- Sys.time()
+    t10 <- Sys.time()
    
     expected_cols <- c("rsf_pfcbl_id",
                        "for_indicator_id",
@@ -51,9 +53,7 @@ db_rsf_checks_add_update <- function(pool,
                 on=.(rsf_pfcbl_id)]
     ids <- NULL
   }
-  
-  
-  
+
   #get guidances
   {
    
@@ -461,8 +461,10 @@ db_rsf_checks_add_update <- function(pool,
   #dbRollback(conn);
   #poolReturn(conn)
 
+t20 <- Sys.time()  
   nx <- poolWithTransaction(pool,function(conn) {
     
+    t30 <- Sys.time()
         {
           dbExecute(conn,"
                     create temp table _temp_data_checks(data_id int,
@@ -495,14 +497,19 @@ db_rsf_checks_add_update <- function(pool,
                                                              original_auto_resolve bool)
                       on commit drop;")
           #dbExecute(conn,"create index _tac_idx on _temp_add_checks(rsf_pfcbl_id)")        
-        }   
-    
-        {
+          
           dbAppendTable(conn,
                         name="_temp_add_checks",
                         value=data_checks)     
           
           dbExecute(conn,"analyze _temp_add_checks;")
+          
+
+        }   
+    if(SYS_PRINT_TIMING) debugtime("db_rsf_checks_add_update","write data in ",format(Sys.time()-t30))  
+    
+        {
+          
           
           dbExecute(conn,"
                     delete from _temp_add_checks tac
@@ -731,8 +738,8 @@ db_rsf_checks_add_update <- function(pool,
       
       nx    
     })
+  if(SYS_PRINT_TIMING) debugtime("db_rsf_checks_add_update","uploading"," in ",format(Sys.time()-t20))  
   
-  
-  if(SYS_PRINT_TIMING) debugtime("db_rsf_checks_add_update","Done! uploading",nx," in ",format(Sys.time()-t1))
+  if(SYS_PRINT_TIMING) debugtime("db_rsf_checks_add_update","Done! uploading",nx," in ",format(Sys.time()-t10))
   return(TRUE)
 }

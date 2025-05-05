@@ -5,10 +5,12 @@ parse_template_RSA <- function(pool,
                                rsf_indicators=db_indicators_get_labels(pool=pool),
                                rsf_indicator_formulas=db_indicators_get_formulas(pool=pool),
                                rsf_check_formulas=db_checks_get_formulas(pool=pool),
+                               reporting_user_id,
                                status_message) 
 {
   #rsf_program_id <- 286031
   # rsf_facility_id <- 286031
+  #template_id <- 11
   # 
   # 
   # template_file <- paste0(c("C:",
@@ -874,7 +876,8 @@ parse_template_RSA <- function(pool,
   }
  
   
-  
+  #Only "PARSING" will generate data
+  #other actions generate actions
   template_data <- parsing[!is.na(indicator_name),
                            .(reporting_template_row_group=paste0(1:.N,"RSA"),
                              SYSID,
@@ -884,6 +887,234 @@ parse_template_RSA <- function(pool,
                              reporting_submitted_data_value=data_value,
                              reporting_submitted_data_unit=data_unit,
                              reporting_submitted_data_formula=as.character(NA))]
+  
+  
+  actions <- rbindlist(list(rsa[,.(action,indicator_id,indicator_formula_id,check_formula_id,comments=paste0(full_title," page ",pages,":: ",text))],
+                            parsing[!is.na(indicator_id),
+                                    .(action="remap",
+                                      indicator_id,
+                                      indicator_formula_id=as.numeric(NA),
+                                      check_formula_id=as.numeric(NA),
+                                      comments=paste0(full_title," page ",pages,":: ",text))]))
+  
+  
+  actions <- actions[!(action=="ignore")] #ignore means ignore... do nothing
+  actions <- actions[!(action=="parse")] #parse should already have been managed and re-combined to remap above.
+  
+  #conn <- poolCheckout(pool)
+  #dbBegin(conn)
+  #dbRollback(conn)
+  act <- actions[!is.na(indicator_id) & action %in% c("default","remap")] #default is only meaningful for indicators that are mapped via template names
+  if (!empty(act)) {
+    poolWithTransaction(pool, function(conn) { 
+      dbExecute(conn,"create temp table _act(indicator_id int,comments text) on commit drop;")  
+      dbAppendTable(conn,
+                    name="_act",
+                    value=act[,.(indicator_id,comments)])
+      
+      dbExecute(conn,"
+        insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
+                                                          indicator_id,
+                                                          formula_id,
+                                                          rsf_program_id,
+                                                          rsf_facility_id,
+                                                          is_subscribed,
+                                                          is_auto_subscribed,
+                                                          subscription_comments,
+                                                          comments_user_id)
+       select
+         ids.rsf_pfcbl_id,
+         act.indicator_id,
+         indf.formula_id,
+         ids.rsf_program_id,
+         ids.rsf_facility_id,
+         true as is_subscribed,
+         false as is_auto_subscribed,
+         act.comments as subscription_comments,
+         'SYSTEM: ' || $2::text
+       from p_rsf.rsf_pfcbl_ids ids
+       cross join _act act
+       left join p_rsf.indicator_formulas indf on indf.indicator_id = act.indicator_id
+                                              and indf.is_primary_default = true
+       where ids.rsf_pfcbl_id = $1::int
+         and not exists(select * from  p_rsf.rsf_program_facility_indicators pfi
+                        where pfi.rsf_pfcbl_id = $1::int
+                          and pfi.indicator_id = act.indicator_id
+                          and pfi.is_subscribed is true
+                          and pfi.is_auto_subscribed is false)
+       on conflict(rsf_pfcbl_id,indicator_id)
+       do update
+       set 
+        formula_id = EXCLUDED.formula_id,
+        is_subscribed = EXCLUDED.is_subscribed,
+        is_auto_subscribed = EXCLUDED.is_auto_subscribed,
+        subscription_comments = concat(rsf_program_facility_indicators.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
+        comments_user_id = EXCLUDED.comments_user_id
+           
+       ",
+      params=list(rsf_facility_id,
+                  reporting_user_id))
+    })
+  }
+  
+  act <- actions[!is.na(indicator_id) & action %in% c("unmap")] #default is only meaningful for indicators that are mapped via template names
+  if (!empty(act)) {
+    poolWithTransaction(pool, function(conn) { 
+      dbExecute(conn,"create temp table _act(indicator_id int,comments text) on commit drop;")  
+      dbAppendTable(conn,
+                    name="_act",
+                    value=act[,.(indicator_id,comments)])
+      
+      dbExecute(conn,"
+        insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
+                                                          indicator_id,
+                                                          formula_id,
+                                                          rsf_program_id,
+                                                          rsf_facility_id,
+                                                          is_subscribed,
+                                                          is_auto_subscribed,
+                                                          subscription_comments,
+                                                          comments_user_id)
+       select
+         ids.rsf_pfcbl_id,
+         act.indicator_id,
+         indf.formula_id,
+         ids.rsf_program_id,
+         ids.rsf_facility_id,
+         false as is_subscribed,
+         false as is_auto_subscribed,
+         act.comments as subscription_comments,
+         'SYSTEM Unsubscribed: ' || $2::text
+       from p_rsf.rsf_pfcbl_ids ids
+       cross join _act act
+       left join p_rsf.indicator_formulas indf on indf.indicator_id = act.indicator_id
+                                              and indf.is_primary_default = true
+       where ids.rsf_pfcbl_id = $1::int
+         and not exists(select * from  p_rsf.rsf_program_facility_indicators pfi
+                        where pfi.rsf_pfcbl_id = $1::int
+                          and pfi.indicator_id = act.indicator_id
+                          and pfi.is_subscribed is false
+                          and pfi.is_auto_subscribed is false)
+       on conflict(rsf_pfcbl_id,indicator_id)
+       do update
+       set 
+        formula_id = EXCLUDED.formula_id,
+        is_subscribed = EXCLUDED.is_subscribed,
+        is_auto_subscribed = EXCLUDED.is_auto_subscribed,
+        subscription_comments = concat(rsf_program_facility_indicators.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
+        comments_user_id = EXCLUDED.comments_user_id
+       ",
+                params=list(rsf_facility_id,
+                            reporting_user_id))
+    })
+  }
+  
+  act <- actions[!is.na(indicator_id) & action %in% c("check")] #default is only meaningful for indicators that are mapped via template names
+  if (!empty(act)) {
+    poolWithTransaction(pool, function(conn) { 
+      dbExecute(conn,"create temp table _act(check_formula_id int,comments text) on commit drop;")  
+      dbAppendTable(conn,
+                    name="_act",
+                    value=act[,.(check_formula_id,comments)])
+      
+      dbExecute(conn,"
+        insert into p_rsf.rsf_program_facility_checks(rsf_pfcbl_id,
+                                                      check_formula_id,
+                                                      indicator_check_id,
+                                                      rsf_program_id,
+                                                      rsf_facility_id,
+                                                      is_subscribed,
+                                                      is_auto_subscribed,
+                                                      subscription_comments,
+                                                      comments_user_id)
+       select
+         ids.rsf_pfcbl_id,
+         act.check_formula_id,
+         icf.indicator_check_id,
+         ids.rsf_program_id,
+         ids.rsf_facility_id,
+         true as is_subscribed,
+         false as is_auto_subscribed,
+         act.comments as subscription_comments,
+         'SYSTEM Subscribed: ' || $2::text
+       from p_rsf.rsf_pfcbl_ids ids
+       cross join _act act
+       inner join p_rsf.indicator_check_formulas icf on icf.check_formula_id = act.check_formula_id
+       where ids.rsf_pfcbl_id = $1::int
+         and not exists(select * from  p_rsf.rsf_program_facility_checks pfc
+                        where pfc.rsf_pfcbl_id = $1::int
+                          and pfc.check_formula_id = act.check_formula_id
+                          and pfc.indicator_check_id = icf.indicator_check_id
+                          and pfc.is_subscribed is false
+                          and pfc.is_auto_subscribed is false)
+       on conflict(rsf_pfcbl_id,check_formula_id)
+       do update
+       set 
+        indicator_check_id = EXCLUDED.indicator_check_id,
+        is_subscribed = EXCLUDED.is_subscribed,
+        is_auto_subscribed = EXCLUDED.is_auto_subscribed,
+        subscription_comments = concat(rsf_program_facility_checks.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
+        comments_user_id = EXCLUDED.comments_user_id
+       ",
+                params=list(rsf_facility_id,
+                            reporting_user_id))
+    })
+  }
+  
+  act <- actions[!is.na(indicator_id) & action %in% c("calculate")] #default is only meaningful for indicators that are mapped via template names
+  
+  if (!empty(act)) {
+    poolWithTransaction(pool, function(conn) { 
+      dbExecute(conn,"create temp table _act(formula_id int,comments text) on commit drop;")  
+      dbAppendTable(conn,
+                    name="_act",
+                    value=act[,.(formula_id=indicator_formula_id,comments)])
+      
+      dbExecute(conn,"
+        insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
+                                                          indicator_id,
+                                                          formula_id,
+                                                          rsf_program_id,
+                                                          rsf_facility_id,
+                                                          is_subscribed,
+                                                          is_auto_subscribed,
+                                                          subscription_comments,
+                                                          comments_user_id)
+       select
+         ids.rsf_pfcbl_id,
+         indf.indicator_id,
+         act.formula_id,
+         ids.rsf_program_id,
+         ids.rsf_facility_id,
+         true as is_subscribed,
+         false as is_auto_subscribed,
+         act.comments as subscription_comments,
+         'SYSTEM: ' || $2::text
+       from p_rsf.rsf_pfcbl_ids ids
+       cross join _act act
+       inner join p_rsf.indicator_formulas indf on indf.formula_id = act.formula_id -- could be a NULL formula, but header can't map to null
+       where ids.rsf_pfcbl_id = $1::int
+         and not exists(select * from  p_rsf.rsf_program_facility_indicators pfi
+                        where pfi.rsf_pfcbl_id = $1::int
+                          and pfi.indicator_id = indf.indicator_id
+                          and pfi.formula_id is not distinct from act.formula_id
+                          and pfi.is_subscribed is true
+                          and pfi.is_auto_subscribed is false)
+       on conflict(rsf_pfcbl_id,indicator_id)
+       do update
+       set 
+        is_subscribed = EXCLUDED.is_subscribed,
+        is_auto_subscribed = EXCLUDED.is_auto_subscribed,
+        subscription_comments = concat(rsf_program_facility_indicators.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
+        comments_user_id = EXCLUDED.comments_user_id
+           
+       ",
+                params=list(rsf_facility_id,
+                            reporting_user_id))
+    })
+  }
+  
+  
   
   template <- list(cohort_pfcbl_id=rsf_facility_id,
                    reporting_asof_date=reporting_asof_date,

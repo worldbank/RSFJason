@@ -343,7 +343,6 @@ SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_COHORT_INFO(),
   
   flags_data <- NULL
   
-  
   #select the entire collection: this will be the overwhelming majority of use cases.
   if (!isTruthy(collection_id)) {
     
@@ -376,8 +375,11 @@ SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_COHORT_INFO(),
         indf.is_primary_default,
         indcf.check_formula_title
       from p_rsf.rsf_data_checks rdc
-      inner join p_rsf.rsf_data rd on rd.data_id = rdc.data_id 
-      inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
+      inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rdc.rsf_pfcbl_id
+      inner join (select rc.rsf_program_id,rc.rsf_facility_id 
+                  from p_rsf.reporting_cohorts rc 
+                  where rc.reporting_cohort_id = $2::int) rcc on rcc.rsf_program_id is not distinct from ids.rsf_program_id
+                                                             and rcc.rsf_facility_id is not distinct from ids.rsf_facility_id            
       inner join p_rsf.indicators ind on ind.indicator_id = rdc.indicator_id
       inner join p_rsf.indicator_checks ic on ic.indicator_check_id = rdc.indicator_check_id
       left join p_rsf.indicator_check_guidance icg on icg.indicator_check_guidance_id = rdc.indicator_check_guidance_id
@@ -385,11 +387,8 @@ SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_COHORT_INFO(),
                                                                 and pis.indicator_id = rdc.indicator_id
       left join p_rsf.indicator_formulas indf on indf.formula_id = pis.formula_id
       left join p_rsf.indicator_check_formulas indcf on indcf.check_formula_id = rdc.check_formula_id
-      where rc.reporting_asof_date = $1::date
-        and rc.reporting_rsf_pfcbl_id = (select rcc.reporting_rsf_pfcbl_id 
-                                         from p_rsf.reporting_cohorts rcc
-                                         where rcc.reporting_cohort_id = $2::int)
-      and rdc.check_data_id_is_current = true",
+      where rdc.check_asof_date = $1::date
+        and rdc.check_data_id_is_current = true",
       params=list(reporting_current_date,
                   cohort$reporting_cohort_id))
     
@@ -833,22 +832,22 @@ observeEvent(SELECTED_COHORT_ID(), {
     choices <- NULL
     chocies.selected <- NULL
 
-    if (nrow(cohorts)==1) {
-      choices.selected <- cohort_id
-      choices <- setNames(cohorts$reporting_cohort_id,
-                          cohorts$source_name)
+    # if (nrow(cohorts)==1) {
+    #   choices.selected <- cohort_id
+    #   choices <- setNames(cohorts$reporting_cohort_id,
+    #                       cohorts$source_name)
       
-    } else {
+    #} else {
       cohort_info <- SELECTED_COHORT_INFO()
       choices.selected <- cohort_id
-      choices <- setNames(c("all",cohorts$reporting_cohort_id),
+      choices <- setNames(c("",cohorts$reporting_cohort_id),
                           c(paste0("All ",cohort_info$reporting_asof_date_label," ",cohort_info$entity_name," reporting"),
                             cohorts$source_name))
-    }
+    #}
     updateSelectizeInput(session=session,
                          inputId="cohort_collection_selected_id",
                          choices=choices,
-                         selected=choices.selected)
+                         selected="")
     
     current_panel <- input$datasetsTabset
     

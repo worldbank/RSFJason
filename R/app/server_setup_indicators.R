@@ -916,8 +916,7 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
           setDT(reporting_cohort)
           DBPOOL %>% db_add_update_data_user(reporting_cohort,
                                              cohort_upload_data=setup_data,
-                                             template_has_static_row_ids=FALSE,
-                                             is_redundancy_reporting=FALSE)
+                                             template_has_static_row_ids=FALSE)
         }
       
       })

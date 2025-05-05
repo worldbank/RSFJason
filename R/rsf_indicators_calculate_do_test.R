@@ -1,11 +1,11 @@
 
 # 
-# rsf_program_id <- 257571
-# reporting_current_date <- '2024-09-30'
-# indicator_id <-  157542
-# formula_pfcbl_id.familytree <- 257584
+# rsf_program_id <- 319959
+# reporting_current_date <- '2024-06-30'
+# indicator_id <-  43450 
+# formula_pfcbl_id.familytree <- 319995 
 
-#x<-rsf_indicators_calculate_do_test(pool,rsf_program_id,reporting_current_date,indicator_id,formula_pfcbl_id.familytree)
+#x<-rsf_indicators_calculate_do_test(pool,rsf_program_id,reporting_current_date,indicator_id,formula_pfcbl_id.familytree,all_parameters=FALSE)
 
 rsf_indicators_calculate_do_test <- function(pool,
                                              rsf_program_id,
@@ -189,9 +189,20 @@ rsf_indicators_calculate_do_test <- function(pool,
   {
     rsf_indicators <- db_indicators_get_labels(pool=pool)
     
+    rsf_calculator_checks <- dbGetQuery(pool,
+                                        "select 
+                                            ic.check_name,
+                                            ic.indicator_check_id,
+                                            ic.variance_tolerance_allowed
+                                          from p_rsf.indicator_checks ic
+                                          where ic.is_calculator_check = true")
+    
+    setDT(rsf_calculator_checks)
+    
     test_results <- rsf_program_perform_calculations(pool=pool,
                                                      current_data=test_calculation,
                                                      rsf_indicators=rsf_indicators,
+                                                     rsf_calculator_checks=rsf_calculator_checks,
                                                      perform.test = TRUE,
                                                      status_message=status_message)
     
@@ -311,12 +322,12 @@ rsf_indicators_calculate_do_test <- function(pool,
   {
     inputs <- test_results$inputs
 
-    pfcbl_cols <- grep("^rsf_pfcbl_id\\.",names(inputs),value=T)
+    pfcbl_cols <- grep("^rsf_[a-z]+_id$",names(inputs),value=T)
     sys_ids <- do.call(pmax,args=cbind(inputs[,..pfcbl_cols],data.frame(na.rm=T)))
     inputs[,SYSID:=sys_ids]
   
     setnames(inputs,
-             old=paste0("rsf_pfcbl_id.",unique(calculation$data_category)),
+             old=paste0("rsf_",unique(calculation$data_category),"_id"),
              new="rsf_pfcbl_id")
       
     omit_cols <- c("reporting_current_date",
@@ -326,37 +337,12 @@ rsf_indicators_calculate_do_test <- function(pool,
                    "rsf_facility_id",
                    "rsf_client_id",
                    "rsf_borrower_id",
-                   "rsf_loan_id",
-                   "rsf_pfcbl_id.global",
-                   "rsf_pfcbl_id.program",
-                   "rsf_pfcbl_id.facility",
-                   "rsf_pfcbl_id.client",
-                   "rsf_pfcbl_id.borrower",
-                   "rsf_pfcbl_id.loan")
+                   "rsf_loan_id")
       
     omit_cols <- omit_cols[omit_cols %in% names(inputs)]
     
     for(d in names(inputs)[sapply(inputs,is.Date)]) set(inputs,j=d,value=as.character(inputs[[d]]))
     
-    #Date now contained within the flag
-    # fx_date_cols <- grep(".reporteddate$",names(inputs),value=T)
-    # 
-    # if (calculation$data_type=="currency") {
-    #   fx_dates <- inputs[,
-    #                      .(fx_date=ifelse(all(is.na(.SD)),
-    #                                       as.character(NA),
-    #                                       max(unlist(.SD,recursive=F),na.rm=T))),
-    #                        by=.(rsf_pfcbl_id),
-    #                        .SDcols=fx_date_cols]
-    #   
-    #   
-    #   fx_date_cols <- fx_date_cols[!sapply(fx_date_cols,grepl,x=calculation$formula)]
-    #   omit_cols <- c(omit_cols,fx_date_cols)
-    #   
-    #   inputs[fx_dates,
-    #          fx_asof_date:=i.fx_date,
-    #          on=.(rsf_pfcbl_id)]
-    # }
     
     for(d in omit_cols) set(inputs,j=d,value=NULL)
     
@@ -386,10 +372,6 @@ rsf_indicators_calculate_do_test <- function(pool,
     setnames(inputs,
              old=input_cols,
              new=paste0("parameter:",input_cols))
-#-->    
-    # results <- results[inputs,
-    #                    on=.(rsf_pfcbl_id),
-    #                    nomatch=NA]
     
   }
   
@@ -447,11 +429,6 @@ rsf_indicators_calculate_do_test <- function(pool,
               neworder=names(results)[-which(names(results)=="parameter:fx_asof_date")])
   
   results[,indicator_id:=NULL]
-  
-  # setnames(results,
-  #          old=c("sys_name","rsf_pfcbl_id","reporting_asof_date"),
-  #          new=c("SYSNAME","SYSID","calculation_asof_date"))
-
   
   col_types <- sapply(inputs,class)
   if (any(col_types=="list")) {
@@ -672,6 +649,7 @@ rsf_indicators_calculate_do_test <- function(pool,
               loan_inclusion_rank:=i.data_value,
               on=.(SYSID=rsf_pfcbl_id)]
     }
+  
   
   
   } else {

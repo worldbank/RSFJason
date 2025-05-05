@@ -1,8 +1,7 @@
 db_add_update_data_user <- function(pool,
                                     reporting_cohort,
                                     cohort_upload_data,
-                                    template_has_static_row_ids=FALSE,
-                                    is_redundancy_reporting=FALSE)
+                                    template_has_static_row_ids=FALSE)
 {
   if (empty(cohort_upload_data)) return (NULL)
   if (is.null(template_has_static_row_ids) || any(is.na(template_has_static_row_ids))) template_has_static_row_ids <- FALSE
@@ -122,10 +121,9 @@ db_add_update_data_user <- function(pool,
                                                                                                             then urd.data_source_row_id
                                                                                                             else NULL 
                                                                                                        end::text,
-                                                                         is_redundancy_reporting => $2::bool
+                                                                         is_redundancy_reporting => false::bool
                                                                         ) = false;",
-                        params=list(template_has_static_row_ids,
-                                    is_redundancy_reporting))
+                        params=list(template_has_static_row_ids))
         
         
         has_data <- unlist(dbGetQuery(conn,"select exists(select * from _temp_upload_rsf_data urd)::bool as has_data"))
@@ -211,14 +209,13 @@ db_add_update_data_user <- function(pool,
                           TIMEOFDAY()::timestamptz as reporting_time,
                           rc.data_asof_date,
                           rc.from_reporting_template_id,
-                          case when coalesce($2::bool,false) = false then 'DATA REPORTING COHORT' 
-                               else 'REDUNDANT DATA REPORTING COHORT' end as source_reference,
+                          'DATA REPORTING COHORT' as source_reference,
                           rc.source_name,
                           NULL::text as source_note,
                           $1::int as parent_reporting_cohort_id,
                           true::bool as is_reported_cohort,
                           false::bool as is_calculated_cohort,
-                          coalesce($2::bool,false) as is_redundancy_cohort
+                          false::bool as is_redundancy_cohort
                         from p_rsf.reporting_cohorts rc
                         where rc.reporting_cohort_id = $1::int
                         returning reporting_cohort_id
@@ -226,8 +223,7 @@ db_add_update_data_user <- function(pool,
                       update _temp_upload_rsf_data urd
                       set reporting_cohort_id = cc.reporting_cohort_id
                       from child_cohort cc",
-                     params=list(data_reporting_cohort_id,
-                                 is_redundancy_reporting))
+                     params=list(data_reporting_cohort_id))
 
         #If we have meaningfully different data to insert, then we need a reporting cohort under which to report it.
         #If the reporting_asof_date of the data is DIFFERENT than the reporting_as_of_date of the submitted reporting_cohort, then lookup AND/OR create a LINKED cohort.

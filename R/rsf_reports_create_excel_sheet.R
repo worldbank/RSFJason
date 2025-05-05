@@ -19,6 +19,28 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
                                            protect_full=FALSE) #protect just headers or full sheet
 {
 
+print(paste0("Generating: ",sheet_name,"; ",sheet_data_table_name))  
+  # db_params <<- as.list(environment())[which(names(as.list(environment())) %in% c("excelwb",
+  #                                                                                 "sheet_name",
+  #                                                                                 "sheet_data_table_name",
+  #                                                                                 "sheet_data",
+  #                                                                                 "program_name",
+  #                                                                                 "program_image",
+  #                                                                                 "template_key",
+  # "report_key",
+  # "data_integrity_key",
+  # "reporting_entity",
+  # "reporting_asof_date",
+  # "reporting_user",
+  # "reporting_time",
+  # "reporting_notes",
+  # "protect",
+  # "protect_full"))]
+
+  #browser()
+  # 
+  # lapply(names(db_params),function(x) { assign(x,db_params[[x]],envir = globalenv()) })
+  
   START_ROW <- 10 #start row for data table
   program_image_scaling <- 4
   if (length(template_key) != 1 || all(is.na(template_key))) {
@@ -55,7 +77,7 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
   if (any(grepl(sheet_name,excelwb$sheet_names,ignore.case = T))) {
     stop(paste0("Cannot create Excel sheet '",sheet_name," in workbook: sheet already exists"))
   }
-  
+
   addWorksheet(excelwb,
                sheetName=sheet_name,
                gridLines=FALSE,
@@ -137,10 +159,12 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
                              startRow=1,
                              startCol=1,
                              file=program_image,units="px",width=3060/program_image_scaling,height=777/program_image_scaling)
-      
-      #offset image from edge by approx 5px (50,000 is 5 px??)
-      excelwb$drawings[[1]][[1]] <- gsub("\\d+</xdr:colOff>","50000</xdr:colOff>",excelwb$drawings[[1]][[1]])
-      excelwb$drawings[[1]][[1]] <- gsub("\\d+</xdr:rowOff>","50000</xdr:rowOff>",excelwb$drawings[[1]][[1]])
+
+      if (length(excelwb$drawings[[sheet]]) > 0) {
+        #offset image from edge by approx 5px (50,000 is 5 px??)
+        excelwb$drawings[[sheet]][[1]] <- gsub("\\d+</xdr:colOff>","50000</xdr:colOff>",excelwb$drawings[[sheet]][[1]])
+        excelwb$drawings[[sheet]][[1]] <- gsub("\\d+</xdr:rowOff>","50000</xdr:rowOff>",excelwb$drawings[[sheet]][[1]])
+      }
     }
   }  
   
@@ -199,7 +223,7 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
              cols=1:sheet_cols,
              gridExpand = TRUE)
   }
-  
+
   #sets the active cell to A9, the top of the datatable
   excelwb$worksheets[[sheet]]$sheetViews <-  '<sheetViews>  
   <sheetView tabSelected="1" workbookViewId="0" zoomScale="100">  

@@ -49,10 +49,17 @@ observeEvent(input$action_template_upload_new, {
                                                              width="100%",
                                                              multiple=TRUE))),
                                    fluidRow(column(12,
+                                                    hidden(selectizeInput(inputId="dataset_upload_rsf_facility_id",
+                                                                   label="Select Facility",
+                                                                   choices="",
+                                                                   selected="",
+                                                                   options=list(placeholder="Select facility for RSA"))
+                                                    ))),
+                                   fluidRow(column(12,
                                                    textAreaInput(inputId="dataset_upload_source_note",
                                                                  label="Notes:",
                                                                  width="100%",
-                                                                 height="100px",
+                                                                 height="75px",
                                                                  placeholder="Enter any reference notes about this template")
                                    )))))),
                    hidden(div(id="dataset_upload_panel2",
@@ -148,11 +155,16 @@ observeEvent(input$modal_dataset_upload_next, {
   COHORT_NEW_ID(NA)
   #COHORT_TEMPLATES(NA)
   #DATASET_UPLOAD_FILE_RETURN_RESULTS(NA)
-  
+
   #NA allows for create program scripts to run
   rsf_program_id <- NA
   if (isTruthy(SELECTED_PROGRAM_ID())) rsf_program_id <- SELECTED_PROGRAM_ID()
 
+  #Hacky, not the actual program ID but a facility-level specification
+  if (isTruthy(as.numeric(input$dataset_upload_rsf_facility_id))) {
+    rsf_program_id <- as.numeric(input$dataset_upload_rsf_facility_id)
+  }
+  
   source_name <- input$dataset_upload_source_name
   source_note <- input$dataset_upload_source_note
   
@@ -265,14 +277,46 @@ observeEvent(input$dataset_upload_file, {
     datapath <- copypath
   }
   
-  if (!all(file_ext(filename) %in% c("xlsx","csv","zip"))) {
-    showNotification(h1("Error: file must be Excel format .xlsx only (not .xls, .xlsxm or .xlsxb); or .csv with client name and date in filename; or a zip of these"),
+  
+  if (!file_ext(filename) %in% c("xlsx","csv","zip","pdf")) {
+    return (showNotification(h1("Error: file must be Excel format .xlsx only (not .xls, .xlsxm or .xlsxb); or .csv with client name and date in filename; or a zip of these"),
                      closeButton = TRUE,
                      duration=8,
-                     type="error")
-  } else {
-    DATASET_UPLOAD_FILE(datapath)
+                     type="error"))
+  }
+
+  DATASET_UPLOAD_FILE(datapath)
+  
+  if (file_ext(filename) %in% "pdf") {
+    showElement(id="dataset_upload_rsf_facility_id",
+                anim=TRUE,
+                time=1.0)
+    
+    facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
+    if (!isTruthy(facilities)) {
+      return(showNotification(type="error",
+                       ui=h3("RSAs are the only PDF documents that may be uploaded: selecting the facility is required")))
+      
+    } else {
+      
+      updateSelectInput(session=session,
+                        inputId="dataset_upload_rsf_facility_id",
+                        choices = c("",setNames(facilities$rsf_facility_id,facilities$facility_nickname)))
+    }
+  } else {  
     enable(id="modal_dataset_upload_next")
   }
 }, ignoreInit=TRUE)
 
+observeEvent(input$dataset_upload_rsf_facility_id, {
+  rsf_facility_id <- as.numeric(input$dataset_upload_rsf_facility_id)
+  if (isTruthy(rsf_facility_id)) {
+    if (rsf_facility_id && rsf_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_facility_id) {
+      enable(id="modal_dataset_upload_next")
+    } else {
+      disable(id="modal_dataset_upload_next")
+    }
+  } else {
+    disable(id="modal_dataset_upload_next")
+  }
+})

@@ -49,7 +49,6 @@ SERVER_DATASETS_REVIEW_FLAGS_REVERSIONS <- function(evaluation_ids) {
                        and rdU.indicator_id = rd.indicator_id
                        and rcU.is_reported_cohort = true
                        and rcU.is_calculated_cohort = false
-                       and rcU.is_redundancy_cohort = false
                        order by rdU.data_id desc
                        limit 1) revert on true 
     where chk.evaluation_id = any(select unnest(string_to_array($1::text,','))::int)",

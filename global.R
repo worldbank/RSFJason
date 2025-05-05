@@ -60,7 +60,7 @@ library(RPostgres)
 library(pool)
 library(yaml)
 library(sendmailR)
-
+library(english)
 
 source("./R/openxlsx_get_formulas.R")
 
@@ -107,7 +107,7 @@ source("./R/db_rsf_checks_validate.R")
 source("./R/db_program_get_data.R")
 source("./R/db_program_create.R")
 source("./R/db_program_download.R")
-source("./R/db_program_revalidate_calculations.R")
+#source("./R/db_program_revalidate_calculations.R")
 source("./R/db_program_toggle_indicator_subscription.R")
 source("./R/db_program_toggle_check_subscription.R")
 
@@ -245,31 +245,32 @@ status_message <- function(...) {
   #else cat("intercept_status_message not found\n",...) 
 }
 
-debug_count <- 0
-debug_time_running <- Sys.time()
-debug_time_now <- Sys.time()
-debug_msg <- c()
-debugtime <- function(...,reset=FALSE) {
+# debug_count <- 0
+# debug_time_running <- Sys.time()
+# debug_time_now <- Sys.time()
+# debug_msg <- c()
+debugtime <- function(...,reset=FALSE,showmsg=SYS_PRINT_TIMING) {
+  if (showmsg==FALSE) return (NULL)
   args <- unlist(list(...))
   msg <- paste0(args,collapse=" ")
 
-  if (reset) {
-    ret <- debug_msg
-    debug_count <<- 0
-    debug_time_running <<- Sys.time()
-    debug_time_now <<- Sys.time()
-    debug_msg <<- c()
-    
-    if (...length()==0) return (ret)
-  }
+  # if (reset) {
+  #   ret <- debug_msg
+  #   debug_count <<- 0
+  #   debug_time_running <<- Sys.time()
+  #   debug_time_now <<- Sys.time()
+  #   debug_msg <<- c()
+  #   
+  #   if (...length()==0) return (ret)
+  # }
   
-  debug_count <<- debug_count+1
-  t1 <- format(Sys.time() - debug_time_now)
-  t2 <- format(Sys.time()-debug_time_running)
-
-  debug_time_now <<- Sys.time()
-  msg <- paste0(debug_count,": ",msg," @",t1," running total @",(t2))
-  debug_msg <<- c(debug_msg,msg)
+  # debug_count <<- debug_count+1
+  # t1 <- format(Sys.time() - debug_time_now)
+  # t2 <- format(Sys.time()-debug_time_running)
+  # 
+  # debug_time_now <<- Sys.time()
+  # msg <- paste0(debug_count,": ",msg," @",t1," running total @",(t2))
+  # debug_msg <<- c(debug_msg,msg)
   #print(msg)
   cat(msg,"\n")
   #status_message(class="info",msg,"\n")
@@ -528,4 +529,10 @@ rgba2hex <- function(color_RGBA,background_RGB) {
   rgb2hex(rgba2rgb(color_RGBA = color_RGBA))
 }
 
+words_to_numbers <- function(s) {
+  s <- stringr::str_to_lower(s)
+  for (i in 0:19)
+    s <- stringr::str_replace_all(s, words(i), as.character(i))
+  s
+}
 

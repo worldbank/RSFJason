@@ -3,8 +3,7 @@ db_program_get_data  <- function(pool,
                                  indicator_variables,     #What - a named vector of indicator_id values; names, a csv concatenated string of variable attribute requirements
                                  for_rsf_pfcbl_ids,       #Who  - who do we want the data for?
                                  for_pfcbl_categories=NULL,    #query rsf_x_id when NULL will query only what is reqeusted from indicator_variables' data_category.  This is needed for grouping formulas
-                                 rsf_indicators,
-                                 missing_indicators.use_default=TRUE)
+                                 rsf_indicators)
 {
 
   #checks
@@ -45,8 +44,7 @@ db_program_get_data  <- function(pool,
    #                                                                                 "indicator_variables",
    #                                                                                 "for_rsf_pfcbl_ids",
    #                                                                                 "for_pfcbl_categories",
-   #                                                                                 "rsf_indicators",
-   #                                                                                 "missing_indicators.use_default"))]
+   #                                                                                 "rsf_indicators"))]
    
    
    # 
@@ -1284,66 +1282,6 @@ db_program_get_data  <- function(pool,
       
     }
     
-    
-    # #Defaults: requests for indicators that program isn't subscribed to (can happen when checks require an input variable that program doesn't track--use default)
-    # {
-    #   #missing_indicators <- indicator_variables[!indicator_variables %in% rsf_data$indicator_id]
-    #   missing_indicators <- query_indicators[!indicator_id %in% rsf_data$indicator_id,indicator_id]
-    #   if (length(missing_indicators) > 0 & missing_indicators.use_default==TRUE) {
-    #     
-        # default_values <- pfcbl_ids[,.(rsf_pfcbl_id,data_category=pfcbl_category)
-        #                             ][pfcbl_indicators[indicator_id %in% missing_indicators,
-        #                                            .(indicator_id,
-        #                                              indicator_name,
-        #                                              data_type,
-        #                                              data_category,
-        #                                              data_value=default_value,
-        #                                              data_unit)][unique(query_indicators[,.(indicator_id,
-        #                                                                                     data_class=indicator_variable_class)]),
-        #                                                          on=.(indicator_id),
-        #                                                          nomatch=NULL],
-        #                            .(rsf_pfcbl_id,
-        #                              indicator_id,
-        #                              indicator_name,
-        #                              data_type,
-        #                              data_value,
-        #                              data_unit,
-        #                              data_class),
-        #                            on=.(data_category),
-        #                            by=.EACHI,
-        #                            nomatch=NULL]
-        # 
-        # #If it's missing, therefore it cannot have a current and previous issuance value
-        # #And if we've asked for the default value for missing values, then we need to construct the default current and default previous
-        # #for the missing entity's non-existent issuance.
-        # if (any(query_indicators$indicator_variable_class %in% c("issuances.current","issuances.previous")) &&
-        #     any(names(pfcbl_ids)=="loan_issuance_series_id")) {
-        # 
-        #   non_issuance_entities <- pfcbl_ids[is.na(loan_issuance_series_id)==TRUE,.(rsf_pfcbl_id)]
-        #   non_issuance_entities <- rbindlist(list(non_issuance_entities[,.(rsf_pfcbl_id,data_class="issuances.current")],
-        #                                           non_issuance_entities[,.(rsf_pfcbl_id,data_class="issuances.previous")]))
-        #   default_values[non_issuance_entities,
-        #                  data_value:=as.character(NA),
-        #                  on=.(rsf_pfcbl_id,
-        #                       data_class)]
-        # }
-    #     
-    #     default_values[,reporting_asof_date:=as.Date(reporting_current_date)]
-    #     default_values[,reporting_current_date:=as.Date(reporting_asof_date)]
-    #     default_values[,`:=`(data_id=as.integer(NA),
-    #                            data_asof_date=as.Date(as.numeric(NA)),
-    #                            data_value_changed=as.logical(NA),
-    #                            data_value_updated=as.logical(FALSE),
-    #                            reportnumber=0)]
-    #     
-    #     setcolorder(default_values,
-    #                 neworder=names(rsf_data))
-    #     rsf_data <- rbindlist(list(rsf_data,
-    #                                default_values))
-    #   }
-    # }
-    # 
-  
     #finalize rsf_data
     {
       rsf_data[pfcbl_indicators[is.na(default_value) == FALSE,
@@ -1783,7 +1721,7 @@ db_program_get_data  <- function(pool,
     
     missing_cols[,
                  data_value:=fcase(variable_action=="unit",data_unit,
-                                   variable_action %in% c("current","previous","first","all"),default_value,
+                                   #variable_action %in% c("current","previous","first","all"),default_value, -- No!  This just causes unexpected results
                                    variable_action %in% "computationdate",as.character(reporting_current_date),
                                    variable_action %in% c("updated","changed"),"FALSE",
                                    variable_action %in% "reportnumber","0",
@@ -1836,46 +1774,15 @@ db_program_get_data  <- function(pool,
           value=missing$data_value)
     }
   }
-  
-  #current.reportingcount has a default value of 1.
-  # if (any(query_indicators$indicator_variable=="current.reportingcount")) {
-  #   for (reportingrank_col in grep("\\.current.reportingcount",names(pfcbl_family))) {
-  #     set(pfcbl_family,
-  #         i=which(is.na(pfcbl_family[[reportingrank_col]])),
-  #         j=reportingrank_col,
-  #         value=1)
-  #   }
-  # }
-  # 
-
 
   rsf_data <- NULL
-  
-  #if(SYS_PRINT_TIMING)  debugtime("db_program_get_data","data formatting done")
-  
+ 
   #Simplify columns and grab-back pfcbl_ids
   {
     cnames <- names(pfcbl_family)
     setcolorder(pfcbl_family,order(rsf_colranks(cnames),cnames))
   }
   
-  # pseudo_ids <- pfcbl_family[,
-  #                            .SD,
-  #                            .SDcols = grep("^rsf_.*_id$",names(pfcbl_family),value=T)]
-  # 
-  # if (any(pseudo_ids < 0)) {
-  #   
-  #   for (col in names(pseudo_ids)) {
-  #     
-  #     if (!any(pseudo_ids[[col]] < 0)) next;
-  #     set(pfcbl_family,
-  #         i=which(pseudo_ids[[col]] < 0),
-  #         j=col,
-  #         value=as.integer(NA))
-  #   }
-  #   #pfcbl_family[pseudo_ids] <- as.integer(NA)
-  # }
-  # pseudo_ids <- NULL
   
   if(SYS_PRINT_TIMING) debugtime("db_program_get_data","Done!",format(Sys.time()-t1))
   

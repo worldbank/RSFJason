@@ -2,6 +2,7 @@ rsf_indicators_calculate <- function(pool,
                                      rsf_indicators,
                                      rsf_data_wide,
                                      calculations,
+                                     flags.fx=FALSE,
                                      status_message=function(...) {}) { 
   
   #Setups
@@ -103,7 +104,49 @@ rsf_indicators_calculate <- function(pool,
         
         parameters <- rbindlist(calculation$parameters_dt)
         
-        if (any(is.na(calculation$formula)) || empty(parameters)) {
+        calculation$formula_is_constant <- FALSE
+        #Formula is a constant?
+        if (empty(parameters)) {
+            
+            failed <- tryCatch({
+              
+              eval(parse(text=calculation$formula))
+              
+              NULL
+              
+            },
+            warning = function(w) { conditionMessage(w) },
+            error = function(e) { conditionMessage(e) })
+            
+            if (!is.null(failed)) {
+
+              add_data_flag(rsf_pfcbl_id = calculate_for_rsf_pfcbl_ids,
+                            indicator_id=calculation$calculate_indicator_id,
+                            check_name="sys_calculator_failed",
+                            check_message=paste0(calculation$indicator_name," has formula failed to calculate a constant: ",failed),
+                            formula_id=calculation$formula_id)
+              
+              status_message(class="error",paste0("\nCalculation failed: ",calculation$indicator_name," has no defined formula.\n"))
+              next;
+            } else {
+              calculation$formula_is_constant <- TRUE
+              parameters <- data.table(parameter_column_name=character(),
+                                       parameter_variable=character(),
+                                       parameter_indicator_name=character(),
+                                       parameter_indicator_id=numeric(),
+                                       parameter_data_type=character(),
+                                       for_calculation=logical(),
+                                       for_sort=logical(),
+                                       for_fx=logical())
+            }
+        }
+        
+        if (any(is.na(calculation$formula))) {
+          #system calculations may have an internal/custom calculation that's performed elsewhere.  Those that exclusively calculate internally will have a NULL 
+          #formula value.  Others may have a formula that's manually called internally and also may be calculated through this automated process
+          #hashids are an example: may be manually calculated to support look-up of IDs before data is saved; but also auto-calculated here in response to any updates
+          #to their input values.  Whereas hashvalue values are only internally calculated (as they are artifacts of what gets uploaded rather than a response to changes in saved data)
+          if (is_system==FALSE) {
             add_data_flag(rsf_pfcbl_id = calculate_for_rsf_pfcbl_ids,
                           indicator_id=calculation$calculate_indicator_id,
                           check_name="sys_calculator_failed",
@@ -111,7 +154,8 @@ rsf_indicators_calculate <- function(pool,
                           formula_id=calculation$formula_id)
             
             status_message(class="error",paste0("\nCalculation failed: ",calculation$indicator_name," has no defined formula.\n"))
-
+          }
+          
           next;
         }
         
@@ -170,23 +214,6 @@ rsf_indicators_calculate <- function(pool,
           stop(paste0("rsf_data_wide has missing rsf_pfcbl_ids for calculation ",calculation$indicator_name," in column ",calculation_rsf_pfcbl_id_col))
         }
         
-        if (any(is.na(calculation$formula))) {
-          #system calculations may have an internal/custom calculation that's performed elsewhere.  Those that exclusively calculate internally will have a NULL 
-          #formula value.  Others may have a formula that's manually called internally and also may be calculated through this automated process
-          #hashids are an example: may be manually calculated to support look-up of IDs before data is saved; but also auto-calculated here in response to any updates
-          #to their input values.  Whereas hashvalue values are only internally calculated (as they are artifacts of what gets uploaded rather than a response to changes in saved data)
-          if (is_system==FALSE) {
-            add_data_flag(rsf_pfcbl_id = calculate_for_rsf_pfcbl_ids,
-                          indicator_id=calculation$calculate_indicator_id,
-                          check_name="sys_calculator_failed",
-                          check_message=paste0(calculation$indicator_name," has no defined formula. Enter a calculation formula for this indicator in Admin Panel."),
-                          formula_id=calculation$formula_id)
-            
-            status_message(class="error",paste0("\nCalculation failed: ",calculation$indicator_name," has no defined formula.\n"))
-          }
-          
-          next;
-        }
         
         # if (!calculation_rsf_id_col %in% names(rsf_data_wide)) {
         #   status_message(class="error",paste0("\nCalculation failed: ",calculation$indicator_name,"\n  Formula unable to find sys_id colum for calculations: ",calculation_rsf_id_col,".  Skipping.\n"))
@@ -224,6 +251,11 @@ rsf_indicators_calculate <- function(pool,
       
       #formula_rsf_ids <- unique(gsub("^rsf_pfcbl_id.([a-z]+)$","rsf_\\1_id",unlist(calculation$formula_pfcbl_id_categories)))
       formula_rsf_ids <- unique(unlist(calculation$formula_pfcbl_id_categories))
+
+      #the formula_rsf_ids would be NA without any formula.  This is valid for constants.  Otherwise, return an error
+      if (anyNA(formula_rsf_ids) && calculation$formula_is_constant==TRUE) {
+        formula_rsf_ids <- formula_rsf_ids[-which(is.na(formula_rsf_ids))]
+      }
       
       cols <- c("reporting_current_date",
                 calculation_rsf_pfcbl_id_col,
@@ -233,6 +265,7 @@ rsf_indicators_calculate <- function(pool,
       
 
       cols <- unique(cols) #indicator_rsf_id and formula_rsf_ids may be the same
+      
       
       if (!all(cols %in% names(rsf_data_wide))) {
         bad_cols <- cols[!cols %in% names(rsf_data_wide)]
@@ -282,39 +315,44 @@ rsf_indicators_calculate <- function(pool,
                 rsf_pfcbl_id:=mget(calculation_rsf_pfcbl_id_col)]
       
       #missing_rsf_ids <- which(Reduce(any,sapply(calc_data[,..formula_rsf_ids],is.na))) #returns rows that have NA for any input rsf_ids
-      missing_rsf_ids <- which(sapply(as.data.frame(t(calc_data[,..formula_rsf_ids])),anyNA))
-      if (length(missing_rsf_ids)>0) {
-        calc_data[,missing_ids:=FALSE]
-        calc_data[missing_rsf_ids,
-                  missing_ids:=TRUE]
-        
-        missing_ids <- calc_data[missing_ids==TRUE]
-        calc_data <- calc_data[missing_ids==FALSE]
-        calc_data[,missing_ids:=NULL]
-        
-        if (!empty(missing_ids)) {
-          #status_message(class="error",paste0("\nCalculation failed due to missing data: ",calculation$indicator_name,"\n  Formula has no data to calculate after filtering for entity missing IDs.  Skipping.\n"))
-          add_data_flag(rsf_pfcbl_id = unlist(missing_ids$rsf_pfcbl_id),
-                        indicator_id=calculation$calculate_indicator_id,
-                        check_name="sys_calculator_missing_data",
-                        check_message=paste0(calculation$indicator_name," formula has no data after filtering for missing ",
-                                             paste0(formula_rsf_ids,collapse=" AND/OR "),
-                                             ". Ensure ",toTitleCase(calculation$data_category)," has reported any ",
-                                             fcase(any(formula_rsf_ids=="rsf_loan_id"),"Loans",
-                                                   any(formula_rsf_ids=="rsf_borrower_id"),"Borrowers",
-                                                   any(formula_rsf_ids=="rsf_client_id"),"Clients",
-                                                   any(formula_rsf_ids=="rsf_facility_id"),"Facilities",
-                                                   any(formula_rsf_ids=="rsf_program_id"),"Programs",
-                                                   default="data"),
-                                             " as-of ",as.character(calculation$calculate_asof_date)," ",
-                                             " and all input variables are defined and reported for this formula to calculate."),
-                        formula_id=calculation$formula_id)
+      
+      #means, for example, calculation needs any loan level data; and so it's returned defaults or blanks for loan_whatever.current column as a placeholder and rsf_loan_id is NA
+      #so because it's NA we know it will not calculate it correctly (or meaningfully), because the facility doesn't have any loans and all data is just placeholder data
+      if (length(formula_rsf_ids) > 0) {
+        missing_rsf_ids <- which(sapply(as.data.frame(t(calc_data[,..formula_rsf_ids])),anyNA))
+        if (length(missing_rsf_ids)>0) {
+          calc_data[,missing_ids:=FALSE]
+          calc_data[missing_rsf_ids,
+                    missing_ids:=TRUE]
+          
+          missing_ids <- calc_data[missing_ids==TRUE]
+          calc_data <- calc_data[missing_ids==FALSE]
+          calc_data[,missing_ids:=NULL]
+          
+          if (!empty(missing_ids)) {
+            #status_message(class="error",paste0("\nCalculation failed due to missing data: ",calculation$indicator_name,"\n  Formula has no data to calculate after filtering for entity missing IDs.  Skipping.\n"))
+            add_data_flag(rsf_pfcbl_id = unlist(missing_ids$rsf_pfcbl_id),
+                          indicator_id=calculation$calculate_indicator_id,
+                          check_name="sys_calculator_missing_data",
+                          check_message=paste0(calculation$indicator_name," formula has no data after filtering for missing ",
+                                               paste0(formula_rsf_ids,collapse=" AND/OR "),
+                                               ". Ensure ",toTitleCase(calculation$data_category)," has reported any ",
+                                               fcase(any(formula_rsf_ids=="rsf_loan_id"),"Loans",
+                                                     any(formula_rsf_ids=="rsf_borrower_id"),"Borrowers",
+                                                     any(formula_rsf_ids=="rsf_client_id"),"Clients",
+                                                     any(formula_rsf_ids=="rsf_facility_id"),"Facilities",
+                                                     any(formula_rsf_ids=="rsf_program_id"),"Programs",
+                                                     default="data"),
+                                               " as-of ",as.character(calculation$calculate_asof_date)," ",
+                                               " and all input variables are defined and reported for this formula to calculate."),
+                          formula_id=calculation$formula_id)
+          }
+          
+          if (empty(calc_data)) {
+            next; #all IDs are missing
+          }
         }
-        
-        if (empty(calc_data)) {
-          next; #all IDs are missing
-        }
-      }
+      }      
       
      # setnames(calc_data,
      #           old=c(calculation_rsf_pfcbl_id_col),
@@ -426,11 +464,18 @@ rsf_indicators_calculate <- function(pool,
         add_data_flag_function <- function(rsf_pfcbl_id,
                                            check_name,
                                            check_message) {
-          add_data_flag(rsf_pfcbl_id=rsf_pfcbl_id,
-                        indicator_id=calculation$calculate_indicator_id,
-                        check_name=check_name,
-                        check_message=check_message,
-                        formula_id=calculation$formula_id)
+          
+          #fx conversions generate a lot of noise. only keep for testing.
+          if (check_name=="sys_fx_conversion" && flags.fx==FALSE) {
+            
+            NULL;
+          } else {
+            add_data_flag(rsf_pfcbl_id=rsf_pfcbl_id,
+                          indicator_id=calculation$calculate_indicator_id,
+                          check_name=check_name,
+                          check_message=check_message,
+                          formula_id=calculation$formula_id)
+          }
         }
         
         add_fx_conversions_function <- function(report_conversions) {
@@ -706,7 +751,7 @@ rsf_indicators_calculate <- function(pool,
       do_calc
     })
     
-    if(SYS_PRINT_TIMING) debugtime("rsf_indicators_calculate",calculation$indicator_name," calculation time=",format((Sys.time()-t2)))
+    #if(SYS_PRINT_TIMING) debugtime("rsf_indicators_calculate",calculation$indicator_name," calculation time=",format((Sys.time()-t2)))
     
     #Results filter
     #Note: results filter is different than calculations filter in situations where calculations require aggregate of all children entities within 
@@ -796,7 +841,7 @@ rsf_indicators_calculate <- function(pool,
       status_message(class="warning",",\n",calculation$indicator_name," took ",calc_time,"s to calculate\n")
     }
     
-    if(SYS_PRINT_TIMING & calc_time > 0.25 & grepl("sys_global_fx",calculation$indicator_name)==FALSE)  {
+    if(SYS_PRINT_TIMING & calc_time > 1 & grepl("sys_global_fx",calculation$indicator_name)==FALSE)  {
 
       debugtime("rsf_indicators_calculate",
                 "calculaton time for '",calculation$indicator_name," #",
@@ -856,9 +901,14 @@ rsf_indicators_calculate <- function(pool,
                          data_unit=as.character(NA))]
       
       #Even if the failed to calculate the formula, we can resolve that it "failed" in the correct units, not NA units -- since NA will be posted to the database, which controls unit validity.
-      failed_calcs[calculations[!is.na(calculate_indicator_data_unit)],
+      #Note: fixed a bug where one formula calculated multiple rsf_pfcbl_ids in different currencies and joined-on only the first currency unit, resulting in incorrect currency units.
+      failed_calcs[calculations[!is.na(calculate_indicator_data_unit),
+                                .(rsf_pfcbl_id=as.numeric(unlist(calculate_rsf_pfcbl_ids,recursive=F))),
+                                by=.(formula_id,
+                                     calculate_indicator_data_unit)],
                    data_unit:=i.calculate_indicator_data_unit,
-                   on=.(formula_id)]
+                   on=.(rsf_pfcbl_id,
+                        formula_id)]
       
       failed_calcs[,reporting_asof_date:=unique(rsf_data_wide$reporting_current_date)]
       

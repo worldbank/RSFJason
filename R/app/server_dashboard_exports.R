@@ -525,7 +525,7 @@ SERVER_DASHBOARD_EXPORTS__DO_MAKE_TEMPLATE <- function(export_file,
   excelwb <- openxlsx::loadWorkbook(template_path)
   program_name <- SELECTED_PROGRAM()$program_nickname
   if (!isTruthy(program_name)) program_name <- "GLOBAL"
-  
+  #report_id_name <- names(export_data)[[1]]
   for (report_id_name in names(export_data)) {
 
     current_report_id <- as.numeric(gsub("^report_","",report_id_name))
@@ -588,7 +588,7 @@ output$server_dashboard_exports__download_template <- downloadHandler(
     return(selected_template$template_download_filename)
   },
   content=function(file) {
-    
+   
     withProgress(message="Downloading file",value=0.5, {
       
       SERVER_DASHBOARD_EXPORTS__DO_MAKE_TEMPLATE(export_file=file)

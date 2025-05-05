@@ -2,10 +2,10 @@
 
 	
 # check
-# rsf_program_id <- 37
-# pfcbl_ids.familytree <- 80574
-# reporting_current_date='2021-12-31'; 
-# check_formula_id = 134
+# rsf_program_id <- 319959
+# pfcbl_ids.familytree <- 319995
+# reporting_current_date='2024-09-30';
+# check_formula_id = 92
 #Revise to take check_id and then check/warn if program is not subscribed to it
 rsf_checks_do_test <- function(pool,
                                rsf_program_id,

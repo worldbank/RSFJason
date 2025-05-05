@@ -2,6 +2,7 @@
 rsf_program_perform_calculations <- function(pool,
                                              current_data,
                                              rsf_indicators,
+                                             rsf_calculator_checks,
                                              perform.test = FALSE,
                                              status_message=function(...) {},
                                              SYS_FLAGS_MANUAL_OVERWRITE=4,
@@ -14,7 +15,7 @@ rsf_program_perform_calculations <- function(pool,
    
   
 
-  t1 <- Sys.time()
+  t20 <- Sys.time()
   #setups
   {
     #browser()
@@ -29,6 +30,13 @@ rsf_program_perform_calculations <- function(pool,
       status_message(class="info","No calculations require update.\n")
       return (NULL)
     }
+    
+    current_calculation_date <- unique(current_data$calculate_asof_date)
+    if (length(current_calculation_date) != 1) {
+      stop(paste0("rsf_program_perform_calculations expects dataset with one (and only one) calculate_asof_date at a time.  Received: ",
+                  paste0(current_calculation_date,collapse=", ")))
+    }
+    
     # CHECKS <- c("sys_calculator_overwrote_manual_calculation",
     #             "sys_calculator_vs_manual_calculation",
     #             "sys_calculator_failed")
@@ -159,12 +167,12 @@ rsf_program_perform_calculations <- function(pool,
       
       computation_groups <- sort(unique(calculations$computation_group))
       current_data[,calculated:=FALSE]
-      #compg <- computation_groups[[5]]
+      #compg <- computation_groups[[1]]
       for (compg in computation_groups) {
         
         calculations_group <- calculations[computation_group==compg]
         
-        #get the data
+        #get the requirements
         {
          
           request_indicator_variables <- rbindlist(calculations_group$parameters_dt)
@@ -192,22 +200,7 @@ rsf_program_perform_calculations <- function(pool,
                                                                                       calculate_rsf_pfcbl_ids=calculate_rsf_pfcbl_ids,
                                                                                       calculate_indicator_ids=unique(calculations_group$calculate_indicator_id),
                                                                                       calculate_asof_date=calculations_group$calculate_asof_date[[1]])          
-          #TODO: need hierarchy to be 'sibling'
-          # parameter_rsf_pfcbl_ids <- dbGetQuery(pool,"
-          #                                         select 
-          #                                           distinct cids.to_parameter_rsf_pfcbl_id as rsf_pfcbl_id
-          #                                         from p_rsf.compute_calculation_to_parameter_rsf_pfcbl_ids cids
-          #                                         where cids.from_calculate_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-          #                                           and cids.from_calculate_indicator_id = any(select unnest(string_to_array($2::text,','))::int)
-          #                                           and cids.parameter_rsf_pfcbl_id_created_date <= $3::date
-          #                                           and cids.to_parameter_rsf_pfcbl_id <> cids.from_calculate_rsf_pfcbl_id
-          #                                       ",
-          #                                       params=list(paste0(calculate_rsf_pfcbl_ids,collapse=","),
-          #                                                   paste0(unique(calculations_group$calculate_indicator_id),collapse=","),
-          #                                                   as.character(calculations_group$calculate_asof_date[[1]])))
-          # 
-          # 
-          #  data_rsf_pfcbl_ids <- unique(c(calculate_rsf_pfcbl_ids,parameter_rsf_pfcbl_ids$rsf_pfcbl_id))
+          
           for_pfcbl_categories <- unique(c(calculations_group$formula_grouping_rsf_id,
                                            unlist(calculations_group$formula_pfcbl_id_categories),
                                            calculations_group$data_category))
@@ -216,21 +209,25 @@ rsf_program_perform_calculations <- function(pool,
           for_pfcbl_categories <- gsub("^rsf_([a-z]+)_id$","\\1",for_pfcbl_categories)
           
           
+          
+       
+        }      
+          
+        #get the data & run the calculations
+        {
+          
           rsf_data_wide <- db_program_get_data(pool=pool,
                                                reporting_current_date=calculations_group$calculate_asof_date[[1]],
                                                rsf_indicators=rsf_indicators,
                                                indicator_variables=request_indicator_variables, #a named vector of indicator_id values; names, a csv concatenated string of variable attribute requirements
                                                for_rsf_pfcbl_ids=data_rsf_pfcbl_ids,
                                                for_pfcbl_categories=for_pfcbl_categories)
-       
-        }      
           
-        #run the calculations
-        {
           calculations_results <- rsf_indicators_calculate(pool=pool,
                                                            rsf_indicators=rsf_indicators,
                                                            rsf_data_wide=rsf_data_wide,
                                                            calculations=calculations_group,
+                                                           flags.fx=perform.test, #If we're testing then flag fx info, else it generates noise.
                                                            status_message=status_message)
           
           #This can happen if there is a complete failure and calculation gets rejected from calculation queue.  That reporting_asof_date gets omitted from the 
@@ -684,24 +681,64 @@ rsf_program_perform_calculations <- function(pool,
       }
       
       if (any(current_results$insert_action==FALSE)) {
-        unchanged_results <- current_results[insert_action==FALSE,
-                                                    .(data_id=current_data_id,
-                                                      rsf_pfcbl_id,
-                                                      indicator_id,
-                                                      reporting_asof_date)]  #Calculation_failed presently unused!
+        # unchanged_results <- current_results[insert_action==FALSE,
+        #                                             .(data_id=current_data_id,
+        #                                               rsf_pfcbl_id,
+        #                                               indicator_id,
+        #                                               reporting_asof_date)] 
+        # 
+        t2 <- Sys.time()
+        verification_ids <- current_results[insert_action==FALSE,current_data_id]
+        status_message(class="none","Validating ",length(verification_ids)," previously calculated results.\n")
+        validated <- dbGetQuery(pool,"
+                      with data_ids as (
+                  
+                        select unnest(string_to_array($1::text,','))::int as data_id
+                      ),
+                      validate_checks as (
+                      
+                      delete from p_rsf.rsf_data_checks rdc
+                      using data_ids 
+                      where data_ids.data_id = rdc.data_id
+                        and rdc.check_asof_date = $2::date
+                        and rdc.check_data_id_is_current = true
+                        and rdc.indicator_check_id = any(select ic.indicator_check_id from p_rsf.indicator_checks ic where ic.is_calculator_check = true)
+                      returning null as done
+                      ),
+                      validate_calculations as (
+                      
+                        
+                      delete from p_rsf.rsf_data_calculation_evaluations dce
+                      using data_ids
+                      inner join p_rsf.rsf_data_current rdc on rdc.data_id = data_ids.data_id
+                      where rdc.rsf_pfcbl_id = dce.rsf_pfcbl_id
+                        and rdc.indicator_id = dce.indicator_id
+                        and dce.calculation_asof_date =  $2::date
+                      returning null as done
+                      )
+                      select count(*) as checks_validated from validate_checks
+                      union all
+                      select count(*) as calculations_validated from validate_calculations",
+                                                params=list(paste0(verification_ids,collapse=","),
+                                                            as.character(current_calculation_date)))
         
-        status_message(class="none","Validating ",nrow(unchanged_results)," previously calculated results.\n")
+        if(SYS_PRINT_TIMING) debugtime("rsf_program_perform_calculations","revalidate_calculations",as.numeric(Sys.time()-t2,"secs"))
+        
+        # db_program_revalidate_calculations(pool=pool,
+        #                                    verification_date=current_calculation_date,
+        #                                    verification_ids=current_results[insert_action==FALSE,current_data_id])
 
-        db_program_revalidate_calculations(pool=pool,
-                                           calculation_verifications=unchanged_results)
-
-        unchanged_results<-NULL
+        #unchanged_results<-NULL
       }
       
       #For those calculations that required an fx conversion, save the data ID of the fx value used as part of the calculation
       #(so that if that data_id becomes stale, it can invalidate the calculation that relied on it)
       if (!empty(fx_calculations)) {
         
+        t2 <- Sys.time()
+        # conn <- poolCheckout(pool);
+        # dbBegin(conn)
+        # dbRollback(conn)
         poolWithTransaction(pool,function(conn) {
           
           dbExecute(conn,"create temp table _temp_fx_ids(rsf_pfcbl_id int,
@@ -740,6 +777,9 @@ rsf_program_perform_calculations <- function(pool,
                           on conflict do nothing;
                     ")
         })
+        
+        
+        if(SYS_PRINT_TIMING) debugtime("rsf_program_perform_calculations","register_fx_rate_applied",as.numeric(Sys.time()-t2,"secs"))
       }
 
     }
@@ -787,26 +827,18 @@ rsf_program_perform_calculations <- function(pool,
                                              check_message)]
     
     check_names <- unique(calculation_flags$check_name)
-    check_ids <- dbGetQuery(pool,
-                            "select 
-                                ic.check_name,
-                                ic.indicator_check_id,
-                                ic.variance_tolerance_allowed
-                              from p_rsf.indicator_checks ic
-                              where ic.is_calculator_check = true")
     
-    setDT(check_ids)
     
-    if (!all(check_names %in% check_ids$check_name)) {
+    if (!all(check_names %in% rsf_calculator_checks$check_name)) {
       stop("Failed to lookup system check names designated as is_calculator_check=true: ",
-           paste0(check_names[-which(check_names %in% check_ids$check_name)],
+           paste0(check_names[-which(check_names %in% rsf_calculator_checks$check_name)],
                   collapse=" AND ALSO "))
     }
     
     calculation_flags[,
                       variance_tolerance_allowed:=FALSE]
     
-    calculation_flags[check_ids,
+    calculation_flags[rsf_calculator_checks,
                       `:=`(indicator_check_id=i.indicator_check_id,
                            variance_tolerance_allowed=i.variance_tolerance_allowed),
                       on=.(check_name)]
@@ -830,10 +862,14 @@ rsf_program_perform_calculations <- function(pool,
                                              check_message,
                                              variance)]
 
-    db_rsf_checks_add_update(pool=pool,
-                             data_checks=calculation_flags,
-                             consolidation_threshold=NA)
+    #moved outside this 
+    # db_rsf_checks_add_update(pool=pool,
+    #                          data_checks=calculation_flags,
+    #                          consolidation_threshold=NA)
     
-  }  
-  if(SYS_PRINT_TIMING) debugtime("rsf_program_perform_calculations","Done!",format(Sys.time()-t1))
+  } else {
+    calculation_flags <- NULL
+  }
+  if(SYS_PRINT_TIMING) debugtime("rsf_program_perform_calculations","Done!",format(Sys.time()-t20))
+  return (calculation_flags)
 }

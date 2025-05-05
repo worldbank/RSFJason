@@ -23,24 +23,25 @@ server_setup_template__header_module_server <- function(id,
     
     o1 <- observeEvent(input$template_header_sheet_name, {
      
-     dbExecute(pool,"
-        update p_rsf.rsf_program_facility_template_headers fth
-        set template_header_sheet_name = NULLIF($1::text,'')
-        where fth.header_id = $2::int",
-        params=list(as.character(input$template_header_sheet_name),
-                    this.id()))
-     
+     if (isTruthy(input$template_header_sheet_name)) {
+       dbExecute(pool,"
+          update p_rsf.rsf_program_facility_template_headers fth
+          set template_header_sheet_name = NULLIF($1::text,'')
+          where fth.header_id = $2::int",
+          params=list(as.character(input$template_header_sheet_name),
+                      this.id()))
+     }
     },ignoreInit=TRUE)
 
     o2 <- observeEvent(input$template_header_text, {
-      
-      dbExecute(pool,"
-        update p_rsf.rsf_program_facility_template_headers fth
-        set template_header = NULLIF($1::text,'')
-        where fth.header_id = $2::int",
-                params=list(as.character(input$template_header_text),
-                            this.id()))
-      
+      if (isTruthy(input$template_header_sheet_name)) {
+        dbExecute(pool,"
+          update p_rsf.rsf_program_facility_template_headers fth
+          set template_header = NULLIF($1::text,'')
+          where fth.header_id = $2::int",
+                  params=list(as.character(input$template_header_text),
+                              this.id()))
+      }      
       
     },ignoreInit=TRUE)
     
@@ -117,7 +118,7 @@ server_setup_template__header_module_server <- function(id,
         return(showNotification(type="error",
                                 ui=h3("Action must be selected")))
       }
-      
+
       if (action %in% c("default","ignore","parse")) {
         dbExecute(pool,"
         update p_rsf.rsf_program_facility_template_headers fth
@@ -129,6 +130,7 @@ server_setup_template__header_module_server <- function(id,
         
       } else if (action %in% c("remap","unmap")) {
         
+
         dbExecute(pool,"
         update p_rsf.rsf_program_facility_template_headers fth
         set map_indicator_id = $2,
@@ -211,7 +213,7 @@ server_setup_template__header_module_ui <- function(id,
                                    label=NULL,
                                    value=header$template_header_sheet_name,
                                    width="100%",
-                                   height=paste0(34+(floor(nchar(header$template_header_sheet_name)/30)*38),"px"),
+                                   height=paste0(34+(min(1,floor(nchar(header$template_header_sheet_name)/30),na.rm=T)*38),"px"),
                                    placeholder="Anywhere"))
   
 
@@ -220,7 +222,7 @@ server_setup_template__header_module_ui <- function(id,
                            textAreaInput(inputId=ns("template_header_text"),
                                      label=NULL,
                                      value=header$template_header,
-                                     height=paste0(34+(floor(nchar(header$template_header)/90)*38),"px"),
+                                     height=paste0(34+(min(1,floor(nchar(header$template_header)/90),na.rm=T)*38),"px"),
                                      width="100%",
                                      placeholder="Enter template column to match"))
    
@@ -251,7 +253,7 @@ server_setup_template__header_module_ui <- function(id,
                                            options=list(placeholder="Header not mapped")))
       
     } else if (header$action %in% c("remap","unmap")) {
-      
+
       header_mapping <- div(style="display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;white-space:nowrap;",
                             selectizeInput(inputId=ns("template_header_target_name"),
                                            label=NULL,
@@ -291,7 +293,7 @@ server_setup_template__header_module_ui <- function(id,
                                     label=NULL,
                                     value=header$comment,
                                     width="100%",
-                                    height=paste0(34+(floor(nchar(header$comment)/30)*38),"px"),
+                                    height=paste0(34+(min(1,floor(nchar(header$comment)/30),na.rm=T)*38),"px"),
                                     placeholder="Comments"))
     
     
@@ -417,6 +419,9 @@ SERVER_SETUP_TEMPLATES__HEADER_ACTIONS <- eventReactive(SERVER_SETUP_TEMPLATES__
       fth.template_header_sheet_name,
       fth.template_header_encounter_index,
       fth.header_id,
+      fth.map_indicator_id,
+      fth.map_formula_id,
+      fth.map_check_formula_id,
       coalesce(fth.comment,'') as comment
     from p_rsf.rsf_program_facility_template_headers fth
     where fth.rsf_pfcbl_id = $1::int
