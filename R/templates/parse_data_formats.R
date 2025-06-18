@@ -862,6 +862,26 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
           subs_flags <- NULL
         }
 
+        has_percents <- grepl("^\\d*\\.?\\d*percent$",regular_data_pct$data_value,perl=T)
+        if (any(has_percents)) {
+          
+          pcts <- regular_data_pct[which(has_percents),data_value]
+          
+          pcts <- as.numeric(gsub("^(\\d*\\.?\\d*)percent$","\\1",pcts,perl=T)) / 100
+          set(regular_data_pct,i=which(has_percents),j="data_value",value=pcts)
+          
+          subs_flags <- regular_data_pct[which(has_percents),
+                                         .(parse_id,
+                                           check_name="sys_flag_data_format_auto_correction",
+                                           check_message=paste0(indicator_name,": ",
+                                                                "from {",reporting_submitted_data_value,"} ",
+                                                                "to {",ifelse(is.na(data_value),"MISSING",data_value),"}"))]
+          
+          indicator_data_flags <- rbindlist(list(indicator_data_flags,
+                                                 subs_flags))
+          subs_flags <- NULL
+        }
+        
         missings <- is.na(regular_data_pct$data_value)        
         pcts <- suppressWarnings(as.numeric(regular_data_pct$data_value))
         set(regular_data_pct,i=NULL,j="data_value",value=pcts)

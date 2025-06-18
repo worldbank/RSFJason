@@ -193,7 +193,18 @@ tabPanel("Setup Templates",
                                                 choices="",
                                                 options=list(placeholder="Nothing selected"),
                                                 selected="",
-                                                width="250px"))
+                                                width="250px")),
+                             
+                             div(style="padding-left:40px;padding-top:25px;",
+                                 downloadButton(outputId="ui_setup__template_headers_download",
+                                                label="Download Headers",
+                                                width="250px")),
+                             
+                             div(style="padding-left:20px",
+                                 fileInput(inputId="ui_setup__template_headers_upload",
+                                           label="Upload Headers",
+                                           accept="xlsx",
+                                           width="250px"))
                          ))
          ),
          fluidRow(style="margin-bottom:15px;",

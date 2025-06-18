@@ -2,19 +2,8 @@ db_indicators_get_header_actions <- function(pool,
                                              template_id,
                                              rsf_pfcbl_id) {
   header_actions <- dbGetQuery(pool,"
-      select
-        tha.rsf_pfcbl_id,
-        tha.template_id,
-        tha.header_id,
-        tha.indicator_header_id,
-        tha.template_header,
-        tha.template_header_sheet_name as template_header_section_name,
-        tha.template_header_encounter_index,
-        tha.action,
-        tha.remap_header,
-        tha.remap_indicator_id,
-        tha.action_level
-      from p_rsf.view_rsf_program_facility_template_header_actions tha
+      select tha.*
+        from p_rsf.view_rsf_program_facility_template_header_actions tha
       where tha.rsf_pfcbl_id = $1::int
         and tha.template_id = $2::int
       order by header_id desc",
@@ -50,19 +39,10 @@ db_indicators_get_header_actions <- function(pool,
                    ungrouped_header:=NULL]
   }
   
-  # header_actions[,
-  #                label_normalized:=normalizeLabel(template_header)]
-  # 
-  # header_actions[,
-  #                label_trimmed:=superTrim(template_header,to.lower.case=F)]
-  
  
-  # header_actions[label_normalized=="na",
-  #                label_normalized:=as.character(NA)]
-  
-  setnames(header_actions,
-           old="remap_indicator_id",
-           new="indicator_id")
+  # setnames(header_actions,
+  #          old="remap_indicator_id",
+  #          new="indicator_id")
   
  return (header_actions)
 }

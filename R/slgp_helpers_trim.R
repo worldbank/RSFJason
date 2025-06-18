@@ -238,12 +238,13 @@ normalizeLabel <- function(x) {
   #stringi::stri_trans_general(normalizePunctuation(superTrim(x)),"Latin-ASCII")
   #x <- gsub("^[[:punct:]]+","",x) #Remove any labels that start with punctuation
   #x <- gsub("[\\*\\.:,-]+$","",x)  #Labels ending in . * - : # ,
+  x <- stringi::stri_trans_general(x,"Latin-ASCII")
   x <- gsub("'","",x,perl=T)                   #get rid of "'s"
   x <- gsub("N/A","na",x,ignore.case = TRUE,perl=T)
   x <- gsub("[[:space:]]+&[[:space:]]+"," and ",x,ignore.case = TRUE,perl=T)
   x <- gsub("[^%#&@$<>\\/[:alnum:]]"," ",x,perl=T) #Starting with punctuation
   x <- gsub("[[:space:]]*([[:punct:]])[[:space:]]*","\\1",x)
-  stringi::stri_trans_general(superTrim(x,trim.punct=FALSE),"Latin-ASCII")
+  superTrim(x,trim.punct=FALSE)
 }
 
 superTrim <- function(x,

@@ -51,7 +51,9 @@ USER_PROGRAMS <- eventReactive(c(LOGGEDIN(),
                                     nids.rsf_name",
                                     params=list(USER_ID()))
   
-  if (empty(programs)) programs <- data.frame(rsf_program_id=NA,program_name='Error: No defined Programs (or no permissions granted to any programs)')
+  if (empty(programs)) programs <- data.frame(rsf_program_id=NA,
+                                              permissions="0",
+                                              program_name='Error: No defined Programs (or no permissions granted to any programs)')
   setDT(programs)
   programs[,permissions:=mapply(strsplit,x=permissions,split=",",fixed=T)]
   programs

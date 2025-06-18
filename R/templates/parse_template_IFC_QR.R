@@ -179,26 +179,65 @@ parse_template_IFC_QR <- function(pool,
     # header_actions <- db_indicators_get_header_actions(pool=pool,
     #                                                    template_id=template_lookup$template_id,
     #                                                    rsf_pfcbl_id=rsf_pfcbl_id.facility)
-    header_actions <- dbGetQuery(pool,"
-      select
-        tha.rsf_pfcbl_id,
-        tha.template_id,
-        tha.header_id,
-        tha.indicator_header_id,
-        tha.template_header,
-        tha.template_header_sheet_name,
-        tha.template_header_encounter_index,
-        tha.action,
-        tha.remap_header,
-        tha.remap_indicator_id,
-        tha.action_level
-      from p_rsf.view_rsf_program_facility_template_header_actions tha
-      where tha.rsf_pfcbl_id = $1::int
-        and tha.template_id = $2::int
-      order by header_id desc",
-      params=list(rsf_pfcbl_id.facility,
-                  template_lookup$template_id))
+    # header_actions <- dbGetQuery(pool,"
+    #   select
+    #     tha.rsf_pfcbl_id,
+    #     tha.template_id,
+    #     tha.header_id,
+    #     tha.indicator_header_id,
+    #     tha.template_header,
+    #     tha.template_header_sheet_name,
+    #     tha.template_header_encounter_index,
+    #     tha.action,
+    #     tha.remap_header,
+    #     tha.remap_indicator_id,
+    #     tha.action_level
+    #   from p_rsf.view_rsf_program_facility_template_header_actions tha
+    #   where tha.rsf_pfcbl_id = $1::int
+    #     and tha.template_id = $2::int
+    #   order by header_id desc",
+    #   params=list(rsf_pfcbl_id.facility,
+    #               template_lookup$template_id))
 
+    #TODO:
+    #The IFC QR template was designed first and kind of doing its own thing.  So instead of using the VIEW that has been updated, just using hard-coded query (for now)
+    header_actions <- dbGetQuery(pool,"
+      select distinct on (ft.from_rsf_pfcbl_id,
+                          fth.template_id,
+          								fth.action,
+          								normalizeLabel((fth.template_header_sheet_name)),
+          								fth.template_header_encounter_index,
+                          normalizeLabel((fth.template_header)))
+      	ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
+      	fth.template_id,
+      	fth.header_id,
+      	coalesce(fth.map_indicator_id,ind_old.indicator_id,0) || '-' || fth.header_id as indicator_header_id,
+        (fth.template_header) as template_header,
+      	(fth.template_header_sheet_name) as template_header_sheet_name,
+      	fth.template_header_encounter_index,
+      	fth.action,
+      	fth.remap_header,
+      	coalesce(fth.map_indicator_id,ind_old.indicator_id) as remap_indicator_id,
+      	ft.to_pfcbl_category as action_level
+      from p_rsf.view_rsf_pfcbl_id_family_tree ft
+      inner join p_rsf.rsf_program_facility_template_headers fth on fth.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+      left join p_rsf.indicators ind_old on ind_old.indicator_name = fth.remap_header -- OLD and outdated
+      
+      where ft.from_pfcbl_category in ('global','program','facility')
+        and ft.from_rsf_pfcbl_id = $1::int
+        and fth.template_id = $2::int
+      
+      order by 
+      ft.from_rsf_pfcbl_id,
+      fth.template_id,
+      fth.action,
+      normalizeLabel((fth.template_header_sheet_name)),
+      fth.template_header_encounter_index,
+      normalizeLabel((fth.template_header)),
+      ft.to_pfcbl_rank  desc    
+    ",params=list(rsf_pfcbl_id.facility,
+                  template_lookup$template_id))
+    
     setDT(header_actions)
 
     header_actions[,template_header_position:=as.numeric(NA)]
@@ -360,35 +399,35 @@ parse_template_IFC_QR <- function(pool,
     #label matching!!
     {
       
-      #match by exact position (all matches) and also exact encounter index
-      {
-      position_matches <- summary_sheet[is.na(action) &
-                                          header_encounter_index > 0,
-                                        .(label_normalized=paste0(label_normalized,collapse=" && ")),
-                                        by=.(original_row_num,header_encounter_index)
-                          ][rsf_labels[grepl("Summary",template_header_sheet_name,ignore.case=T) & 
-                                         is.na(template_header_position)==FALSE &
-                                         template_header_encounter_index > 0,
-                                       .(label_normalized=paste0(label_normalized,collapse=" && ")),
-                                       by=.(action,
-                                            indicator_id,
-                                            indicator_header_id,
-                                            template_header_encounter_index)],
-                            on=.(label_normalized,header_encounter_index=template_header_encounter_index),
-                            nomatch=NULL
-                            ][,
-                              .(action,
-                                indicator_id,
-                                exact_match=nrow(unique(.SD))==1),
-                              by=.(original_row_num),
-                              .SDcols=c("action","indicator_id")
-                              ][exact_match==TRUE]
-      
-      summary_sheet[position_matches,
-                     `:=`(indicator_id=i.indicator_id,
-                          action=i.action),
-                     on=.(original_row_num)]
-      }    
+      # #match by exact position (all matches) and also exact encounter index
+      # {
+      # position_matches <- summary_sheet[is.na(action) &
+      #                                     header_encounter_index > 0,
+      #                                   .(label_normalized=paste0(label_normalized,collapse=" && ")),
+      #                                   by=.(original_row_num,header_encounter_index)
+      #                     ][rsf_labels[grepl("Summary",template_header_sheet_name,ignore.case=T) & 
+      #                                    is.na(template_header_position)==FALSE &
+      #                                    template_header_encounter_index > 0,
+      #                                  .(label_normalized=paste0(label_normalized,collapse=" && ")),
+      #                                  by=.(action,
+      #                                       indicator_id,
+      #                                       indicator_header_id,
+      #                                       template_header_encounter_index)],
+      #                       on=.(label_normalized,header_encounter_index=template_header_encounter_index),
+      #                       nomatch=NULL
+      #                       ][,
+      #                         .(action,
+      #                           indicator_id,
+      #                           exact_match=nrow(unique(.SD))==1),
+      #                         by=.(original_row_num),
+      #                         .SDcols=c("action","indicator_id")
+      #                         ][exact_match==TRUE]
+      # 
+      # summary_sheet[position_matches,
+      #                `:=`(indicator_id=i.indicator_id,
+      #                     action=i.action),
+      #                on=.(original_row_num)]
+      # }    
       
       #now without encounter index
       {
@@ -418,33 +457,33 @@ parse_template_IFC_QR <- function(pool,
                     on=.(original_row_num)]
       }
   
-      #now only with without encounter index==0
-      {
-        position_matches <- summary_sheet[is.na(action),
-                                          .(label_normalized=paste0(label_normalized,collapse=" && ")),
-                                          by=.(original_row_num)
-        ][rsf_labels[grepl("Summary",template_header_sheet_name,ignore.case=T) & 
-                       is.na(template_header_position)==FALSE &
-                       template_header_encounter_index == 0,
-                     .(label_normalized=paste0(label_normalized,collapse=" && ")),
-                     by=.(action,
-                          indicator_id,
-                          indicator_header_id)],
-          on=.(label_normalized),
-          nomatch=NULL
-        ][,
-          .(action,
-            indicator_id,
-            exact_match=nrow(unique(.SD))==1),
-          by=.(original_row_num),
-          .SDcols=c("action","indicator_id")
-        ][exact_match==TRUE]
-        
-        summary_sheet[position_matches,
-                      `:=`(indicator_id=i.indicator_id,
-                           action=i.action),
-                      on=.(original_row_num)]
-      }
+      # #now only with without encounter index==0
+      # {
+      #   position_matches <- summary_sheet[is.na(action),
+      #                                     .(label_normalized=paste0(label_normalized,collapse=" && ")),
+      #                                     by=.(original_row_num)
+      #   ][rsf_labels[grepl("Summary",template_header_sheet_name,ignore.case=T) & 
+      #                  is.na(template_header_position)==FALSE &
+      #                  template_header_encounter_index == 0,
+      #                .(label_normalized=paste0(label_normalized,collapse=" && ")),
+      #                by=.(action,
+      #                     indicator_id,
+      #                     indicator_header_id)],
+      #     on=.(label_normalized),
+      #     nomatch=NULL
+      #   ][,
+      #     .(action,
+      #       indicator_id,
+      #       exact_match=nrow(unique(.SD))==1),
+      #     by=.(original_row_num),
+      #     .SDcols=c("action","indicator_id")
+      #   ][exact_match==TRUE]
+      #   
+      #   summary_sheet[position_matches,
+      #                 `:=`(indicator_id=i.indicator_id,
+      #                      action=i.action),
+      #                 on=.(original_row_num)]
+      # }
       
       #now by implied unit
       {

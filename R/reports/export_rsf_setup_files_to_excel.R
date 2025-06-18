@@ -138,21 +138,18 @@ export_rsf_setup_files_to_excel <- function(pool,
                                                    paste0(rsf_pfcbl_ids.filter,collapse=",")))
       setDT(program_guidance)
     }
-    
+
     program_template_actions <- NULL
     if (any(include=="actions")) {
       #Can inherit GLOBAL template actions
       program_template_actions <- dbGetQuery(pool,"
                                              select * 
-                                             from p_rsf.view_rsf_setup_programs_template_actions pta
-                                             where pta.rsf_program_id in ($1::int,0)
-                                               and case when NULLIF($2::text,'NA') is NULL then true
-                                                   else pta.rsf_pfcbl_id in (select child_rsf_pfcbl_id
-            	                                                               from p_rsf.rsf_pfcbl_id_family fam 
-            													                                       where fam.parent_rsf_pfcbl_id in (select unnest(string_to_array($2::text,','))::int))
-                                                   end",
-                                                   params=list(rsf_program_id,
-                                                               paste0(rsf_pfcbl_ids.filter,collapse=",")))
+                                             from p_rsf.view_rsf_program_facility_template_headers fth
+                                             where fth.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+                                                                          from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                                                                          where ft.from_rsf_pfcbl_id = (select unnest(string_to_array($1::text,',')))::int
+                                                                            and to_pfcbl_category in ('global','program','facility'))",
+                                                   params=list(paste0(unique(na.omit(c(rsf_program_id,rsf_pfcbl_ids.filter))),collapse=",")))
       setDT(program_template_actions)
     }
     
@@ -355,15 +352,15 @@ export_rsf_setup_files_to_excel <- function(pool,
   }
   
   if (!empty(program_template_actions)) {
-    program_template_actions <- program_template_actions[,
-                                                         .(HEADERID=header_id,
-                                                           TEMPLATE=template_name,
-                                                           SYSNAME=sys_name,
-                                                           SHEET_NAME=template_header_sheet_name,
-                                                           HEADER_NAME=template_header,
-                                                           HEADER_INDEX=template_header_encounter_index,
-                                                           ACTION=action,
-                                                           REMAP_HEADER=remap_header)]
+    # program_template_actions <- program_template_actions[,
+    #                                                      .(HEADERID=header_id,
+    #                                                        TEMPLATE=template_name,
+    #                                                        SYSNAME=sys_name,
+    #                                                        SHEET_NAME=template_header_sheet_name,
+    #                                                        HEADER_NAME=template_header,
+    #                                                        HEADER_INDEX=template_header_encounter_index,
+    #                                                        ACTION=action,
+    #                                                        REMAP_HEADER=remap_header)]
     
     excelwb <- rsf_reports_create_excel_sheet(excelwb=excelwb,
                                               sheet_name="PROGRAM_TEMPLATE_ACTIONS",

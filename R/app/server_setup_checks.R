@@ -23,6 +23,7 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
    SERVER_SETUP_CHECKS_TOGGLE_SELECTED(c())
    
    monitored_checks <- DBPOOL %>% dbGetQuery("
+    select * from (    
     select 
       fcs.rsf_pfcbl_id,
       fcs.indicator_check_id,
@@ -56,16 +57,95 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
     						where ft.from_rsf_pfcbl_id = $1::int
     						  and rdc.check_formula_id is not null) as has on has.rsf_pfcbl_id = fcs.rsf_pfcbl_id
     																												  and has.check_formula_id = fcs.check_formula_id
-    where fcs.rsf_pfcbl_id = $1::int
-     order by 
-      case when ic.check_class = 'critical' then 1
-           when ic.check_class = 'error' then 2
-           when ic.check_class = 'warning' then 3
-           else 4 end,
+    where fcs.rsf_pfcbl_id = $1::int 
+    
+    
+    union 
+
+    select 
+      fcs.rsf_pfcbl_id,
+      fcs.indicator_check_id,
+      fcs.check_formula_id,
+      
+      icf.check_formula_title,
+      icf.check_pfcbl_category,
       ic.check_name,
-      icf.check_formula_title",
-    params=list(selected_rsf_pfcbl_id))
-                                                           
+      ic.check_type,
+      ic.check_class,
+      ict.check_type_name,
+      false as has_flag,
+      false as is_subscribed,
+      false as is_auto_subscribed,
+      false as user_subscription,
+      NULL::text as pfcbl_category_setting,
+      NULL::text as subscription_comments,
+      NULL::text as comments_user_id,
+      false as is_inherited
+    from p_rsf.view_rsf_program_facility_check_subscribable fcs
+    inner join p_rsf.indicator_checks ic on ic.indicator_check_id = fcs.indicator_check_id
+    inner join p_Rsf.indicator_check_formulas icf on icf.check_formula_id = fcs.check_formula_id
+    inner join p_rsf.indicator_check_types ict on ict.check_type = ic.check_type
+    where fcs.rsf_pfcbl_id = $1::int 
+      and fcs.is_subscribable = true
+      and not exists(select * from p_rsf.view_rsf_program_facility_check_subscriptions sub
+                     where sub.rsf_pfcbl_id = fcs.rsf_pfcbl_id
+                       and sub.check_formula_id = fcs.check_formula_id)
+    ) as subs                   
+    
+     order by 
+      case when subs.check_class = 'critical' then 1
+           when subs.check_class = 'error' then 2
+           when subs.check_class = 'warning' then 3
+           else 4 end,
+      subs.check_name,
+      subs.check_formula_title",
+  params=list(selected_rsf_pfcbl_id))
+   
+   # 
+   # monitored_checks <- DBPOOL %>% dbGetQuery("
+   #  select 
+   #    fcs.rsf_pfcbl_id,
+   #    fcs.indicator_check_id,
+   #    fcs.check_formula_id,
+   #    
+   #    icf.check_formula_title,
+   #    icf.check_pfcbl_category,
+   #    ic.check_name,
+   #    ic.check_type,
+   #    ic.check_class,
+   #    ict.check_type_name,
+   #    coalesce(has.reported,false) as has_flag,
+   #    fcs.is_subscribed,
+   #    fcs.is_auto_subscribed,
+   #    case when fcs.is_auto_subscribed = true then NULL::bool
+   #         else fcs.is_subscribed end as user_subscription,
+   #    fcs.pfcbl_category_setting,
+   #    fcs.subscription_comments,
+   #    fcs.comments_user_id,
+   #    fcs.is_inherited
+   #  from p_rsf.view_rsf_program_facility_check_subscriptions fcs
+   #  inner join p_rsf.indicator_checks ic on ic.indicator_check_id = fcs.indicator_check_id
+   #  inner join p_Rsf.indicator_check_formulas icf on icf.check_formula_id = fcs.check_formula_id
+   #  inner join p_rsf.indicator_check_types ict on ict.check_type = ic.check_type
+   #  left join (select distinct
+   #  						ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
+   #  						rdc.check_formula_id,
+   #  						true as reported
+   #  						from p_rsf.view_rsf_pfcbl_id_family_tree ft
+   #  						inner join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+   #  						where ft.from_rsf_pfcbl_id = $1::int
+   #  						  and rdc.check_formula_id is not null) as has on has.rsf_pfcbl_id = fcs.rsf_pfcbl_id
+   #  																												  and has.check_formula_id = fcs.check_formula_id
+   #  where fcs.rsf_pfcbl_id = $1::int
+   #   order by 
+   #    case when ic.check_class = 'critical' then 1
+   #         when ic.check_class = 'error' then 2
+   #         when ic.check_class = 'warning' then 3
+   #         else 4 end,
+   #    ic.check_name,
+   #    icf.check_formula_title",
+   #  params=list(selected_rsf_pfcbl_id))
+   #                                                         
    setDT(monitored_checks)
   
    monitored_checks[RSF_CHECK_TYPES(),

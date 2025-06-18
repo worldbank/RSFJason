@@ -1771,7 +1771,7 @@ db_program_get_data  <- function(pool,
       set(pfcbl_family,
           i=NULL,
           j=missing$indicator_name_variable,
-          value=missing$data_value)
+          value=rep(missing$data_value,nrow(pfcbl_family)))
     }
   }
 

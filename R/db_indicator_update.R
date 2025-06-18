@@ -15,7 +15,7 @@ db_indicator_update <- function(pool,
   labels[,label:=trimws(label)]
   labels <- labels[is.na(label)==FALSE]
   labels <- labels[nchar(label) > 3]
-  #browser()
+  
   #labels
   #conn <- poolCheckout(pool)
   #dbBegin(conn)
@@ -155,7 +155,6 @@ db_indicator_update <- function(pool,
                                    formula_fx_date,
                                    formula_title,
                                    formula_notes,
-                                   formula_labels,
                                    formula_unit_set_by_indicator_name,
                                    is_primary_default)])
     

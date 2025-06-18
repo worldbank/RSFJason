@@ -21,8 +21,8 @@ LOCATIONS <- list(ARL="/credentials/credentials-remote-ARL.yaml",
                   Jason_PROD="/credentials/credentials-rsfjson-rsfprod.yaml")
 
 #LOCATION <- "Jason_DEV_Shafique"
-LOCATION <- "Jason_DEV"
-#LOCATION <- "Jason_PROD"
+#LOCATION <- "Jason_DEV"
+LOCATION <- "Jason_PROD"
 
 if (grepl("DEV",LOCATION)==TRUE) {
   #options(shiny.erctror = browser)
@@ -183,6 +183,7 @@ source('./R/templates/template_parse_file.R')
 source('./R/templates/template_parse_process_and_upload.R')
 
 source('./R/templates/parse_template_IFC_QR.R')
+source('./R/templates/parse_template_RSA.R')
 source('./R/templates/parse_template_csv.R')
 source('./R/templates/parse_template_rsf_setup.R')
 source('./R/templates/parse_template_csv_backup_data.R')
@@ -437,7 +438,7 @@ is.same_number <- function(a,b,sig_digits=CALCULATIONS_ENVIRONMENT$SIG_DIGITS) {
   a <- suppressWarnings(as.numeric(a))
   b <- suppressWarnings(as.numeric(b))
   
-  invert <- a < 1 & b < 1
+  invert <- a < 1 & b < 1 & a !=0 & b != 0
   invert[is.na(invert)] <- FALSE
   a[invert] <- 1/a[invert]
   b[invert] <- 1/b[invert]
@@ -531,8 +532,23 @@ rgba2hex <- function(color_RGBA,background_RGB) {
 
 words_to_numbers <- function(s) {
   s <- stringr::str_to_lower(s)
-  for (i in 0:19)
+  for (i in rev(c(0:19,20,30,40,50,60,70,80,90,100,1000))) {
     s <- stringr::str_replace_all(s, words(i), as.character(i))
-  s
+    s <- stringr::str_replace_all(s, ordinal(i), as.character(i))
+  }
+  #s
+  
+  n <- suppressWarnings(as.numeric(s))
+  
+  #if, eg, "thirty three" is passed as an argument, 's' will be "30 3"
+  #correct format should be "thirty-three"
+  #this is fine for small numbers.  For "one million" this will result in NA, for better or worse?
+  if (anyNA(n)) {
+    nn <- which(is.na(n))
+    x <- strsplit(s[nn],"[\\s-]+")
+    x <- sapply(x,FUN=function(nums) { sum(suppressWarnings(as.numeric(nums))) })
+    n[nn] <- x
+  }
+  return (n)
 }
 

@@ -23,7 +23,7 @@ export_backup_data_to_csv <- function(pool,
     from p_rsf.rsf_pfcbl_id_family fam 
     inner join p_rsf.view_rsf_pfcbl_reported_data prd on prd.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
     where fam.parent_rsf_pfcbl_id = $1::int
-    order by prd.rsf_pfcbl_id,prd.indicator_id,prd.reporting_asof_date,prd.redundancy_rank nulls last',
+    order by prd.rsf_pfcbl_id,prd.indicator_id,prd.reporting_asof_date nulls last',
   params=list(rsf_pfcbl_id.familytree))
   
   setDT(reported_data)

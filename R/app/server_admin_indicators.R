@@ -207,7 +207,6 @@ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR <- eventReactive(c(RSF_INDICAT
         indf.formula_title,
         indf.is_primary_default,
         indf.formula_notes,
-        lab.primary_label as formula_labels,
         ind.is_system,
         ind.indicator_name,
         --ind.is_periodic_or_flow_reporting,
@@ -216,7 +215,6 @@ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR <- eventReactive(c(RSF_INDICAT
       
       from p_rsf.indicator_formulas indf
       inner join p_rsf.indicators ind on ind.indicator_id = indf.indicator_id
-      left join p_rsf.labels lab on lab.label_id = indf.label_id
       left join p_rsf.indicators unit_ind on unit_ind.indicator_id = indf.formula_unit_set_by_indicator_id
       where indf.indicator_id = $1::int",
       params=list(selected_indicator$indicator_id))
@@ -769,7 +767,6 @@ observeEvent(input$server_admin_indicators__save_indicator, {
                                                              formula_fx_date,
                                                              formula_title,
                                                              formula_notes,
-                                                             formula_labels,
                                                              formula_unit_set_by_indicator_name,
                                                              is_primary_default)],
                                      user_id=USER_ID())
@@ -880,7 +877,6 @@ observeEvent(input$server_admin_indicators__add_formula, {
                             formula_title=as.character(NA),
                             is_primary_default=nrow(SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS())==0,
                             formula_notes=as.character(NA),
-                            formula_labels=as.character(NA),
                             is_system=selected_indicator$is_system,
                             indicator_name=selected_indicator$indicator_name,
                             is_applied=FALSE)

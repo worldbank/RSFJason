@@ -182,6 +182,13 @@ rsf_checks_calculate <- function(pool,
                                                   add_data_flag_function=NULL, #we don't flag the flags
                                                   add_fx_conversions_function=NULL) #if fx rates change we don't redo checks
     }
+
+    #no, this emerges as a result of actively doing addition and subtraction within the formula.    
+    # #Helps undo floating point problems.
+    # isn<-which(sapply(check_data,is.numeric))
+    # for(i in isn) {
+    #   set(check_data,i=NULL,j=i,value=as.numeric(as.character(check_data[[i]])))
+    # }
     
     {
       error_mess <- NULL
@@ -203,6 +210,15 @@ rsf_checks_calculate <- function(pool,
                                               check_data=check_data,
                                               grouping_cols=grouping_cols),
                                     parent=CALCULATIONS_ENVIRONMENT)
+        
+        #For floating point issues
+        assign(x="!=",
+               envir=calc_env,
+               value=function(e1,e2) { !all.equal(target=e1,current=e2,check.class=F) })
+        
+        assign(x="==",
+               envir=calc_env,
+               value=function(e1,e2) { all.equal(target=e1,current=e2,check.class=F) })
         
         
         calculations <- with(calc_env, {

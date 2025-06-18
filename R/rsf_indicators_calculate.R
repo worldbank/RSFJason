@@ -717,6 +717,7 @@ rsf_indicators_calculate <- function(pool,
     },
     warning = function(w) { 
       print(conditionMessage(w))
+      
       status_message(class="warning",paste0("\n",calculation$indicator_name,": ",conditionMessage(w),"\n"))
       add_data_flag(rsf_pfcbl_id = calc_data$rsf_pfcbl_id,
                     indicator_id=calculation$calculate_indicator_id,
@@ -735,6 +736,7 @@ rsf_indicators_calculate <- function(pool,
     error = function(err) { 
     
       print(conditionMessage(err))
+      
       status_message(class="error",paste0("\n",calculation$indicator_name,": ",conditionMessage(err),"\n"))
       add_data_flag(rsf_pfcbl_id = calc_data$rsf_pfcbl_id,
                     indicator_id=calculation$calculate_indicator_id,

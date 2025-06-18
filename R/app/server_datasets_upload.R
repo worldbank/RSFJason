@@ -252,16 +252,6 @@ output$dataset_upload_title <- renderText({
   else return(paste0("Upload Dataset: ",SELECTED_PROGRAM()$program_name))
 })
 
-
-
-# observeEvent(c(DATASET_UPLOAD_FILE(),
-#                SELECTED_PROGRAM(),
-#                COHORT_NEW_ID()), { 
-#                  
-# 
-# },
-# ignoreNULL = FALSE,ignoreInit = TRUE,priority=1)
-
 observeEvent(input$dataset_upload_file, {
   
   upload <- input$dataset_upload_file
@@ -278,7 +268,7 @@ observeEvent(input$dataset_upload_file, {
   }
   
   
-  if (!file_ext(filename) %in% c("xlsx","csv","zip","pdf")) {
+  if (!all(file_ext(filename) %in% c("xlsx","csv","zip","pdf"))) {
     return (showNotification(h1("Error: file must be Excel format .xlsx only (not .xls, .xlsxm or .xlsxb); or .csv with client name and date in filename; or a zip of these"),
                      closeButton = TRUE,
                      duration=8,
@@ -287,7 +277,7 @@ observeEvent(input$dataset_upload_file, {
 
   DATASET_UPLOAD_FILE(datapath)
   
-  if (file_ext(filename) %in% "pdf") {
+  if (any(file_ext(filename) %in% "pdf")) {
     showElement(id="dataset_upload_rsf_facility_id",
                 anim=TRUE,
                 time=1.0)

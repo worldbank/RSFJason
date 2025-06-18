@@ -513,7 +513,14 @@ rsf_program_perform_calculations <- function(pool,
                         & data_type %in% c("number","percent","currency","currency_ratio")
                         & !is.na(current_data_id)
                         & is.same_text(data_unit,current_data_unit), #just comparing units, not values!
-                        equivalent:=(is.same_number(data_value,current_data_value))] 
+                        equivalent:=(is.same_number(data_value,current_data_value))]  
+
+        current_results[data_changed==TRUE
+                        & data_type %in% c("number","percent","currency","currency_ratio")
+                        & equivalent==FALSE
+                        & is.na(current_data_value)
+                        & suppressWarnings(as.numeric(data_value))==0,
+                        equivalent:=TRUE]  #current value is {MISSING} but we calcualted 0, so don't flag.
       }
       
       if (!empty(format_flags)) calculation_flags <- rbindlist(list(calculation_flags,
@@ -764,6 +771,23 @@ rsf_program_perform_calculations <- function(pool,
                                              and fids.reporting_asof_date = dcf.reporting_asof_date
                                              and fids.fx_data_id = dcf.fx_data_id)")
           
+          errors <- dbGetQuery(conn,"
+            select * 
+            from _temp_fx_ids fids 
+            where not exists(select * from p_rsf.rsf_data_current rdc
+                             where rdc.data_id = fids.fx_data_id)
+          ")
+          
+          if (!empty(errors)) {
+            print("Catching error for fk constraint on rsf_data_current_fx")
+            print(errors)
+            status_message("Catching error for fk constraint on rsf_data_current_fx")
+            status_message(errors)
+            print("fx_calculations")
+            print(fx_calculations)
+            status_message("fx calculations")
+            status_message(fx_calculations)
+          }
           dbExecute(conn,"insert into p_rsf.rsf_data_current_fx(rsf_pfcbl_id,
                                                                 indicator_id,
                                                                 reporting_asof_date,

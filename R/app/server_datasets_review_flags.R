@@ -1327,7 +1327,7 @@ output$datasets_review_download_flags_action <- downloadHandler(
     } else {
       cohort <- COHORTS_LIST()[reporting_cohort_id==as.numeric(selected_id)]
     }
-    paste0("Flags Report for ",cohort$source_name)
+    paste0("Flags Report for ",file_path_sans_ext(cohort$source_name),".xlsx")
   },
   content=function(file) {
     

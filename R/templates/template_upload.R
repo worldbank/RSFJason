@@ -548,20 +548,29 @@ template_upload <- function(pool,
       
       template_actions <- template$setup_data$PROGRAM_TEMPLATE_ACTIONS 
       
-      if (!setequal(names(template_actions),c("HEADERID","TEMPLATE","SYSNAME","SHEET_NAME","HEADER_NAME","HEADER_INDEX","ACTION","REMAP_HEADER"))) {
+      if (!setequal(names(template_actions),
+                    c('rsf_pfcbl_id',
+                      'template_id',
+                      'SYSNAME',
+                      'template_name',
+                      'header_id',
+                      'template_header_sheet_name',
+                      'template_header',
+                      'action',
+                      'comment',
+                      'map_indicator_id',
+                      'indicator_name',
+                      'map_formula_id',
+                      'calculation_formula',
+                      'map_check_formula_id',
+                      'check_formula'))) {
+        
         status_message(class="error",
-                       "Failed to import HEADER ACTIONS.  Expected columns: ",paste0(c("HEADERID","TEMPLATE","SYSNAME","SHEET_NAME","HEADER_NAME","HEADER_INDEX","ACTION","REMAP_HEADER"),collapse=", "))
+                       "Failed to import HEADER ACTIONS.  Expected columns: rsf_pfcbl_id, template_id, SYSNAME, template_name, header_id, template_header_sheet_name, template_header, action, comment, map_indicator_id, indicator_name, map_formula_id, calculation_formula, map_check_formula_id, check_formula")
       } else {
         setnames(template_actions,
-                 old=c("HEADERID","TEMPLATE","SYSNAME","SHEET_NAME","HEADER_NAME","HEADER_INDEX","ACTION","REMAP_HEADER"),
-                 new=c("header_id",
-                       "template_name",
-                       "sys_name",
-                       "template_header_sheet_name",
-                       "template_header",
-                       "template_header_encounter_index",
-                       "action",
-                       "remap_header"))
+                 old=c("SYSNAME"),
+                 new=c("sys_name"))
         
         #<NA> is not allowed in header, but "NA" is and may be read-in elsewhere and interpreted as <NA>
         template_actions[is.na(template_header),
@@ -590,13 +599,14 @@ template_upload <- function(pool,
           dbExecute(conn,"
             create temp table _temp_actions(rsf_pfcbl_id int,
                                             header_id int,
-                                            template_name text,
-                                            sys_name text,
+                                            template_id int,
                                             template_header_sheet_name text,
                                             template_header text,
-                                            template_header_encounter_index int,
                                             action text,
-                                            remap_header text)
+                                            comment text,
+                                            map_indicator_id int,
+                                            map_formula_id int,
+                                            map_check_formula_id int)
             on commit drop;")
         
           dbAppendTable(conn,
@@ -604,13 +614,14 @@ template_upload <- function(pool,
                         value=template_actions[,
                                                .(rsf_pfcbl_id,
                                                  header_id,
-                                                 template_name,
-                                                 sys_name,
+                                                 template_id,
                                                  template_header_sheet_name,
                                                  template_header,
-                                                 template_header_encounter_index,
                                                  action,
-                                                 remap_header)])
+                                                 comment,
+                                                 map_indicator_id,
+                                                 map_formula_id,
+                                                 map_check_formula_id)])
           
           dbExecute(conn,"
             with new_headers as (
@@ -624,44 +635,43 @@ template_upload <- function(pool,
             update _temp_actions tac
             set header_id = nextval('p_rsf.rsf_program_facility_template_headers_header_id_seq'::regclass)
             from new_headers 
-            where new_headers.header_id = tac.header_id")
+            where new_headers.header_id = tac.header_id
+               or tac.header_id is null")
           
           dbExecute(conn,"
             insert into p_rsf.rsf_program_facility_template_headers(rsf_pfcbl_id,
-                                                                    template_id,
                                                                     rsf_program_id,
                                                                     rsf_facility_id,
                                                                     header_id,
+                                                                    template_id,
                                                                     template_header_sheet_name,
                                                                     template_header,
-                                                                    template_header_encounter_index,
                                                                     action,
-                                                                    remap_header)
+                                                                    comment,
+                                                                    map_indicator_id,
+                                                                    map_formula_id,
+                                                                    map_check_formula_id)
             
             select 
               ids.rsf_pfcbl_id,
-              rt.template_id,
               ids.rsf_program_id,
               ids.rsf_facility_id,
               act.header_id,
+              rt.template_id,
+
               act.template_header_sheet_name,
               act.template_header,
-              act.template_header_encounter_index,
               act.action,
-              ind.indicator_name as remap_header
+              act.comment,
+              act.map_indicator_id,
+              act.map_formula_id,
+              act.map_check_formula_id
             from _temp_actions act
-            left join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = act.rsf_pfcbl_id
-            left join p_rsf.reporting_templates rt on rt.template_name = act.template_name
-            left join p_rsf.indicators ind on ind.indicator_name = act.remap_header
-            on conflict (header_id)
-            do update set template_header_sheet_name = EXCLUDED.template_header_sheet_name,
-            template_header = EXCLUDED.template_header,
-            template_header_encounter_index = EXCLUDED.template_header_encounter_index,
-            action = EXCLUDED.action,
-            remap_header = EXCLUDED.remap_header;")
+            inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = act.rsf_pfcbl_id
+            inner join p_rsf.reporting_templates rt on rt.template_id = act.template_id
+            on conflict do nothing;")
         })
       }
-
     }
     
     if (!empty(template$setup_data$PROGRAM_FLAGS)) {
@@ -1289,7 +1299,7 @@ template_upload <- function(pool,
         
         dbExecute(conn,"
           with archive_match as (
-            select 
+            select distinct on (dca.archive_id)
               rdc.evaluation_id,
               dca.archive_id,
               rdc.rsf_pfcbl_id
@@ -1305,7 +1315,8 @@ template_upload <- function(pool,
             inner join p_rsf.rsf_data_checks_archive dca on dca.sys_name = sn.sys_name
                                                         and dca.check_asof_date = rdc.check_asof_date
                                                         and dca.indicator_check_id = rdc.indicator_check_id
-            
+                                                        and dca.indicator_id = rdc.indicator_id
+                                                        
             where rdc.rsf_pfcbl_id = any(select fam.child_rsf_pfcbl_id
             														 from p_rsf.reporting_cohorts rc 
             														 inner join p_rsf.rsf_pfcbl_id_family fam on fam.parent_rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
@@ -1313,6 +1324,7 @@ template_upload <- function(pool,
             														 
               and dca.check_formula_id is not distinct from rdc.check_formula_id          														 
               and p_rsf.rsf_data_value_unit(rd.data_value,rd.data_unit) is not distinct from dca.data_value_unit
+              order by dca.archive_id,dca.archive_time desc nulls last
           )
           insert into  _temp_restore(archive_id,
                                      evaluation_id)
@@ -1328,7 +1340,7 @@ template_upload <- function(pool,
         dbExecute(conn,"
                   delete from _temp_restore tr 
                   where exists(select * from p_rsf.rsf_data_checks_archive dca where dca.archive_id = tr.archive_id) 
-                    and exists(select * from p_rsf.rsf_data_checks rdc where rdc.evaluation_id = tr.archive_id) 
+                    and exists(select * from p_rsf.rsf_data_checks rdc where rdc.evaluation_id   = tr.archive_id) 
                     and tr.archive_id <> tr.evaluation_id
                   ")
         

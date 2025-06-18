@@ -2,10 +2,10 @@
 
 	
 # check
-# rsf_program_id <- 319959
-# pfcbl_ids.familytree <- 319995
-# reporting_current_date='2024-09-30';
-# check_formula_id = 92
+# rsf_program_id <- 367701
+# pfcbl_ids.familytree <- 367701
+# reporting_current_date='2023-09-30';
+# check_formula_id = 151
 #Revise to take check_id and then check/warn if program is not subscribed to it
 rsf_checks_do_test <- function(pool,
                                rsf_program_id,
@@ -89,6 +89,7 @@ rsf_checks_do_test <- function(pool,
          check_group:=.GRP,
          by=.(check_asof_date,
               computation_group)]
+  
   rsf_indicators <- db_indicators_get_labels(pool=pool)
   
   test <- rsf_program_perform_checks(pool=pool,
@@ -162,7 +163,7 @@ rsf_checks_do_test <- function(pool,
                  "row_id")
   
   setnames(results_data,
-           old=paste0("rsf_pfcbl_id.",check_formula$check_pfcbl_category),
+           old=paste0("rsf_",check_formula$check_pfcbl_category,"_id"),
            new="rsf_pfcbl_id")
   
   omit_cols <- omit_cols[omit_cols %in% names(results_data)]
