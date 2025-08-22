@@ -34,10 +34,44 @@ db_add_update_data_user <- function(pool,
     cohort_upload_data[,n:=.N,
                    by=.(reporting_asof_date,rsf_pfcbl_id,indicator_id)]
     redundants <- cohort_upload_data[n>1]
-    
+    #conn <- poolCheckout(pool)
+    #dbBegin(conn)
     if (nrow(redundants) > 0) {
+      
       print(redundants)
-      stop("Data upload has redundant data")
+      red <- poolWithTransaction(pool,function(conn) { 
+        dbExecute(conn,"create temp table _temp_red(rsf_pfcbl_id int, indicator_id int) on commit drop;")
+        dbAppendTable(conn,
+                      name="_temp_red",
+                      value=unique(redundants[,.(rsf_pfcbl_id,indicator_id)]))
+        dbGetQuery(conn,"select
+        sn.rsf_pfcbl_id,
+        sn.pfcbl_name,
+        ind.indicator_id,
+        ind.indicator_name
+        from
+        _temp_red tr
+        inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = tr.rsf_pfcbl_id
+        inner join p_rsf.indicators ind on ind.indicator_id = tr.indicator_id")
+      })
+      
+      setDT(red)
+      red <- red[redundants,
+                 on=.(rsf_pfcbl_id,indicator_id)]
+      
+      red[is.na(pfcbl_name),pfcbl_name:=rsf_pfcbl_id]
+      red[is.na(indicator_name),sys_name:=indicator_id]
+      
+      red <- red[,.(pfcbl_name,
+             indicator_name,
+             data_source_row_id,
+             data_value=fcase(!is.na(data_unit) & !is.na(data_value),paste0(data_value," ",data_unit),
+                                                                     !is.na(data_value),data_value,
+                                                                     !is.na(data_unit),data_unit,
+                                                                     default="{BLANK}"))]
+      red[,message:=paste0(pfcbl_name," reported: ",indicator_name," {",data_value,"} ON ",data_source_row_id)]
+      
+      stop(paste0("Data upload has conflicting/redundant data across different sections:\n ",paste0(red$message,collapse=" [AND] \n")))
     }
   }
   

@@ -201,6 +201,44 @@ parse_template_IFC_QR <- function(pool,
 
     #TODO:
     #The IFC QR template was designed first and kind of doing its own thing.  So instead of using the VIEW that has been updated, just using hard-coded query (for now)
+    # header_actions <- dbGetQuery(pool,"
+    #   select distinct on (ft.from_rsf_pfcbl_id,
+    #                       fth.template_id,
+    #       								fth.action,
+    #       								normalizeLabel((fth.template_header_sheet_name)),
+    #       								fth.template_header_encounter_index,
+    #                       normalizeLabel((fth.template_header)))
+    #   	ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
+    #   	fth.template_id,
+    #   	fth.header_id,
+    #   	coalesce(fth.map_indicator_id,ind_old.indicator_id,0) || '-' || fth.header_id as indicator_header_id,
+    #     (fth.template_header) as template_header,
+    #   	(fth.template_header_sheet_name) as template_header_sheet_name,
+    #   	fth.template_header_encounter_index,
+    #   	fth.action,
+    #   	fth.remap_header,
+    #   	coalesce(fth.map_indicator_id,ind_old.indicator_id) as remap_indicator_id,
+    #   	ft.to_pfcbl_category as action_level
+    #   from p_rsf.view_rsf_pfcbl_id_family_tree ft
+    #   inner join p_rsf.rsf_program_facility_template_headers fth on fth.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+    #   left join p_rsf.indicators ind_old on ind_old.indicator_name = fth.remap_header -- OLD and outdated
+    #   
+    #   where ft.from_pfcbl_category in ('global','program','facility')
+    #     and ft.from_rsf_pfcbl_id = $1::int
+    #     and fth.template_id = $2::int
+    #   
+    #   order by 
+    #   ft.from_rsf_pfcbl_id,
+    #   fth.template_id,
+    #   fth.action,
+    #   normalizeLabel((fth.template_header_sheet_name)),
+    #   fth.template_header_encounter_index,
+    #   normalizeLabel((fth.template_header)),
+    #   ft.to_pfcbl_rank  desc    
+    # ",params=list(rsf_pfcbl_id.facility,
+    #               template_lookup$template_id))
+    # 
+    
     header_actions <- dbGetQuery(pool,"
       select distinct on (ft.from_rsf_pfcbl_id,
                           fth.template_id,
@@ -211,17 +249,15 @@ parse_template_IFC_QR <- function(pool,
       	ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
       	fth.template_id,
       	fth.header_id,
-      	coalesce(fth.map_indicator_id,ind_old.indicator_id,0) || '-' || fth.header_id as indicator_header_id,
+      	coalesce(fth.map_indicator_id,0) || '-' || fth.header_id as indicator_header_id,
         (fth.template_header) as template_header,
       	(fth.template_header_sheet_name) as template_header_sheet_name,
       	fth.template_header_encounter_index,
       	fth.action,
-      	fth.remap_header,
-      	coalesce(fth.map_indicator_id,ind_old.indicator_id) as remap_indicator_id,
+      	fth.map_indicator_id as remap_indicator_id,
       	ft.to_pfcbl_category as action_level
       from p_rsf.view_rsf_pfcbl_id_family_tree ft
       inner join p_rsf.rsf_program_facility_template_headers fth on fth.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-      left join p_rsf.indicators ind_old on ind_old.indicator_name = fth.remap_header -- OLD and outdated
       
       where ft.from_pfcbl_category in ('global','program','facility')
         and ft.from_rsf_pfcbl_id = $1::int

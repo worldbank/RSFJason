@@ -16,6 +16,8 @@ db_indicator_update <- function(pool,
   labels <- labels[is.na(label)==FALSE]
   labels <- labels[nchar(label) > 3]
   
+  
+  
   #labels
   #conn <- poolCheckout(pool)
   #dbBegin(conn)

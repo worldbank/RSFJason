@@ -6,7 +6,7 @@ options(scipen=999)
 options(warning.length=8170)
 #options(shiny.maxRequestSize=30*1024^2)
 options(shiny.maxRequestSize=500*1024^2) #500MB
-
+ 
 #options(warn=2, error=recover)
 options(warn=0, error=NULL)
 #Sys.setlocale("LC_ALL",c("English"))
@@ -21,8 +21,8 @@ LOCATIONS <- list(ARL="/credentials/credentials-remote-ARL.yaml",
                   Jason_PROD="/credentials/credentials-rsfjson-rsfprod.yaml")
 
 #LOCATION <- "Jason_DEV_Shafique"
-#LOCATION <- "Jason_DEV"
-LOCATION <- "Jason_PROD"
+LOCATION <- "Jason_DEV"
+#LOCATION <- "Jason_PROD"
 
 if (grepl("DEV",LOCATION)==TRUE) {
   #options(shiny.erctror = browser)
@@ -426,27 +426,52 @@ format_html_indicator <- function(indicator_name,
 }
 
 
+# 
+# in calculations environment for replaceing == and !=
+# `%equal%` <- function(e1,e2) { 
+#    mapply(function(a,b) { isTRUE(base::all.equal(a,b,check.class=F)) },a=e1,b=e2,USE.NAMES=F)
+# }
+# 
+# 
+# `%unequal%` <- function(e1,e2) { 
+#          mapply(function(a,b) { !isTRUE(base::all.equal(a,b,check.class=F)) },a=e1,b=e2,USE.NAMES=F)
+# }
+# 
+
+
 is.same_text <- function(a,b) { 
   x<-(is.na(a) & is.na(b)) | (as.character(a)==as.character(b)) 
   ifelse(is.na(x),FALSE,x)
 }
 
-is.same_number <- function(a,b,sig_digits=CALCULATIONS_ENVIRONMENT$SIG_DIGITS) { 
+is.same_number <- function(a,b,tolerance=1/10^CALCULATIONS_ENVIRONMENT$SIG_DIGITS) { 
   
-  nas <- is.na(a) & is.na(b)
   
-  a <- suppressWarnings(as.numeric(a))
-  b <- suppressWarnings(as.numeric(b))
+  x <- mapply(function(a,b) { 
+    if (!is.na(a) & !is.na(suppressWarnings(as.numeric(a)))) a<-as.numeric(a)
+    if (!is.na(b) & !is.na(suppressWarnings(as.numeric(b)))) b<-as.numeric(b)
+    
+    isTRUE(base::all.equal(a,b,check.class=F,tolerance=tolerance)) 
+    
+  },a=a,b=b,USE.NAMES=F)
+  x[is.na(x)] <- FALSE
   
-  invert <- a < 1 & b < 1 & a !=0 & b != 0
-  invert[is.na(invert)] <- FALSE
-  a[invert] <- 1/a[invert]
-  b[invert] <- 1/b[invert]
+  return (x)
   
-  x <- abs(a-b) < (1/10^sig_digits)
-  x[is.na(x)] <- FALSE #Both NAs will be TRUE, so means either A or B is NA, but not both.  Means, not the same.
-  x[nas] <- TRUE       #Both are NAs so means is the same.
-  x
+  # nas <- is.na(a) & is.na(b)
+  # 
+  # a <- suppressWarnings(as.numeric(a))
+  # b <- suppressWarnings(as.numeric(b))
+  # 
+  # invert <- a < 1 & b < 1 & a !=0 & b != 0
+  # invert[is.na(invert)] <- FALSE
+  # a[invert] <- 1/a[invert]
+  # b[invert] <- 1/b[invert]
+  # 
+  # x <- abs(a-b) < (1/10^sig_digits)
+  # x[is.na(x)] <- FALSE #Both NAs will be TRUE, so means either A or B is NA, but not both.  Means, not the same.
+  # x[nas] <- TRUE       #Both are NAs so means is the same.
+  # x
 }
 
 user_send_email <- function(pool,

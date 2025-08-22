@@ -1,6 +1,5 @@
 db_program_download <- function(pool,
-                                rsf_program_id,
-                                rsf_pfcbl_ids.filter,
+                                export_pfcbl_id,
                                 out_path=".",
                                 exporting_user_id,
                                 archive_name,
@@ -8,6 +7,13 @@ db_program_download <- function(pool,
                                 verbatim=FALSE,         #When true, download everything that's uploaded and don't differentiate setupfiles.
                                 template_filter=NA) {
 
+  
+  export_pfcbl_category <- unlist(dbGetQuery(pool,"select pfcbl_category from p_rsf.rsf_pfcbl_ids ids where ids.rsf_pfcbl_id = $1::int",export_pfcbl_id))
+  
+  if (length(export_pfcbl_category)==0 || !export_pfcbl_category %in% c("global","program","facility")) {
+    stop("export_rsf_pfcbl_id must be a valid entity and be either global, program or facility-level")  
+  }
+  
   if (grepl("/$",out_path)) out_path <- gsub("/$","",out_path)
   
   template_ids <- NULL
@@ -20,8 +26,7 @@ db_program_download <- function(pool,
   programs_export <- NULL
   if (verbatim==FALSE) {
     programs_export <- export_rsf_setup_files_to_excel(pool=pool,
-                                                       rsf_program_id=rsf_program_id,
-                                                       rsf_pfcbl_ids.filter=rsf_pfcbl_ids.filter,
+                                                       export_pfcbl_id=export_pfcbl_id,
                                                        exporting_user_id=exporting_user_id,
                                                        include_never_reported=FALSE,
                                                        include=c("data",
@@ -36,15 +41,16 @@ db_program_download <- function(pool,
   }
   
   
-  if (is.null(rsf_pfcbl_ids.filter) || all(is.na(rsf_pfcbl_ids.filter))) {
-    rsf_pfcbl_ids.filter <- dbGetQuery(pool,"
-      select ids.rsf_pfcbl_id
-      from p_rsf.rsf_pfcbl_ids ids
-      where ids.rsf_program_id = $1::int
-        and ids.pfcbl_category in ('program','global')",
-      params=list(rsf_program_id))
-    rsf_pfcbl_ids.filter <- unlist(rsf_pfcbl_ids.filter)
-  }
+  # if (is.null(rsf_pfcbl_ids.filter) || all(is.na(rsf_pfcbl_ids.filter))) {
+  #   rsf_pfcbl_ids.filter <- dbGetQuery(pool,"
+  #     select ids.rsf_pfcbl_id
+  #     from p_rsf.rsf_pfcbl_ids ids
+  #     where ids.rsf_program_id = $1::int
+  #       and ids.pfcbl_category in ('program','global')",
+  #     params=list(rsf_program_id))
+  #   rsf_pfcbl_ids.filter <- unlist(rsf_pfcbl_ids.filter)
+  # }
+  # 
   program_upload_files <- dbGetQuery(pool,"select
                                           rc.reporting_cohort_id,
                                           rc.reporting_time,
@@ -70,13 +76,9 @@ db_program_download <- function(pool,
                                                             order by fam.parent_pfcbl_rank desc
                                                             limit 1) parent on true
                                           inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = parent.parent_rsf_pfcbl_id
-                                          where rc.rsf_program_id = $1::int
-                                           and case when NULLIF($2::text,'NA') is NULL then true
-                                               else rc.reporting_rsf_pfcbl_id = any(select distinct
-                                                                               fam.child_rsf_pfcbl_id 
-                                                                               from p_rsf.rsf_pfcbl_id_family fam
-                                                                               where fam.parent_rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int))
-                                               end 
+                                          where case when $1::text = 'facility'
+                                                     then $2::int = rc.rsf_facility_id
+                                                     else $2::int = rc.rsf_program_id end
                                            and rci.upload_file is not null
                                            and rci.upload_filename is not null
                                            and rc.is_reported_cohort = true
@@ -89,8 +91,8 @@ db_program_download <- function(pool,
                                             rc.reporting_asof_date,
                                             rc.reporting_time,
                                             rc.reporting_cohort_id",
-                                     params=list(rsf_program_id,
-                                                 paste0(rsf_pfcbl_ids.filter,collapse=",")))
+                                     params=list(export_pfcbl_category,
+                                                 export_pfcbl_id))
   
   setDT(program_upload_files)
   

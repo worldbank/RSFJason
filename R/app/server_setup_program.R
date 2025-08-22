@@ -62,8 +62,7 @@ output$program_download_archive <- downloadHandler(
       export_rsf_pfcbl_id <- NA
       if (archive$export_pfcbl_category=="facility") export_rsf_pfcbl_id <- archive$export_rsf_pfcbl_id
       
-      out_path <- DBPOOL %>% db_program_download(rsf_program_id=program_id,
-                                                 rsf_pfcbl_ids.filter=export_rsf_pfcbl_id,
+      out_path <- DBPOOL %>% db_program_download(export_pfcbl_id=export_rsf_pfcbl_id,
                                                  out_path=".",
                                                  exporting_user_id = USER_ID(),
                                                  archive_name=archive$export_name,
@@ -104,10 +103,9 @@ output$program_download_setup <- downloadHandler(
       selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
       facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
       if (!isTruthy(selected_rsf_pfcbl_id) ||
-          !any(selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id)) selected_rsf_pfcbl_id <- as.numeric(NA)
+          !any(selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id)) selected_rsf_pfcbl_id <- program$rsf_program_id
       
-      programs_export <- DBPOOL %>% export_rsf_setup_files_to_excel(rsf_program_id=program$rsf_program_id,
-                                                                    rsf_pfcbl_ids.filter=selected_rsf_pfcbl_id,
+      programs_export <- DBPOOL %>% export_rsf_setup_files_to_excel(export_pfcbl_id=selected_rsf_pfcbl_id,
                                                                     exporting_user_id=USER_ID(),
                                                                     include_never_reported=TRUE, #If TRUE, will include blank facility parameters that maybe a user should enter data for
                                                                                                  #Reading in a new file, should filter-out missings as we do not want to import {MISSING} data
@@ -117,7 +115,8 @@ output$program_download_setup <- downloadHandler(
                                                                               "checks",
                                                                               "guidance",
                                                                               "actions",
-                                                                              "flags"))
+                                                                              "flags",
+                                                                              "review"))
       
       
       openxlsx::saveWorkbook(wb=programs_export,

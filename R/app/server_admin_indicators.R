@@ -1438,11 +1438,23 @@ output$admin_system_download_indicators <- downloadHandler(
     
     if (!isTruthy(indicators)) return (showNotification(type="error",h2("Unable to download indicators while system is loading.  Try again shortly")))
     
+    formulas <- RSF_INDICATOR_FORMULAS()
+    
+    pformulas <- formulas[,.(formula_count=.N,
+                 formula_title=formula_title[is_primary_default==TRUE],
+                 formula_id=formula_title[is_primary_default==TRUE]),
+              by=.(indicator_id)]
+    pformulas[is.na(formula_title),formula_title:="{UNCALCULATED} The default for this indicator is manually reported data, not a calculation"]
+    
     excelwb <- withProgress(message="Downloading indicators...",value=0.5,
                             {
                               
                               
-                              indicator_dt <- indicators[,.(ID=indicator_id,
+                              
+                              indicator_dt <- pformulas[indicators,
+                                                        on=.(indicator_id),
+                                                        nomatch=NA
+                                                        ][,.(ID=indicator_id,
                                                             Name=indicator_name,
                                                             Category=data_category,
                                                             Unit=data_unit,
@@ -1453,20 +1465,34 @@ output$admin_system_download_indicators <- downloadHandler(
                                                             definition,
                                                             is_system,
                                                             is_calculated,
-                                                            formula,
-                                                            formula_sort,
-                                                            formula_overwrite
-                              )]
+                                                            `Primary Default Formula`=formula_title,
+                                                            `Defined Formulas`=formula_count,
+                                                            formula_id)]
+                              
                               labels_dt <- rbindlist(indicators$labels)
-                              labels_dt <- labels_dt[,.(secondary_labels=paste0(secondary_labels,collapse="; ")),by=.(ID=indicator_id,label_key,primary_label)]
                               
-                              labels_dt <- dcast.data.table(labels_dt,ID ~ label_key,value.var = c("primary_label","secondary_labels"))
+                              indicator_dt[labels_dt[is_primary==TRUE & label_key=="EN"],
+                                           primary_label:=label,
+                                           on=.(ID=indicator_id)]
                               
-                              indicator_dt <- indicator_dt[labels_dt,on=.(ID)]
+                              indicator_dt[labels_dt[is_primary==FALSE,
+                                                     .(secondary_labels=paste0(label,collapse=" || ")),
+                                                     by=.(indicator_id)],
+                                           secondary_labels:=secondary_labels,
+                                           on=.(ID=indicator_id)]
+                              
+                              # labels_dt <- labels_dt[,.(secondary_labels=paste0(secondary_labels,collapse="; ")),by=.(ID=indicator_id,label_key,primary_label)]
+                              # 
+                              # labels_dt <- dcast.data.table(labels_dt,ID ~ label_key,value.var = c("primary_label","secondary_labels"))
+                              # 
+                              # indicator_dt <- indicator_dt[labels_dt,on=.(ID)]
                               
                               excelwb <- openxlsx::createWorkbook()
                               addWorksheet(excelwb,sheetName="RSF Indicators")
                               writeDataTable(excelwb,sheet=1,x=indicator_dt)
+                              
+                              addWorksheet(excelwb,sheetName="RSF Formulas")
+                              writeDataTable(excelwb,sheet=2,x=formulas)
                               setColWidths(excelwb,sheet=1,cols=c(1:14), widths=c(8,35,10,8,15,10,10,10,30,5,5,15,15,8))
                               setColWidths(excelwb,sheet=1,cols=c(15:ncol(indicator_dt)), widths=c(30))
                               

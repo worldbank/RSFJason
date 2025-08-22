@@ -476,9 +476,7 @@ SERVER_SETUP_TEMPLATES__HEADER_ACTIONS <- eventReactive(SERVER_SETUP_TEMPLATES__
       fth.template_id,
       fth.action,
       fth.template_header,
-      fth.remap_header,
       fth.template_header_sheet_name,
-      fth.template_header_encounter_index,
       fth.header_id,
       fth.map_indicator_id,
       fth.map_formula_id,
@@ -492,16 +490,12 @@ SERVER_SETUP_TEMPLATES__HEADER_ACTIONS <- eventReactive(SERVER_SETUP_TEMPLATES__
   
     setDT(headers)
     
-    headers[template_header_encounter_index > 0,
-            template_header:=paste0(template_header," [",(template_header_encounter_index),"]")]
-    
     headers[,
             module_id:=paste0("headerModule",header_id)]
     
     setorder(headers,
              template_header,
-             template_header_sheet_name,
-             template_header_encounter_index)
+             template_header_sheet_name)
     return(headers)
   }
 }, ignoreNULL = FALSE, ignoreInit = TRUE)
@@ -568,42 +562,55 @@ observeEvent(input$server_setup_templates__add, {
   
   if (empty(selected_template)) return (NULL)
 
-  header <- DBPOOL %>% dbGetQuery("
-    insert into p_rsf.rsf_program_facility_template_headers(rsf_pfcbl_id,
-                                                            template_id,
-                                                            rsf_program_id,
-                                                            rsf_facility_id,
-                                                            template_header_sheet_name,
-                                                            template_header,
-                                                            template_header_encounter_index,
-                                                            action,
-                                                            remap_header,
-                                                            comment)
-    select 
-      ids.rsf_pfcbl_id,
-      $2::int as template_id,
-      ids.rsf_program_id,
-      ids.rsf_facility_id,
-      '' as template_header_sheet_name,
-      '' as template_header_indicator_name,
-      0 as template_header_encounter_index,
-      'default' as template_header_action,
-      NULL as template_remap_header_indicator_name,
-      NULL as comment
-    from p_rsf.rsf_pfcbl_ids ids
-    where ids.rsf_pfcbl_id = $1::int
-    returning 
-      rsf_pfcbl_id,
-      template_id,
-      action,
-      template_header,
-      remap_header,
-      template_header_sheet_name,
-      template_header_encounter_index,
-      header_id,
-      comment",
-    params=list(selected_template$selected_rsf_pfcbl_id,
-                selected_template$template_id))
+  header <- tryCatch({
+    DBPOOL %>% dbGetQuery("
+      insert into p_rsf.rsf_program_facility_template_headers(rsf_pfcbl_id,
+                                                              template_id,
+                                                              rsf_program_id,
+                                                              rsf_facility_id,
+                                                              template_header_sheet_name,
+                                                              template_header,
+                                                              
+                                                              action,
+                                                              
+                                                              comment)
+      select 
+        ids.rsf_pfcbl_id,
+        $2::int as template_id,
+        ids.rsf_program_id,
+        ids.rsf_facility_id,
+        '' as template_header_sheet_name,
+        '' as template_header_indicator_name,
+  
+        'default' as template_header_action,
+  
+        NULL as comment
+      from p_rsf.rsf_pfcbl_ids ids
+      where ids.rsf_pfcbl_id = $1::int
+      returning 
+        rsf_pfcbl_id,
+        template_id,
+        action,
+        template_header,
+  
+        template_header_sheet_name,
+        header_id,
+        comment",
+      params=list(selected_template$selected_rsf_pfcbl_id,
+                  selected_template$template_id))
+  },
+  warning=function(w) {
+    showNotification(ui=h3("Failed to create new header.  Check for duplicate entries? ",conditionMessage(w)))
+    NULL
+  },
+  error=function(e) {
+    showNotification(ui=h3("Failed to create new header.  Check for duplicate entries? ",conditionMessage(e)))
+    NULL
+  })
+  
+  if (is.null(header)) {
+    return (NULL)
+  }
   
   setDT(header)
   header[,module_id:=paste0("headerModule",header_id)]

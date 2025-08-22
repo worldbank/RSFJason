@@ -486,7 +486,8 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                grepl("[[:alpha:]]",regular_data$data_value,perl=T)
         
         if (any(words_data_numerics)) {
-          words_data_numerics <- words_data_numerics & grepl("zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|teen",regular_data$data_value,perl=T,ignore.case = T)
+          words_data_numerics <- words_data_numerics & grepl("zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|teen|first|second|third|fifth|ninth",
+                                                             regular_data$data_value,perl=T,ignore.case = T)
           regular_data[words_data_numerics,
                        data_value:=sapply(data_value,words_to_numbers)]
         }
@@ -1489,6 +1490,20 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
       parse_data_units[is.na(convert) &
                        data_value %in% DATA_DEFINED_LOCAL_CURRENCY_UNITS[-which(DATA_DEFINED_LOCAL_CURRENCY_UNITS=="LCU")],
                        `:=`(data_value="LCU",
+                            unit_error=FALSE, #not merit a flag
+                            convert=TRUE)]
+
+      #any reference to "dollar" is USD by default      
+      parse_data_units[is.na(convert) &
+                         tolower(data_value) == "dollar",
+                       `:=`(data_value="USD",
+                            unit_error=FALSE, #not merit a flag
+                            convert=TRUE)]
+
+      #any reference to "dollar" is USD by default      
+      parse_data_units[is.na(convert) &
+                         tolower(data_value) == "euro",
+                       `:=`(data_value="EUR",
                             unit_error=FALSE, #not merit a flag
                             convert=TRUE)]
       

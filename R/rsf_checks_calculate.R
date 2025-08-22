@@ -3,6 +3,7 @@ rsf_checks_calculate <- function(pool,
                                  rsf_data_wide,
                                  checks,
                                  keep_false_flags=FALSE,
+                                 on_fail="sys_checker_failed",
                                  status_message=function(...) {}) #noise useful for test checks functionality and printing status messages
 {
   
@@ -109,12 +110,12 @@ rsf_checks_calculate <- function(pool,
                                 client="rsf_client_id",
                                 facility="rsf_facility_id",
                                 program="rsf_program_id",
-                                none=c("reporting_current_date",check_rsf_pfcbl_id),
+                                none=check_rsf_pfcbl_id,
                                 NA)
       
       if (all(is.na(check_rsf_group))) stop(paste0("Failed to resolve check group using ",check_grouping))
 
-      
+      check_rsf_group <- c("reporting_current_date",check_rsf_group)
       
       check_data_cols <- unique(c(check_rsf_pfcbl_id,
                                   check_rsf_pfcbl_id_cols,
@@ -200,8 +201,15 @@ rsf_checks_calculate <- function(pool,
         ###############
 
         
+        #for rounding errors.
+        #`%equal%` <- function(e1,e2) { mapply(function(a,b) { isTRUE(base::all.equal(a,b)) },a=e1,b=e2) }
+        #`%unequal%` <- function(e1,e2) { mapply(function(a,b) { !isTRUE(base::all.equal(a,b)) },a=e1,b=e2) }
         
-
+        check_expr <- gsub("==","%equal%",check_expr)
+        check_expr <- gsub("!=","%unequal%",check_expr)
+        
+        check_expr_msg <- gsub("==","%equal%",check_expr_msg)
+        check_expr_msg <- gsub("!=","%unequal%",check_expr_msg)
         
         calc_env <- new_environment(data=list(reporting_current_date=reporting_current_date,
                                               check_expr=check_expr,
@@ -212,15 +220,17 @@ rsf_checks_calculate <- function(pool,
                                     parent=CALCULATIONS_ENVIRONMENT)
         
         #For floating point issues
-        assign(x="!=",
-               envir=calc_env,
-               value=function(e1,e2) { !all.equal(target=e1,current=e2,check.class=F) })
+        #This is a good idea...that doesn't work.  Causes data.table internal methods to fail!
+        #Users justneed to use the all.equal() functions within their checks.
+        # assign(x="!=",
+        #        envir=calc_env,
+        #        value=function(e1,e2) { !all.equal(target=e1,current=e2,check.class=F) })
+        # 
+        # assign(x="==",
+        #        envir=calc_env,
+        #        value=function(e1,e2) { all.equal(target=e1,current=e2,check.class=F) })
         
-        assign(x="==",
-               envir=calc_env,
-               value=function(e1,e2) { all.equal(target=e1,current=e2,check.class=F) })
-        
-        
+        #if.missing <- CALCULATIONS_ENVIRONMENT$if.missing
         calculations <- with(calc_env, {
           
                                check_data[,flag_status:=as.logical(NA)]
@@ -249,9 +259,7 @@ rsf_checks_calculate <- function(pool,
                                  #   check_data[,subgrouping_blank:=NULL]
                                  # }
                                }
-                               
-                               
-                               
+           
                                check_data[is.na(flag_status),
                                           flag_status := as.logical(eval(parse(text=check_expr))),
                                           by=grouping_cols]
@@ -259,10 +267,22 @@ rsf_checks_calculate <- function(pool,
                                check_data[is.na(flag_status)==TRUE,
                                           flag_status:=FALSE]
                                
-                               messages <- unique(check_data[flag_status==TRUE])
-                               check_data <- unique(check_data[,
-                                                               .(rsf_pfcbl_id,
-                                                                 flag_status)])
+                               ufields <- grep("^rsf_.*_id$",names(check_data),value=T)
+                               
+                               messages <- unique(check_data[flag_status==TRUE],
+                                                  by=c(ufields,"reporting_current_date"))
+                               
+
+                               # check_data <- unique(check_data[,
+                               #                                 .(rsf_pfcbl_id,
+                               #                                   flag_status,
+                               #                                   check_message)])
+
+                               #For grouped checks
+                               check_data <- check_data[,
+                                                        .(flag_status=any(flag_status)),
+                                                        by=.(rsf_pfcbl_id)]
+                               check_data[is.na(flag_status),flag_status:=FALSE]
                                check_data[,check_message:=as.character(NA)]
                                
                                if (nrow(messages) != 0) {
@@ -271,19 +291,28 @@ rsf_checks_calculate <- function(pool,
                                  #          `:=`(flag_status=NULL,
                                  #               grouping=NULL,
                                  #               subgrouping=NULL)]
-                                 messages[,
-                                          flag_status:=NULL]
+                                 # messages[,
+                                 #          flag_status:=NULL]
+                                 
+                                 #Let the message writer do what they want and evaluate it!
                                  #In case the message is asking for ".all"
-                                 has_lists <- sapply(messages,is.list)
-                                 if (any(has_lists)) {
-                                   has_lists <- names(has_lists)[(has_lists)]
-                                   for(hl in has_lists) {
-                                     set(messages,
-                                         i=NULL,
-                                         j=hl,
-                                         sapply(check_data[[hl]],paste0,collapse=","))
-                                   }
-                                 }
+                                 # has_lists <- sapply(messages,is.list)
+                                 # if (any(has_lists)) {
+                                 #   has_lists <- names(has_lists)[(has_lists)]
+                                 #   for(hl in has_lists) {
+                                 #     if (grepl("\\.all",hl)) {
+                                 #       set(messages,
+                                 #           i=NULL,
+                                 #           j=hl,
+                                 #           sapply(messages[[hl]],FUN=function(x) { paste0(paste(x$timeseries,x$timeseries.unit),collapse=", ") }))
+                                 #       } else {
+                                 #       set(messages,
+                                 #           i=NULL,
+                                 #           j=hl,
+                                 #           sapply(messages[[hl]],paste0,collapse=","))
+                                 #     }
+                                 #   }
+                                 # }
                                  
                                  #set all to characters
                                  
@@ -352,17 +381,28 @@ rsf_checks_calculate <- function(pool,
                                  
                                  messages <- messages[,
                                                       .(rsf_pfcbl_id,
+                                                        flag_status,
                                                         check_message=as.character(eval((parse(text=check_expr_msg))))),
                                                       by=grouping_cols]
                                  
-                                 # messages[,
-                                 #          check_message:=as.character(eval((parse(text=check_expr_msg))))]
+                                 messages <- unique(messages)
+                                 messages[,
+                                          n:=.N,
+                                          by=grouping_cols]
+                                 
+                                 if (any(messages$n > 1)) {
+                                   messages <- messages[,.(check_message=paste0(check_message,collapse=" & ")),
+                                                        by=c(grouping_cols,"rsf_pfcbl_id","flag_status")]
+                                 }
                                  
                                  check_data[messages,
                                             check_message:=i.check_message,
-                                            on=.(rsf_pfcbl_id)]
+                                            on=.(rsf_pfcbl_id,
+                                                 flag_status)]
                                } 
                                
+                               
+                              
                                
                                
                                
@@ -392,7 +432,7 @@ rsf_checks_calculate <- function(pool,
         error_mess <- paste0("Formula warning for ",check$check_name," formula#",
                              check$check_formula_id,": ",as.character(conditionMessage(war)))
         #status_message(class="warning",paste("\nWarning: Formula warning for ",check_name,": ",mess,"\n"))
-        check_data[,`:=`(flag_status=as.logical(NA),
+        check_data[,`:=`(flag_status=TRUE,
                          check_message=error_mess)]
         unique(check_data[,
                        .(rsf_pfcbl_id,
@@ -405,7 +445,7 @@ rsf_checks_calculate <- function(pool,
                              check$check_formula_id,": ",as.character(conditionMessage(err)))
         
         #status_message(class="error",paste("\nERROR: Formula error for ",check_name,": ",mess,"\n"))
-        check_data[,`:=`(flag_status=as.logical(NA),
+        check_data[,`:=`(flag_status=TRUE,
                          check_message=error_mess)]
         unique(check_data[,
                           .(rsf_pfcbl_id,
@@ -417,7 +457,8 @@ rsf_checks_calculate <- function(pool,
       computed_results <- computed_results[rsf_pfcbl_id %in% unlist(check$check_rsf_pfcbl_ids)]
       computed_results[,
                     n:=.N,
-                    by=.(rsf_pfcbl_id)]
+                    by=.(rsf_pfcbl_id,
+                         flag_status)]
       
       if (!empty(computed_results[n>1])) {
         

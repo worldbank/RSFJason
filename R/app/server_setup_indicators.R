@@ -34,7 +34,6 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
                                        and rdc.data_value is NOT NULL) as reported) as has on true
     where fis.rsf_pfcbl_id = $1::int
       and fis.is_system = false
-      --and fis.is_static_nonreporting = false
     order by fis.data_category_rank,fis.indicator_name",
     params=list(selected_rsf_pfcbl_id))
                                                   
@@ -193,7 +192,7 @@ SERVER_SETUP_INDICATORS_LIST_FILTERED <- eventReactive(c(SERVER_SETUP_INDICATORS
   monitored_indicators <- monitored_indicators[xfilter_selected]
   
   if (SERVER_SETUP_INDICATORS_MODE_IS_SETUP()) {
-    cfilter <- c("facility","client")
+    monitored_indicators <- monitored_indicators[data_category %in% c("facility","client")]
   }
   
   if (isTruthy(cfilter) && any(cfilter %in% monitored_indicators$data_category)) {
@@ -201,10 +200,18 @@ SERVER_SETUP_INDICATORS_LIST_FILTERED <- eventReactive(c(SERVER_SETUP_INDICATORS
   }
   
   if (SERVER_SETUP_INDICATORS_MODE_IS_SETUP()) {
+
     selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
+    if (!all(monitored_indicators$rsf_pfcbl_id==selected_rsf_pfcbl_id)) {
+      showNotification(type="error",
+                       ui=h3("Setup editing mode is only permitted for FACILITIES"))
+      return (NULL)
+    }
+    
     setup_data <- DBPOOL %>% dbGetQuery("
       select 
-        ids.rsf_pfcbl_id,
+        ids.rsf_facility_id as rsf_pfcbl_id,
+        ids.rsf_pfcbl_id as edit_rsf_pfcbl_id,
         fis.indicator_id,
         fis.is_calculated is false and pfcbl_category = 'facililty' as is_editable,
         ids.created_in_reporting_asof_date,
@@ -213,18 +220,46 @@ SERVER_SETUP_INDICATORS_LIST_FILTERED <- eventReactive(c(SERVER_SETUP_INDICATORS
         		 when rdc.data_unit is NOT NULL then rdc.data_value || ' ' || rdc.data_unit
         		 else rdc.data_value end as data_value_text,
         rdc.data_id
-        from p_rsf.rsf_pfcbl_ids ids
-        inner join p_rsf.view_rsf_program_facility_indicator_subscriptions fis on fis.rsf_pfcbl_id = ids.rsf_pfcbl_id
-        inner join p_rsf.indicators ind on ind.indicator_id = fis.indicator_id
+        
+        from p_rsf.view_rsf_program_facility_indicator_subscriptions fis 
+        inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = fis.rsf_pfcbl_id
+                                                         and ft.to_pfcbl_category = fis.data_category
+        inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id                                                         
         left join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
                                             and rdc.indicator_id = fis.indicator_id
                                             and rdc.reporting_asof_date = ids.created_in_reporting_asof_date
-      where ids.rsf_pfcbl_id = $1::int
-        and ids.pfcbl_category = 'facility'
-      	and ind.data_category in ('facility','client')",
+      where fis.rsf_pfcbl_id = $1::int
+        and ft.from_pfcbl_category = 'facility'
+      	and fis.data_category in ('client','facility')
+        and ft.pfcbl_hierarchy in ('self','child')
+        and ft.to_pfcbl_category = fis.data_category",
       params=list(selected_rsf_pfcbl_id))
     
+    # setup_data <- DBPOOL %>% dbGetQuery("
+    #   select 
+    #     ids.rsf_pfcbl_id,
+    #     fis.indicator_id,
+    #     fis.is_calculated is false and pfcbl_category = 'facililty' as is_editable,
+    #     ids.created_in_reporting_asof_date,
+    #     case when rdc.data_id is NULL then '{MISSING}'
+    #          when rdc.data_value is NULL then '{NOTHING}'
+    #     		 when rdc.data_unit is NOT NULL then rdc.data_value || ' ' || rdc.data_unit
+    #     		 else rdc.data_value end as data_value_text,
+    #     rdc.data_id
+    #     from p_rsf.rsf_pfcbl_ids ids
+    #     inner join p_rsf.view_rsf_program_facility_indicator_subscriptions fis on fis.rsf_pfcbl_id = ids.rsf_pfcbl_id
+    #     inner join p_rsf.indicators ind on ind.indicator_id = fis.indicator_id
+    #     left join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
+    #                                         and rdc.indicator_id = fis.indicator_id
+    #                                         and rdc.reporting_asof_date = ids.created_in_reporting_asof_date
+    #   where ids.rsf_pfcbl_id = $1::int
+    #     and ids.pfcbl_category = 'facility'
+    #   	and ind.data_category in ('facility','client')",
+    #   params=list(selected_rsf_pfcbl_id))
+    # 
     setDT(setup_data)
+    
+    #monitored indicator's rsf_pfcbl_id will be the rsf_facility_id
     monitored_indicators <- setup_data[monitored_indicators,
                                        on=.(rsf_pfcbl_id,
                                             indicator_id),
@@ -849,7 +884,7 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
         ind <- RSF_INDICATORS()[indicator_id==monitored_indicator$indicator_id]
         
         setup_data <- as.data.table(monitored_indicator)[,.(reporting_template_row_group="SETUP1",
-                                                            rsf_pfcbl_id,
+                                                            rsf_pfcbl_id=edit_rsf_pfcbl_id,
                                                             indicator_id,
                                                             indicator_name,
                                                             indicator_sys_category=ind$indicator_sys_category,
@@ -884,7 +919,7 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
                                   div(flags)))
         } else {
           
-          
+
           valid_cols <- c("reporting_asof_date",
                           "rsf_pfcbl_id",
                           "indicator_id",

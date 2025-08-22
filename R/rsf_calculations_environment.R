@@ -316,6 +316,8 @@
            return(x)
          })
   
+  #values: will return a vector of all ".timeseries" columns and should be used only when a single metric is supplied.
+  #by: will return a data.table with columns: reporting_current_date, indicator_name.timeseries values of all indicators supplied.
   assign(x="timeseries",
          envir=CALCULATIONS_ENVIRONMENT,
          value=function(...,
@@ -507,6 +509,21 @@
            if (length(a)==0) return (b)
            else return(ifelse(is.na(a),b,a))
          })
+  
+
+  assign(x="%equal%",
+         envir=CALCULATIONS_ENVIRONMENT,
+         value=function(e1,e2) {
+           mapply(function(a,b) { isTRUE(base::all.equal(a,b,check.class=F)) },a=e1,b=e2,USE.NAMES=F)
+         }
+  )
+
+  assign(x="%unequal%",
+         envir=CALCULATIONS_ENVIRONMENT,
+         value=function(e1,e2) {
+           mapply(function(a,b) { !isTRUE(base::all.equal(a,b,check.class=F)) },a=e1,b=e2,USE.NAMES=F)
+         }
+  )
   
   # assign(x="!",
   #        envir=CALCULATIONS_ENVIRONMENT,

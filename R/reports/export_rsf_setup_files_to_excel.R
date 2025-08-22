@@ -1,8 +1,9 @@
 export_rsf_setup_files_to_excel <- function(pool,
-                                            rsf_program_id=NA, #NA returns the entire RSF database program, facility, clients
-                                                               #And export will be in a single file
-                                                               #Otherwise, a separate LIST of files will be returned for each program/facilities/clients setup
-                                            rsf_pfcbl_ids.filter=as.numeric(NA),
+                                            export_pfcbl_id,
+                                            # rsf_program_id=NA, #NA returns the entire RSF database program, facility, clients
+                                            #                    #And export will be in a single file
+                                            #                    #Otherwise, a separate LIST of files will be returned for each program/facilities/clients setup
+                                            # rsf_pfcbl_ids.filter=as.numeric(NA),
                                             exporting_user_id,
                                             include_never_reported=FALSE,
                                             include=c("data",
@@ -11,28 +12,35 @@ export_rsf_setup_files_to_excel <- function(pool,
                                                       "checks",
                                                       "guidance",
                                                       "actions",
-                                                      "flags")
+                                                      "flags",
+                                                      "review")
                                             ) #Setup only will filter out only those data submitted by setup files or not 
                                                                   #subsequently overwritten by a non-setup file or non-setup creation date
                                                                   #FALSE has few use cases -- maybe when QRs update values where they shouldn't?
 {
-  
+  #browser()
   #setups
   {
     SHEET_NAME <- "RSF DATA"
     
-    if (!is.na(rsf_program_id)) {
-      valid <- dbGetQuery(pool,
-                         "select exists(select * from p_rsf.rsf_programs rp
-                                         where rp.rsf_program_id = $1::int)::bool as valid",
-                          params=list(rsf_program_id))
-      valid <- as.logical(unlist(valid))
-      if (!valid) stop(paste0("Program ID:",rsf_program_id," is not a valid program.  Use rsf_program_id=NA to generate setup files for all rsf programs"))
-    } else {
-      stop("rsf program ID required")
-    }
-    if (length(rsf_pfcbl_ids.filter)==0) rsf_pfcbl_ids.filter <- as.numeric(NA)
+    export_pfcbl_category <- unlist(dbGetQuery(pool,"select pfcbl_category from p_rsf.rsf_pfcbl_ids ids where ids.rsf_pfcbl_id = $1::int",export_pfcbl_id))
     
+    if (length(export_pfcbl_category)==0 || !export_pfcbl_category %in% c("global","program","facility")) {
+      stop("export_rsf_pfcbl_id must be a valid entity and be either global, program or facility-level")  
+    }
+    
+    # if (!is.na(rsf_program_id)) {
+    #   valid <- dbGetQuery(pool,
+    #                      "select exists(select * from p_rsf.rsf_programs rp
+    #                                      where rp.rsf_program_id = $1::int)::bool as valid",
+    #                       params=list(rsf_program_id))
+    #   valid <- as.logical(unlist(valid))
+    #   if (!valid) stop(paste0("Program ID:",rsf_program_id," is not a valid program.  Use rsf_program_id=NA to generate setup files for all rsf programs"))
+    # } else {
+    #   stop("rsf program ID required")
+    # }
+    # if (length(rsf_pfcbl_ids.filter)==0) rsf_pfcbl_ids.filter <- as.numeric(NA)
+    # 
     if (length(include)==0) stop("Include must have one or all of: data, settings, indicators, checks, guidance, actions")
     if (!all(include %in% c("data",
                             "settings",
@@ -40,7 +48,8 @@ export_rsf_setup_files_to_excel <- function(pool,
                             "checks",
                             "guidance",
                             "actions",
-                            "flags") )) stop("Include must have one or all of: data, settings, indicators, checks, guidance, actions, flags")
+                            "flags",
+                            "review") )) stop("Include must have one or all of: data, settings, indicators, checks, guidance, actions, flags")
     
     if (!any(include=="data")) stop("Include must at least include: data")
     
@@ -54,17 +63,28 @@ export_rsf_setup_files_to_excel <- function(pool,
     if (any(include=="data")) {
       #If we're backing up and downloading all files, then we just want is_setup_data = true (because subsequent non-setup files will be downloaded and the data retained in separate uploads)
       #But if we want to review all program/facility settings, then we should download everything for the sake of a complete review.
+#       program_data <- dbGetQuery(pool,"
+#                                  select *
+#                                  from p_rsf.view_rsf_setup_programs_data spd
+#                                  where coalesce(spd.rsf_program_id = $1::int,true)
+#                                    and case when NULLIF($2::text,'NA') is NULL then true
+#                                        else spd.rsf_pfcbl_id in (select child_rsf_pfcbl_id
+# 	                                                          from p_rsf.rsf_pfcbl_id_family fam
+# 													                                  where fam.parent_rsf_pfcbl_id in (select unnest(string_to_array($2::text,','))::int))
+#                                        end",
+#                                  params=list(rsf_program_id,
+#                                              paste0(rsf_pfcbl_ids.filter,collapse=",")))
+#       
+      
       program_data <- dbGetQuery(pool,"
                                  select * 
                                  from p_rsf.view_rsf_setup_programs_data spd
-                                 where coalesce(spd.rsf_program_id = $1::int,true)
-                                   and case when NULLIF($2::text,'NA') is NULL then true
-                                       else spd.rsf_pfcbl_id in (select child_rsf_pfcbl_id
-	                                                          from p_rsf.rsf_pfcbl_id_family fam 
-													                                  where fam.parent_rsf_pfcbl_id in (select unnest(string_to_array($2::text,','))::int))
-                                       end",
-                                 params=list(rsf_program_id,
-                                             paste0(rsf_pfcbl_ids.filter,collapse=",")))
+                                 where case when $1::text = 'facility'
+                                            then $2::int = spd.rsf_facility_id
+                                       else $2::int = spd.rsf_program_id end",
+                                 params=list(export_pfcbl_category,
+                                             export_pfcbl_id))
+      
       
       setDT(program_data)
 
@@ -73,19 +93,29 @@ export_rsf_setup_files_to_excel <- function(pool,
       }
     }
     
+    program_review <- NULL
+    if (any(include=="review")) {
+
+      program_review <- dbGetQuery(pool,'
+                                 select * 
+                                 from p_rsf.view_rsf_setup_review spd
+                                 where spd."SYSID" = $1::int',
+                                 params=list(export_pfcbl_id))
+      
+      
+      setDT(program_review)
+      
+    }
+    
     program_settings <- NULL
     if (any(include=="settings")) {
       program_settings <- dbGetQuery(pool,"
                                      select * 
                                      from p_rsf.view_rsf_setup_programs_settings rps
-                                     where coalesce(rps.rsf_program_id = $1::int,true)
-                                       and case when NULLIF($2::text,'NA') is NULL then true
-                                         else rps.rsf_pfcbl_id in (select child_rsf_pfcbl_id
-  	                                                          from p_rsf.rsf_pfcbl_id_family fam 
-  													                                  where fam.parent_rsf_pfcbl_id in (select unnest(string_to_array($2::text,','))::int))
-                                         end",
-                                     params=list(rsf_program_id,
-                                                 paste0(rsf_pfcbl_ids.filter,collapse=",")))
+                                     where rps.pfcbl_category = $1::text
+                                       and rps.rsf_pfcbl_id = $2::int",
+                                     params=list(export_pfcbl_category,
+                                                 export_pfcbl_id))
       setDT(program_settings)
     }
     
@@ -94,32 +124,28 @@ export_rsf_setup_files_to_excel <- function(pool,
       program_indicators <- dbGetQuery(pool,"
                                      select * 
                                      from p_rsf.view_rsf_setup_programs_indicators spi
-                                     where coalesce(spi.rsf_program_id = $1::int,true)
-                                       and case when NULLIF($2::text,'NA') is NULL then true
-                                         else spi.rsf_pfcbl_id in (select child_rsf_pfcbl_id
-  	                                                          from p_rsf.rsf_pfcbl_id_family fam 
-  													                                  where fam.parent_rsf_pfcbl_id in (select unnest(string_to_array($2::text,','))::int))
-                                         end",
-                                     params=list(rsf_program_id,
-                                                 paste0(rsf_pfcbl_ids.filter,collapse=",")))
+                                      where case when $1::text = 'facility'
+                                            then $2::int = spi.rsf_facility_id
+                                       else $2::int = spi.rsf_program_id end",
+                                       params=list(export_pfcbl_category,
+                                                   export_pfcbl_id))
       setDT(program_indicators)
     }
     
     program_checks <- NULL
     if (any(include=="checks")) {
-      program_checks <- dbGetQuery(pool,"
-                                     select * 
-                                     from p_rsf.view_rsf_setup_programs_checks pic
-                                     where coalesce(pic.rsf_program_id = $1::int,true)
-                                       and case when NULLIF($2::text,'NA') is NULL then true
-                                         else pic.rsf_pfcbl_id in (select child_rsf_pfcbl_id
-  	                                                          from p_rsf.rsf_pfcbl_id_family fam 
-  													                                  where fam.parent_rsf_pfcbl_id in (select unnest(string_to_array($2::text,','))::int))
-                                         end",
-                                   params=list(rsf_program_id,
-                                               paste0(rsf_pfcbl_ids.filter,collapse=",")))
       
+      
+      program_checks <- dbGetQuery(pool,"
+                                     select *
+                                     from p_rsf.view_rsf_setup_programs_checks pic
+                                     where case when $1::text = 'facility'
+                                            then $2::int = pic.rsf_facility_id
+                                       else $2::int = pic.rsf_program_id end",
+                                   params=list(export_pfcbl_category,
+                                               export_pfcbl_id))
       setDT(program_checks)
+      
     }
     
     program_guidance <- NULL
@@ -128,14 +154,11 @@ export_rsf_setup_files_to_excel <- function(pool,
       program_guidance <- dbGetQuery(pool,"
                                      select * 
                                      from p_rsf.view_rsf_setup_programs_guidance spg
-                                     where spg.rsf_program_id in ($1::int,0)
-                                       and case when NULLIF($2::text,'NA') is NULL then true
-                                           else spg.rsf_pfcbl_id in (select child_rsf_pfcbl_id
-    	                                                               from p_rsf.rsf_pfcbl_id_family fam 
-    													                                       where fam.parent_rsf_pfcbl_id in (select unnest(string_to_array($2::text,','))::int))
-                                           end",
-                                       params=list(rsf_program_id,
-                                                   paste0(rsf_pfcbl_ids.filter,collapse=",")))
+                                     where spg.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+                                                                  from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                                                                  where ft.from_rsf_pfcbl_id = $1::int
+                                                                    and ft.to_pfcbl_category in ('global','program','facility'))",
+                                     params=list(export_pfcbl_id))
       setDT(program_guidance)
     }
 
@@ -147,9 +170,9 @@ export_rsf_setup_files_to_excel <- function(pool,
                                              from p_rsf.view_rsf_program_facility_template_headers fth
                                              where fth.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
                                                                           from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                                                                          where ft.from_rsf_pfcbl_id = (select unnest(string_to_array($1::text,',')))::int
-                                                                            and to_pfcbl_category in ('global','program','facility'))",
-                                                   params=list(paste0(unique(na.omit(c(rsf_program_id,rsf_pfcbl_ids.filter))),collapse=",")))
+                                                                          where ft.from_rsf_pfcbl_id = $1::int
+                                                                            and ft.to_pfcbl_category in ('global','program','facility'))",
+                                             params=list(export_pfcbl_id))
       setDT(program_template_actions)
     }
     
@@ -173,14 +196,11 @@ export_rsf_setup_files_to_excel <- function(pool,
                                     cae.data_value_unit
                                   from p_rsf.view_rsf_data_checks_archive_eligible cae
                                   inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = cae.rsf_pfcbl_id
-                                  where ids.rsf_program_id in ($1::int,0)
-                                    and case when NULLIF($2::text,'NA') is NULL then true
-                                        else cae.rsf_pfcbl_id in (select child_rsf_pfcbl_id
-	                                                                from p_rsf.rsf_pfcbl_id_family fam 
-													                                        where fam.parent_rsf_pfcbl_id in (select unnest(string_to_array($2::text,','))::int))
-                                        end",
-                                  params=list(rsf_program_id,
-                                              paste0(rsf_pfcbl_ids.filter,collapse=",")))
+                                  where case when $1::text = 'facility'
+                                            then $2::int = ids.rsf_facility_id
+                                       else $2::int = ids.rsf_program_id end",
+                                  params=list(export_pfcbl_category,
+                                              export_pfcbl_id))
       setDT(program_flags)
     }
   }  
@@ -200,7 +220,7 @@ export_rsf_setup_files_to_excel <- function(pool,
     where nai.rsf_pfcbl_id = $1::int
     order by nai.reporting_asof_date desc
     limit 1",
-    params=list(rsf_program_id))
+    params=list(export_pfcbl_id))
   
   exporting_entity_name  <- exporting$sys_name
   exporting_name <- exporting$name
@@ -398,6 +418,25 @@ export_rsf_setup_files_to_excel <- function(pool,
                                               sheet_name="PROGRAM_FLAGS",
                                               sheet_data_table_name="RSF_PROGRAM_FLAGS",
                                               sheet_data=program_flags,
+                                              
+                                              program_name=exporting_name,
+                                              
+                                              template_key=TEMPLATE$template_key,
+                                              
+                                              reporting_entity=exporting_entity_name,
+                                              reporting_asof_date=exporting_asof_date,
+                                              reporting_user=format_name_abbreviation(exporting_users_name),
+                                              reporting_time=as.character(now()),
+                                              reporting_notes="")
+  }
+  
+  if (!empty(program_review)) {
+    
+    
+    excelwb <- rsf_reports_create_excel_sheet(excelwb=excelwb,
+                                              sheet_name="REVIEW",
+                                              sheet_data_table_name="RSF_REVIEW",
+                                              sheet_data=program_review,
                                               
                                               program_name=exporting_name,
                                               

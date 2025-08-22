@@ -487,7 +487,7 @@ parse_template_RSA <- function(pool,
                     check_formula=as.character(NA))]
     
     header_actions <- db_indicators_get_header_actions(pool=pool,
-                                                       template_id=11,
+                                                       template_id=template_id,
                                                        rsf_pfcbl_id=rsf_facility_id)
     header_actions[,label_key:="SYS"]
     header_actions[,label:=superTrim(template_header)] #for this template, use trimmed, not normalized (as parsing values are used and therefore don't normalize {} delimiter!)
@@ -712,7 +712,9 @@ parse_template_RSA <- function(pool,
     
     rsa[rsf_labels,
         `:=`(action=i.action,
-             map_indicator_id=i.map_indicator_id),
+             map_indicator_id=i.map_indicator_id,
+             map_formula_id=i.map_formula_id,
+             map_check_formula_id=i.map_check_formula_id),
         on=.(label_header_id)]
     
     rsa[,n:=0]
@@ -819,18 +821,28 @@ parse_template_RSA <- function(pool,
   }  
   
   #PARSING: The only area for data collection within the RSA template
+  #Will parse when explicitly set to parse (meaning, parse and do nothing else)
+  #Or, if any {} encoding exists, it will auto-parse it, having presumably already taken the specified alternative action.
   {
-    parsing <- rsa[action=="parse"]
+    #parsing <- rsa[action=="parse"]
+    
+    parsing <- rsa[rsf_labels[action=="parse" | grepl("\\{.*\\}",label),
+                              .(parse_label=label,
+                                parse_label_lookup=template_label_lookup,
+                                label_header_id)],
+                on=.(label_header_id),
+                nomatch=NULL]
+    
     if (empty(parsing)) parsing <- NULL
     
     rsa <- rsa[action != "parse"]
     
     if (!empty(parsing)) {
-      parsing[rsf_labels[action=="parse"],
-              `:=`(parse_label=i.label,
-                   parse_label_lookup=i.template_label_lookup),
-              on=.(action,
-                   label_header_id)]
+      # parsing[rsf_labels[action=="parse"],
+      #         `:=`(parse_label=i.label,
+      #              parse_label_lookup=i.template_label_lookup),
+      #         on=.(action,
+      #              label_header_id)]
     
       #testing    
       #parsing[,parse_label:=("\"ifc maximum risk amount\" us\\${facility_ifc_maximum_risk_amount#usd} as may be reduced from time to time in accordance with section {test_indicator}\\(b\\) \\(costs\\)")]
@@ -853,7 +865,7 @@ parse_template_RSA <- function(pool,
                                      values <- stringr::str_match_all(pattern=pattern,
                                                                       string=string)
                                      values <- unlist(values)
-                                     
+                                     if (is.na(string)) stop(paste0("NA text to search for pattern=",pattern))
                                      if (values[[1]] != string) { stop(paste0("Parse values expects first value ",values[[1]]," == ",string)) }
                                      
                                      values <- values[-1] #pattern will match the entire string, as well as the capture group(s).  
@@ -906,6 +918,9 @@ parse_template_RSA <- function(pool,
       parsing[rsf_indicators,
               indicator_name:=i.indicator_name,
               on=.(indicator_id)]
+      
+      #where values are intentionally set to ignore but to allow the parsing to accommodate various text permutations
+      parsing <- parsing[!(is.na(indicator_id) & indicator_name %in% c("text","number","percent","ignore","date"))]
     
       {
         unfound_labels <- parsing[is.na(indicator_id)]
@@ -971,18 +986,43 @@ parse_template_RSA <- function(pool,
     }
   }
  
+  parsing[,n:=.N,
+          by=.(SYSID,
+               reporting_asof_date,
+               indicator_id,
+               indicator_name)]
   
+  if (!empty(parsing[n>1])) {
+    
+    parsing[indicator_name %in% rsf_indicators[indicator_options_group_allows_multiples==TRUE,indicator_name],
+            multiples:=TRUE]
+    
+    parsing[n > 1 & multiples==TRUE,
+            data_value:=paste0(sort(unique(data_value)),collapse=" & "),
+            by=.(SYSID,
+                 reporting_asof_date,
+                 indicator_id,
+                 indicator_name,
+                 data_unit)]
+    
+    parsing[,multiples:=NULL]
+    parsing <- unique(parsing)
+    
+  }
+  
+  parsing[,n:=NULL]
   #Only "PARSING" will generate data
   #other actions generate actions
-  template_data <- parsing[!is.na(indicator_name),
-                           .(reporting_template_row_group=paste0(1:.N,"RSA"),
-                             SYSID,
+  template_data <- unique(parsing[!is.na(indicator_name),
+                           .(SYSID,
                              reporting_asof_date,
                              indicator_id,
                              indicator_name,
                              reporting_submitted_data_value=data_value,
                              reporting_submitted_data_unit=data_unit,
-                             reporting_submitted_data_formula=as.character(NA))]
+                             reporting_submitted_data_formula=as.character(NA))])
+  
+  template_data[,reporting_template_row_group:=paste0(1:.N,"RSA")]
   
   
   actions <- rbindlist(list(rsa[,.(action,
@@ -1000,6 +1040,7 @@ parse_template_RSA <- function(pool,
   
   actions <- actions[!(action=="ignore")] #ignore means ignore... do nothing
   actions <- actions[!(action=="parse")] #parse should already have been managed and re-combined to remap above.
+  actions <- unique(actions)
   
   #conn <- poolCheckout(pool)
   #dbBegin(conn)
@@ -1010,7 +1051,7 @@ parse_template_RSA <- function(pool,
       dbExecute(conn,"create temp table _act(indicator_id int,comments text) on commit drop;")  
       dbAppendTable(conn,
                     name="_act",
-                    value=act[,.(indicator_id,comments)])
+                    value=act[,.(indicator_id,comments)][,.(comments=paste0(comments,collapse="\n AND \n")),by=.(indicator_id)])
       
       dbExecute(conn,"
         insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
@@ -1063,7 +1104,7 @@ parse_template_RSA <- function(pool,
       dbExecute(conn,"create temp table _act(indicator_id int,comments text) on commit drop;")  
       dbAppendTable(conn,
                     name="_act",
-                    value=act[,.(indicator_id,comments)])
+                    value=act[,.(indicator_id,comments)][,.(comments=paste0(comments,collapse="\n AND \n")),by=.(indicator_id)])
       
       dbExecute(conn,"
         insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
@@ -1109,13 +1150,13 @@ parse_template_RSA <- function(pool,
     })
   }
   
-  act <- actions[!is.na(indicator_id) & action %in% c("check")] #default is only meaningful for indicators that are mapped via template names
+  act <- actions[!is.na(check_formula_id) & action %in% c("check")] #default is only meaningful for indicators that are mapped via template names
   if (!empty(act)) {
     poolWithTransaction(pool, function(conn) { 
       dbExecute(conn,"create temp table _act(check_formula_id int,comments text) on commit drop;")  
       dbAppendTable(conn,
                     name="_act",
-                    value=act[,.(check_formula_id,comments)])
+                    value=act[,.(check_formula_id,comments)][,.(comments=paste0(comments,collapse="\n AND \n")),by=.(check_formula_id)])
       
       dbExecute(conn,"
         insert into p_rsf.rsf_program_facility_checks(rsf_pfcbl_id,
@@ -1161,14 +1202,14 @@ parse_template_RSA <- function(pool,
     })
   }
   
-  act <- actions[!is.na(indicator_id) & action %in% c("calculate")] #default is only meaningful for indicators that are mapped via template names
+  act <- actions[!is.na(indicator_formula_id) & action %in% c("calculate")] #default is only meaningful for indicators that are mapped via template names
   
   if (!empty(act)) {
     poolWithTransaction(pool, function(conn) { 
       dbExecute(conn,"create temp table _act(formula_id int,comments text) on commit drop;")  
       dbAppendTable(conn,
                     name="_act",
-                    value=act[,.(formula_id=indicator_formula_id,comments)])
+                    value=act[,.(formula_id=indicator_formula_id,comments)][,.(comments=paste0(comments,collapse="\n AND \n")),by=.(formula_id)])
       
       dbExecute(conn,"
         insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,

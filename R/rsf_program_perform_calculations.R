@@ -543,8 +543,12 @@ rsf_program_perform_calculations <- function(pool,
                                                                       "{",ifelse(is.na(data_value),"MISSING",data_value),
                                                                           ifelse(is.na(data_unit),"",paste0(" ",data_unit)),"}"))]
       
-      if (!empty(overwrite_flags)) calculation_flags <- rbindlist(list(calculation_flags,
-                                                                       overwrite_flags))
+      if (!empty(overwrite_flags)) {
+        calculation_flags <- rbindlist(list(calculation_flags,
+                                            overwrite_flags))
+        
+        
+      }
       overwrite_flags <- NULL
       
       
@@ -826,7 +830,7 @@ rsf_program_perform_calculations <- function(pool,
                                           current_data_id)]
     variance_results[data_type=="date",
                      `:=`(data_value=as.numeric(ymd(data_value)),
-                          current_data_value=as.numeric(ymd(data_value)))]
+                          current_data_value=as.numeric(ymd(current_data_value)))]
     variance_results[,
                      variance:=abs(fcase(data_type=="percent",100*(as.numeric(current_data_value)-as.numeric(data_value)),  #Percentage points
                                          data_type=="date",(as.numeric(current_data_value)-as.numeric(data_value)),     #Date variance in days
@@ -868,10 +872,13 @@ rsf_program_perform_calculations <- function(pool,
                       on=.(check_name)]
     
     variance_results[,variance_tolerance_allowed:=TRUE]
+    variance_results[,variance_message:=fcase(data_type=="date",paste0(round(variance,0)," DAYS"),
+                                              data_type!="date",paste0(round(variance,1),"%"))]
+
     calculation_flags[,variance:=as.numeric(NA)]
     calculation_flags[variance_results,
                       `:=`(variance=i.variance,
-                           check_message=paste0(check_message," (",round(i.variance,1),"% variance)")),
+                           check_message=paste0(check_message," (",i.variance_message," variance)")),
                       on=.(rsf_pfcbl_id,
                            for_indicator_id=indicator_id,
                            check_asof_date=reporting_asof_date,

@@ -513,22 +513,6 @@ template_parse_file <- function(pool,
       #Instances where templates repeat indicators on multiple rows for convenience sake of the user but use different labels, aliases of labels or language combination of
       #labels. So merge these all together.
       
-      #labels submitted no longer purposeful
-      # unique_cols <- names(template$template_data)[-which(names(template$template_data) %in% c("labels_submitted","reporting_submitted_data_formula"))]
-      # if (!(all(is.na(template$template_data$labels_submitted)) && all(is.na(template$template_data$reporting_submitted_data_formula)))) {
-      #   if (!any(names(template$template_data)=="labels_submitted")) {
-      #     template$template_data[,labels_submitted:=indicator_name]
-      #   }
-      #   
-      #   template$template_data <- template$template_data[,.(labels_submitted=paste0(labels_submitted,collapse=" || "),
-      #                                                       
-      #                                                       #don't want <NA> formulas to turn into "NA" when there's a duplicated entry
-      #                                                       reporting_submitted_data_formula=ifelse(all(is.na(reporting_submitted_data_formula)),
-      #                                                                                               as.character(NA),
-      #                                                                                               paste0(reporting_submitted_data_formula,collapse=" [AND ALSO] "))),
-      #                                                     by=c(unique_cols)]
-      # }    
-      
       template$template_data <- parse_data_formats(template_data=template$template_data,
                                                    rsf_indicators=template$rsf_indicators)
       
