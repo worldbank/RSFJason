@@ -151,6 +151,7 @@ rsf_program_calculate <- function(pool,
                                                     rsf_calculator_checks=rsf_calculator_checks,
                                                     perform.test = FALSE,
                                                     status_message=status_message)
+          
           aggregate_calculation_flags <- rbindlist(list(aggregate_calculation_flags,
                                                         flags))
           flags <- NULL

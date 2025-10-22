@@ -202,7 +202,6 @@ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR <- eventReactive(c(RSF_INDICAT
         indf.formula_sort,
         
         indf.formula_fx_date,
-        unit_ind.indicator_name as formula_unit_set_by_indicator_name,
         indf.formula_id,
         indf.formula_title,
         indf.is_primary_default,
@@ -215,7 +214,6 @@ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR <- eventReactive(c(RSF_INDICAT
       
       from p_rsf.indicator_formulas indf
       inner join p_rsf.indicators ind on ind.indicator_id = indf.indicator_id
-      left join p_rsf.indicators unit_ind on unit_ind.indicator_id = indf.formula_unit_set_by_indicator_id
       where indf.indicator_id = $1::int",
       params=list(selected_indicator$indicator_id))
     
@@ -671,7 +669,7 @@ observeEvent(input$server_admin_indicators__save_indicator, {
 
   formulas <- SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS()
   if (!empty(formulas)) {
-    formulas <- formulas[edited==TRUE]
+    #formulas <- formulas[edited==TRUE]
     
     if (anyNA(formulas$formula)) {
       return(showNotification(type="error",
@@ -704,7 +702,7 @@ observeEvent(input$server_admin_indicators__save_indicator, {
   options_id <- as.numeric(input$admin_system_edit_indicator_options)
   options_allows_blanks <- as.logical(input$group_allows_blanks)
   options_allows_multi <- as.logical(input$group_allows_multi)
-  
+ 
   if (!isTruthy(indicator_name)) return(showNotification(h3("Save failed: Indicator name is required."),type="error"))
   if (!isTruthy(data_category)) return(showNotification(h3("Save failed: Category is required."),type="error"))
   if (!isTruthy(data_type)) return(showNotification(h3("Save failed: Data type is required."),type="error"))
@@ -758,7 +756,7 @@ observeEvent(input$server_admin_indicators__save_indicator, {
                                                           label_key,
                                                           is_primary,
                                                           label)],
-                                         formulas=formulas[,
+                                         formulas=formulas[edited==TRUE,
                                                            .(indicator_id,
                                                              formula_id,
                                                              formula,
@@ -767,7 +765,6 @@ observeEvent(input$server_admin_indicators__save_indicator, {
                                                              formula_fx_date,
                                                              formula_title,
                                                              formula_notes,
-                                                             formula_unit_set_by_indicator_name,
                                                              is_primary_default)],
                                      user_id=USER_ID())
       TRUE
@@ -872,7 +869,6 @@ observeEvent(input$server_admin_indicators__add_formula, {
                             formula=as.character(NA),
                             formula_sort=as.character(NA),
                             formula_fx_date="calculation",
-                            formula_unit_set_by_indicator_name=as.character(NA),
                             formula_id=(-1 * as.numeric(input$server_admin_indicators__add_formula)), #set when saved, pseudo for now.
                             formula_title=as.character(NA),
                             is_primary_default=nrow(SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS())==0,

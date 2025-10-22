@@ -537,7 +537,6 @@ observeEvent(input$action_server_dashboard__edit_save, {
 
     results <- tryCatch({
       template_parse_process_and_upload(pool=dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]])),
-                                        rsf_program_id = SELECTED_PROGRAM_ID(),
                                         reporting_user_id = USER_ID(),
                                         template_files=editing_filename,
                                         source_note="None",

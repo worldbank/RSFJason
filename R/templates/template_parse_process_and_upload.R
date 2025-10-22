@@ -1,8 +1,8 @@
 template_parse_process_and_upload <- function(pool,
-                                              rsf_program_id=NA,
                                               reporting_user_id,
                                               template_files,
                                               source_note,
+                                              parse_rsf_pfcbl_id=NULL,
                                               email_report=FALSE,
                                               delete_after_upload=FALSE,
                                               status_message=function(...) {},
@@ -10,7 +10,7 @@ template_parse_process_and_upload <- function(pool,
                                               delete_on_error=TRUE) {
   
   #delete_on_error <- FALSE
-  rsf_program_id <- as.numeric(rsf_program_id)
+  #rsf_program_id <- as.numeric(rsf_program_id)
   zip_file <- NULL
   if (any(dir.exists(template_files))) {
     stop("Only individual files may be uploaded, not a whole directory.  If you seek to upload a directory, try zipping files into an archive and uploading one archive file")
@@ -49,10 +49,10 @@ template_parse_process_and_upload <- function(pool,
     {
       template <- tryCatch({
         template_parse_file(pool=pool,
-                            rsf_program_id=rsf_program_id,
                             template_file=tf,
                             reporting_user_id=reporting_user_id,
                             source_note=source_note,
+                            parse_rsf_pfcbl_id=parse_rsf_pfcbl_id,
                             status_message=status_message)
       },
       warning = function(w) {
@@ -73,9 +73,9 @@ template_parse_process_and_upload <- function(pool,
         next;
       }
 
-      if (is.na(rsf_program_id)) {
-          rsf_program_id <- template$rsf_program_id
-      }
+      # if (is.na(rsf_program_id)) {
+      #     rsf_program_id <- template$rsf_program_id
+      # }
     }
     
 
@@ -174,7 +174,7 @@ template_parse_process_and_upload <- function(pool,
       }
       
       result <- data.table(reporting_cohort_id=current_cohort_id,
-                           rsf_program_id=rsf_program_id,
+                           #rsf_program_id=rsf_program_id,
                            reporting_asof_date=template$reporting_asof_date,
                            template_source=template$reporting_cohort$source_name,
                            parse_time=template$parse_time,

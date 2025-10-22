@@ -132,11 +132,10 @@ db_create_new_rsf_ids <- function(pool,
           
           if (empty(linked_cohort)) {
             linked_cohort <- db_cohort_create(pool,
-                                              rsf_program_id=               reporting_cohort$rsf_program_id,
                                               reporting_user_id=            reporting_cohort$reporting_user_id,
                                               reporting_asof_date=          id_group_creation_date,
                                               data_asof_date=               id_group_creation_date,
-                                              cohort_pfcbl_id=              reporting_cohort$reporting_rsf_pfcbl_id,
+                                              reporting_rsf_pfcbl_id=              reporting_cohort$reporting_rsf_pfcbl_id,
                                               from_reporting_template_id=   reporting_cohort$from_reporting_template_id,
                                               source_reference=             reporting_cohort$source_reference,
                                               source_name=paste0(format_asof_date_label(id_group_creation_date)," {SOURCE} ",

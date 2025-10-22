@@ -48,11 +48,10 @@ template_upload <- function(pool,
         reporting_cohort <- template$reporting_cohort
       } else {
         reporting_cohort <- db_cohort_create(pool,
-                                             rsf_program_id=template$reporting_cohort$rsf_program_id,
                                              reporting_user_id=template$reporting_cohort$reporting_user_id,
                                              reporting_asof_date=min(reporting_data$reporting_asof_date),
                                              data_asof_date=min(reporting_data$reporting_asof_date), 
-                                             cohort_pfcbl_id=reporting_id,
+                                             reporting_rsf_pfcbl_id=reporting_id,
                                              from_reporting_template_id=template$reporting_cohort$from_reporting_template_id,
                                              source_reference="Reporting entity segment",
                                              source_name=template$reporting_cohort$source_name,
@@ -547,9 +546,7 @@ template_upload <- function(pool,
     if (!empty(template$setup_data$PROGRAM_TEMPLATE_ACTIONS)) {
       
       template_actions <- template$setup_data$PROGRAM_TEMPLATE_ACTIONS 
-      
-      if (!setequal(names(template_actions),
-                    c('rsf_pfcbl_id',
+      col_names <-  c('rsf_pfcbl_id',
                       'template_id',
                       'SYSNAME',
                       'template_name',
@@ -563,7 +560,9 @@ template_upload <- function(pool,
                       'map_formula_id',
                       'calculation_formula',
                       'map_check_formula_id',
-                      'check_formula'))) {
+                      'check_formula')
+      
+      if (!all(col_names %in% names(template_actions))) {
         
         status_message(class="error",
                        "Failed to import HEADER ACTIONS.  Expected columns: rsf_pfcbl_id, template_id, SYSNAME, template_name, header_id, template_header_sheet_name, template_header, action, comment, map_indicator_id, indicator_name, map_formula_id, calculation_formula, map_check_formula_id, check_formula")
@@ -871,46 +870,6 @@ template_upload <- function(pool,
       }
     }    
     
-    # #Multiple reporting flagged
-    # {
-    #   template$pfcbl_data[,has_multiple_reporting:=FALSE]
-    #   template$pfcbl_data[,
-    #                       has_multiple_reporting:=any(inserted==TRUE & 
-    #                                                     redundancy_rank > 0),
-    #                       by=.(rsf_pfcbl_id,
-    #                            indicator_id,
-    #                            reporting_asof_date)]
-    #   
-    #   if (any(template$pfcbl_data$has_multiple_reporting)) {
-    #     multiple_reportings <- template$pfcbl_data[has_multiple_reporting==TRUE &
-    #                                                indicator_id %in% template$program_indicators[is_system==FALSE,indicator_id]]
-    #     
-    #     
-    #     if (!empty(multiple_reportings)) {
-    #       multiple_reportings <- multiple_reportings[,.(check_message=paste0("These values should be the same: ",
-    #                                                                     paste0(
-    #                                                                       paste0("{",
-    #                                                                              ifelse(is.na(data_value),
-    #                                                                                     data_submitted,
-    #                                                                                     data_value),
-    #                                                                            "} on row ",data_source_row_id)
-    #                                                                     ),
-    #                                                                     collapse=" AND ALSO ")),
-    #                                                  by=.(rsf_pfcbl_id,
-    #                                                       indicator_id,
-    #                                                       reporting_asof_date)]
-    #       
-    #       multiple_reportings <- multiple_reportings[,.(rsf_pfcbl_id,
-    #                                                     indicator_id,
-    #                                                     reporting_asof_date,
-    #                                                     check_name='sys_flag_multiple_data_points_reported',
-    #                                                     check_message)]
-    #       sys_flags <- rbindlist(list(sys_flags,
-    #                                   multiple_reportings))
-    #     }
-    #   }
-    # }
-    
     #Facility/client data without ammendment
     {
       #If we're uploaded non-calculated facility client data,
@@ -931,11 +890,9 @@ template_upload <- function(pool,
             			 ' from: ',coalesce(previous.data_value,'{MISSING}'),' [reported in ',previous.reporting_asof_date,']') as check_message
             from p_rsf.reporting_cohorts rc
             inner join p_rsf.rsf_data rd on rd.reporting_cohort_id = rc.reporting_cohort_id
+            inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rd.rsf_pfcbl_id
+            inner join p_rsf.rsf_pfcbl_ids facility on facility.rsf_pfcbl_id = ids.rsf_facility_id
             inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id
-            inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = rd.rsf_pfcbl_id
-            																													 and pis.indicator_id = ind.indicator_id
-            inner join p_rsf.rsf_pfcbl_id_family facility on facility.child_rsf_pfcbl_id = rd.rsf_pfcbl_id
-                                                         and facility.parent_pfcbl_category = 'facility'
             left join lateral (select
                                rdc.data_value,
             									 rdc.reporting_asof_date
@@ -947,20 +904,25 @@ template_upload <- function(pool,
             									 limit 1) as previous on true																							
             where rc.parent_reporting_cohort_id = $1::int
               and ind.data_category in ('client','facility')
-            	and pis.formula_id is NULL
-            	and ind.is_periodic_or_flow_reporting = false
+              and ind.is_periodic_or_flow_reporting = false
+              and facility.created_in_reporting_asof_date <> rc.reporting_asof_date -- init date isnt an update
               and exists(select * from p_rsf.rsf_data_current rdc where rdc.data_id = rd.data_id) -- wasnt a reversion
-              and not exists(select * from p_rsf.rsf_pfcbl_ids ids
-                             where ids.rsf_pfcbl_id = rd.rsf_pfcbl_id
-                               and ids.created_in_reporting_asof_date = rd.reporting_asof_date) -- init date isnt an update
-            	
-            	and not exists(select * from p_rsf.rsf_data_current rdc
-                             inner join p_rsf.indicators inda on inda.indicator_id = rdc.indicator_id
-            								 where rdc.rsf_pfcbl_id = facility.parent_rsf_pfcbl_id
-            								   and rdc.indicator_id = inda.indicator_id
-            								   and rdc.reporting_asof_date = rd.reporting_asof_date
-            								   and inda.indicator_sys_category = 'entity_amendment_date')",
-                                      params=list(template$reporting_cohort$reporting_cohort_id))
+              
+              -- not a formula and/or subscribed formula
+              and not exists (select * from p_rsf.view_rsf_pfcbl_indicator_subscriptions pis
+                              where pis.rsf_pfcbl_id = rd.rsf_pfcbl_id
+                                and pis.indicator_id = rd.indicator_id
+                                and pis.formula_id is NOT NULL
+                                and pis.is_subscribed is true)
+                            
+              -- facility hasn't submitted an amendment date
+              and not exists(select * from p_rsf.rsf_data_current rdc
+                             where rdc.rsf_pfcbl_id = facility.rsf_pfcbl_id
+                               and rdc.indicator_id = (select inda.indicator_id from p_rsf.indicators inda
+                                                       where inda.indicator_sys_category = 'entity_amendment_date'
+                                                         and inda.data_category = facility.pfcbl_category)
+                               and rdc.reporting_asof_date = rd.reporting_asof_date)",
+                                                  params=list(template$reporting_cohort$reporting_cohort_id))
         
         
         if (!empty(amendment_flags)) {
@@ -985,11 +947,45 @@ template_upload <- function(pool,
     
     #Identical flow data reported
     {
-      flow_reporting <- template$pfcbl_data[inserted==TRUE &
-                                            indicator_id %in% template$rsf_indicators[is_periodic_or_flow_reporting==TRUE,indicator_id],
-                                            .(rsf_pfcbl_id,
-                                              indicator_id)]
-      
+      # flow_reporting <- template$pfcbl_data[inserted==TRUE &
+      #                                       indicator_id %in% template$rsf_indicators[is_periodic_or_flow_reporting==TRUE,indicator_id],
+      #                                       .(rsf_pfcbl_id,
+      #                                         indicator_id)]
+      # 
+      # 
+      # flow_repeats <- dbGetQuery(pool,"
+      #   select
+      #     rdc.rsf_pfcbl_id,
+      #     rdc.indicator_id,
+      #     rdc.reporting_asof_date,
+      #     rdc.data_value,
+      #     rdc.data_unit,
+      #     ind.data_type,
+      #     previous.total_data_value,
+      #     previous.since_date,
+      #     previous.reporting_asof_date as previous_asof_date
+      #   from p_rsf.rsf_data_current rdc
+      #   inner join p_rsf.indicators ind on ind.indicator_id = rdc.indicator_id
+      #   inner join lateral (select
+      #                         NULLIF(rdp.data_value,'0') as data_value,
+      #                         rdp.reporting_asof_date,
+      #                         sum(case when ind.data_type in ('number','currency','percent')
+      #                              then rdp.data_value::numeric
+      #                              else 0::numeric
+      #                         end) over() as total_data_value,
+      #                         min(rdp.reporting_asof_date) filter(where nullif(rdp.data_value,'0') is not null) over() as since_date
+      #                       from p_rsf.rsf_data_current rdp
+      #                       where rdp.rsf_pfcbl_id = rdc.rsf_pfcbl_id
+      #                         and rdp.indicator_id = rdc.indicator_id
+      #                         and rdp.reporting_asof_date < rdc.reporting_asof_date
+      #                       order by rdp.reporting_asof_date desc
+      #                       limit 1) as previous on previous.data_value is not distinct from rdc.data_value
+      #   where rdc.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+      #     and rdc.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+      #     and rdc.reporting_asof_date = $3::date",
+      #   params=list(paste0(unique(flow_reporting$rsf_pfcbl_id),collapse=","),
+      #               paste0(unique(flow_reporting$indicator_id),collapse=","),
+      #               template$reporting_asof_date))
       
       flow_repeats <- dbGetQuery(pool,"
         select
@@ -1002,8 +998,10 @@ template_upload <- function(pool,
           previous.total_data_value,
           previous.since_date,
           previous.reporting_asof_date as previous_asof_date
-        from p_rsf.rsf_data_current rdc
-        inner join p_rsf.indicators ind on ind.indicator_id = rdc.indicator_id
+        from p_rsf.reporting_cohorts rc
+        inner join p_rsf.rsf_data rd on rd.reporting_cohort_id = rc.reporting_cohort_id
+        inner join p_rsf.rsf_data_current rdc on rdc.data_id = rd.data_id
+        inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id																		
         inner join lateral (select 
                               NULLIF(rdp.data_value,'0') as data_value,
                               rdp.reporting_asof_date,
@@ -1018,12 +1016,10 @@ template_upload <- function(pool,
                               and rdp.reporting_asof_date < rdc.reporting_asof_date
                             order by rdp.reporting_asof_date desc
                             limit 1) as previous on previous.data_value is not distinct from rdc.data_value
-        where rdc.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-          and rdc.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
-          and rdc.reporting_asof_date = $3::date",
-        params=list(paste0(unique(flow_reporting$rsf_pfcbl_id),collapse=","),
-                    paste0(unique(flow_reporting$indicator_id),collapse=","),
-                    template$reporting_asof_date))
+        where (rc.parent_reporting_cohort_id = $1::int)
+          and ind.is_periodic_or_flow_reporting is true  
+          and ind.is_system is false
+      ",params=list(template$reporting_cohort$reporting_cohort_id))
       
       setDT(flow_repeats)
       
@@ -1073,8 +1069,57 @@ template_upload <- function(pool,
         
         sys_flags <- rbindlist(list(sys_flags,
                                     flow_repeats))
+  
       }
     }
+    
+    #Missing (expected) facility setups
+    {
+      rsf_facility_ids <- unique(c(template$match_results[pfcbl_category=="client",parent_rsf_pfcbl_id],
+                                   template$match_results[pfcbl_category=="facility",rsf_pfcbl_id]))
+      
+      missing_terms <- dbGetQuery(pool,"
+        select --distinct on(ftm.rsf_facility_id,ftm.metric,ftm.metric_id,ftm.formula_id,ftm.parameter_id)
+        ftm.rsf_facility_id as rsf_pfcbl_id,
+        ftm.parameter_id as indicator_id,
+        ftm.metric,
+        ftm.metric_name,
+        ftm.parameter_name,
+        ftm.formula_title,
+        ftm.pfcbl_category_setting,
+        ftm.reporting_asof_date,
+        array_to_string(ftm.parameter_ids,',') as parameter_ids
+        from p_rsf.view_rsf_facility_terms_missing ftm
+        where ftm.rsf_facility_id = any(select unnest(string_to_array($1::text,','))::int)
+        order by ftm.rsf_facility_id,ftm.metric,ftm.metric_id,ftm.formula_id,ftm.parameter_id,ftm.reporting_asof_date desc",
+        params=list(paste0(rsf_facility_ids)))
+      
+      if (!empty(missing_terms)) {
+        missing_terms[["parameter_ids"]] <- strsplit(missing_terms$parameter_ids,",",fixed=T)
+        setDT(missing_terms)
+        missing_terms <- missing_terms[reporting_asof_date <= template$reporting_cohort$reporting_asof_date]
+        missing_terms[,
+                      reporting_asof_date:=template$reporting_cohort$reporting_asof_date]
+        
+        
+        missing_terms[,affected:=sapply(parameter_ids,FUN=function(ids,uploads) { any(ids %in% uploads) },uploads=unique(template$pfcbl_data$indicator_id))]
+        missing_terms <- missing_terms[affected==TRUE]
+        missing_terms[,check_message:=paste0("Facility term is missing and monitored at ",pfcbl_category_setting,"-level setup.\n",
+                                             "Enter value for '",parameter_name,"' in Facility Setup\n",
+                                             "Or unsubscribe from ",toupper(metric)," that will fail to compute: ",metric_name,"[",formula_title,"]")]
+        
+        missing_terms <- missing_terms[,
+                                     .(rsf_pfcbl_id,
+                                       indicator_id,
+                                       reporting_asof_date,
+                                       check_name="sys_facility_missing_term",
+                                       check_message)]
+        
+        sys_flags <- rbindlist(list(sys_flags,
+                                    missing_terms))
+      }
+    }
+    
     #Bad ID formats and Essential Data Not reported
     if (any(template$match_results$match_action=="new")) {
       

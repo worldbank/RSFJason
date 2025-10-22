@@ -505,7 +505,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
                     when $3::bool = true then formula_indicator_id_requirements
                end) as parameter_id
         from p_rsf.rsf_pfcbl_id_family fam 
-        inner join p_rsf.view_rsf_program_facility_indicator_subscriptions fis on fis.rsf_pfcbl_id = fam.parent_rsf_pfcbl_id
+        inner join p_rsf.view_rsf_program_facility_indicator_subscriptions fis on fis.rsf_pfcbl_id = fam.parent_rsf_pfcbl_id -- will pull in subscribed OR default
         inner join p_rsf.indicator_formulas indf on indf.formula_id = fis.formula_id
         where fam.child_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
           and fam.parent_pfcbl_category = 'facility'

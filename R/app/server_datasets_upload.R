@@ -157,12 +157,10 @@ observeEvent(input$modal_dataset_upload_next, {
   #DATASET_UPLOAD_FILE_RETURN_RESULTS(NA)
 
   #NA allows for create program scripts to run
-  rsf_program_id <- NA
-  if (isTruthy(SELECTED_PROGRAM_ID())) rsf_program_id <- SELECTED_PROGRAM_ID()
-
-  #Hacky, not the actual program ID but a facility-level specification
+  
+  parse_rsf_pfcbl_id <- NULL
   if (isTruthy(as.numeric(input$dataset_upload_rsf_facility_id))) {
-    rsf_program_id <- as.numeric(input$dataset_upload_rsf_facility_id)
+    parse_rsf_pfcbl_id <- as.numeric(input$dataset_upload_rsf_facility_id)
   }
   
   source_name <- input$dataset_upload_source_name
@@ -175,9 +173,9 @@ observeEvent(input$modal_dataset_upload_next, {
 
     #Template gets its own database pool
     template_parse_process_and_upload(pool=dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]])),
-                                      rsf_program_id=rsf_program_id,
                                       reporting_user_id=USER_ID(),
                                       template_files=filename,
+                                      parse_rsf_pfcbl_id=parse_rsf_pfcbl_id,
                                       source_note=source_note,
                                       delete_after_upload=TRUE,
                                       status_message=status_message)
@@ -195,8 +193,6 @@ observeEvent(input$modal_dataset_upload_next, {
     NULL
   })
   
-  print("Upload done!")
-  
   enable(id="action_dataset_upload_close")
   
   updateActionButton(session=session,
@@ -213,15 +209,28 @@ observeEvent(input$modal_dataset_upload_next, {
     #reporting_cohort_ids <- sapply(up_template,function(x) x[['reporting_cohort']][['reporting_cohort_id']])
     
     last_cohort_id <- results[nrow(results),reporting_cohort_id]
-    #print(paste0("SETTING NEW/LAST cohort_id=",last_cohort_id))
-
+    cohort_ids <- DBPOOL %>% dbGetQuery("
+      select 
+      ids.rsf_pfcbl_id,
+      ids.rsf_program_id,
+      ids.rsf_facility_id,
+      ids.rsf_client_id
+      from p_rsf.reporting_cohorts rc
+      inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
+      where rc.reporting_cohort_id = $1::int",
+      params=list(last_cohort_id))
     
+    #print(paste0("SETTING NEW/LAST cohort_id=",last_cohort_id))
     #If we uploaded a dataset while the selected program is empty, then it means we've created a new program. So let's load it now.
-    if (empty(SELECTED_PROGRAM())) {
-      new_program_id <- results[!is.na(rsf_program_id),unique(rsf_program_id)]
+    if (empty(SELECTED_PROGRAM()) || !identical(as.numeric(SELECTED_PROGRAM_ID()),as.numeric(cohort_ids$rsf_program_id))) {
       
-      LOAD_PROGRAM_ID(new_program_id)
+      if (!as.numeric(cohort_ids$rsf_program_id) %in% USER_PROGRAMS()$rsf_pfcbl_id) {
+        LOAD_PROGRAM_ID(cohort_ids$rsf_program_id)
+      }
       
+      updateSelectizeInput(session=session,
+                           inputId="select_rsf_program_id",
+                           selected=as.numeric(cohort_ids$rsf_program_id))
     }
     
     COHORT_NEW_ID(last_cohort_id)
@@ -237,6 +246,27 @@ observeEvent(input$modal_dataset_upload_next, {
                 animType = "fade")
     enable(id="modal_dataset_upload_dataset")
     enable(id="modal_dataset_upload_dashboard")
+
+    
+    if (is.na(as.numeric(input$dataset_review_filter_client)) || !any(as.numeric(unlist(cohort_ids)) %in% as.numeric(input$dataset_review_filter_client))) {
+      
+      first_id <- DBPOOL %>% dbGetQuery("
+        select 
+        ft.to_family_rsf_pfcbl_id rsf_pfcbl_id
+        from p_rsf.view_rsf_pfcbl_id_family_tree ft
+        where ft.from_rsf_pfcbl_id = $1::int
+          and ft.to_pfcbl_rank <= 3
+        order by ft.to_pfcbl_rank desc",
+        params=list(cohort_ids$rsf_pfcbl_id))
+      
+      if (any(first_id$rsf_pfcbl_id %in% SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id)) {
+        first_id <- first_id$rsf_pfcbl_id[first_id$rsf_pfcbl_id %in% SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id]
+        updateSelectInput(session=session,
+                          inputId="dataset_review_filter_client",
+                          selected = first_id[1])
+        
+      }
+    }
   }
   
 },priority = 100)

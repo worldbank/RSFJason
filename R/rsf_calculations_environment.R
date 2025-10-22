@@ -117,6 +117,7 @@
                         member_values,
                         sep="&",
                         mode=c("any","all")) {
+
            mode <- match.arg(mode)
            
            dt <- data.table(group_values=group_values,
@@ -323,26 +324,43 @@
          value=function(...,
                         by=NULL,
                         values=NULL,
+                        
                         #fill will "fill down" NA values into missing timeseries dates
                         #EXCEPT when those timeseries dates are reported as NA
-                        #Warning: periodic data expects to zero-out non-reported periods. For periodic indicators fill should be FALSE, or NA, or 0 !!
-                        fill=TRUE) {
+                        #Warning: periodic data expects to zero-out non-reported periods. 
+                        #rsf_indicators should be present in the calling stack for this reason: For periodic indicators fill should be FALSE, or NA, or 0 !!
+                        fill=TRUE,
+                        
+                        #Filter_by will filter-out only changed/reported "by" values to yield the same dataset as values=by_variable
+                        filter_by=TRUE,
+                        
+                        rsf_indicators=NULL) {
+           #setups
+           {
+             if (length(fill) != 1 &&
+                 length(fill) != length(vars)+1) {
+               stop(paste0("Fill values must by a single constant OR a vector of length ",
+                           length(vars)+1,
+                           " (number of timeseries columns plus one by column)"))
+             }
+             
+             if (is.null(by) && is.null(values)) stop(paste0("Either 'by' or 'values' must be defined (and not both). ",
+                                                             "By=indicator will return data for all requested indicators using the 'by' indicators timeseries dates as ",
+                                                             "the reference timeline. ",
+                                                             "Values=indicator will return the 'timeseries' data for the requested indicator and is a shortcut for ",
+                                                             "indicator.all[[1]]$timeseries"))
+  
+             indicator_parameters <- as.character(match.call(expand.dots = T)[-1])
+             all_all <- sapply(indicator_parameters,grepl,pattern="\\.all$|fill$|rsf_indicators$|filter_by$")
+             if (!all(all_all)) {
+              stop(paste0("Timeseries function takes one or more .all indicator parameter values (and only .all). Bad inputs for: ",paste0(indicator_parameters[!all_all],collapse=", ")))
+             }
+           }
            
            vars <- list(...)
            
-           if (length(fill) != 1 &&
-               length(fill) != length(vars)+1) {
-             stop(paste0("Fill values must by a single constant OR a vector of length ",
-                         length(vars)+1,
-                         " (number of timeseries columns plus one by column)"))
-           }
-           
-           if (is.null(by) && is.null(values)) stop(paste0("Either 'by' or 'values' must be defined (and not both). ",
-                                                           "By=indicator will return data for all requested indicators using the 'by' indicators timeseries dates as ",
-                                                           "the reference timeline. ",
-                                                           "Values=indicator will return the 'timeseries' data for the requested indicator and is a shortcut for ",
-                                                           "indicator.all[[1]]$timeseries"))
-           
+           #If "values" is specified, no other variables allowed
+           #This is a returning clause
            if (!is.null(values)) {
              
              if (length(vars) > 0) {
@@ -374,110 +392,277 @@
              
             return(values$timeseries)
           }
-             
+           
            if (is.null(by)) stop("by column is required")
-           
-           if (is.list(by) && all(unlist(lapply(by,is.data.table)))) {
+          
+        
+           #a by variable has been submitted
+           #and also other variables whose timelines must be aligned.
+           if (length(vars) > 0) {
              
-             if (length(by) > 1 && length(vars) > 0) {
-               stop(paste0("By variable has a length greater than 1 (multiple elements in this list). ",
-                           "This is not allowed when passing a list of other variables too."))
+             #these are the lengths of the entities, eg, one entity, one list within each column.  It's not the length of timelines for each entity/varaible
+             if (!all(length(by) == sapply(vars,length))) {
+               stop(paste0("By variable has length of ",
+                           length(by),
+                           " entities.  Each variable should have the same length but received lengths: ",
+                           paste0(sapply(vars,length),collapse=", ")))
              }
-             
-             by <- rbindlist(by)
            }
            
-           if (!all(c("indicator_name",
-                      "timeseries.reporteddate",
-                      "reporting_current_date",
-                      "timeseries") %in% names(by))) {
-             stop("Timeseries arguments require columns with .all specified, eg: loan_risk_balance.all to provide a data.table with columns: timeseries, timeseries.unit, timeseries.reporteddate, timeseries.changed, timeseries.updated")
+           #Nothing reported: if "by" is nothing, then it's non-existent timeline means all matching vars that may or may not have been passed are also non-existent
+           #we return an empty data.table because we don't know how the receiving function is using the information so give it an expected format.
+           if (length(by)==0 || all(sapply(by,is.null))) {
+             
+             empty_cols <- unlist(lapply(gsub("\\.all$","",indicator_parameters),paste0,
+                                         c(".timeseries",".timeseries.unit",".timeseries.reporteddate",".timeseries.changed",".timeseries.updated",".timeseries.reportnumber")))
+             empty_dt <- data.table(matrix(nrow=0,ncol=length(empty_cols)))
+             setnames(empty_dt,
+                      new=empty_cols)
+             
+             empty_dt[,
+                      CALCULATION_DATE:=as.Date(numeric())]
+             
+             return (empty_dt)
+             
+           }
+           
+           if (fill==TRUE && (is.null(rsf_indicators) || empty(rsf_indicators))) {
+             
+             rsf_indicators <- dynGet("rsf_indicators",ifnotfound = NULL,inherits=T)
+             if (empty(rsf_indicators)) {
+               rsf_indicators <- (dynGet("calc_env",inherits=T))[["rsf_indicators"]]
+               
+               if (empty(rsf_indicators)) {
+                stop("When timeseries 'by' has fill=TRUE then 'rsf_indicators' must be passed explicitly (or be avilable within the call stack) as periodic_flow type indicators will report NA/Zero for non-reported periods")               
+               }
+             }
            }
            
            
-           timeline <- seq(min(by$timeseries.reporteddate)+1,
-                           max(by$reporting_current_date)+1,
-                           by="quarters")
+           entities <- data.table(entity_id=seq_along(by),
+                                  by_timeline=TRUE,
+                                  ts=by)[,unlist(ts,recursive = F),by=.(entity_id,by_timeline)]
            
-           timeline <- data.table(reporting_current_date=ymd(timeline)-1)
-           timeline_origin <- min(timeline$reporting_current_date)
-           vars[[length(vars)+1]] <- by
+           calculation_date <- unique(entities$reporting_current_date)
            
            
-           for (i in 1:length(vars)) {
+           #timeline value may have different class
+           entity_vars <- lapply(vars,function(v) {
+             data.table(entity_id=seq_along(by),
+                        ts=v)[,unlist(ts,recursive = F),by=.(entity_id)]
+             })
+
+           timelines <- entities[timeseries.reporteddate <= calculation_date,
+                                 .(entity_id,timeseries.reporteddate)]
+           
+           if (length(entity_vars) > 0) {
+             timelines <- unique(rbindlist(list(timelines,
+                                                rbindlist(entity_vars)[timeseries.reporteddate <= calculation_date,
+                                                                       .(entity_id,timeseries.reporteddate)])))
+             # timelines <- unique(rbindlist(list(timelines,
+             #                                    rbindlist(lapply(entity_vars,
+             #                                                     function(ev) { ev[timeseries.reporteddate <= calculation_date,
+             #                                                                       .(entity_id,timeseries.reporteddate)] })))))
+           }
+           
+           timelines <- timelines[,
+                                 .(timeline=c(seq(min(timeseries.reporteddate)+1,
+                                                  calculation_date+1,
+                                                  by="quarters"))-1),
+                                 by=.(entity_id)]
+           
+           # timelines[entities]
+           # timelines[,by_timeline:=FALSE]
+           # timelines[entities[timeseries.reporteddate <= calculation_date,
+           #                    .(timeline=c(seq(min(timeseries.reporteddate)+1,
+           #                                     calculation_date+1,
+           #                                     by="quarters"))-1),
+           #                    by=.(entity_id)],
+           #           by_timeline:=TRUE,
+           #           on=.(entity_id,timeline)]
+
+           entity_vars[[length(entity_vars)+1]] <- entities
+           for (i in 1:length(entity_vars)) {
              
-             col <- vars[[i]]
-             if (is.null(names(col)) && !is.null(names(col[[1]]))) col <- col[[1]]
+             ent <- entity_vars[[i]]
+             ent_name <- ent$indicator_name[[1]]
+             
+             
              if (!all(c("indicator_name",
                         "timeseries.reporteddate",
                         "reporting_current_date",
-                        "timeseries") %in% names(by))) {
+                        "timeseries") %in% names(ent))) {
                stop("Timeseries arguments require columns with .all specified, eg: loan_risk_balance.all to provide a data.table with columns: timeseries, timeseries.unit, timeseries.reporteddate, timeseries.changed, timeseries.updated")
              }
              
-             this_fill <- NULL
-             if (length(fill)==1) { this_fill <- fill 
-             } else { this_fill <- fill[i] }
+             ent[,
+                 timeline:=timeseries.reporteddate]
              
-             #ind_col <- unique(col$indicator_name)
-             # col[,`:=`(indicator_name=NULL,
-             #           reporting_current_date=NULL)]
-             # 
-             ind_col <- paste0(unique(col$indicator_name),".timeseries")
-             
-             # setnames(col,
-             #          old="timeseries.reporteddate",
-             #          new="reporting_current_date")
-             # 
-             # setnames(col,
-             #          old=grep("timeseries\\..*$",names(col),value=T),
-             #          new=paste0(ind_col,".",grep("timeseries\\..*$",names(col),value=T)))
+             ent <- ent[,
+                        .SD,
+                        .SDcols=c("entity_id","timeline",
+                                   grep("^timeseries|^by_timeline$",names(ent),value=T))]
+             ent[,
+                 reporting_has_NA_value:=is.na(timeseries)]
              
              
-             col <- col[,
-                        .(reporting_current_date=`timeseries.reporteddate`,
-                          timeseries)]
+             #timelines
+             timelines <- ent[timelines,
+                              on=.(entity_id,
+                                   timeline),
+                              nomatch=NA]
              
-             #column's reporting data pre-dates the "By" reporting dates.  So we carry its value forward.
-             #Note: this will be incorrect for flow-type data.  But this is a rarely used expert-only function that anyone using should account for themselves.
-             #perhaps can add a pre-fill
-             if (!any(col$reporting_current_date==timeline_origin) &&
-                 any(col$reporting_current_date < timeline_origin) &&
-                 as.logical(this_fill) %in% TRUE) {
+             #to entire fill down is valid
+             setorder(timelines,
+                      entity_id,
+                      timeline)
+             
+             if (as.logical(fill) %in% TRUE) {
                
-               col_origin <- col[reporting_current_date < timeline_origin,max(reporting_current_date)]
-               col <- col[reporting_current_date >= col_origin]
-               col[reporting_current_date==col_origin,
-                   reporting_current_date:=timeline_origin]
+               is_pf <- rsf_indicators[indicator_name==ent_name,is_periodic_or_flow_reporting]
+               if (length(is_pf)==0 || is.na(is_pf)) is_pf <- FALSE
+               
+               timelines <- tidyr::fill(timelines,
+                                        timeseries,
+                                        timeseries.reportnumber,
+                                        timeseries.unit,
+                                        .direction="down")
+               
+               if (is_pf==T) {
+                 if (class(ent$timeseries)=="numeric") {
+                   timelines[is.na(timeseries.reporteddate),
+                             timeseries:=0]
+                 } else {
+                   timelines[is.na(timeseries.reporteddate),
+                             timeseries:=NA]
+                 }
+               }
              }
-             col[,has_NA_value:=is.na(timeseries)]
              
-             timeline <- col[timeline,
-                             on=.(reporting_current_date)]
-             
-             
-             if (as.logical(this_fill) %in% TRUE) {
-               timeline <- tidyr::fill(timeline,
-                                       timeseries,
-                                       .direction="down")
-             
-             } else if (!is.na(this_fill) &&
-                        !identical(this_fill,FALSE)) {
-               suppressWarnings(timeline[is.na(timeseries),
-                                         timeseries:=this_fill])
-             }    
+             timelines[is.na(timeseries.reporteddate),
+                       `:=`(timeseries.updated=FALSE,
+                            timeseries.changed=FALSE)]
              
              #we don't want fill to fill down NA values that are REPORTED as NA
-             timeline[!is.na(timeseries) & has_NA_value %in% TRUE,
-                      timeseries:=NA]
+             timelines[!is.na(timeseries) & reporting_has_NA_value %in% TRUE,
+                       timeseries:=NA]
              
-             timeline[,has_NA_value:=NULL]
-             
-             setnames(timeline,
-                      old="timeseries",
-                      new=ind_col)
+             timelines[,reporting_has_NA_value:=NULL]
+             setnames(timelines,
+                      old=grep("^timeseries",names(ent),value=T),
+                      new=paste0(ent_name,".",grep("^timeseries",names(ent),value=T)))
            }
-           return(timeline)
+           
+           if (filter_by %in% c(TRUE)) {
+             timelines <- timelines[by_timeline %in% c(TRUE)]             
+           }
+
+           timelines[,
+                     `:=`(by_timeline=NULL,
+                          entity_id=NULL)]
+           
+           timelines[,
+                      CALCULATION_DATE:=calculation_date]
+           
+           return(timelines)
+           
+         
+           # if (is.list(by) && all(unlist(lapply(by,is.data.table)))) {
+           #   
+           #   #new
+           #   #means by is a .all variable
+           #   #and also means that all "vars" should be .all varables
+           #   if (length(by) > 1 && length(vars) > 0) {
+           #   }
+           #   
+           #   if (length(by) > 1 && length(vars) > 0) {
+           #     stop(paste0("By variable has a length greater than 1 (multiple elements in this list). ",
+           #                 "This is not allowed when passing a list of other variables too."))
+           #   }
+           #   
+           #   by <- rbindlist(by)
+           # }
+           # 
+           # if (!all(c("indicator_name",
+           #            "timeseries.reporteddate",
+           #            "reporting_current_date",
+           #            "timeseries") %in% names(by))) {
+           #   stop("Timeseries arguments require columns with .all specified, eg: loan_risk_balance.all to provide a data.table with columns: timeseries, timeseries.unit, timeseries.reporteddate, timeseries.changed, timeseries.updated")
+           # }
+           # 
+           # 
+           # timeline <- seq(min(by$timeseries.reporteddate)+1,
+           #                 max(by$reporting_current_date)+1,
+           #                 by="quarters")
+           # 
+           # timeline <- data.table(reporting_current_date=ymd(timeline)-1)
+           # timeline_origin <- min(timeline$reporting_current_date)
+           # vars[[length(vars)+1]] <- by
+           # 
+           # 
+           # for (i in 1:length(vars)) {
+           #   
+           #   col <- vars[[i]]
+           #   if (is.null(names(col)) && !is.null(names(col[[1]]))) col <- col[[1]]
+           #   if (!all(c("indicator_name",
+           #              "timeseries.reporteddate",
+           #              "reporting_current_date",
+           #              "timeseries") %in% names(col))) {
+           #     stop("Timeseries arguments require columns with .all specified, eg: loan_risk_balance.all to provide a data.table with columns: timeseries, timeseries.unit, timeseries.reporteddate, timeseries.changed, timeseries.updated")
+           #   }
+           #   
+           #   this_fill <- NULL
+           #   if (length(fill)==1) { this_fill <- fill 
+           #   } else { this_fill <- fill[i] }
+           #   
+           #   ind_col <- paste0(unique(col$indicator_name),".timeseries")
+           #   
+           # 
+           #   
+           #   col <- col[,
+           #              .(reporting_current_date=`timeseries.reporteddate`,
+           #                timeseries)]
+           #   
+           #   #column's reporting data pre-dates the "By" reporting dates.  So we carry its value forward.
+           #   #Note: this will be incorrect for flow-type data.  But this is a rarely used expert-only function that anyone using should account for themselves.
+           #   #perhaps can add a pre-fill
+           #   if (!any(col$reporting_current_date==timeline_origin) &&
+           #       any(col$reporting_current_date < timeline_origin) &&
+           #       as.logical(this_fill) %in% TRUE) {
+           #     
+           #     col_origin <- col[reporting_current_date < timeline_origin,max(reporting_current_date)]
+           #     col <- col[reporting_current_date >= col_origin]
+           #     col[reporting_current_date==col_origin,
+           #         reporting_current_date:=timeline_origin]
+           #   }
+           #   col[,has_NA_value:=is.na(timeseries)]
+           #   
+           #   timeline <- col[timeline,
+           #                   on=.(reporting_current_date)]
+           #   
+           #   
+           #   if (as.logical(this_fill) %in% TRUE) {
+           #     timeline <- tidyr::fill(timeline,
+           #                             timeseries,
+           #                             .direction="down")
+           #   
+           #   } else if (!is.na(this_fill) &&
+           #              !identical(this_fill,FALSE)) {
+           #     suppressWarnings(timeline[is.na(timeseries),
+           #                               timeseries:=this_fill])
+           #   }    
+           #   
+           #   #we don't want fill to fill down NA values that are REPORTED as NA
+           #   timeline[!is.na(timeseries) & has_NA_value %in% TRUE,
+           #            timeseries:=NA]
+           #   
+           #   timeline[,has_NA_value:=NULL]
+           #   
+           #   setnames(timeline,
+           #            old="timeseries",
+           #            new=ind_col)
+           # }
+           # return(timeline)
          })
 
   assign(x="concatenate",
@@ -514,16 +699,28 @@
   assign(x="%equal%",
          envir=CALCULATIONS_ENVIRONMENT,
          value=function(e1,e2) {
-           mapply(function(a,b) { isTRUE(base::all.equal(a,b,check.class=F)) },a=e1,b=e2,USE.NAMES=F)
+           mapply(function(a,b) { 
+             #if it is actually equal or nearly equal then YES
+             if (!is.na(a) & !is.na(suppressWarnings(as.numeric(a)))) a<-as.numeric(a)
+             if (!is.na(b) & !is.na(suppressWarnings(as.numeric(b)))) b<-as.numeric(b)
+             
+             isTRUE(base::all.equal(a,b,check.class=F)) | isTRUE(base::`==`(e1=a,e2=b)) 
+           },a=e1,b=e2,USE.NAMES=F)
          }
   )
 
   assign(x="%unequal%",
          envir=CALCULATIONS_ENVIRONMENT,
          value=function(e1,e2) {
-           mapply(function(a,b) { !isTRUE(base::all.equal(a,b,check.class=F)) },a=e1,b=e2,USE.NAMES=F)
-         }
-  )
+           mapply(function(a,b) { 
+             
+             if (!is.na(a) & !is.na(suppressWarnings(as.numeric(a)))) a<-as.numeric(a)
+             if (!is.na(b) & !is.na(suppressWarnings(as.numeric(b)))) b<-as.numeric(b)
+             
+             #if it is actually not-equal AND not nearly equal then YES
+             (!isTRUE(base::all.equal(a,b,check.class=F))) & isTRUE(base::`!=`(e1=a,e2=b)) 
+           },a=e1,b=e2,USE.NAMES=F)
+         })
   
   # assign(x="!",
   #        envir=CALCULATIONS_ENVIRONMENT,

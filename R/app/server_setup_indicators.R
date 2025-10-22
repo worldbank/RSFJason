@@ -23,7 +23,8 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
       case when fis.is_auto_subscribed = true then NULL::bool
            else fis.is_subscribed end
       as user_subscription,
-      ifv.indicator_id is NOT NULL as calculation_has_variety
+      ifv.indicator_id is NOT NULL as calculation_has_variety,
+      fis.formula_calculation_unit
     from p_rsf.view_rsf_program_facility_indicator_subscriptions fis
     left join p_rsf.indicator_formulas indf on indf.formula_id = fis.formula_id
     left join p_rsf.view_rsf_program_facility_indicator_formula_variety ifv on ifv.indicator_id = fis.indicator_id
@@ -34,6 +35,7 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
                                        and rdc.data_value is NOT NULL) as reported) as has on true
     where fis.rsf_pfcbl_id = $1::int
       and fis.is_system = false
+      and fis.setting_allowed is true
     order by fis.data_category_rank,fis.indicator_name",
     params=list(selected_rsf_pfcbl_id))
                                                   
@@ -73,10 +75,14 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
   monitored_indicators[!is.na(formula_title),
                        formula_title:=gsub("'","%39;",formula_title)]
   
+  monitored_indicators[!is.na(formula_calculation_unit),
+                       formula_title:=paste0(formula_title," >> [",formula_calculation_unit,"]")]
+  
   monitored_indicators[!is.na(formula_title),
                        formula_name_html:=mapply(format_html_indicator,
                                                  indicator_name=formula_title,
                                                  data_category=fcase(is.na(formula_id),"noformula",
+                                                                     !is.na(formula_calculation_unit),"customformula", #Not custom, but not LCU makes it non-standard
                                                                      is_primary_default==TRUE,"formula",
                                                                      is_primary_default==FALSE,"customformula",
                                                                      default="none"),
@@ -482,6 +488,7 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
   
   formula_click <- input$server_setup_indicators__formula_subscription
   selected_facility_id <- as.numeric(input$ui_setup__indicator_program_facilities)
+  unit_click <- input$server_setup_indicators__formula_subscription_calculation_unit
   
   if (!isTruthy(formula_click)) return (NULL)
   if (!isTruthy(SELECTED_PROGRAM_ID())) return (NULL)
@@ -500,6 +507,9 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
   }
   formula_id <- as.numeric(input$server_setup_indicators__formula_subscription.select)
   
+  unit_click <- CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES[which(CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES==unit_click)]
+  if (length(unit_click)==0) unit_click <- NA
+  
   success <- DBPOOL %>% dbGetQuery("
     insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
                                                       indicator_id,
@@ -509,7 +519,8 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
                                                       is_subscribed,
                                                       is_auto_subscribed,
                                                       subscription_comments,
-                                                      comments_user_id)
+                                                      comments_user_id,
+                                                      formula_calculation_unit)
     select
       ids.rsf_pfcbl_id,
       $3::int as indicator_id,
@@ -522,7 +533,8 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
       true as is_subscribed,
       false as is_auto_subscribed,
       'Formula set by ' || $4::text || ' on ' || timeofday()::date as subscription_comments,
-      $5::text as comments_user_id
+      $5::text as comments_user_id,
+      NULLIF($6::text,'NA')
     from p_rsf.rsf_pfcbl_ids ids
     where ids.rsf_pfcbl_id = $1::int
     on conflict (rsf_pfcbl_id,indicator_id)
@@ -531,33 +543,24 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
       formula_id = EXCLUDED.formula_id,
       is_subscribed = EXCLUDED.is_subscribed,
       is_auto_subscribed = EXCLUDED.is_auto_subscribed,
-      subscription_comments = concat(rsf_program_facility_indicators.subscription_comments || '; ',EXCLUDED.subscription_comments),
-      comments_user_id = EXCLUDED.comments_user_id
-      
+      subscription_comments = case when rsf_program_facility_indicators.subscription_comments ~ public.f_regexp_escape(EXCLUDED.subscription_comments)
+                                   then rsf_program_facility_indicators.subscription_comments
+                                   else concat(rsf_program_facility_indicators.subscription_comments || '; ',EXCLUDED.subscription_comments) end,
+      comments_user_id = EXCLUDED.comments_user_id,
+      formula_calculation_unit = EXCLUDED.formula_calculation_unit
     returning formula_id;",
     params=list(selected_rsf_pfcbl_id,
                 formula_id,
                 selected_indicator_id,
                 USER_NAME(),
-                USER_ID()))
+                USER_ID(),
+                unit_click))
     
   if (empty(success) || !identical(as.numeric(success$formula_id),as.numeric(formula_id))) {
     return(showNotification(type="error",
                             ui=h3("An error has occured. The formula calculation was not successfully applied.  Try logging out and try again.")))
   } 
-  # else {
-  #   
-  #   formula <- DBPOOL %>% dbGetQuery("
-  #     select 
-  #       indf.formula_title
-  #     from p_rsf.indicator_formulas indf
-  #     where indf.formula_id = $1::int",
-  #     params=list(formula_id))
-  # 
-  #   shinyjs::html(selector=paste0("#",formula_click,"-text"),
-  #                 html=formula$formula_title)
-  #   
-  # }
+  
   shiny::removeModal()
   SERVER_SETUP_INDICATORS_LIST_REFRESH(SERVER_SETUP_INDICATORS_LIST_REFRESH()+1)
 })
@@ -625,8 +628,18 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
   current_formula <- DBPOOL %>% dbGetQuery("
     select 
       fis.formula_id,
-      fis.is_subscribed
+      fis.is_subscribed,
+      fis.data_type,
+      fis.data_unit,
+      coalesce(fis.formula_calculation_unit,'') as formula_calculation_unit,
+      coalesce(case when indf.formula_fx_date = 'nofx' then false
+           when fis.data_type = 'currency' and fis.data_unit = 'LCU' then true
+           else exists(select * from p_rsf.indicators ind
+                       where ind.indicator_id = any(indf.formula_indicator_ids)
+                         and ind.data_type = 'currency')
+      end,false) as formula_calculation_unit_allowed                         
       from p_rsf.view_rsf_program_facility_indicator_subscriptions fis
+      left join p_rsf.indicator_formulas indf on indf.formula_id = fis.formula_id
     where fis.rsf_pfcbl_id = $1::int
       and fis.indicator_id = $2::int",
     params=list(selected_rsf_pfcbl_id,
@@ -637,7 +650,7 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
                             ui=h3(paste0(selected_facility," is not monitoring this indicator and therefore its calculation definition is not applicable."))))
   }
   
-  current_formula <- current_formula$formula_id
+  
   
   formulas[is_primary_default==TRUE,
            formula_title:=paste0(formula_title," [DEFAULT]")]
@@ -645,18 +658,36 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
   choices <- setNames(formulas$formula_id,
                       formulas$formula_title)
   
-  
+  formula_calculation_ui <- NULL
+
+  if (current_formula$formula_calculation_unit_allowed==TRUE) {
+    formula_calculation_ui <- 
+      fluidRow(column(12,style="width:100%",
+                      selectizeInput(inputId="server_setup_indicators__formula_subscription_calculation_unit",
+                                     label="Calculation currency output",
+                                     selected=current_formula$formula_calculation_unit,
+                                     choices=c(Default="",
+                                               CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES[order(!CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES %in% c("EUR","USD"))]))))
+      
+                                     
+
+  } else {
+    formula_calculation_ui <- 
+      disabled(fluidRow(column(12,style="width:100%",
+                      selectizeInput(inputId="server_setup_indicators__formula_subscription_calculation_unit",
+                                     label="Calculation currency output",
+                                     selected="",
+                                     choices=c(`Not applicable`="")))))
+  }
   m <-modalDialog(id="program_indicators_formula_subscription",
                   div(style="background-color:white;color:black;font-size:16px;padding:5px;height:250px;width:100%;",
                       fluidRow(column(12,style="width:100%",
                                       selectizeInput(inputId="server_setup_indicators__formula_subscription.select",
                                                      label="Selected Calculation Formula",
                                                      choices=choices,
-                                                     selected=current_formula))
+                                                     selected=current_formula$formula_id))
                       ),
-                      fluidRow(column(12,style="width:100%",
-                                      tags$label("Formula Definition:"),
-                                      textOutput(outputId="server_setup_indicators__formula_subscription.view_formula"))),
+                      formula_calculation_ui,
                       
                       fluidRow(column(12,style="width:100%;padding-top:10px;",
                                       tags$label("Formula Notes:"),

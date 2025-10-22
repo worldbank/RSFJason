@@ -5,7 +5,8 @@
 db_data_get_fx_ratio <- function(pool,
                                  fx_lookup,
                                  create.indicators=TRUE,
-                                 force.global=FALSE) {
+                                 force.global=FALSE,
+                                 ignore.validation=FALSE) {
   #browser()
   #fx_table <- fx_required
   #fxt <<- as.data.frame(fx_lookup)
@@ -231,7 +232,7 @@ db_data_get_fx_ratio <- function(pool,
     
     
     if (!empty(fx_codes[is.na(fx_indicator_id)==TRUE])) {
-      
+
       #conn <- poolCheckout(pool)
       #dbBegin(conn)
       #dbRollback(conn)
@@ -485,7 +486,7 @@ db_data_get_fx_ratio <- function(pool,
                    from_currency)]
   }
     
-  if (anyNA(fx_lookup$exchange_rate_data_id) || any(fx_lookup$is_invalidated) || any(fx_lookup$is_unreported)) {
+  if (anyNA(fx_lookup$exchange_rate_data_id) || (ignore.validation==FALSE && any(fx_lookup$is_invalidated)) || any(fx_lookup$is_unreported)) {
     bad_ids <- fx_lookup[is.na(exchange_rate_data_id) |
                          is_invalidated==TRUE |
                          is_unreported==TRUE]

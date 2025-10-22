@@ -1,14 +1,14 @@
 template_parse_file <- function(pool,
-                                rsf_program_id,
                                 template_file,
                                 reporting_user_id,
                                 source_note=NA,
+                                parse_rsf_pfcbl_id=NULL, #For those templates that do not report the entity (like pdf files), this is manually specified at upload
                                 status_message=function(...) {}) {
   
 #Setups
   {
     if (length(template_file) != 1) stop("One file must be provided to template_parse_file")
-    if (length(rsf_program_id) != 1) stop("Only one program ID allowed, or NA for new/undefined program")
+    #if (length(rsf_program_id) != 1) stop("Only one program ID allowed, or NA for new/undefined program")
   
     if (!all(file.exists(template_file))) stop(paste0("File note found: ",template_file))
   
@@ -22,8 +22,7 @@ template_parse_file <- function(pool,
     }
     
     t1 <- Sys.time()
-    rsf_program_id <- suppressWarnings(as.numeric(rsf_program_id))
-      
+    
     status_message(class="none","Parsing template: ",basename(template_file),"\n")
     
     
@@ -33,6 +32,9 @@ template_parse_file <- function(pool,
                                       rsf_data_sheet="RSF_DATA")
     
     rsf_indicators <- db_indicators_get_labels(pool=pool)
+    if (empty(rsf_indicators)) {
+      stop("Failed to load RSF_INDICATORS")
+    }
     
     if (any(rsf_indicators$redundancy_error,na.rm=T)) {
       bad_indicators <- rsf_indicators[redundancy_error==TRUE,
@@ -64,20 +66,14 @@ template_parse_file <- function(pool,
     }
   }  
   
+  #Parse the template
+  #Differentiate between RSF templates and general IFC QR templtes
   {
     #it is NOT a valid RSF template
     if (is.null(template)) { 
       
       #setups
       {    
-        #Non pfcbl templates cannot (re)define their own program ID        
-        if (is.na(rsf_program_id)) {
-          stop("A target PROGRAM # must be selected")
-        }
-  
-        if (empty(rsf_indicators)) {
-          stop(paste0(paste0("RSF Program #",rsf_program_id," does not exists OR has no indicators to check or load.  Add indicator subscriptions for this program template.\n")))
-        }
         
         nregions <- NULL
         snames <- NULL
@@ -107,7 +103,7 @@ template_parse_file <- function(pool,
           }
           else if (tolower(file_ext(template_file))=="pdf") {
             
-            pfcbl_category <- dbGetQuery(pool,"select pfcbl_category from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id=$1::int",rsf_program_id)
+            pfcbl_category <- dbGetQuery(pool,"select pfcbl_category from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id=$1::int",upload_rsf_pfcbl_id)
             
             if (!pfcbl_category %in% "facility") {
               stop("Only RSA agreements can be uploaded for .pdf documents.  When uploading an RSA, the RSF Program must be selected from the main drop-down menu AND ALSO the facility/client must be selected in the drop-down menu 'Client Filter' in the Datasets/Uploads List pane")
@@ -118,7 +114,20 @@ template_parse_file <- function(pool,
           ##################
           #NON JASON TEMPLATES#
           ##################
-          
+          else if (any(nregions=="Template_ID")) {
+            
+            template_id <- openxlsx::read.xlsx(xlsxFile=template_file,
+                                               namedRegion = "Template_ID")
+            template_id <- names(template_id)
+            found <- dbGetQuery(pool,"
+              select exists(select * from p_rsf.reporting_templates rt where rt.template_key ~* $1::text)::bool as template_exists",
+              params=list(template_id))
+            if (any(unlist(found),na.rm=T)) {
+              template_id
+            } else {
+              NULL
+            }
+          }
           #Sheet names expected to be:
           #"1. Summary" & "2. Current QReport"
           #And QDD named receive either of S_DET or S_QDD depending on the template's version.
@@ -159,29 +168,46 @@ template_parse_file <- function(pool,
         
         template_lookup <- db_export_get_template(pool=pool,
                                                   template_name=template_name)
-        
+        #in case lookup is passed the templateID
+        template_name <- template_lookup$template_name
       }
       
       if (template_name=="IFC-QR-TEMPLATE") {
 
         template <- parse_template_IFC_QR(pool=pool,
                                           template_lookup = template_lookup,
-                                          rsf_program_id=rsf_program_id,
                                           template_file=template_file,
                                           rsf_indicators=rsf_indicators,
-                                          status_message = status_message)
+                                          status_message = status_message,
+                                          CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
         
         if (all(is.na(template))) {
           status_message(class="error",paste0("Failed to parse template for: ",template_file,"/",template_format))
           stop(paste0("Failed to parse template for: ",template_file,"/",template_format))
         }
         
-        template$rsf_program_id <- rsf_program_id #only obtained via function argument for SLGP
         template$template_source_reference <- "SLGP Template"
         template$template_ids_method <- "rsf_id"
         
       }
-      
+      else if (template_name=="IFC-QR-TEMPLATE2025") {
+        
+        template <- parse_template_IFC_QR2025(pool=pool,
+                                              template_lookup = template_lookup,
+                                              template_file=template_file,
+                                              rsf_indicators=rsf_indicators,
+                                              status_message = status_message,
+                                              CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
+        
+        if (all(is.na(template))) {
+          status_message(class="error",paste0("Failed to parse template for: ",template_file,"/",template_format))
+          stop(paste0("Failed to parse template for: ",template_file,"/",template_format))
+        }
+
+        template$template_source_reference <- "SLGP Template"
+        template$template_ids_method <- "rsf_id"
+        
+      }
       else if (template_name=="RSF-CSV-BACKUP-TEMPLATE") {
         
         template <- parse_template_csv_backup_data(pool=pool,
@@ -189,22 +215,16 @@ template_parse_file <- function(pool,
                                                    template_file=template_file,
                                                    reporting_user_id=reporting_user_id,
                                                    rsf_indicators=rsf_indicators)
-        
-        if (!identical(as.numeric(template$rsf_program_id),as.numeric(rsf_program_id))) {
-          stop("Exported program ID in backup file does not match program selected for file upload")
-        }
       }
       
       else if (template_name=="RSF-CSV-TEMPLATE") {
         
         template <- parse_template_csv(pool=pool,
                                        template_id = template_lookup$template_id,
-                                       rsf_program_id=rsf_program_id,
                                        csv_file=template_file,
                                        rsf_indicators=rsf_indicators,
                                        status_message = status_message)
         
-        template$rsf_program_id <- rsf_program_id #only obtained via function argument for SLGP
         template$template_source_reference <- "csv_file"
         template$template_ids_method <- "rsf_id"
         
@@ -212,9 +232,14 @@ template_parse_file <- function(pool,
       
       else if (template_name=="IFC-RSA-TEMPLATE") {
         
-        ids <- dbGetQuery(pool,"select rsf_program_id,rsf_facility_id from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id = $1::int",rsf_program_id) #This template will pass the rsf_facility_id to rsf_program_id, hacky
+        ids <- dbGetQuery(pool,"
+                          select 
+                            rsf_program_id,
+                            rsf_facility_id 
+                          from p_rsf.rsf_pfcbl_ids 
+                          where rsf_pfcbl_id = $1::int",parse_rsf_pfcbl_id)
         if (empty(ids) || is.na(ids$rsf_facility_id)) {
-          stop(paste0("IFC-RSA-TEMPLATE must pass rsf_facility_id but facility could not be found for: ",rsf_program_id))
+          stop(paste0("IFC-RSA-TEMPLATE must pass rsf_facility_id but facility could not be found for: ",parse_rsf_pfcbl_id))
         }
         
         template <- parse_template_RSA(pool=pool,
@@ -227,8 +252,6 @@ template_parse_file <- function(pool,
                                        reporting_user_id=reporting_user_id,
                                        status_message = status_message)
         
-
-        template$rsf_program_id <- ids$rsf_program_id #only obtained via function argument for SLGP
         template$template_source_reference <- "RSA Setup PDF File"
         template$template_ids_method <- "pfcbl_id" #set as pfcbl_id for simplicity, but this file cannot create new entities (or match any entities)
       }
@@ -251,42 +274,12 @@ template_parse_file <- function(pool,
     
     #it IS a valid RSF template
     else { #It IS an RSF template
-      
-      
-      #note: Only RSF-PROGRAMS-TEMPLATE is allowed to submit without a program_id
-      if (is.na(rsf_program_id) && template$template_settings$template_is_setup==FALSE) {
-        stop("NA rsf_program_id submitted and template is not a valid setup template")
-      }
-      
-      if (!identical(as.integer(template$rsf_program_id),as.integer(rsf_program_id))) {
-        if (is.na(template$rsf_program_id) && !is.na(rsf_program_id)) {
-          template$rsf_program_id <- rsf_program_id
-        } else if (is.na(rsf_program_id) && !is.na(template$rsf_program_id)) {
-          message(paste0("Uploading data for template-defined PROGRAM #",template$rsf_program_id))
-        } else if (template$template_settings$template_is_setup) {
-          message(paste0("Warning: Changing target from PROGRAM #",rsf_program_id,". ",
-                         basename(template_file)," is an RSF SETUP file that uploading to PROGRAM #",template$rsf_program_id))
-        } else {
-          stop(paste0("Reqeusted to upload template for PROGRAM #",rsf_program_id," but template specifies data for PROGRAM #",template$rsf_program_id))
-        }
-        
-        #Argument and Template programs are differnet, but if we're here, it's allowed.
-        #But ensure argument and template programs agree and rsf_indicators refer to correct program
-        
 
-      }
-      
       #PFCBL templates are far less likely to experience these types of errors.
       #More importantly they are more likely to upload/overwrite data that will correct such errors
       #And very likely to be generated via a web UI upload where the upload is unrelated to an error and a failure will cause a user to lose data
       #and have no idea what caused the failure.
       template$fail_on_incomplete_cohorts <- FALSE
-      
-      if (is.na(template$rsf_program_id) && template$template_settings$template_is_setup==FALSE) {
-        stop("Template does not define a PROGRAM #")
-      }
-      
-      rsf_program_id <- template$rsf_program_id
 
       #Generated through download program archive and download setup files
       if (template$template_name=="RSF-SETUP-TEMPLATE") {
@@ -297,29 +290,6 @@ template_parse_file <- function(pool,
                                              template_file=template_file,
                                              reporting_user_id=reporting_user_id,
                                              rsf_indicators=rsf_indicators)
-        
-        if (!is.na(rsf_program_id) && !identical(as.integer(rsf_program_id),as.integer(template$rsf_program_id))) {
-          program_matches <- dbGetQuery(pool,"select rsf_program_id,rsf_name as name 
-                                              from p_rsf.view_current_entity_names_and_ids
-                                              where array[rsf_program_id] && string_to_array($1::text,',')::int[]
-                                                and pfcbl_category = 'program'",
-                                        params=list(paste0(rsf_program_id,",",template$rsf_program_id)))
-          program_matches <- as.data.table(program_matches)
-          status_message(class="error","Invalid program selected\n")
-          status_message(class="info","Template is for '",program_matches[rsf_program_id==template$rsf_program_id,name],"' but selected program is '",program_matches[rsf_program_id!=template$rsf_program_id,name],"'\n")
-          status_message(class="info","Action: Select correct program for this template; or upload correct template for this program; or selected templates are for different programs.")
-          stop("Upload failed: unable to load data for one program into another program.")
-          
-        }
-        
-        #means parsing template setup actually created the program.
-        #if it was not NA earlier, then the program exists and the setup file is re-uploading data and/or creating new information in the existing program.
-        if (!identical(as.integer(template$rsf_program_id),as.integer(rsf_program_id))) {
-          rsf_program_id <- template$rsf_program_id
-        }
-        
-        #Setup templates are more likely to overwrite everything, anyway.
-        #
       }
       
       #Generated through "Create New" UI in Programs Setup when creating a new facility, etc through UI
@@ -327,15 +297,6 @@ template_parse_file <- function(pool,
         
         template <- parse_template_rsf_create_entities(pool=pool,
                                                        template=template)
-        
-        # if (!"CRITICAL" %in% toupper(template$get_program_setting("on_upload_cohort_fail_on_check_class"))) {
-        #   
-        #   #Critical errors on create generally mean a real and legitimate timeline issue (eg, created a new facility in the future or something).
-        #   #These should be nearly impossible, but if they exist, really don't allow it.
-        #   template$program_settings$on_upload_cohort_fail_on_check_class <- "CRITICAL"   
-        # }
-        
-        
       }
     
       #Generated through ad-hoc updates in the Dashboard
@@ -351,25 +312,27 @@ template_parse_file <- function(pool,
         #template$program_settings$on_upload_cohort_fail_on_check_class <- "None"
       } 
       
-      else if (template$template_name=="PFCBL-DASHBOARD-TEMPLATE") {
-        stop("Template Rewrite to conform to post-migration requirements")
-        #Dashboard template enables users to download data from template into Excel, edit it and then re-upload it.  This may not be a meaningful use case
-        #and better to push users to upload a standard reporting template or edit small changes in the PFCBL Editor?
-        template <- parse_template_pfcbl_dashboard_report(pool=pool,
-                                                          template_file=template_file,
-                                                          rsf_indicators=rsf_indicators,
-                                                          rsf_program_id=rsf_program_id)
-        if (all(is.na(template))) {
-          status_message(class="error",paste0("Failed to parse template for: ",template_file,"/",template_format))
-          warning(paste0("Failed to parse template for: ",template_file,"/",template_format))
-          return (NULL)
-        }
-        
-        template$template_source_reference <- "RSF Editor Report"
-        template$template_ids_method <- "pfcbl_id"
-        
-        
-      }
+      #Removed this: firstly, not used once ever.
+      #Secondly, pfcbl editor template serves this purpose fine.
+      # else if (template$template_name=="PFCBL-DASHBOARD-TEMPLATE") {
+      #   stop("Template Rewrite to conform to post-migration requirements")
+      #   #Dashboard template enables users to download data from template into Excel, edit it and then re-upload it.  This may not be a meaningful use case
+      #   #and better to push users to upload a standard reporting template or edit small changes in the PFCBL Editor?
+      #   template <- parse_template_pfcbl_dashboard_report(pool=pool,
+      #                                                     template_file=template_file,
+      #                                                     rsf_indicators=rsf_indicators,
+      #                                                     rsf_program_id=rsf_program_id)
+      #   if (all(is.na(template))) {
+      #     status_message(class="error",paste0("Failed to parse template for: ",template_file,"/",template_format))
+      #     warning(paste0("Failed to parse template for: ",template_file,"/",template_format))
+      #     return (NULL)
+      #   }
+      #   
+      #   template$template_source_reference <- "RSF Editor Report"
+      #   template$template_ids_method <- "pfcbl_id"
+      #   
+      #   
+      # }
       
       else {
         stop(paste0("Failed to find parse instructions for template: ",template$template_name))
@@ -384,8 +347,8 @@ template_parse_file <- function(pool,
   }
   
   { 
-    if (is.null(template$rsf_program_id) || all(is.na(template$rsf_program_id))) {
-      stop("Template was unable to resolve rsf_program_id")
+    if (is.null(template$cohort_pfcbl_id) || all(is.na(template$cohort_pfcbl_id))) {
+      stop("Template was unable to resolve cohort_pfcbl_id")
     }
     
     if (any(sapply(template$template_data,class)=="factor")) {
@@ -403,6 +366,11 @@ template_parse_file <- function(pool,
     template$reporting_user_id <- reporting_user_id
   
   }
+  #testing:
+  #template$template_data[grepl("[a-z]_EUR$",indicator_name),indicator_name:=gsub("_EUR$","",indicator_name)]
+  #template$template_data[grepl("_$",indicator_name),indicator_name:=gsub("_$","",indicator_name)]
+  #template$template_data[grepl("[a-z]_EUR$",indicator_name)]
+  #template$template_data[grepl("loan_original_balance",indicator_name)]
   
   {
    
@@ -435,11 +403,11 @@ template_parse_file <- function(pool,
     # (3) Get program settings to control further processing behavior
     
     {
-      if (!all(c("rsf_program_id",
+      if (!all(c("cohort_pfcbl_id",
                  "rsf_indicators",
                  "reporting_asof_date",
                  "template_ids_method",
-                 "template_data") %in% names(template))) stop("Templates must return: rsf_program_id, rsf_indicators,  reporting_cohort, reporting_asof_date, template_source_reference, template_ids_method and template_data")
+                 "template_data") %in% names(template))) stop("Templates must return: cohort_pfcbl_id, rsf_indicators,  reporting_cohort, reporting_asof_date, template_source_reference, template_ids_method and template_data")
       
       
       if (length(setdiff(c("reporting_asof_date",
@@ -481,40 +449,17 @@ template_parse_file <- function(pool,
                              on=.(indicator_name)]
       
       template$template_data <- unique(template$template_data)
-      
-      #duplicates per row should fail
-      {
-        template_duplicates <- unique(template$template_data[,
-                                                             .(reporting_template_row_group,
-                                                               indicator_name,
-                                                               reporting_submitted_data_value)])
-        
-        template_duplicates[,n:=.N,
-                            by=.(reporting_template_row_group,
-                                 indicator_name)]
-        
-        template_duplicates <- template_duplicates[n>1]
-        if (!empty(template_duplicates)) {
-          #unlikely error check -- adding values more than doubles the calculation time.  So let's take the time just if the error exists in the first place after doing a faster calc
-          template_duplicates <-  template$template_data[,.(n=length(unique(reporting_submitted_data_value)),
-                                                            values=paste0(paste0("Value#",1:.N," Reported under: '",indicator_name,"' = {",reporting_submitted_data_value,"}"),collapse=" AND ")),
-                                                         by=.(reporting_template_row_group,indicator_name)][n>1]
-          
-          for (i in 1:nrow(template_duplicates)) {
-            redundancy <- template_duplicates[i]
-            status_message(class="info",redundancy$indicator_name," is specified ",redundancy$n," times with following values: ",redundancy$values,"\n")
-          }
-          msg <- paste0(template_duplicates[,paste0(indicator_name," is specified ",n," times with different values: ",values)],collapse=" [AND ALSO] ")
-          stop(paste0("Template has the same indicator multiple times with different values. Template must be corrected: delete repeated indicators and/or ensure duplicates report the same value: ",msg))
-        }
-        template_duplicates <- NULL
-      }      
-      
+     
       #Instances where templates repeat indicators on multiple rows for convenience sake of the user but use different labels, aliases of labels or language combination of
       #labels. So merge these all together.
       
+      #parse_data_formats adds a list column: data_flags_new
+      #this is because we do not yet know the rsf_pfcbl_id associated with this line-item entry.
+      #and therefore, we keep it tied to the data point so that after it is processed, we can disaggregate these flags and assign it to the appropraite rsf_pfcbl_id,
+      #after it is known.
       template$template_data <- parse_data_formats(template_data=template$template_data,
                                                    rsf_indicators=template$rsf_indicators)
+     
       
       futures <- template$template_data[indicator_sys_category=="entity_creation_date" & !is.na(data_value)][ymd(data_value) > reporting_asof_date]
       if (!empty(futures)) {
@@ -547,124 +492,115 @@ template_parse_file <- function(pool,
       }
     }
     
-    duplicates <- template$template_data[,
-                                         .(n=.N),
-                                         by=.(reporting_template_row_group,
-                                              indicator_name,
-                                              reporting_asof_date)][n>1]
-    if (!empty(duplicates)) {
-      stop(paste0("Duplicated entries for: ",
-                  paste(paste(duplicates$reporting_template_row_group," ",duplicates$indicator_name," ",duplicates$reporting_asof_date)),
-                  collapse=" \n"))
+    #Good practice for all templates to add this.  But it's really only an issue if duplicated data is being reported, which most usually (intentionally) occurs when 
+    #the same data point is repeated in a template either for convenience sake, or as a different currency value using a current fx rate.
+    if (!any(names(template$template_data)=="reporting_template_data_rank")) {
+      dups <- template$template_data[,
+                                     .(n=.N,
+                                       duplicates=paste0(data_submitted,collapse=" & ")),
+                                     by=.(reporting_template_row_group,
+                                          indicator_id,
+                                          indicator_name,
+                                          reporting_asof_date)][n>1]
+      
+      if (!empty(dups)) {
+        stop(paste0("Template coding error (contact your system admin): Template ",
+        template$template_name," has reported duplicate data for metrics:\n\n",
+        paste0(unique(dups$indicator_name),collapse=", "),"\n\n",
+        " but the parse_template() has not created a column for reporting_template_data_rank. Verify that the indicator names and alises are correctly assigned for this template for ",
+        " these metrics. Duplicates may be incorrectly appearing as a result of mis-assigning indicator names to the wrong column name"))
+      }
+      
+      template$template_data[,reporting_template_data_rank:=1:.N]
+    
+    } else {
+
+      if (!all(unique(template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)])[,c(1:.N)]==1:nrow(template$template_data))) {
+        stop(paste0("parse_template() function for ",template$template_name," sets reporting_template_row_group and reporting_template_data_rank but these do not uniquely identify all ",
+                   nrow(template$template_data)," rows of data"))
+      }
+      set(template$template_data,
+          j="reporting_template_data_rank",
+          value=frank(template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)],ties.method="dense"))
     }
     
-    #Check we're uploading for a valid date for the program
-    #Check is made in template_process instead of parse_files since file could be passed an NA rsf_program_id for a program_create
-    #Here, we know the template has a specific program ID
+   
+    cross_references <- unique(template$template_data[,
+                                               .(reporting_template_group=gsub("^[[:digit:]]+","",reporting_template_row_group),
+                                                 indicator_name,
+                                                 indicator_id)])[,.(n=.N,
+                                                                    reporting_template_group),
+                                                                   by=.(indicator_name,indicator_id)][n>1]
+    if (!empty(cross_references)) {
+      if (!empty(template$template_headers)) {
+        cross_references <- unique(cross_references[,.(indicator_name,indicator_id)][template$template_headers,
+                                                     on=.(indicator_id),
+                                                     nomatch=NULL])
+        cross_references <- cross_references[,
+                                             .(message=paste0('{',label,'} on ',data_source_index,collapse=' AND ')),
+                                             by=.(indicator_name)]
+        cross_references[,message:=paste0(indicator_name," has been reported using headers: ",message," \n")]
+        
+        stop(paste("Indicators cannot be reported on different template data sheets:\n",paste0(cross_references$message,collapse="\n AND\n"),
+                   "\nEnsure that headers are properly labled in each section to ensure the correct indicator is mapped to the right header"))
+      } else {
+        
+        cross_references <- cross_references[,
+                                             .(message=paste0('in ',unique(reporting_template_group),collapse=' and ')),
+                                             by=.(indicator_name)]
+        cross_references[,message:=paste0(indicator_name," has been reported ",message," \n")]
+        stop(paste("Indicators cannot be reported on different template data sheets:\n",paste0(cross_references$message,collapse="\n AND\n"),
+                   "\nEnsure that headers are properly labled in each section to ensure the correct indicator is mapped to the right header"))
+        
+      }
+    }
+    cross_references <- NULL
+    
     {
       #NOTE: A cohort with a "today" reporting date will have a valid reporting_asof_date.  That cohort MAY ALSO have FUTURE reporting_asof_dates in its
       #template_data in which case, cohort triggers will insert those future dates as valid dates.
       #However, a template with a "tomorrow" reporting date will not be allowed.
       #Ie, I can know today what future requirements will be (because they're contracted to be so).
       #But I cannot report future data from a future perspective.
-      valid_reporting_dates <- dbGetQuery(pool,"
-                                          select 
-                                            prd.valid_reporting_date::date,
-                                            rp.reporting_period
-                                          from p_rsf.rsf_programs rp
-                                          inner join lateral p_rsf.rsf_program_generate_reporting_dates(rp.rsf_program_id,now()::date) as prd on true
-                                          where rp.rsf_program_id = $1::int
-                                            and prd.valid_reporting_date <= $2::date
-                                          order 
-                                            by prd.valid_reporting_date desc",
-                                          params=list(template$rsf_program_id,
-                                                      template$reporting_asof_date))
+      valid_date_range <- dbGetQuery(pool,"
+                                     select 
+                                      ids.pfcbl_category,
+                                      ids.created_in_reporting_asof_date::text as first_date,
+                                      ((date_trunc('quarter',(now()::date)::timestamp with time zone + '3 mons'::interval) - interval '1 day')::date)::text as current_date
+                                      from p_rsf.rsf_pfcbl_ids ids
+                                      where ids.rsf_pfcbl_id = $1::int",
+                                     params=list(template$cohort_pfcbl_id))
       
-      valid_dates <- valid_reporting_dates$valid_reporting_date
-      
-      if (length(valid_dates)==0 ||
-          !template$reporting_asof_date %in% valid_dates) {
-        
-        #Previous denied reporting into the future.  However, sometimes future dates are known, such as pre-defined contractual obligations or changes
-        #and therefore should allow
-        if (template$reporting_asof_date > max(valid_dates)) {
-          
-          future_denied <- unique(template$template_data[,.(indicator_name)])[template$rsf_indicators[,.(indicator_name,
-                                                                                                         data_category,
-                                                                                                        is_periodic_or_flow_reporting)],
-                                                                             on=.(indicator_name),
-                                                                             nomatch=NULL
-                                                            ][!data_category %in% c("facility","program") | is_periodic_or_flow_reporting==TRUE]
-          
-          if (!empty(future_denied)) {
-            stop(paste0("Future reporting not allowed for these data: \n",
-                        paste0(unique(future_denied$indicator_name),collapse=", "),"\n\n",
-                        "Reporting date ",
-                        as.character(template$reporting_asof_date)," is ",
-                        as.numeric(template$reporting_asof_date - today(tzone="GMT"))," days into the future from today's date ",
-                        as.character(today(tzone="GMT"))))
-            
-          } else {
-            
-            reportingest_date <- dbGetQuery(pool,"
-            select max(reporting.reporting_asof_date) as reporting_asof_date
-            from (
-              select rdc.reporting_asof_date
-              from p_rsf.rsf_data_current rdc
-              inner join p_rsf.indicators ind on ind.indicator_id = rdc.indicator_id
-              where rdc.rsf_pfcbl_id = $1::int 
-                and ind.indicator_sys_category = 'entity_amendment_date'
-                and rdc.reporting_asof_date <= $2::date
-                  
-              union all
-              
-              select created_in_reporting_asof_date
-              from p_rsf.rsf_pfcbl_ids ids where ids.rsf_pfcbl_id = $1::int
-            ) reporting",
-                                            params=list(template$cohort_pfcbl_id,
-                                                        as.character(template$reporting_asof_date)))
-            
-            if (!empty(reportingest_date)) {
-              status_message(class="warning",
-                             paste0("Future reporting for ",as.character(template$reporting_asof_date)))
-              
-              #This effectively back-dates the template reporting into the past at a point in time where
-              #we would expect to know future information: ie, an original facility setup term sheet or an amended term sheet
-              #A dataset is allowed to exist "now" and report into the future, as subsequent "linked reporting cohorts"
-              #will be created in data upload.
-              #A linked future reporting cohort will not trigger the same calculations and checks as a contemporary report will
-              template$reporting_asof_date <- reportingest_date$reporting_asof_date
-            }
-            
-            
-          }
-        } else {
-          
-          
-          stop(paste0("Template reporting date ",as.character(template$reporting_asof_date),
-                      " is not a valid date for this program"))
-        }
+     
+      if (any(is.na(valid_date_range$first_date),is.na(valid_date_range$current_date))) {
+        stop(paste0("Failed to determine valid reporting date ranges for this template report. Verify that the IFC project ID is valid"))
       }
       
+      if (template$reporting_asof_date < as.Date(valid_date_range$first_date)) {
+        stop(paste0(valid_date_range$first_date," is the earliest reporting allowed for this ",valid_date_range$pfcbl_category))
+      }
       
-      
-      # template$reporting_period <- c(lubridate::floor_date(template$reporting_asof_date,
-      #                                                      unique(valid_reporting_dates$reporting_period)),
-      #                                template$reporting_asof_date)
+      if (template$reporting_asof_date > as.Date(valid_date_range$current_date)) {
+        stop("Future reporting is not allowed: ",valid_date_range$current_date," is the maximum allowed reporting date")
+      }
     }
   }  
   
   {
     {
+      #NOTE: Oct-2025
+      #This is all but obsolete ... Barely used.
+      #And in current versions almost everything is paramaeterized around program/facility level
       program_settings <- dbGetQuery(pool,"select 
-                                            rsf_program_id,
-                                            setting_name,
-                                            setting_value,
-                                            default_data_type,
-                                            setting_group
+                                            vrps.rsf_program_id,
+                                            vrps.setting_name,
+                                            vrps.setting_value,
+                                            vrps.default_data_type,
+                                            vrps.setting_group
                                           from p_rsf.view_rsf_program_settings vrps
-                                          where vrps.rsf_program_id = $1::int",
-                                     params=list(template$rsf_program_id))
+                                          inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_program_id = vrps.rsf_program_id
+                                          where ids.rsf_pfcbl_id = $1::int",
+                                     params=list(template$cohort_pfcbl_id))
       
       setDT(program_settings)
       
@@ -725,10 +661,9 @@ template_parse_file <- function(pool,
        
       
       reporting_cohort <- db_cohort_create(pool=pool,
-                                           rsf_program_id=template$rsf_program_id,
                                            reporting_user_id=template$reporting_user_id,
                                            reporting_asof_date=template$reporting_asof_date,
-                                           cohort_pfcbl_id=template$cohort_pfcbl_id,
+                                           reporting_rsf_pfcbl_id=template$cohort_pfcbl_id,
                                            from_reporting_template_id=template$template_id,
                                            source_reference=template$template_source_reference,
                                            source_name=template$template_source, 
@@ -800,6 +735,7 @@ template_parse_file <- function(pool,
                 as.character(template$reporting_asof_date)," and reporting_cohort$reporting_asof_date = ",
                 as.character(template$reporting_cohort$reporting_asof_date)))
   }
+
   template$parse_time <- as.numeric(Sys.time()-t1,"secs")
   return (template)
 }

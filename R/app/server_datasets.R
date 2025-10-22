@@ -775,23 +775,6 @@ observeEvent(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS(), {
   }
 },ignoreNULL=FALSE)
 
-# observeEvent(SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION(), {
-#   
-#   indicators <- SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION()
-#   if (empty(indicators)) {
-#     updateSelectizeInput(session=session,
-#                          inputId="cohort_view_flag_indicator_classifications",
-#                          choices = "",
-#                          selected = "",
-#                          options=list(placeholder="No priority indicator flags"))
-#     
-#   } else {
-#     
-#     
-#     
-#   }
-# },ignoreNULL = TRUE)
-
 observeEvent(SELECTED_COHORT_ID(), {
   
   req(SELECTED_PROGRAM_ID())
@@ -1409,6 +1392,69 @@ observeEvent(input$cohort_action_dashboard, {
     }
   )
   
+  #Download the file that was uploaded
+  output$datasets_review_download_sourceflags_action <- downloadHandler(
+    filename = function() {
+      selected_id <- input$cohort_collection_selected_id
+      cohort <- NULL
+      if (identical(selected_id,"all") || is.na(suppressWarnings(as.numeric(selected_id)))) {
+        cohort <- SELECTED_COHORT_INFO()
+      } else {
+        cohort <- COHORTS_LIST()[reporting_cohort_id==as.numeric(selected_id)]
+      }
+      cohort$source_name
+    },
+    content=function(file) {
+      
+      withProgress(message="Downloading file",value=0.5, {
+        
+        selected_id <- input$cohort_collection_selected_id
+        cohort <- NULL
+        if (identical(selected_id,"all") || is.na(suppressWarnings(as.numeric(selected_id)))) {
+          cohort <- SELECTED_COHORT_INFO()
+        } else {
+          cohort <- COHORTS_LIST()[reporting_cohort_id==as.numeric(selected_id)]
+        }
+        
+        
+        outpath <- DBPOOL %>% db_cohort_download_file(reporting_cohort_id=cohort$reporting_cohort_id)
+        
+        if (!is.null(outpath)) {
+          #file.rename(from=outpath,to=file)
+          #print("Downloading file in output$datasets_review_download_source_action")
+          file.copy(from=outpath,
+                    to=file,
+                    overwrite = TRUE)
+          if (file.exists(outpath)) file.remove(outpath)
+        } else {
+          linked_file <- DBPOOL %>% dbGetQuery("
+           select 
+            lrc.source_name,
+            lrc.reporting_cohort_id,
+            lrc.reporting_asof_date
+          from p_rsf.reporting_cohorts rc
+          inner join p_rsf.reporting_cohorts lrc on lrc.reporting_cohort_id = rc.linked_reporting_cohort_id
+          where rc.reporting_cohort_id = $1::int",
+                                               params=list(cohort$reporting_cohort_id))
+          
+          if (!empty(linked_file)) {
+            outpath <- DBPOOL %>% db_cohort_download_file(reporting_cohort_id=linked_file$reporting_cohort_id)
+            if (!is.null(outpath)) {
+              
+              file.copy(from=outpath,
+                        to=file,
+                        overwrite = TRUE)
+              if (file.exists(outpath)) file.remove(outpath)
+              
+            } else {
+              outpath <- NULL
+            }
+          }
+        }        
+        incProgress(amount=1.0,message="Completed")
+      })
+    }
+  )
   
 }
 

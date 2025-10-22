@@ -185,10 +185,7 @@ rsf_indicators_calculate <- function(pool,
       #what's needed--by name--exists in the rsf_data_wide that's provided)
       #valid_indicators <- rsf_indicators[,.(indicator_id,indicator_name)]
 
-      # calculation_formula_sort <- trimws(calculation_formula_sort,whitespace="[ \\t\\r\\n\\v\\h\\s]")
-      # if (!is.na(calculation_formula_sort) && nchar(calculation_formula_sort)==0) calculation_formula_sort <- NA
-      
-      
+
       
       #IDs compliances
       {
@@ -333,7 +330,7 @@ rsf_indicators_calculate <- function(pool,
             #status_message(class="error",paste0("\nCalculation failed due to missing data: ",calculation$indicator_name,"\n  Formula has no data to calculate after filtering for entity missing IDs.  Skipping.\n"))
             add_data_flag(rsf_pfcbl_id = unlist(missing_ids$rsf_pfcbl_id),
                           indicator_id=calculation$calculate_indicator_id,
-                          check_name="sys_calculator_missing_data",
+                          check_name="sys_flag_missing_data",
                           check_message=paste0(calculation$indicator_name," formula has no data after filtering for missing ",
                                                paste0(formula_rsf_ids,collapse=" AND/OR "),
                                                ". Ensure ",toTitleCase(calculation$data_category)," has reported any ",
@@ -400,7 +397,7 @@ rsf_indicators_calculate <- function(pool,
           stop("Formula uses aggregate function but formula grouping is undefined for:\n",
                " {",calculation$indicator_name,"}\n",
                " Calculating: {",calculation$formula,"}\n",
-               " Perhaps rewrite using, for example, using row-level formulas: add(), average(), least(), greatest(); or, eg, sum(x,y) as if.missing(x,0) + if.missing(y,0); or explicitly cast a grouping using a formula_sort value?")
+               " Perhaps rewrite using, for example, row-level formulas: add(), average(), least(), greatest(); or, rewrite eg, sum(x,y), as if.missing(x,0) + if.missing(y,0); or explicitly cast a grouping using a formula_sort value?")
         }
         
         grouping_cols <- c("reporting_current_date",grouping_id)
@@ -417,7 +414,15 @@ rsf_indicators_calculate <- function(pool,
 
       if (is.null(grouping_id) || is.na(grouping_id) || grouping_id=="row_id") {
         calc_data <- calc_data[rsf_pfcbl_id %in% calculate_for_rsf_pfcbl_ids]
-      } 
+        
+      #New Sept-2025  
+      } else if (!is.na(calculation$formula_grouping_rsf_id) && any(names(calc_data)==calculation$formula_grouping_rsf_id,na.rm=T)) {
+        cname <- calculation$formula_grouping_rsf_id
+        filter_ids <- unique(unlist(calc_data[,
+                                       .SD,
+                                       .SDcols=c("rsf_pfcbl_id",cname)][rsf_pfcbl_id %in% calculate_for_rsf_pfcbl_ids][,..cname]))
+        calc_data <- calc_data[eval(sym(cname)) %in% filter_ids]
+      }
       
       calc_data[,
                 `:=`(grouping=.GRP,
@@ -447,126 +452,183 @@ rsf_indicators_calculate <- function(pool,
     
     #Currency conversions!
     {
-      
+      nofx_units <- NULL
       if (!is.na(calculation$calculate_indicator_currency_unit)) {
         
-        #calculation$entity_local_currency_unit
-        update_fx_table_function <- function(cache_fx) {
-          if (!empty(cache_fx)) {
-            setcolorder(cache_fx,
-                        neworder = names(fx_table))
-            
-            fx_table <<- rbindlist(list(fx_table,
-                                        cache_fx))
-          }
-        }
-        
-        add_data_flag_function <- function(rsf_pfcbl_id,
-                                           check_name,
-                                           check_message) {
+        #This will ignore timeseries .all parameters
+        #is that okay?
+        if (calculation$formula_fx_date=="nofx") {
+          unit_cols <- parameters[for_fx==TRUE & grepl("unit$",parameter_variable),parameter_column_name]
           
-          #fx conversions generate a lot of noise. only keep for testing.
-          if (check_name=="sys_fx_conversion" && flags.fx==FALSE) {
-            
-            NULL;
-          } else {
-            add_data_flag(rsf_pfcbl_id=rsf_pfcbl_id,
-                          indicator_id=calculation$calculate_indicator_id,
-                          check_name=check_name,
-                          check_message=check_message,
-                          formula_id=calculation$formula_id)
-          }
-        }
-        
-        add_fx_conversions_function <- function(report_conversions) {
-          report_conversions[,
-                             `:=`(indicator_id=calculation$calculate_indicator_id,
-                                  reporting_asof_date=reporting_current_date)]
-          setcolorder(report_conversions,
-                      neworder=c("rsf_pfcbl_id",
-                                 "indicator_id",
-                                 "reporting_asof_date",
-                                 "exchange_rate_data_id"))
+          nofx_units <- calc_data[,
+                             .SD,
+                             .SDcols=c("grouping","rsf_pfcbl_id",unit_cols)]
           
-          fx_conversions <<- rbindlist(list(fx_conversions,
-                                           report_conversions))
-        }
-        
-        
-        #comp_data <- as.data.table(as.data.frame(calc_data))
-        #calc_data <- as.data.table(as.data.frame(comp_data))
-        #p_date <- as.data.frame(rbindlist(calc_data$client_risk_sharing_fee_amount_due.all))
-        #c_date <- as.data.frame(rbindlist(calc_data$client_risk_sharing_fee_amount_due.all))
-        #ts_fx_col <- "client_portfolio_supervision_fee_amount_due"
-        timeseries_parameters <- parameters[for_fx==TRUE & parameter_variable=="all"]
-        if (!empty(timeseries_parameters)) {
+          nofx_units <- melt.data.table(nofx_units,
+                                   id.vars=c("grouping","rsf_pfcbl_id"),
+                                   variable.name="parameter_column_name",
+                                   value.name="unit",
+                                   variable.factor = F,
+                                   value.factor = F)
+          nofx_units <- unique(nofx_units[,.(grouping,rsf_pfcbl_id,unit)])
           
-          for (ts_fx_col in timeseries_parameters$parameter_indicator_name) {
-            ts_fx_col.all <- paste0(ts_fx_col,".all")
+          nofx_units <- nofx_units[,
+                         .(nofx_unit=unit[1],
+                           unit_n=length(unique(unit)),
+                           units=list(unique(unit))),
+                         by=.(grouping,rsf_pfcbl_id)]
+          
+          if (any(nofx_units$unit_n != 1)) {
+            bad_units <- nofx_units[unit_n != 1]
             
-            #timeseries_fx_calc_data <- calc_data[,..ts_fx_cols]
-            timeseries_fx_calc_data <- calc_data[,unlist(get(ts_fx_col.all),recursive = F),
-                                                 by=.(rsf_pfcbl_id,row_id,grouping)]
+            for(id in unique(bad_units$rsf_pfcbl_id)) {
+              add_data_flag(rsf_pfcbl_id = id,
+                            indicator_id=calculation$calculate_indicator_id,
+                            check_name="sys_calculator_failed",
+                            check_message=paste0(calculation$indicator_name,": Calculation FX date specifies 'NO FX' in system indicator setup. This requires all parameters to have the same currency unit value. ",
+                                                 "But multiple parameter currencies were found: ",
+                                                 paste0(unique(unlist(bad_units[rsf_pfcbl_id==id & unit_n != 1,units])),collapse=", "),
+                                                 ".  Calculation is defaulting to calculate FX in ",
+                                                 calculation$calculate_indicator_data_unit," values. Verify results"),
+                            formula_id=calculation$formula_id)
+            }
             
-            fx_calculation <- as.list(calculation)
-            fx_ts_parameters <- timeseries_parameters[parameter_indicator_name==ts_fx_col,
-                                           .(parameter_indicator_name,
-                                             parameter_indicator_id,
-                                             parameter_data_type,
-                                             for_calculation,
-                                             for_sort,
-                                             for_fx)]
-            
-            fx_ts_parameters <- fx_ts_parameters[data.table(parameter_indicator_name=ts_fx_col,
-                                                            parameter_variable=c("timeseries",
-                                                                                 "timeseries.unit",
-                                                                                 "timeseries.reporteddate")),
-                             on=.(parameter_indicator_name)]
-            fx_ts_parameters[,parameter_column_name:=paste0(parameter_indicator_name,".",parameter_variable)]
-            
-            fx_calculation$parameters_dt <- list(fx_ts_parameters)
-            fx_calculation <- as.data.table(fx_calculation)
-            
-            
-            setnames(timeseries_fx_calc_data,
-                     old=grep("^timeseries",names(timeseries_fx_calc_data),value=T),
-                     new=paste0(ts_fx_col,".",grep("^timeseries",names(timeseries_fx_calc_data),value=T)))
-            
-            ts_fx_data <- rsf_computation_fx_conversion(pool=pool,
-                                                        computation=fx_calculation,
-                                                        comp_data=timeseries_fx_calc_data,
-                                                        computation_asof_date=calculation$calculate_asof_date,
-                                                        fx_table=fx_table,
-                                                        update_fx_table_function=update_fx_table_function, 
-                                                        add_data_flag_function=add_data_flag_function, #we don't flag the flags
-                                                        add_fx_conversions_function=add_fx_conversions_function)
-            
-            setnames(ts_fx_data,
-                     old=grep(paste0("^",ts_fx_col,"\\.timeseries"),names(ts_fx_data),value=T),
-                     new=gsub(paste0("^",ts_fx_col,"\\.timeseries"),"timeseries",grep(paste0("^",ts_fx_col,"\\.timeseries"),names(ts_fx_data),value=T)))
-            
-            #all(names(timeseries_fx_calc_data)==names(ts_fx_data))
-            setcolorder(ts_fx_data,
-                        neworder=names(timeseries_fx_calc_data))
-            
-            ts_fx_data <- ts_fx_data[,
-                                     .(fx_col=list(.SD)),
-                                     by=.(rsf_pfcbl_id,row_id,grouping),
-                                     .SDcols=names(ts_fx_data)[!names(ts_fx_data) %in% c("rsf_pfcbl_id","row_id","grouping")]]
-            
-            calc_data[ts_fx_data,
-                      c(ts_fx_col.all) := i.fx_col,
-                      on=.(rsf_pfcbl_id,row_id,grouping)]
+            #next;
           }
-        }        
-        calc_data <- rsf_computation_fx_conversion(pool=pool,
-                                                   computation=calculation,
-                                                   comp_data=calc_data,
-                                                   computation_asof_date=calculation$calculate_asof_date,
-                                                   fx_table=fx_table,
-                                                   update_fx_table_function=update_fx_table_function, 
-                                                   add_data_flag_function=add_data_flag_function, #we don't flag the flags
-                                                   add_fx_conversions_function=add_fx_conversions_function) #if fx rates change we don't redo checks
+          
+          nofx_units <- nofx_units[unit_n==1,
+                                   .(grouping,
+                                     rsf_pfcbl_id,
+                                     nofx_unit)]
+        
+        
+        } else {
+          
+          #function parameters
+          {
+            #calculation$entity_local_currency_unit
+            update_fx_table_function <- function(cache_fx) {
+              if (!empty(cache_fx)) {
+                setcolorder(cache_fx,
+                            neworder = names(fx_table))
+                
+                fx_table <<- rbindlist(list(fx_table,
+                                            cache_fx))
+              }
+            }
+            
+            add_data_flag_function <- function(rsf_pfcbl_id,
+                                               check_name,
+                                               check_message) {
+              
+              #fx conversions generate a lot of noise. only keep for testing.
+              if (check_name=="sys_fx_conversion" && flags.fx==FALSE) {
+                
+                NULL;
+              } else {
+                add_data_flag(rsf_pfcbl_id=rsf_pfcbl_id,
+                              indicator_id=calculation$calculate_indicator_id,
+                              check_name=check_name,
+                              check_message=check_message,
+                              formula_id=calculation$formula_id)
+              }
+            }
+          
+          
+            add_fx_conversions_function <- function(report_conversions) {
+              report_conversions[,
+                                 `:=`(indicator_id=calculation$calculate_indicator_id,
+                                      reporting_asof_date=reporting_current_date)]
+              setcolorder(report_conversions,
+                          neworder=c("rsf_pfcbl_id",
+                                     "indicator_id",
+                                     "reporting_asof_date",
+                                     "exchange_rate_data_id"))
+              
+              fx_conversions <<- rbindlist(list(fx_conversions,
+                                               report_conversions))
+            }
+          }
+          
+          #comp_data <- as.data.table(as.data.frame(calc_data))
+          #calc_data <- as.data.table(as.data.frame(comp_data))
+          #p_date <- as.data.frame(rbindlist(calc_data$client_risk_sharing_fee_amount_due.all))
+          #c_date <- as.data.frame(rbindlist(calc_data$client_risk_sharing_fee_amount_due.all))
+          #ts_fx_col <- "client_portfolio_supervision_fee_amount_due"
+          
+          timeseries_parameters <- parameters[for_fx==TRUE & parameter_variable=="all"]
+          if (!empty(timeseries_parameters)) {
+            
+            #ts_fx_col <- timeseries_parameters$parameter_indicator_name[[1]]
+            for (ts_fx_col in timeseries_parameters$parameter_indicator_name) {
+              ts_fx_col.all <- paste0(ts_fx_col,".all")
+              
+              #timeseries_fx_calc_data <- calc_data[,..ts_fx_cols]
+              timeseries_fx_calc_data <- calc_data[,
+                                                   unlist(get(ts_fx_col.all),recursive = F),
+                                                   by=.(rsf_pfcbl_id,row_id,grouping)]
+              
+              fx_calculation <- as.list(calculation)
+              fx_ts_parameters <- timeseries_parameters[parameter_indicator_name==ts_fx_col,
+                                             .(parameter_indicator_name,
+                                               parameter_indicator_id,
+                                               parameter_data_type,
+                                               for_calculation,
+                                               for_sort,
+                                               for_fx)]
+              
+              fx_ts_parameters <- fx_ts_parameters[data.table(parameter_indicator_name=ts_fx_col,
+                                                              parameter_variable=c("timeseries",
+                                                                                   "timeseries.unit",
+                                                                                   "timeseries.reporteddate")),
+                               on=.(parameter_indicator_name)]
+              fx_ts_parameters[,parameter_column_name:=paste0(parameter_indicator_name,".",parameter_variable)]
+              
+              fx_calculation$parameters_dt <- list(fx_ts_parameters)
+              fx_calculation <- as.data.table(fx_calculation)
+              
+              
+              setnames(timeseries_fx_calc_data,
+                       old=grep("^timeseries",names(timeseries_fx_calc_data),value=T),
+                       new=paste0(ts_fx_col,".",grep("^timeseries",names(timeseries_fx_calc_data),value=T)))
+              
+              ts_fx_data <- rsf_computation_fx_conversion(pool=pool,
+                                                          computation=fx_calculation,
+                                                          comp_data=timeseries_fx_calc_data,
+                                                          computation_asof_date=calculation$calculate_asof_date,
+                                                          fx_table=fx_table,
+                                                          update_fx_table_function=update_fx_table_function, 
+                                                          add_data_flag_function=add_data_flag_function, #we don't flag the flags
+                                                          add_fx_conversions_function=add_fx_conversions_function)
+              
+              setnames(ts_fx_data,
+                       old=grep(paste0("^",ts_fx_col,"\\.timeseries"),names(ts_fx_data),value=T),
+                       new=gsub(paste0("^",ts_fx_col,"\\.timeseries"),"timeseries",grep(paste0("^",ts_fx_col,"\\.timeseries"),names(ts_fx_data),value=T)))
+              
+              #all(names(timeseries_fx_calc_data)==names(ts_fx_data))
+              setcolorder(ts_fx_data,
+                          neworder=names(timeseries_fx_calc_data))
+              
+              ts_fx_data <- ts_fx_data[,
+                                       .(fx_col=list(.SD)),
+                                       by=.(rsf_pfcbl_id,row_id,grouping),
+                                       .SDcols=names(ts_fx_data)[!names(ts_fx_data) %in% c("rsf_pfcbl_id","row_id","grouping")]]
+              
+              calc_data[ts_fx_data,
+                        c(ts_fx_col.all) := i.fx_col,
+                        on=.(rsf_pfcbl_id,row_id,grouping)]
+            }
+          }
+          
+          calc_data <- rsf_computation_fx_conversion(pool=pool,
+                                                     computation=calculation,
+                                                     comp_data=calc_data,
+                                                     computation_asof_date=calculation$calculate_asof_date,
+                                                     fx_table=fx_table,
+                                                     update_fx_table_function=update_fx_table_function, 
+                                                     add_data_flag_function=add_data_flag_function, #we don't flag the flags
+                                                     add_fx_conversions_function=add_fx_conversions_function) #if fx rates change we don't redo checks
+        }
       }
       
       
@@ -666,14 +728,16 @@ rsf_indicators_calculate <- function(pool,
         calculation_formula_sort <- calculation$formula_sort
       }      
       #Ensure a closed environment that won't expose potentially malicious user-defined functions to db_ function groups or other session$ info
+      
       calc_env <- new_environment(data=list(indicator_name=calculation$indicator_name,
                                             calculation_formula=calculation_formula,
                                             calculation_formula_sort=calculation_formula_sort,
                                             grouping_cols=grouping_cols,
-                                            calc_data=calc_data),
+                                            calc_data=calc_data,
+                                            rsf_indicators=rsf_indicators), #to appear in the calling stack for formulas taht use .all parameters and timeseries()
                                   parent=CALCULATIONS_ENVIRONMENT)
       
-      
+
       do_calculations <- with(calc_env,
       {
         
@@ -783,9 +847,16 @@ rsf_indicators_calculate <- function(pool,
       calc_results[,data_value:=NA]
     }
     
-    
+    #keeping here and then overwriting data_unit in case there happened to be duplicates that were excluded from nofx
     calc_results[,`:=`(indicator_id=calculation$calculate_indicator_id,
                        data_unit=calculation$calculate_indicator_data_unit)]
+    
+    if (!empty(nofx_units)) {
+      calc_results[nofx_units,
+                   data_unit:=i.nofx_unit,
+                   on=.(rsf_pfcbl_id,
+                        grouping)]
+    }
     
     #IMPORTANT
     #When currency data is submitted to database rsf_data table and the currency unit is defined, and the indicators table default data_unit is LCU

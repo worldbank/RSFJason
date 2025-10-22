@@ -60,7 +60,11 @@ output$program_download_archive <- downloadHandler(
       #importantly, this will include Global settings associated for the Program
       #whereas facility-level filters will not include Global (or Program) level settings.
       export_rsf_pfcbl_id <- NA
-      if (archive$export_pfcbl_category=="facility") export_rsf_pfcbl_id <- archive$export_rsf_pfcbl_id
+      if (archive$export_pfcbl_category=="facility") {
+        export_rsf_pfcbl_id <- archive$export_rsf_pfcbl_id
+      } else {
+        export_rsf_pfcbl_id <- program_id
+      }
       
       out_path <- DBPOOL %>% db_program_download(export_pfcbl_id=export_rsf_pfcbl_id,
                                                  out_path=".",

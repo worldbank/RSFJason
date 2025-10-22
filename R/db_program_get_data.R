@@ -1680,6 +1680,7 @@ db_program_get_data  <- function(pool,
           for (category in atts_categories) {
             
             cat_atts_name <- atts_names[grepl(paste0("^sys_",category,"_|^",category,"_"),atts_names)]
+            if (length(cat_atts_name)==0) next; #this means that the category is requesting parameters that aren't present in this loop iteration.
             setnames(pfcbl_family,
                      old=paste0("rsf_",category,"_id"),
                      new="rsf_pfcbl_id")

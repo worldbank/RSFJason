@@ -464,40 +464,45 @@ parse_template_RSA <- function(pool,
       # rsa <- rbindlist(list(rsa,qr))
       
     }
+    
+    rsa[,action:=as.character(NA)]
   }
   
   #Get labels and match default labels
   {
     
-    rsf_labels <- rbindlist(rsf_indicators$labels)
+    ##rsf_labels <- rbindlist(rsf_indicators$labels)
   
     #use superTrim() over label_normalized
-    rsf_labels <- unique(rsf_labels[,.(map_indicator_id=indicator_id,label_key,label=superTrim(label))])
+    ##rsf_labels <- unique(rsf_labels[,.(map_indicator_id=indicator_id,label_key,label=superTrim(label))])
     
     #rsf labels only map to indicators and are the default matching
-    rsf_labels[,
-               `:=`(template_header_section_name=as.character(NA),
-                    template_section_lookup=as.character(NA),
-                    template_label_lookup=paste0('^"?',str_escape(label),'"?$'), #ignore quoted headers
-                    action="default",
-                    template_header_position=as.numeric(NA),
-                    map_formula_id=as.numeric(NA),
-                    calculation_formula=as.character(NA),
-                    map_check_formula_id=as.numeric(NA),
-                    check_formula=as.character(NA))]
+    # rsf_labels[,
+    #            `:=`(template_header_section_name=as.character(NA),
+    #                 template_section_lookup=as.character(NA),
+    #                 template_label_lookup=paste0('^"?',str_escape(label),'"?$'), #ignore quoted headers
+    #                 action="default",
+    #                 template_header_position=as.numeric(NA),
+    #                 map_formula_id=as.numeric(NA),
+    #                 calculation_formula=as.character(NA),
+    #                 map_check_formula_id=as.numeric(NA),
+    #                 check_formula=as.character(NA))]
     
-    header_actions <- db_indicators_get_header_actions(pool=pool,
-                                                       template_id=template_id,
-                                                       rsf_pfcbl_id=rsf_facility_id)
-    header_actions[,label_key:="SYS"]
-    header_actions[,label:=superTrim(template_header)] #for this template, use trimmed, not normalized (as parsing values are used and therefore don't normalize {} delimiter!)
+    #any actions "default" will be system indicator label matches
+    rsf_labels <- db_indicators_get_header_actions(pool=pool,
+                                                   template_id=template_id,
+                                                   rsf_pfcbl_id=rsf_facility_id)
+    # header_actions[,label_key:="SYS"]
+    # header_actions[,label:=superTrim(template_header)] #for this template, use trimmed, not normalized (as parsing values are used and therefore don't normalize {} delimiter!)
   
     #if there's a header action whose label is identical to a regular indicator, it means that the header actions are setup to overwrite the default.  So omit these
     #and where there is a match, the header will match any presence found in the document
-    rsf_labels <- rsf_labels[!label %in% header_actions$label]
+    #rsf_labels <- rsf_labels[!label %in% header_actions$label]
     
     #headers not wrapped in quotes
     #escape regex control codes
+    
+    if (F) { #moved to db_indicators_get_header_actions
     header_actions[,template_label_lookup:=str_escape(label)]
     
     #except, for titles that are purely "*"
@@ -538,7 +543,7 @@ parse_template_RSA <- function(pool,
   
     rsf_labels[,label_header_id:=.I]
     rsa[,action:=as.character(NA)]
-    
+    }
     
     labelMatches <- function(find_sections=NA, #match any section if NA, section may match regular expression, notably :ALL will be .*$
                              find_labels=NA,   #match any section if NA, template_label must always have an exact "normalized" match (also may match content)

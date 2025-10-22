@@ -244,7 +244,10 @@ normalizeLabel <- function(x) {
   x <- gsub("[[:space:]]+&[[:space:]]+"," and ",x,ignore.case = TRUE,perl=T)
   x <- gsub("[^%#&@$<>\\/[:alnum:]]"," ",x,perl=T) #Starting with punctuation
   x <- gsub("[[:space:]]*([[:punct:]])[[:space:]]*","\\1",x)
+  
   superTrim(x,trim.punct=FALSE)
+  # x[is.na(x) | nchar(x)==0 | x=="na"] <- "{BLANK}"
+  # return(x)
 }
 
 superTrim <- function(x,

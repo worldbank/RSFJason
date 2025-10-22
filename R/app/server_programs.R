@@ -23,8 +23,6 @@ GLOBAL_CURRENCIES <- reactive({
 
 })
 
-
-
 USER_PROGRAMS <- eventReactive(c(LOGGEDIN(),
                                  LOAD_PROGRAM_ID()), {
                                    
@@ -101,7 +99,7 @@ SELECTED_PROGRAM <- eventReactive(SELECTED_PROGRAM_ID(), {
   return (program)
 })
 
-SELECTED_PROGRAM_VALID_REPORTING_DATES <- eventReactive(c(SELECTED_PROGRAM(),
+SELECTED_PROGRAM_VALID_REPORTING_DATES <- eventReactive(c(SELECTED_PROGRAM_ID(),
                                                           LOAD_VALID_REPORTING_DATE()), {
   program <- SELECTED_PROGRAM()
   if (empty(program)) return (NULL)
@@ -167,8 +165,8 @@ SELECTED_PROGRAM_FACILITIES_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
   return (facilities)
 }, ignoreNULL=FALSE)
 
-SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST <- eventReactive(c(SELECTED_PROGRAM_FACILITIES_LIST(),
-                                                                SELECTED_PROGRAM()), {
+SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
+                                                                SELECTED_PROGRAM_FACILITIES_LIST()), {
   selected_program_id <- SELECTED_PROGRAM_ID()
   if (!isTruthy(selected_program_id)) return (NULL)
   

@@ -1,9 +1,11 @@
 
-# 
-# rsf_program_id <- 319959
-# reporting_current_date <- '2024-06-30'
-# indicator_id <-  43450 
-# formula_pfcbl_id.familytree <- 319995 
+
+
+# reporting_current_date <- '2025-06-30'
+# indicator_id <-  157657
+# formula_pfcbl_id.familytree <-367732
+# rsf_program_id <- 367701
+# formula_pfcbl_id.familytree <- 397397 ;rsf_program_id <- unlist(dbGetQuery(pool,"select rsf_program_id from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id=$1::int",params=list(formula_pfcbl_id.familytree)))
 
 #x<-rsf_indicators_calculate_do_test(pool,rsf_program_id,reporting_current_date,indicator_id,formula_pfcbl_id.familytree,all_parameters=FALSE)
 
@@ -50,7 +52,12 @@ rsf_indicators_calculate_do_test <- function(pool,
                                           coalesce(rc.is_reported_cohort,false) as current_value_is_user_monitored,
                                           coalesce(rc.is_calculated_cohort,false) as current_data_is_system_calculation,
                                           
-                                          case when ind.data_type in ('currency','currency_ratio')     -- only calculate relevant indicator types
+                                          case when ind.data_type = 'currency'     -- LCU-defined currency metrics whose settings are overwriting the output
+                                                and ind.data_unit = 'LCU'
+                                                and pis.formula_calculation_unit is not NULL
+                                                then pis.formula_calculation_unit
+                                                
+                                                when ind.data_type in ('currency','currency_ratio')     -- only calculate relevant indicator types
                                                 and ind.data_unit ~ 'LCU'
                                                 and cd.data_unit is distinct from lcu.data_unit_value -- eg, this indicator hasn't been calculated yet, it's default 
                                                 then regexp_replace(ind.data_unit,'LCU',lcu.data_unit_value)
@@ -64,7 +71,8 @@ rsf_indicators_calculate_do_test <- function(pool,
                                           indf.computation_group,
                                           indf.formula_id,
                                           indf.formula_fx_date,
-                                          indf.formula_unit_set_by_indicator_id,
+                                          pis.formula_calculation_unit,
+                                          --indf.formula_unit_set_by_indicator_id,
     
     
                                           ind.data_type,
@@ -115,73 +123,73 @@ rsf_indicators_calculate_do_test <- function(pool,
     }
     
     
-    set_units <- test_calculation[!is.na(formula_unit_set_by_indicator_id),
-                              .(calculate_rsf_pfcbl_id,
-                                calculate_indicator_id,
-                                calculate_asof_date,
-                                formula_unit_set_by_indicator_id)]
-    if (!empty(set_units)) {
-      
-      formula_units <- poolWithTransaction(pool,function(conn) {
-        
-        dbExecute(conn,"create temp table _temp_units(calculate_rsf_pfcbl_id int,
-                                                           calculate_indicator_id int,
-                                                           calculate_asof_date date,
-                                                           formula_unit_set_by_indicator_id int)
-                    on commit drop;")
-        
-        dbAppendTable(conn,
-                      name="_temp_units",
-                      value=set_units)
-        
-        dbExecute(conn,"analyze _temp_units")
-        dbGetQuery(conn,"
-                     with units as (
-                       select
-                         tu.calculate_rsf_pfcbl_id,
-                         tu.calculate_indicator_id,
-                         tu.calculate_asof_date,
-                         ft.to_family_rsf_pfcbl_id as unit_rsf_pfcbl_id,
-                         tu.formula_unit_set_by_indicator_id,
-                         ind.is_data_unit
-                       from _temp_units tu
-                       inner join p_rsf.indicators ind on ind.indicator_id = tu.formula_unit_set_by_indicator_id
-                       inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = tu.calculate_rsf_pfcbl_id
-                                                                        and ft.to_pfcbl_category = ind.data_category
-                     )
-                     select 
-                       units.calculate_rsf_pfcbl_id,
-                       units.calculate_indicator_id,
-                       units.calculate_asof_date,
-                       unit.data_unit,
-                       units.formula_unit_set_by_indicator_id
-                     from units
-                     inner join lateral (select
-                                          case when coalesce(units.is_data_unit,false) = true
-                                               then rdc.data_value
-                                               else rdc.data_unit
-                                          end as data_unit
-                                         from p_rsf.rsf_data_current rdc
-                                         where rdc.rsf_pfcbl_id = units.unit_rsf_pfcbl_id
-                                           and rdc.indicator_id = units.formula_unit_set_by_indicator_id
-                                           and rdc.reporting_asof_date <= units.calculate_asof_date
-                                         order by
-                                           rdc.reporting_asof_date desc
-                                         limit 1) as unit on true")
-      })
-      
-      setDT(formula_units)
-      formula_units <- formula_units[is.na(data_unit)==FALSE &
-                                     data_unit != "LCU"]
-      test_calculation[formula_units,
-                   calculate_indicator_data_unit:=i.data_unit,
-                   on=.(calculate_rsf_pfcbl_id,
-                        calculate_indicator_id,
-                        calculate_asof_date,
-                        formula_unit_set_by_indicator_id)]
-      
-      formula_units <- NULL
-    }
+    # set_units <- test_calculation[!is.na(formula_unit_set_by_indicator_id),
+    #                           .(calculate_rsf_pfcbl_id,
+    #                             calculate_indicator_id,
+    #                             calculate_asof_date,
+    #                             formula_unit_set_by_indicator_id)]
+    # if (!empty(set_units)) {
+    #   
+    #   formula_units <- poolWithTransaction(pool,function(conn) {
+    #     
+    #     dbExecute(conn,"create temp table _temp_units(calculate_rsf_pfcbl_id int,
+    #                                                   calculate_indicator_id int,
+    #                                                   calculate_asof_date date,
+    #                                                   formula_unit_set_by_indicator_id int)
+    #                 on commit drop;")
+    #     
+    #     dbAppendTable(conn,
+    #                   name="_temp_units",
+    #                   value=set_units)
+    #     
+    #     dbExecute(conn,"analyze _temp_units")
+    #     dbGetQuery(conn,"
+    #                  with units as (
+    #                    select
+    #                      tu.calculate_rsf_pfcbl_id,
+    #                      tu.calculate_indicator_id,
+    #                      tu.calculate_asof_date,
+    #                      ft.to_family_rsf_pfcbl_id as unit_rsf_pfcbl_id,
+    #                      tu.formula_unit_set_by_indicator_id,
+    #                      ind.is_data_unit
+    #                    from _temp_units tu
+    #                    inner join p_rsf.indicators ind on ind.indicator_id = tu.formula_unit_set_by_indicator_id
+    #                    inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = tu.calculate_rsf_pfcbl_id
+    #                                                                     and ft.to_pfcbl_category = ind.data_category
+    #                  )
+    #                  select 
+    #                    units.calculate_rsf_pfcbl_id,
+    #                    units.calculate_indicator_id,
+    #                    units.calculate_asof_date,
+    #                    unit.data_unit,
+    #                    units.formula_unit_set_by_indicator_id
+    #                  from units
+    #                  inner join lateral (select
+    #                                       case when coalesce(units.is_data_unit,false) = true
+    #                                            then rdc.data_value
+    #                                            else rdc.data_unit
+    #                                       end as data_unit
+    #                                      from p_rsf.rsf_data_current rdc
+    #                                      where rdc.rsf_pfcbl_id = units.unit_rsf_pfcbl_id
+    #                                        and rdc.indicator_id = units.formula_unit_set_by_indicator_id
+    #                                        and rdc.reporting_asof_date <= units.calculate_asof_date
+    #                                      order by
+    #                                        rdc.reporting_asof_date desc
+    #                                      limit 1) as unit on true")
+    #   })
+    #   
+    #   setDT(formula_units)
+    #   formula_units <- formula_units[is.na(data_unit)==FALSE &
+    #                                  data_unit != "LCU"]
+    #   test_calculation[formula_units,
+    #                calculate_indicator_data_unit:=i.data_unit,
+    #                on=.(calculate_rsf_pfcbl_id,
+    #                     calculate_indicator_id,
+    #                     calculate_asof_date,
+    #                     formula_unit_set_by_indicator_id)]
+    #   
+    #   formula_units <- NULL
+    # }
     
 
   }
@@ -353,10 +361,12 @@ rsf_indicators_calculate_do_test <- function(pool,
         set(inputs,
             i=NULL,
             j=col,
-            value=    as.character(sapply(inputs[[list_cols]],
+            value=    as.character(sapply(inputs[[col]],
                                function(x) {
                                  if (is.data.table(x) && all(c("timeseries","timeseries.unit") %in% names(x))) {
-                                   return (paste(paste(x$timeseries,x$timeseries.unit),collapse=", "))
+                                   return (paste(paste0(ifelse(is.na(x$timeseries),"{MISSING}",as.character(x$timeseries)),
+                                                        ifelse(is.na(x$timeseries.unit),"",paste0(" ",x$timeseries.unit)),
+                                                        collapse=", ")))
                                  } else {
                                    return (paste(x,collapse=", "))
                                  }

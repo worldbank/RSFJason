@@ -34,7 +34,7 @@ server_admin_indicator_formulas.module_ui_indicator_formula <- function(id,
   
   ui <- div(name="formula_box",id=ns("ui"),
             box(title=uiOutput(outputId=ns("box_formula_title")),collapsible=TRUE,collapsed=start.collapsed,width=12,
-                fluidRow(column(6,style='padding:0 3px 0 15px;',
+                fluidRow(column(5,style='padding:0 3px 0 15px;',
                                 textInput(inputId=ns("formula_title"),
                                           label="Formula Title",
                                           width="100%",
@@ -48,18 +48,19 @@ server_admin_indicator_formulas.module_ui_indicator_formula <- function(id,
                                                          `If Unchanged`="unchanged",
                                                          `Deny`="deny"),
                                                selected=formula$formula_overwrite)),
-                         column(2,style='padding:0 3px 0 3px;',
+                         column(3,style='padding:0 3px 0 3px;',
                                 selectizeInput(inputId=ns("formula_fx_date"),
                                                label="FX Date Method",
                                                choices=c(`Computation Date`="calculation",
                                                          `Each Parameter's Date`="parameter",
                                                          `Changed FX Rate Date`='fx',
+                                                         `Parameter's Currency (no FX)`='nofx',
                                                          `Not applicable`=""),
                                                selected=formula$formula_fx_date)),
                 
                          column(2,align="right",style='float:right;',
                                 actionButton(inputId=ns("formula_test"),
-                                             label="Test Formula",
+                                             label="Calculate",
                                              icon=icon("flask"),
                                              class="btn-primary"))
                 ),
@@ -72,7 +73,7 @@ server_admin_indicator_formulas.module_ui_indicator_formula <- function(id,
                                                       placeholder="Please enter a formula...")))
                 ),
                 
-                fluidRow(column(6,style='padding:0 3px 0 15px;',
+                fluidRow(column(10,style='padding:0 3px 0 15px;',
                                 enabled(state=!is_system,
                                         textInput(inputId=ns("formula_sort"),
                                                   label="Sorting & Grouping",
@@ -80,13 +81,13 @@ server_admin_indicator_formulas.module_ui_indicator_formula <- function(id,
                                                   value=formula$formula_sort,
                                                   placeholder="Advanced: Group/Sorting"))),
                          
-                         column(4,style='padding:0px 3px 0 3px;',
-                                enabled(state=!is_system,
-                                        textInput(inputId=ns("formula_unit_set_by_indicator_name"),
-                                                  label="Calculation Unit Definition",
-                                                  width="100%",
-                                                  value=formula$formula_unit_set_by_indicator_name,
-                                                  placeholder="Advanced: Indicator Name"))),
+                         # column(4,style='padding:0px 3px 0 3px;',
+                         #        enabled(state=!is_system,
+                         #                textInput(inputId=ns("formula_unit_set_by_indicator_name"),
+                         #                          label="Calculation Unit Definition",
+                         #                          width="100%",
+                         #                          value=formula$formula_unit_set_by_indicator_name,
+                         #                          placeholder="Advanced: Indicator Name"))),
                          
                          column(2,style=';padding:0px 15px 0 3px;text-align:center',
                                 tags$label("Primary Formula"),
@@ -166,15 +167,17 @@ server_admin_indicator_formulas.module_session_indicator_formula <- function(id,
         if (is.null(inputs[[item]])) next; #it's being initialized.  Else set() to NULL will delete it from the data table.
         
         cur_val <- as.character(selected_formulas[which_formula][[item]])
+        cur_class <- class(selected_formulas[which_formula][[item]])
         this_val <- as.character(inputs[[item]])
         
         if (!isTruthy(this_val)) this_val <- as.character(NA)
+        if (length(cur_class)==0) cur_class="character"
         
         if (!identical(cur_val,this_val)) {
           set(selected_formulas,
               i=which_formula,
               j=item,
-              value=inputs[[item]])
+              value=as(inputs[[item]],Class=cur_class))
           
           selected_formulas[which_formula,
                             edited:=TRUE]

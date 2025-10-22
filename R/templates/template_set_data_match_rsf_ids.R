@@ -115,6 +115,7 @@ template_set_data_match_rsf_ids <- function(pool,
         template_db_current_match_data <-NULL
       }      
       
+#if (current_rsf_id_rank==5) stop("test")
       #get current match data and categories
       {
         
@@ -281,7 +282,7 @@ template_set_data_match_rsf_ids <- function(pool,
                                                  .(reporting_template_row_group,
                                                    pfcbl_category=data_category,
                                                    indicator_sys_category,
-                                                   data_value,
+                                                   data_value=data_value,
                                                    data_submitted,
                                                    indicator_id)
                                                  ][current_match_data[is.na(match_action), #may alraedy be marked new coming in
@@ -293,6 +294,33 @@ template_set_data_match_rsf_ids <- function(pool,
                                                   nomatch=NULL]
           
           if (empty(template_current_data)) break;
+          
+          #duplicates?
+          #This can happen when client templates repeat the same columns (why on earth?).  But Equity BCDC redundantly reports the internal ID number for some reason?
+          #If the data is the same, ignore.
+          #Otherwise, we can't have two differnet IDs for the same entity.
+          {
+            duplicates <- template_current_data[,
+                                                .(duplicated=.N,
+                                                  uduplicates=length(unique(data_submitted))),
+                                                  by=names(template_current_data)][duplicated>1][order(reporting_template_row_group,indicator_sys_category)]
+            
+            #if there are both duplicates and unique duplicates, it's a problem.  Otherwise we just remove duplicates.
+            if (!empty(duplicates[uduplicates>1])) {
+              
+              duplicates <- duplicates[uduplicates > 1,
+                                       .(message=paste0(reporting_template_row_group," ambiguous ",toupper(indicator_sys_category)," as: ",paste0("{",data_submitted,"}",collapse=" & "),"\n")),
+                                       by=.(reporting_template_row_group,indicator_sys_category)]
+              stop(paste0("Template reports ambiguous values in multiple columns:\n",
+                          paste0(duplicates$message,collapse=" \n")))
+              
+            } else {
+              template_current_data <- unique(template_current_data)
+            }
+            duplicates <- NULL
+            
+            
+          }
           
           if (!all(current_match_data$reporting_template_row_group %in% template_current_data$reporting_template_row_group)) {
             
@@ -327,10 +355,11 @@ template_set_data_match_rsf_ids <- function(pool,
                                                                   indicator_sys_category,
                                                                   data_value)]
           
-          
-          if (nrow(template_current_lookup_data) != nrow(unique(template_current_lookup_data))) stop(paste0("Lookup data has ",
-                                                                                                            nrow(template_current_lookup_data)," and ",
-                                                                                                            nrow(unique(template_current_lookup_data))," unique rows"))
+         
+          if (nrow(template_current_lookup_data) != nrow(unique(template_current_lookup_data))) {
+           
+            stop(paste0("Duplicated data in template_current_lookup_data(",nrow(template_current_lookup_data),") vs template_current_data(",nrow(template_current_data),")"))
+          }
         } 
         
         #create template_db_match_data
@@ -1075,6 +1104,31 @@ template_set_data_match_rsf_ids <- function(pool,
                                                data_value,
                                                reporting_asof_date)]
   
+              {
+                duplicates <- creation_data[,
+                                            .(duplicated=.N),
+                                            by=names(creation_data)][duplicated>1]
+                
+                #if there are both duplicates and unique duplicates, it's a problem.  Otherwise we just remove duplicates.
+                if (!empty(duplicates)) {
+                  
+                  duplicates <- duplicates[,.(uduplicates=length(unique(data_value))),
+                                           by=names(duplicates)][uduplicates>1]
+                  
+                  if (!empty(duplicates)) {
+                    duplicates <- duplicates[,
+                                             .(message=paste0(reporting_template_row_group," ambiguous ",toupper(indicator_sys_category)," as: ",paste0("{",data_value,"}",collapse=" & "),"\n")),
+                                             by=.(reporting_template_row_group,indicator_sys_category)]
+                    stop(paste0("Template reports ambiguous values in multiple columns:\n",
+                                paste0(duplicates$message,collapse=" \n")))
+                  } else {
+                    creation_data <- unique(creation_data)
+                  }
+                }
+                duplicates <- NULL
+              }
+              
+              
               creation_data <- current_match_data[is.na(rsf_pfcbl_id),
                                                .(reporting_template_row_group,
                                                  parent_rsf_pfcbl_id, 
@@ -1136,6 +1190,34 @@ template_set_data_match_rsf_ids <- function(pool,
                                                                                                  "for_pfcbl_category",
                                                                                                  "recognized_entity_number"))]
                 
+                
+                #This check basically inserted as a result of database unique index violations on rsf_data_current_names_and_ids
+                #Where, eg, borrowers with same and and ID have different establishment dates.  Previously, this was a check.  But with a table and index for
+                #names and IDs, this can now result in an insert violation.  So it's controlled here.
+                #But new borrowers should be unique by NAME and by ID
+                #And new loans should be unique by ID and Rank: since clients that re-report same ID for revolvers, each revolver may have the same ID but a different
+                #setup date and, accordingly, a different rank. And for clients that report on tranche, the tranche ID will be unique but also generate a unique inclusion rank.
+                name_id_cols <- id_cols[which(id_cols %in% c("id","name","rank_id"))]
+                duplicate_name_ids <- create_new_undefined[,
+                                                           n:=nrow(unique(.SD)),
+                                                           by=name_id_cols,
+                                                           .SDcols=id_cols][n>1]
+                if (!empty(duplicate_name_ids)) {
+                  setorderv(duplicate_name_ids,
+                            cols=unique(c(name_id_cols,id_cols,"reporting_template_row_group")))
+                  
+                  duplicate_name_ids <- duplicate_name_ids[,.SD,
+                                                           .SDcols = c("reporting_template_row_group",id_cols)]
+                  
+                  stop(paste0("Failed to create NEW ",toupper(current_data_category)," due to inconsistent values for: ",paste0(id_cols,collapse=", "),"\n\n",
+                              paste0(apply(duplicate_name_ids,1,paste,collapse=" "),collapse=" \n")),
+                       "\n\nThese values can change over time...but when creating a new ",toupper(current_data_category)," these must all be the same as-of ",
+                       template$reporting_asof_date)
+                }
+                
+                duplicate_name_ids <- NULL
+                create_new_undefined[,
+                                     n:=NULL]
                 
                 create_new_undefined[,row_number:=as.numeric(gsub("^([[:digit:]]+).*$","\\1",reporting_template_row_group))]
                 

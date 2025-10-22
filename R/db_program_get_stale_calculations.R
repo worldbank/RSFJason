@@ -33,7 +33,12 @@ db_program_get_stale_calculations <- function(pool,
                                   	coalesce(rc.is_reported_cohort,false) as current_value_is_user_monitored,
                                   	coalesce(rc.is_calculated_cohort,false) as current_data_is_system_calculation,
                                  
-                                    case when ind.data_type in ('currency') -- only calculate relevant indicator types
+                                    case when ind.data_type = 'currency'     -- LCU-defined currency metrics whose settings are overwriting the output
+                                          and ind.data_unit = 'LCU'
+                                          and calc.formula_calculation_unit is not NULL
+                                         then calc.formula_calculation_unit
+
+                                         when ind.data_type = 'currency' -- only calculate relevant indicator types
                                   				and ind.data_unit = 'LCU'
                                   				and cd.current_data_unit is distinct from lcu.data_unit_value -- eg, this indicator hasn't been calculated yet, it's default 
                                   			 then lcu.data_unit_value
@@ -52,8 +57,8 @@ db_program_get_stale_calculations <- function(pool,
                                   	
                                   			 else coalesce(cd.current_data_unit,ind.data_unit)
                                   	end as calculate_indicator_data_unit,
-                                  
-                                    calc.formula_unit_set_by_indicator_id,
+                                    calc.formula_calculation_unit,
+                                    --calc.formula_unit_set_by_indicator_id,
                                     calc.computation_group,
                                     calc.formula_id,
                                     ind.data_type,
@@ -65,7 +70,7 @@ db_program_get_stale_calculations <- function(pool,
                                     		dce.indicator_id,
                                     		dce.calculation_asof_date,
                                     		indf.formula_calculation_rank,
-                                    		indf.formula_unit_set_by_indicator_id,
+                                    		pis.formula_calculation_unit,
                                     		indf.computation_group,
                                     		indf.formula_fx_date,
                                     		indf.formula_id,
@@ -75,8 +80,10 @@ db_program_get_stale_calculations <- function(pool,
                                     															 indf.computation_priority_rank desc -- higher computation priorities first
                                     										 ) calc_rank
                                     	from p_rsf.rsf_data_calculation_evaluations dce --on dce.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+                                    	
                                     	inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = dce.rsf_pfcbl_id
                                     																													   and pis.indicator_id = dce.indicator_id
+                                    									 
                                     	inner join p_rsf.indicator_formulas indf on indf.formula_id = pis.formula_id
                                     	where dce.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
                                     															 from p_rsf.view_rsf_pfcbl_id_family_tree ft
@@ -118,73 +125,73 @@ db_program_get_stale_calculations <- function(pool,
       # if (any(calculations$calculation_group > 1)) {
       #   calculations <- calculations[calculation_group==1]
       # }
-      set_units <- calculations[!is.na(formula_unit_set_by_indicator_id),
-                                .(calculate_rsf_pfcbl_id,
-                                  calculate_indicator_id,
-                                  calculate_asof_date,
-                                  formula_unit_set_by_indicator_id)]
-      if (!empty(set_units)) {
-
-        formula_units <- poolWithTransaction(pool,function(conn) {
-          
-          dbExecute(conn,"create temp table _temp_units(calculate_rsf_pfcbl_id int,
-                                                           calculate_indicator_id int,
-                                                           calculate_asof_date date,
-                                                           formula_unit_set_by_indicator_id int)
-                    on commit drop;")
-          
-          dbAppendTable(conn,
-                        name="_temp_units",
-                        value=set_units)
-          
-          dbExecute(conn,"analyze _temp_units")
-          dbGetQuery(conn,"
-                     with units as (
-                       select
-                         tu.calculate_rsf_pfcbl_id,
-                         tu.calculate_indicator_id,
-                         tu.calculate_asof_date,
-                         ft.to_family_rsf_pfcbl_id as unit_rsf_pfcbl_id,
-                         tu.formula_unit_set_by_indicator_id,
-                         ind.is_data_unit
-                       from _temp_units tu
-                       inner join p_rsf.indicators ind on ind.indicator_id = tu.formula_unit_set_by_indicator_id
-                       inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = tu.calculate_rsf_pfcbl_id
-                                                                        and ft.to_pfcbl_category = ind.data_category
-                     )
-                     select 
-                       units.calculate_rsf_pfcbl_id,
-                       units.calculate_indicator_id,
-                       units.calculate_asof_date,
-                       unit.data_unit,
-                       units.formula_unit_set_by_indicator_id
-                     from units
-                     inner join lateral (select
-                                          case when coalesce(units.is_data_unit,false) = true
-                                               then rdc.data_value
-                                               else rdc.data_unit
-                                          end as data_unit
-                                         from p_rsf.rsf_data_current rdc
-                                         where rdc.rsf_pfcbl_id = units.unit_rsf_pfcbl_id
-                                           and rdc.indicator_id = units.formula_unit_set_by_indicator_id
-                                           and rdc.reporting_asof_date <= units.calculate_asof_date
-                                         order by
-                                           rdc.reporting_asof_date desc
-                                         limit 1) as unit on true")
-        })
-        
-        setDT(formula_units)
-        formula_units <- formula_units[is.na(data_unit)==FALSE &
-                                       data_unit != "LCU"]
-        calculations[formula_units,
-                     calculate_indicator_data_unit:=i.data_unit,
-                     on=.(calculate_rsf_pfcbl_id,
-                          calculate_indicator_id,
-                          calculate_asof_date,
-                          formula_unit_set_by_indicator_id)]
-          
-        formula_units <- NULL
-      }
+      # set_units <- calculations[!is.na(formula_unit_set_by_indicator_id),
+      #                           .(calculate_rsf_pfcbl_id,
+      #                             calculate_indicator_id,
+      #                             calculate_asof_date,
+      #                             formula_unit_set_by_indicator_id)]
+      # if (!empty(set_units)) {
+      # 
+      #   formula_units <- poolWithTransaction(pool,function(conn) {
+      #     
+      #     dbExecute(conn,"create temp table _temp_units(calculate_rsf_pfcbl_id int,
+      #                                                      calculate_indicator_id int,
+      #                                                      calculate_asof_date date,
+      #                                                      formula_unit_set_by_indicator_id int)
+      #               on commit drop;")
+      #     
+      #     dbAppendTable(conn,
+      #                   name="_temp_units",
+      #                   value=set_units)
+      #     
+      #     dbExecute(conn,"analyze _temp_units")
+      #     dbGetQuery(conn,"
+      #                with units as (
+      #                  select
+      #                    tu.calculate_rsf_pfcbl_id,
+      #                    tu.calculate_indicator_id,
+      #                    tu.calculate_asof_date,
+      #                    ft.to_family_rsf_pfcbl_id as unit_rsf_pfcbl_id,
+      #                    tu.formula_unit_set_by_indicator_id,
+      #                    ind.is_data_unit
+      #                  from _temp_units tu
+      #                  inner join p_rsf.indicators ind on ind.indicator_id = tu.formula_unit_set_by_indicator_id
+      #                  inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = tu.calculate_rsf_pfcbl_id
+      #                                                                   and ft.to_pfcbl_category = ind.data_category
+      #                )
+      #                select 
+      #                  units.calculate_rsf_pfcbl_id,
+      #                  units.calculate_indicator_id,
+      #                  units.calculate_asof_date,
+      #                  unit.data_unit,
+      #                  units.formula_unit_set_by_indicator_id
+      #                from units
+      #                inner join lateral (select
+      #                                     case when coalesce(units.is_data_unit,false) = true
+      #                                          then rdc.data_value
+      #                                          else rdc.data_unit
+      #                                     end as data_unit
+      #                                    from p_rsf.rsf_data_current rdc
+      #                                    where rdc.rsf_pfcbl_id = units.unit_rsf_pfcbl_id
+      #                                      and rdc.indicator_id = units.formula_unit_set_by_indicator_id
+      #                                      and rdc.reporting_asof_date <= units.calculate_asof_date
+      #                                    order by
+      #                                      rdc.reporting_asof_date desc
+      #                                    limit 1) as unit on true")
+      #   })
+      #   
+      #   setDT(formula_units)
+      #   formula_units <- formula_units[is.na(data_unit)==FALSE &
+      #                                  data_unit != "LCU"]
+      #   calculations[formula_units,
+      #                calculate_indicator_data_unit:=i.data_unit,
+      #                on=.(calculate_rsf_pfcbl_id,
+      #                     calculate_indicator_id,
+      #                     calculate_asof_date,
+      #                     formula_unit_set_by_indicator_id)]
+      #     
+      #   formula_units <- NULL
+      # }
 
     if(SYS_PRINT_TIMING) debugtime("db_program_get_stale_calculations","Done!",as.numeric(Sys.time()-t1,"secs"))
     return (calculations)

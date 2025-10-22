@@ -252,7 +252,6 @@ observeEvent(input$setup_program_create_action_button, {
         results <- tryCatch({
           #Template gets its own database pool
           template_parse_process_and_upload(pool=dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]])),
-                                            rsf_program_id = SELECTED_PROGRAM_ID(),
                                             reporting_user_id = USER_ID(),
                                             template_files=export_filename,
                                             source_note="None",
@@ -607,31 +606,7 @@ output$setup_program_create_ui <- renderUI({
                             })
   
   if (what != "program") {
-    
-    #Querying VIEW to ensure fully available valid reporting dates, eg, if user is creating entity whose start date is beyond the currentest program reporting date
-    #They will be able to do so.  This should prompt a refresh of SELECTED_PROGRAM_VALID_REPORTING_DATES() so the new date becomes available in drop downs.
-    # program_dates <- DBPOOL %>% dbGetQuery("select rd.valid_reporting_date::text as valid_reporting_date 
-    #                                         from p_rsf.rsf_program_generate_reporting_dates($1::int,now()::date) as rd
-    #                                         order by rd.valid_reporting_date",
-    #                                        params=list(SELECTED_PROGRAM_ID()))
-    # 
-    # program_dates <- as.character(program_dates$valid_reporting_date)
-    
-    #create_title <- "Reporting Period"
-    # create_title <- fcase(what=="facility","Reporting Period: Facility IFC first commitment date (required)",
-    #                       what=="client","Reporting Period: Client signing date (required)",
-    #                       what=="borrower","Reporting Period: Borrower became RSF client (required)",
-    #                       what=="loan","Reporting Period: Loan commitment date (required)",
-    #                       default="Error")
-    
-    #is now responsive to indicator_sys_category=entity_creation_date to auto-set End-of-Quarter as people consistently never set this and always screwed things up!
-    # reporting_ui <- fluidRow(column(12,
-    #                                 disabled(
-    #                                 selectizeInput(inputId="setup_program_create_setup_reporting_asof_date",
-    #                                                label=create_title,
-    #                                                choices=program_dates,
-    #                                                selected=program_dates[length(program_dates)],
-    #                                                options=list(placeholder="Select reporting date")))))
+   
     reporting_ui <- tagList()
     ui_requirements <- append(list(reporting_ui),ui_requirements)
   }

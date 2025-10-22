@@ -26,6 +26,7 @@ db_program_toggle_indicator_subscription <- function(pool,
               and ids.rsf_program_id = $2::int
               and fis.indicator_id = $3
               and fis.is_system = false
+              and fis.setting_allowed is true
             on conflict (rsf_pfcbl_id,indicator_id)
             do update
             set is_subscribed = EXCLUDED.is_subscribed,

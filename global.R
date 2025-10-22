@@ -40,12 +40,10 @@ library(shinybusy)
 library(shinyWidgets)
 library(shinycssloaders)
 library(shinyjs)
-#library(shinyglide)
 library(DT)
 library(jsonlite)
 library(tools)
 library(plyr)
-#library(tidyr)
 library(glue)
 library(R.utils)
 library(digest)
@@ -53,6 +51,7 @@ library(digest)
 
 
 library(openxlsx)
+library(openxlsx2)
 #library(reshape2)
 library(rlang)
 
@@ -107,7 +106,6 @@ source("./R/db_rsf_checks_validate.R")
 source("./R/db_program_get_data.R")
 source("./R/db_program_create.R")
 source("./R/db_program_download.R")
-#source("./R/db_program_revalidate_calculations.R")
 source("./R/db_program_toggle_indicator_subscription.R")
 source("./R/db_program_toggle_check_subscription.R")
 
@@ -183,10 +181,13 @@ source('./R/templates/template_parse_file.R')
 source('./R/templates/template_parse_process_and_upload.R')
 
 source('./R/templates/parse_template_IFC_QR.R')
+source('./R/templates/parse_template_IFC_QR2025.R')
+
 source('./R/templates/parse_template_RSA.R')
 source('./R/templates/parse_template_csv.R')
 source('./R/templates/parse_template_rsf_setup.R')
 source('./R/templates/parse_template_csv_backup_data.R')
+
 
 source('./R/templates/parse_template_pfcbl_editor_report.R')
 source('./R/templates/parse_template_rsf_create_entities.R')
@@ -444,6 +445,11 @@ is.same_text <- function(a,b) {
   ifelse(is.na(x),FALSE,x)
 }
 
+#all forms of nothing, with zero being a numeric nothing
+is.nothing <- function(x) {
+  (is.null(x) || length(x)==0 || all(x==0))
+}
+
 is.same_number <- function(a,b,tolerance=1/10^CALCULATIONS_ENVIRONMENT$SIG_DIGITS) { 
   
   
@@ -451,12 +457,22 @@ is.same_number <- function(a,b,tolerance=1/10^CALCULATIONS_ENVIRONMENT$SIG_DIGIT
     if (!is.na(a) & !is.na(suppressWarnings(as.numeric(a)))) a<-as.numeric(a)
     if (!is.na(b) & !is.na(suppressWarnings(as.numeric(b)))) b<-as.numeric(b)
     
-    isTRUE(base::all.equal(a,b,check.class=F,tolerance=tolerance)) 
+    #isTRUE(base::all.equal(a,b,check.class=F,tolerance=tolerance)) 
+    isTRUE(base::all.equal(a,b,check.class=F)) | isTRUE(base::`==`(e1=a,e2=b))  | all(c(is.nothing(a),is.nothing(b)))
     
   },a=a,b=b,USE.NAMES=F)
   x[is.na(x)] <- FALSE
   
-  return (x)
+  if (is.nothing(x)) {
+    
+    return (FALSE)
+    
+  } else {
+    
+    return (x)
+    
+  }
+
   
   # nas <- is.na(a) & is.na(b)
   # 
@@ -576,4 +592,139 @@ words_to_numbers <- function(s) {
   }
   return (n)
 }
+
+
+
+
+labelMatches <- function(find_sections=NA, #match any section if NA, section may match regular expression, notably :ALL will be .*$
+                         find_labels=NA,   #match any section if NA, template_label must always have an exact "normalized" match (also may match content)
+                         search_sections=NA,
+                         search_labels=NA,
+                         match_id=NA,
+                         match_postion=NA) {
+  
+  if (!is.na(find_sections) && nchar(find_sections)==0) find_sections <- NA
+  if (!is.na(find_labels) && nchar(find_labels)==0) find_labels <- NA
+  if (length(search_sections) != length(search_labels)) stop(paste0("seach_sections and search_labels should be equal length vectors to ensure which() returns equivalent indexes: ",
+                                                                    length(search_sections)," vs ",length(search_labels)))
+  
+  if (all(is.na(find_sections)) && all(is.na(find_labels))) return (NULL)
+  add_start_stop <- function(str) {
+    none <- grep("^\\^",str,invert = T)
+    if (any(none)) str[none] <- paste0("^",str[none])
+    
+    none <- grep("\\$$",str,invert = T)
+    if (any(none)) str[none] <- paste0(str[none],"$")
+    
+    return (str)
+  }
+  
+  if (!is.na(find_sections) && !is.na(find_labels)) {
+    
+    matches <- intersect(which(stringr::str_detect(string=search_sections,pattern=find_sections)),
+                         which(stringr::str_detect(string=search_labels,pattern=find_labels)))
+    
+  } else if (!is.na(find_sections)) {
+    
+    matches <- which(stringr::str_detect(string=search_sections,pattern=find_sections))
+    
+  } else {
+    
+    matches <- which(stringr::str_detect(string=search_labels,pattern=find_labels))
+    
+  }
+  
+  if (length(matches)==0) { return(NULL) 
+  } else { 
+   
+    return (list(match_id=match_id,
+                 match_position=match_postion,
+                 match_rows=unlist(matches)))
+  }
+}
+
+openxlsx_getNamedRegionsTable <- function(excelwb)
+{
+  nregions <- openxlsx::getNamedRegions(excelwb)
+  nregions_locations <- attr(nregions,"position")
+  nregions_allowed <- grep("^[A-Z]+[0-9]+$|^[A-Z]+[0-9]+:[A-Z]+[0-9]+$",nregions_locations)
+  nregions_locations <- nregions_locations[nregions_allowed]
+  nregions_sheets <- attr(nregions,"sheet")[nregions_allowed]
+  nregions <- nregions[nregions_allowed]
+  
+  nregion_data <- mapply(SIMPLIFY=F,FUN=function(sheet,cell,nr) {
+    
+    nregion_cols <- convertFromExcelRef(nregions_locations)
+    cols <- NULL
+    rows <- NULL
+
+    if (grepl("^_xl|\\.wvu\\.",nr)) { return (NULL); }
+    
+    if (grepl(":",cell)) {
+      cell <- strsplit(cell,":",fixed=T)[[1]]
+      cols <- seq(from=convertFromExcelRef(cell[[1]]),
+                  to=convertFromExcelRef(cell[[2]]),
+                  by=1)
+      
+      rows <- seq(from=as.numeric(gsub("[^0-9]","",cell[[1]])),
+                  to=as.numeric(gsub("[^0-9]","",cell[[2]])),
+                  by=1)
+    } else {
+      cols <- convertFromExcelRef(cell)
+      rows <- as.numeric(gsub("[^0-9]","",cell))
+    }
+    
+    #if (nr=="Data_PeriodEndDate") { browser() }
+    
+    val <- suppressWarnings(openxlsx::readWorkbook(xlsxFile=excelwb,
+                                  sheet=sheet,
+                                  rows=rows,
+                                  cols=cols,
+                                  colNames=F,
+                                  rowNames=F,
+                                  skipEmptyRows = T,
+                                  skipEmptyCols = T))
+    
+    value <- NA
+
+    if (length(val)==0) val <- NA
+    
+
+    range_val <- NULL    
+    if (!is.data.frame(val)) {
+      range_val <- as.data.frame(val)
+    } else {
+      range_val <- val
+    }
+    
+    if (all(dim(val)==1)) {
+      value <- unlist(unique(val))
+    }
+    
+    if (nrow(range_val)==1 || ncol(range_val)==1) {
+      range_val <- unlist(range_val,use.names = F)
+      range_val <- list(c(range_val))
+    }
+    #browser()
+    dt <- data.table(sheet=sheet,
+                     range_name=nr,
+                     range_value=as.character(value),
+                     range_list=list(),
+                     range_rows=list(rows),
+                     range_cols=list(cols))
+    
+    dt[,range_list:=list(range_val)]
+    
+
+    #dt
+    return(dt)
+  },
+  sheet=nregions_sheets,
+  cell=nregions_locations,
+  nr=nregions)
+  
+  nregion_data <- rbindlist(nregion_data)
+  return (nregion_data)
+}
+
 

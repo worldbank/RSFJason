@@ -17,7 +17,7 @@ db_indicator_update <- function(pool,
   labels <- labels[nchar(label) > 3]
   
   
-  
+  #browser()
   #labels
   #conn <- poolCheckout(pool)
   #dbBegin(conn)
@@ -142,13 +142,12 @@ db_indicator_update <- function(pool,
                                        formula_title text,
                                        formula_notes text,
                                        formula_labels text,
-                                       formula_unit_set_by_indicator_name text,
                                        is_primary_default bool)
       on commit drop;")
     
     dbAppendTable(conn,
                   name="_temp_formulas",
-                  value=formulas[,
+                  value=formulas[order(is_primary_default,decreasing =FALSE), #this is important to ensure that the unique constraint on only one primary default is checked last
                                  .(indicator_id,
                                    formula_id,
                                    formula,
@@ -157,7 +156,6 @@ db_indicator_update <- function(pool,
                                    formula_fx_date,
                                    formula_title,
                                    formula_notes,
-                                   formula_unit_set_by_indicator_name,
                                    is_primary_default)])
     
     if (any(formulas$formula_id < 0)) {
@@ -178,7 +176,6 @@ db_indicator_update <- function(pool,
                                            formula_fx_date,
                                            formula_title,
                                            formula_notes,
-                                           formula_unit_set_by_indicator_id,
                                            is_primary_default,
                                            modified_by_user_id)
       select
@@ -190,11 +187,9 @@ db_indicator_update <- function(pool,
         coalesce(NULLIF(tf.formula_fx_date,''),'calculation'),
         coalesce(NULLIF(tf.formula_title,''),'Missing Formula Title'),
         NULLIF(tf.formula_notes,''),
-        ind.indicator_id as formula_unit_set_by_indicator_id,
         coalesce(tf.is_primary_default,false),
         $1::text
       from _temp_formulas tf
-      left join p_rsf.indicators ind on ind.indicator_name = tf.formula_unit_set_by_indicator_name
       on conflict(formula_id)
       do update
       set indicator_id = excluded.indicator_id,
@@ -204,7 +199,6 @@ db_indicator_update <- function(pool,
           formula_fx_date = excluded.formula_fx_date,
           formula_title = excluded.formula_title,
           formula_notes = excluded.formula_notes,
-          formula_unit_set_by_indicator_id = excluded.formula_unit_set_by_indicator_id,
           is_primary_default = excluded.is_primary_default,
           modified_by_user_id = excluded.modified_by_user_id;",
       params=list(user_id))
