@@ -24,7 +24,7 @@ div(style="background-color:white;padding:10px;",
 #################
 ###TAB INDICATORS
 #################
-                  tabPanel("Setup Indicators",
+                  tabPanel("Setup Indicators",value="setup_indicators",
                            fluidRow(column(10,
                                     div(style="display:flex;flex-direction:row;padding-top:5px;",
                                       div(style="padding-left:20px",
@@ -104,7 +104,7 @@ div(style="background-color:white;padding:10px;",
 #############
 ###TAB CHECKS
 #############
-  tabPanel("Setup Checks",
+  tabPanel("Setup Checks",value="setup_checks",
            fluidRow(column(10,
                            div(style="display:flex;flex-direction:row;padding-top:5px;",
                                div(style="padding-left:20px",
@@ -177,7 +177,7 @@ div(style="background-color:white;padding:10px;",
 ###TAB TEMPLATES
 ################
 
-tabPanel("Setup Templates",
+tabPanel("Setup Templates",value="setup_templates",
          fluidRow(column(12,
                          div(style="display:flex;flex-direction:row;padding-top:5px;",
                              div(style="padding-left:20px",
@@ -235,7 +235,7 @@ tabPanel("Setup Templates",
 ###TAB CREATE NEW
 #################
 
-                  tabPanel("Create New...",
+                  tabPanel("Create New...",value="setup_new",
                            fluidRow(column(12,align='left',style='padding-top:10px;padding-bottom:10px;',
                                       div(style="width:100%;display:flex;flex-flow:row wrap",
                                            div(style="width:150px",

@@ -27,7 +27,7 @@ SERVER_SETUP_PROGRAM_ARCHIVE <- eventReactive(c(SELECTED_PROGRAM_ID(),
   facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
   if (any(selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id)) {
     archive_name <- paste0("RSF ARCHIVE for ",
-                           paste0(sort(facilities[rsf_pfcbl_id %in% selected_rsf_pfcbl_id,facility_nickname]),collapse=", ")
+                           paste0(sort(facilities[rsf_pfcbl_id %in% selected_rsf_pfcbl_id,facility_name]),collapse=", ")
                            ,".zip")
     return (list(export_rsf_pfcbl_id=selected_rsf_pfcbl_id,
                  export_name=archive_name,
@@ -92,7 +92,7 @@ output$program_download_setup <- downloadHandler(
     facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
     if (any(selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id)) {
       setup_name <- paste0("RSF SETUP FILE for ",
-                             paste0(sort(facilities[rsf_pfcbl_id %in% selected_rsf_pfcbl_id,facility_nickname]),collapse=", ")
+                             paste0(sort(facilities[rsf_pfcbl_id %in% selected_rsf_pfcbl_id,facility_name]),collapse=", ")
                              ,".xlsx")
     }
     setup_name
@@ -117,7 +117,7 @@ output$program_download_setup <- downloadHandler(
                                                                               "settings",
                                                                               "indicators",
                                                                               "checks",
-                                                                              "guidance",
+                                                                              "config",
                                                                               "actions",
                                                                               "flags",
                                                                               "review"))
@@ -149,7 +149,7 @@ output$program_download_backup <- downloadHandler(
     facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
     if (any(selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id)) {
       setup_name <- paste0("RSF BACKUP DATA FILE for ",
-                           paste0(sort(facilities[rsf_pfcbl_id %in% selected_rsf_pfcbl_id,facility_nickname]),collapse=", ")
+                           paste0(sort(facilities[rsf_pfcbl_id %in% selected_rsf_pfcbl_id,facility_name]),collapse=", ")
                            ," ",
                            format.Date(now(tzone="EST"),"%Y-%m-%d %Hh%M"),
                            ".csv.gz")
@@ -169,7 +169,7 @@ output$program_download_backup <- downloadHandler(
       if (!isTruthy(selected_rsf_pfcbl_id) ||
           !any(selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id)) selected_rsf_pfcbl_id <- program$rsf_pfcbl_id
       
-      backup_export <- DBPOOL %>% export_backup_data_to_csv(rsf_pfcbl_id.familytree=selected_rsf_pfcbl_id,
+      backup_export <- DBPOOL %>% export_backup_data_to_csv(rsf_pfcbl_id.family=selected_rsf_pfcbl_id,
                                                             exporting_user_id=USER_ID())
       
       if (file.exists(file)) {

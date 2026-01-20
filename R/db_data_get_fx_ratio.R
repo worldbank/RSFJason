@@ -25,12 +25,12 @@ db_data_get_fx_ratio <- function(pool,
   #indicator check constraint requires currency_ratio indicators to be defined at global, program or facility level.  Therefore, we can lookup fx values
   #at an entitiy's facility level and save a number of fx conversion loops
   pfcbl_ids.facility <- dbGetQuery(pool,"
-                                   select
-                                    fam.parent_rsf_pfcbl_id as lookup_rsf_pfcbl_id,
-                                    fam.child_rsf_pfcbl_id as rsf_pfcbl_id
-                                   from p_rsf.rsf_pfcbl_id_family fam
-                                   where fam.child_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                     and fam.parent_pfcbl_category = 'facility'",
+                                   select 
+                                    ids.rsf_facility_id as lookup_rsf_pfcbl_id,
+                                    ids.rsf_pfcbl_id
+                                   from p_rsf.rsf_pfcbl_ids ids
+                                   where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+                                     and ids.rsf_facility_id is not null",
                                    params=list(paste0(unique(fx_lookup$rsf_pfcbl_id),collapse=",")))
   
   setDT(pfcbl_ids.facility)  
@@ -417,7 +417,7 @@ db_data_get_fx_ratio <- function(pool,
     #Saving is hard-coded for GLOBAL since only these indicators will self-calculate here
     if (!empty(calc_fx[!is.na(fx_indicator_id)])) {
       calc_dates <- as.character(sort(unique(calc_fx$exchange_rate_date)))
-      
+      #calc_date <- calc_dates[[1]]
       for (calc_date in calc_dates) {
         calc_date <- as.Date(calc_date)
         save_fx <- calc_fx[!is.na(fx_indicator_id) & exchange_rate_date==calc_date]
@@ -451,6 +451,7 @@ db_data_get_fx_ratio <- function(pool,
                                    #ensure no duplicates are passed to db_add_update_data_user() else a stop() error will occur
         
         db_add_update_data_system(pool=pool,
+                                  for_import_id=NA,
                                   system_upload_data=save_fx)
       }
     }

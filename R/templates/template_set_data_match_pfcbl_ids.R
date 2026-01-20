@@ -35,7 +35,8 @@ template_set_data_match_pfcbl_ids <- function(pool,
               on commit drop;")
     dbAppendTable(conn,
                   name="_lookup",
-                  value=lookup[,.(sysid=SYSID,pfcbl_category)])
+                  value=lookup[,
+                               .(sysid=SYSID,pfcbl_category)])
     
     dbExecute(conn,"analyze _lookup")
     
@@ -43,16 +44,14 @@ template_set_data_match_pfcbl_ids <- function(pool,
                select 
                  lk.pfcbl_category,
                  lk.sysid,
-                 fam.parent_rsf_pfcbl_id as rsf_pfcbl_id,
-                 ids.parent_rsf_pfcbl_id
-                 
+                 ft.to_family_rsf_pfcbl_id rsf_pfcbl_id,
+                 (array[0,ids.rsf_program_id,ids.rsf_facility_id,ids.rsf_client_id,ids.rsf_borrower_id,ids.rsf_loan_id])[greatest(ids.pfcbl_category_rank,1)] as parent_rsf_pfcbl_id
                from _lookup lk
-               inner join p_rsf.rsf_pfcbl_id_family fam on fam.child_rsf_pfcbl_id = lk.sysid
-                                                       and fam.parent_pfcbl_category = lk.pfcbl_category
-               inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = fam.parent_rsf_pfcbl_id")
-               #where ids.created_in_reporting_asof_date <= $1::date NO, because pfcbl templates can report into the future
-               #",
-               #params=list(template$reporting_asof_date))
+               inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = lk.sysid
+               inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+               where ft.pfcbl_hierarchy <> 'child' -- ie, self or parent
+                 and ft.to_pfcbl_category = lk.pfcbl_category")
+               
     
   })
   setDT(match_ids)

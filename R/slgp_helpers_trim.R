@@ -1,14 +1,14 @@
-rsf_hash <- function(...) {
-  params <- unlist(lapply(list(...),as.character)) #unlist will convert to base character and thereby convert dates to their integer-days and then interger as string
-                                                   #and thereby cause inconsistancies when hashing date data that is passes in, eg as.Date('2016-08-01') vs '2016-08-01'
-                                                   #so first call as.character on each object for format consistency and then hash
-  if (all(is.na(params))) return (NA)
-  
-  digestion <- paste0(params,collapse="|")
-  hash <- digest(digestion,algo="sha256")
-
-  return (hash)
-}
+# rsf_hash <- function(...) {
+#   params <- unlist(lapply(list(...),as.character)) #unlist will convert to base character and thereby convert dates to their integer-days and then interger as string
+#                                                    #and thereby cause inconsistancies when hashing date data that is passes in, eg as.Date('2016-08-01') vs '2016-08-01'
+#                                                    #so first call as.character on each object for format consistency and then hash
+#   if (all(is.na(params))) return (NA)
+#   
+#   digestion <- paste0(params,collapse="|")
+#   hash <- digest(digestion,algo="sha256")
+# 
+#   return (hash)
+# }
 
 enabled <- function(state,...) { 
   if (state) return(tagList(...))

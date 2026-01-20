@@ -1,4 +1,5 @@
 db_add_update_data_system <- function(pool,
+                                      for_import_id=NA,
                                       system_upload_data,
                                       calculator_user_id=CALCULATIONS_ENVIRONMENT$SYSTEM_CALCULATOR_ACCOUNT)
 {
@@ -14,6 +15,7 @@ db_add_update_data_system <- function(pool,
     stop(paste0("db_add_update_data_system expects system_upload_data to define: ",paste0(expected_cols,collapse=",")))
   }
   
+  #One calculation_asof_date at a time to ensure timeseries pre-requisite effects
   system_upload_data[,n:=.N,
                      by=.(rsf_pfcbl_id,
                           indicator_id)]
@@ -61,11 +63,12 @@ db_add_update_data_system <- function(pool,
                                                                    rsf_pfcbl_id int,
                                                                    indicator_id int,
                                                                    reporting_asof_date date,
-                                                                   reporting_cohort_id int,
                                                                    data_unit text,
                                                                    data_value text,
-                                                                   calculated_cohort_id int,
-                                                                   flagged bool default false)
+                                                                   flagged bool default false,
+                                                                   reporting_rsf_pfcbl_id int,
+                                                                   for_import_id int,
+                                                                   calculated_cohort_id int)
                         ON COMMIT DROP;")
         
         
@@ -84,6 +87,9 @@ db_add_update_data_system <- function(pool,
                           and not exists(select *
                                          from p_rsf.rsf_data_current rdc
                                          where rdc.data_id = usd.current_data_id)")
+        
+        
+      
       }
       
       
@@ -99,14 +105,17 @@ db_add_update_data_system <- function(pool,
         #print(system_upload_data)
         #somehow non-changed data got into the upload... so don't upload it, but do update its validation, ie, report that it's been calculated (with the result equal to the current value)
         #possibly a re-calculation for a flow data type?
+        
+        
         nx <- dbExecute(conn,"
                         with redundancies as  (
                           delete from _temp_upload_system_data usd
-                          where p_rsf.data_value_is_meaningfully_different(usd.rsf_pfcbl_id,
-                                                                           usd.indicator_id,
-                                                                           usd.reporting_asof_date,
-                                                                           usd.data_value,
-                                                                           usd.data_unit) = false
+                          where p_rsf.data_value_is_meaningfully_different2(input_rsf_pfcbl_id => usd.rsf_pfcbl_id,
+                                                      											input_indicator_id => usd.indicator_id,
+                                                      											input_reporting_asof_date => usd.reporting_asof_date,
+                                                      											input_data_value => usd.data_value,
+                                                                            input_data_unit => usd.data_unit,
+                                                                            is_user_reporting => false) = false
                           returning current_data_id,
                                     rsf_pfcbl_id,
                                     indicator_id,
@@ -119,127 +128,265 @@ db_add_update_data_system <- function(pool,
                                       and red.reporting_asof_date = dce.calculation_asof_date)")
         
       
+        dbExecute(conn,"update _temp_upload_system_data usd
+                        set reporting_rsf_pfcbl_id = coalesce(ids.rsf_client_id,ids.rsf_facility_id,ids.rsf_program_id)
+                        from p_rsf.rsf_pfcbl_ids ids
+                        where ids.rsf_pfcbl_id = usd.rsf_pfcbl_id;")
         
-        #Find the most recent reporting cohort that reported an entry for this rsf_pfcbl_id:
+        if (is.na(for_import_id)==FALSE) {
+          #This is primarily to ensure that the Global program maintains relationships to Global import IDs and do not become tied to program-level imports.
+          dbExecute(conn,"
+            update _temp_upload_system_data usd
+            set for_import_id = ri.import_id
+            from p_rsf.reporting_imports ri
+            where ri.import_id = $1::int
+              and exists(select * from p_rsf.rsf_pfcbl_ids ids
+                         where ids.rsf_pfcbl_id = usd.reporting_rsf_pfcbl_id
+                           and ri.import_rsf_pfcbl_id in (ids.rsf_client_id,rsf_facility_id,rsf_program_id))",
+            params=list(for_import_id))
+        }
+        
+        
+        #x <- dbGetQuery(conn,"Select * from _temp_upload_system_data");x
+        #Find the most recent reporting cohort's import_id that reported an entry for this rsf_pfcbl_id:
         #Either this entity reported directly something for this timeline OR 
         #it didn't report anything and it has an entry in rsf_pfcbl_reporting because a child entity reported something.
         #(And if it doesn't have an entry in rsf_pfcbl_reporting then it can't insert calculated results anyway.)
-        dbExecute(conn,"with reporting as MATERIALIZED (
-                          select distinct on(reporting.rsf_pfcbl_id)
-                            reporting.rsf_pfcbl_id,
-                            coalesce(rc.parent_reporting_cohort_id,rc.reporting_cohort_id) as reporting_cohort_id
-                          from (
-                          	select 
-                              usd.rsf_pfcbl_id,
-                              rd.reporting_cohort_id 
-                          	from _temp_upload_system_data usd
-                          	inner join p_rsf.rsf_data rd on rd.rsf_pfcbl_id = usd.rsf_pfcbl_id
-                          															and rd.reporting_asof_date = usd.reporting_asof_date														
-                          	where exists(select * from p_rsf.indicators ind 
-                          							 where ind.indicator_id = rd.indicator_id
-                          								 and ind.indicator_sys_category = 'entity_reporting')
-                          
-                          	union all
-                          
-                          	select 
-                              usd.rsf_pfcbl_id,
-                              rd.reporting_cohort_id 
-                          	from _temp_upload_system_data usd
-                          	inner join p_rsf.rsf_pfcbl_reporting rpr on rpr.rsf_pfcbl_id = usd.rsf_pfcbl_id
-                          																					and rpr.reporting_asof_date = usd.reporting_asof_date
-                          	inner join p_rsf.rsf_data rd on rd.data_id = rpr.created_by_data_id
-                          ) reporting
-                          inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = reporting.reporting_cohort_id
-                          order by 
-                            reporting.rsf_pfcbl_id,
-                            reporting.reporting_cohort_id desc
-                        ),
-                        -- create program cohorts can uniquely nest parent cohorts.
-                        parent_cohorts as (
-                      		select reporting.rsf_pfcbl_id,coalesce(rc.parent_reporting_cohort_id,rc.reporting_cohort_id) as reporting_cohort_id
-                      		from reporting 
-                      		inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = reporting.reporting_cohort_id
-                      	)
-                        update _temp_upload_system_data usd
-                        set reporting_cohort_id = rep.reporting_cohort_id
-                        from parent_cohorts rep
-                        where rep.rsf_pfcbl_id = usd.rsf_pfcbl_id
-                          and exists(select * from p_rsf.reporting_cohorts rc
-                                     where rc.reporting_cohort_id = rep.reporting_cohort_id
-                                       and rc.parent_reporting_cohort_id is NULL);") #ensure it is a parent-level cohort that was selected
-       
-        #x <- dbGetQuery(conn,"select * from _temp_upload_system_data");setDT(x);x
-        dbExecute(conn,"with calculations as  (
-                          select
-                          	usd.rsf_pfcbl_id,
-                          	usd.indicator_id,
-                          	usd.reporting_cohort_id,
-                          	max(rc.reporting_cohort_id) as calculated_cohort_id
-                          from _temp_upload_system_data usd
-                          inner join p_rsf.reporting_cohorts rc on rc.parent_reporting_cohort_id = usd.reporting_cohort_id
-                          where rc.is_calculated_cohort = true -- can ONLY allow calculated cohorts
-                          group by
-                            usd.reporting_cohort_id,
-                            usd.rsf_pfcbl_id,
-                            usd.indicator_id
-                        )
-                        update _temp_upload_system_data usd
-                        set calculated_cohort_id = calcs.calculated_cohort_id
-                        from calculations calcs
-                        where usd.rsf_pfcbl_id = calcs.rsf_pfcbl_id
-                          and usd.indicator_id = calcs.indicator_id
-                          and usd.reporting_cohort_id = calcs.reporting_cohort_id
-                          and not exists(select * from p_rsf.rsf_data rd
-                        	               where rd.rsf_pfcbl_id = calcs.rsf_pfcbl_id
-                        									 and rd.indicator_id = calcs.indicator_id
-                        									 and rd.reporting_cohort_id = calcs.calculated_cohort_id)")
+      
         
-        dbExecute(conn,"
-                  with create_cohorts as (
-                    insert into p_rsf.reporting_cohorts(reporting_asof_date,
-                    																	  reporting_rsf_pfcbl_id,
-                    																		reporting_user_id,
-                    																		reporting_time,
-                    																		data_asof_date,
-                    																		source_name,
-                    																		source_reference,
-                    																		source_note,
-                    																		rsf_program_id,
-                    																		parent_reporting_cohort_id,
-                    																		is_calculated_cohort,
-                    																		is_reported_cohort,
-                    																		is_redundancy_cohort,
-                    																		from_reporting_template_id)
-                    																		
-                    select 
-                      rc.reporting_asof_date,
-                      rc.reporting_rsf_pfcbl_id,
-                      $1::text,
-                      timeofday()::timestamptz as reporting_time,
-                      rc.reporting_asof_date as data_asof_date,
-                      rc.source_name,
-                      'CALCULATIONS COHORT: Created by system' as source_reference,
-                      NULL::text as source_note,
-                      rc.rsf_program_id,
-                      rc.reporting_cohort_id as parent_reporting_cohort_Id,
-                      true as is_calculated_cohort,
-                      false as is_reported_cohort,
-                      false as is_redundancy_cohort,
-                      NULL::int as from_reporting_template_id
-                    from p_rsf.reporting_cohorts rc
-                    where exists(select * from _temp_upload_system_data usd
-                                 where usd.reporting_cohort_id = rc.reporting_cohort_id
-                                   and usd.calculated_cohort_id IS NULL)
-                    returning 
-                      parent_reporting_cohort_id as reporting_cohort_id,
-                      reporting_cohort_id as calculated_cohort_id
-                  )
-                  update _temp_upload_system_data usd
-                  set calculated_cohort_id = cc.calculated_cohort_id
-                  from create_cohorts cc
-                  where cc.reporting_cohort_id = usd.reporting_cohort_id
-                    and usd.calculated_cohort_id is null;",
-                  params=list(calculator_user_id))
+          dbExecute(conn,"
+            with cohort_imports as (
+              select distinct
+                calc.reporting_asof_date,
+                calc.reporting_rsf_pfcbl_id,
+                cohort.import_id
+              from (select distinct 
+                    usd.reporting_asof_date,
+                    usd.reporting_rsf_pfcbl_id 
+                    from _temp_upload_system_data usd
+                    where usd.for_import_id is NULL) calc
+              inner join lateral (select rc.import_id
+                                  from p_rsf.reporting_cohorts rc
+                                  where rc.reporting_rsf_pfcbl_id = calc.reporting_rsf_pfcbl_id
+                                    and rc.reporting_asof_date <= calc.reporting_asof_date
+                                    and rc.import_id is not null -- should never be NULL 
+                                  order by
+                                    rc.reporting_asof_date desc
+                                  limit 1) as cohort on true
+            )
+            update _temp_upload_system_data usd
+            set for_import_id = ci.import_id
+            from cohort_imports ci
+            where usd.for_import_id is NULL
+              and ci.reporting_rsf_pfcbl_id = usd.reporting_rsf_pfcbl_id
+              and ci.reporting_asof_date = usd.reporting_asof_date")
+            
+          x <- dbGetQuery(conn,"select exists(select * from _temp_upload_system_data where for_import_id is NULL)::bool as blank");
+          if (any(unlist(x),na.rm=T)) {
+            
+            
+            dbExecute(conn,"
+                            with new_imports as (
+                              insert into p_rsf.reporting_imports(import_rsf_pfcbl_id,
+                                                                  import_pfcbl_category,
+                                                                  import_user_id,
+                                                                  import_time,
+                                                                  import_completed,
+                                                                  reporting_asof_date,
+                                                                  template_id,
+                                                                  file_name,
+                                                                  file_data,
+                                                                  is_finalized,
+                                                                  import_comments,
+                                                                  pfcbl_name)
+                              select distinct
+                              ids.rsf_program_id as import_rsf_pfcbl_id,
+                              ids.pfcbl_category as import_pfcbl_category,
+                              $1::text as import_user_id,
+                              timeofday()::timestamptz as import_time,
+                              true as import_completed,
+                              calcs.reporting_asof_date,
+                              (select rt.template_id from p_rsf.reporting_templates rt where template_name='PFCBL-EDITOR-TEMPLATE') as template_id,
+                              'SYSTEM CALCULATOR' as file_name,
+                              ''::bytea as file_data,
+                              true as is_finalized,
+                              'System auto-generated entry for calculator due to lack of import present on current calculation timeline' as import_comments,
+                              sn.pfcbl_name as pfcbl_name
+                              from (select distinct usd.rsf_pfcbl_id,usd.reporting_asof_date from _temp_upload_system_data usd where usd.for_import_id is NULL) as calcs
+                              inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = calcs.rsf_pfcbl_id
+                              inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ids.rsf_program_id
+                              returning import_id,reporting_asof_date,import_rsf_pfcbl_id
+                            )
+                            update _temp_upload_system_data usd
+                            set for_import_id = ni.import_id
+                            from new_imports ni
+                            inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_program_id = ni.import_rsf_pfcbl_id
+                            where usd.for_import_id IS NULL
+                              and usd.rsf_pfcbl_id = ids.rsf_pfcbl_id
+                              and usd.reporting_asof_date = ni.reporting_asof_date
+                            ",params=list(calculator_user_id));
+            
+          }
+          
+          dbExecute(conn,"
+            with cohorts as (
+              insert into p_rsf.reporting_cohorts(import_id,
+                                                  reporting_rsf_pfcbl_id,
+                                                  reporting_asof_date,                                    
+                                                  reporting_user_id,
+                                                  reporting_time,
+                                                  reporting_type,
+                                                  is_reported_cohort,
+                                                  is_calculated_cohort,
+                                                  data_asof_date)
+                select 
+                ci.for_import_id,
+                ci.reporting_rsf_pfcbl_id,
+                ci.reporting_asof_date,
+                $1::text as reporting_user_id,
+                TIMEOFDAY()::timestamptz as reporting_time,
+                2 as reporting_type, -- 2=Calculated data
+                false as is_reported_cohort,
+                true as is_calculated_cohort,
+                ci.reporting_asof_date as data_asof_date
+                from (select distinct
+                      usd.for_import_id,
+                      usd.reporting_rsf_pfcbl_id,
+                      usd.reporting_asof_date
+                      from _temp_upload_system_data usd) ci
+                returning 
+                  reporting_cohorts.reporting_cohort_id,
+                  reporting_cohorts.import_id,
+                  reporting_cohorts.reporting_rsf_pfcbl_id,
+                  reporting_cohorts.reporting_asof_date
+            )
+            update _temp_upload_system_data usd
+            set calculated_cohort_id = cohorts.reporting_cohort_id
+            from cohorts
+            where usd.for_import_id = cohorts.import_id
+              and usd.reporting_rsf_pfcbl_id = cohorts.reporting_rsf_pfcbl_id
+              and usd.reporting_asof_date = cohorts.reporting_asof_date
+              and usd.calculated_cohort_id is null",
+          params=list(calculator_user_id))
+     
+        
+        # 
+        # dbExecute(conn,"with reporting as MATERIALIZED (
+        #                   select distinct on(reporting.rsf_pfcbl_id)
+        #                     reporting.rsf_pfcbl_id,
+        #                     coalesce(rc.parent_reporting_cohort_id,rc.reporting_cohort_id) as reporting_cohort_id
+        #                   from (
+        #                   	select 
+        #                       usd.rsf_pfcbl_id,
+        #                       rd.reporting_cohort_id 
+        #                   	from _temp_upload_system_data usd
+        #                   	inner join p_rsf.rsf_data rd on rd.rsf_pfcbl_id = usd.rsf_pfcbl_id
+        #                   															and rd.reporting_asof_date = usd.reporting_asof_date														
+        #                   	where exists(select * from p_rsf.indicators ind 
+        #                   							 where ind.indicator_id = rd.indicator_id
+        #                   								 and ind.indicator_sys_category = 'entity_reporting')
+        #                   
+        #                   	union all
+        #                   
+        #                   	select 
+        #                       usd.rsf_pfcbl_id,
+        #                       rd.reporting_cohort_id 
+        #                   	from _temp_upload_system_data usd
+        #                   	inner join p_rsf.rsf_pfcbl_reporting rpr on rpr.rsf_pfcbl_id = usd.rsf_pfcbl_id
+        #                   																					and rpr.reporting_asof_date = usd.reporting_asof_date
+        #                   	inner join p_rsf.rsf_data rd on rd.data_id = rpr.created_by_data_id
+        #                   ) reporting
+        #                   inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = reporting.reporting_cohort_id
+        #                   order by 
+        #                     reporting.rsf_pfcbl_id,
+        #                     reporting.reporting_cohort_id desc
+        #                 ),
+        #                 -- create program cohorts can uniquely nest parent cohorts.
+        #                 parent_cohorts as (
+        #               		select reporting.rsf_pfcbl_id,coalesce(rc.parent_reporting_cohort_id,rc.reporting_cohort_id) as reporting_cohort_id
+        #               		from reporting 
+        #               		inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = reporting.reporting_cohort_id
+        #               	)
+        #                 update _temp_upload_system_data usd
+        #                 set reporting_cohort_id = rep.reporting_cohort_id
+        #                 from parent_cohorts rep
+        #                 where rep.rsf_pfcbl_id = usd.rsf_pfcbl_id
+        #                   and exists(select * from p_rsf.reporting_cohorts rc
+        #                              where rc.reporting_cohort_id = rep.reporting_cohort_id
+        #                                and rc.parent_reporting_cohort_id is NULL);") #ensure it is a parent-level cohort that was selected
+        # 
+        # #x <- dbGetQuery(conn,"select * from _temp_upload_system_data");setDT(x);x
+        # dbExecute(conn,"with calculations as  (
+        #                   select
+        #                   	usd.rsf_pfcbl_id,
+        #                   	usd.indicator_id,
+        #                   	usd.reporting_cohort_id,
+        #                   	max(rc.reporting_cohort_id) as calculated_cohort_id
+        #                   from _temp_upload_system_data usd
+        #                   inner join p_rsf.reporting_cohorts rc on rc.parent_reporting_cohort_id = usd.reporting_cohort_id
+        #                   where rc.is_calculated_cohort = true -- can ONLY allow calculated cohorts
+        #                   group by
+        #                     usd.reporting_cohort_id,
+        #                     usd.rsf_pfcbl_id,
+        #                     usd.indicator_id
+        #                 )
+        #                 update _temp_upload_system_data usd
+        #                 set calculated_cohort_id = calcs.calculated_cohort_id
+        #                 from calculations calcs
+        #                 where usd.rsf_pfcbl_id = calcs.rsf_pfcbl_id
+        #                   and usd.indicator_id = calcs.indicator_id
+        #                   and usd.reporting_cohort_id = calcs.reporting_cohort_id
+        #                   and not exists(select * from p_rsf.rsf_data rd
+        #                 	               where rd.rsf_pfcbl_id = calcs.rsf_pfcbl_id
+        #                 									 and rd.indicator_id = calcs.indicator_id
+        #                 									 and rd.reporting_cohort_id = calcs.calculated_cohort_id)")
+        # 
+        # dbExecute(conn,"
+        #           with create_cohorts as (
+        #             insert into p_rsf.reporting_cohorts(reporting_asof_date,
+        #             																	  reporting_rsf_pfcbl_id,
+        #             																		reporting_user_id,
+        #             																		reporting_time,
+        #             																		data_asof_date,
+        #             																		source_name,
+        #             																		source_reference,
+        #             																		source_note,
+        #             																		rsf_program_id,
+        #             																		parent_reporting_cohort_id,
+        #             																		is_calculated_cohort,
+        #             																		is_reported_cohort,
+        #             																		is_redundancy_cohort,
+        #             																		from_reporting_template_id)
+        #             																		
+        #             select 
+        #               rc.reporting_asof_date,
+        #               rc.reporting_rsf_pfcbl_id,
+        #               $1::text,
+        #               timeofday()::timestamptz as reporting_time,
+        #               rc.reporting_asof_date as data_asof_date,
+        #               rc.source_name,
+        #               'CALCULATIONS COHORT: Created by system' as source_reference,
+        #               NULL::text as source_note,
+        #               rc.rsf_program_id,
+        #               rc.reporting_cohort_id as parent_reporting_cohort_Id,
+        #               true as is_calculated_cohort,
+        #               false as is_reported_cohort,
+        #               false as is_redundancy_cohort,
+        #               NULL::int as from_reporting_template_id
+        #             from p_rsf.reporting_cohorts rc
+        #             where exists(select * from _temp_upload_system_data usd
+        #                          where usd.reporting_cohort_id = rc.reporting_cohort_id
+        #                            and usd.calculated_cohort_id IS NULL)
+        #             returning 
+        #               parent_reporting_cohort_id as reporting_cohort_id,
+        #               reporting_cohort_id as calculated_cohort_id
+        #           )
+        #           update _temp_upload_system_data usd
+        #           set calculated_cohort_id = cc.calculated_cohort_id
+        #           from create_cohorts cc
+        #           where cc.reporting_cohort_id = usd.reporting_cohort_id
+        #             and usd.calculated_cohort_id is null;",
+        #           params=list(calculator_user_id))
       }
     
       {

@@ -1,19 +1,6 @@
 db_program_get_stale_checks <- function(pool,
-                                        rsf_program_id,
-                                        rsf_pfcbl_id.family=NULL,
+                                        rsf_pfcbl_id.family,
                                         limit_future=today()) {
-  
-  rsf_program_id <- suppressWarnings(as.numeric(rsf_program_id))
-  if (is.na(rsf_program_id)) stop("Bad rsf program_id")
-  if (is.null(rsf_pfcbl_id.family) || all(is.na(rsf_pfcbl_id.family)) || length(rsf_pfcbl_id.family)==0) {
-    rsf_pfcbl_id.family <- dbGetQuery(pool,"
-                                           select ids.rsf_pfcbl_id 
-                                           from p_rsf.rsf_pfcbl_ids ids
-                                           where ids.rsf_program_id = $1::int
-                                             and ids.pfcbl_category = 'program';",
-                                       params=list(rsf_program_id))
-    rsf_pfcbl_id.family <- unique(unlist(rsf_pfcbl_id.family))
-  }
   
   if (length(rsf_pfcbl_id.family)==0) stop("Invalid request")
   if (length(limit_future)==0) limit_future <- NA
@@ -136,7 +123,6 @@ db_program_get_stale_checks <- function(pool,
               computation_group)]
   
   checks[,rsf_pfcbl_id.family:=rsf_pfcbl_id.family]
-  checks[,rsf_program_id:=rsf_program_id]
   if(SYS_PRINT_TIMING) debugtime("rsf_program_get_stale_checks","Done!",format(Sys.time()-t1)," with ",checks$check_group[length(checks$check_group)]," GROUPS")
   
   return(checks)

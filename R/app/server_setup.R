@@ -132,7 +132,7 @@ observeEvent(SELECTED_PROGRAM_FACILITIES_LIST(), {
     select <- setNames(c(program$rsf_pfcbl_id,
                          facilities$rsf_pfcbl_id),
                        c(program_name,
-                         paste0("facility:",facilities$facility_nickname)))
+                         paste0("facility:",facilities$facility_name)))
   } else {
     select <- setNames(program$rsf_pfcbl_id,
                        program_name)
@@ -202,7 +202,7 @@ output$server_setup_download_archive_title <- renderText({
   
   message <- "Select Program or Facility"
   if (selected_rsf_pfcbl_id %in% program$rsf_pfcbl_id) message <- "Program Zip Archive"
-  else if (selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id) message <- paste0(facilities[rsf_pfcbl_id==selected_rsf_pfcbl_id,facility_nickname],
+  else if (selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id) message <- paste0(facilities[rsf_pfcbl_id==selected_rsf_pfcbl_id,facility_name],
                                                                                  " Zip Archive")
   return (message)
 })
@@ -218,7 +218,7 @@ output$server_setup_download_setup_title <- renderText({
   
   message <- "Select Program or Facility"
   if (selected_rsf_pfcbl_id %in% program$rsf_pfcbl_id) message <- "Program Setup File"
-  else if (selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id) message <- paste0(facilities[rsf_pfcbl_id==selected_rsf_pfcbl_id,facility_nickname],
+  else if (selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id) message <- paste0(facilities[rsf_pfcbl_id==selected_rsf_pfcbl_id,facility_name],
                                                                                  " Setup File")
   return (message)
   
@@ -235,7 +235,7 @@ output$server_setup_download_backup_title <- renderText({
   
   message <- "Select Program or Facility"
   if (selected_rsf_pfcbl_id %in% program$rsf_pfcbl_id) message <- "Program Backup Data"
-  else if (selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id) message <- paste0(facilities[rsf_pfcbl_id==selected_rsf_pfcbl_id,facility_nickname],
+  else if (selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id) message <- paste0(facilities[rsf_pfcbl_id==selected_rsf_pfcbl_id,facility_name],
                                                                                  " Backup Data")
   return (message)
   

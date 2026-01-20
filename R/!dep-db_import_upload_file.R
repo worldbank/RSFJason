@@ -1,4 +1,4 @@
-db_cohort_upload_file <- function(pool,
+db_import_upload_file <- function(pool,
                                   file_path,
                                   reporting_cohort_id)
 {

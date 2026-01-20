@@ -6,6 +6,12 @@ parse_template_rsf_setup <- function(pool,
                                      omit.missing=TRUE) {
   
   template_FORMAT <- NULL
+  reporting_flags <- data.table(rsf_pfcbl_id=numeric(0),
+                                indicator_id=numeric(0),
+                                reporting_asof_date=as.Date(numeric(0)),
+                                check_name=character(0),
+                                check_message=character(0))
+  
   
   #template$setup_data
   {
@@ -46,6 +52,7 @@ parse_template_rsf_setup <- function(pool,
       template$setup_data <- table_data
     }
   }
+  
   
   #setups 
   {
@@ -123,17 +130,29 @@ parse_template_rsf_setup <- function(pool,
 
     if (!empty(bad_indicators)) {
       bad_indicators[,
-                     message:=paste0(indicator_name," (",
-                                     indicator_id,
-                                     ifelse(is.na(current_name),
-                                            " is undefined/deleted",
-                                            paste0(" is now '",current_name,"'")),")")]
+                     `:=`(rsf_pfcbl_id=as.numeric(NA),
+                          indicator_id=as.numeric(NA),
+                          reporting_asof_date=as.Date(NA),
+                          check_name="sys_flag_indicator_not_monitored",
+                          check_message=paste0("Setup file specifies '",indicator_name,"' (",indicator_id,") but this metric",
+                                               ifelse(is.na(current_name),
+                                                      " is undefined/deleted",
+                                                      paste0(" is now '",current_name,"'"))))]
       
-      stop(paste0("The setup file defines the following indicators, which are NOT defined in the database.\n",
-                  "Perhaps the indicator names have been changed (or deleted) since the file was generated?\n",
-                  "If so, review the current master list and revise the upload file accordingly.\n",
-                  "Bad indicators: ",
-                  paste0(bad_indicators$message,collapse=", \n")))
+      
+     reporting_flags <- rbindlist(list(reporting_flags,
+                                       bad_indicators[,.(rsf_pfcbl_id,
+                                                         indicator_id,
+                                                         reporting_asof_date,
+                                                         check_name,
+                                                         check_message)]))
+     
+
+      # stop(paste0("The setup file defines the following indicators, which are NOT defined in the database.\n",
+      #             "Perhaps the indicator names have been changed (or deleted) since the file was generated?\n",
+      #             "If so, review the current master list and revise the upload file accordingly.\n",
+      #             "Bad indicators: ",
+      #             paste0(bad_indicators$message,collapse=", \n")))
     }
   }  
   
@@ -190,6 +209,7 @@ parse_template_rsf_setup <- function(pool,
       template$cohort_pfcbl_id <- as.numeric(exists$rsf_pfcbl_id)
       template$rsf_program_id <- as.numeric(exists$rsf_program_id)
       
+    
     } else {
       
       required <- rsf_indicators[data_category=="program" & is_setup=="required",
@@ -231,9 +251,9 @@ parse_template_rsf_setup <- function(pool,
       
       inception_date <- as.Date(inception_date)
       
-      
-      
       new_program <- db_program_create(pool=pool,
+                                       template_id=template$template_id,
+                                       rsf_indicators=rsf_indicators,
                                        program_name=name,
                                        program_nickname=nickname,
                                        program_inception_date=inception_date,
@@ -242,43 +262,11 @@ parse_template_rsf_setup <- function(pool,
                                        program_reporting_frequency="quarter",
                                        source_name=basename(template_file))
 
-      template$cohort_pfcbl_id <- as.numeric(new_program$rsf_pfcbl_id)
-      template$rsf_program_id <- as.numeric(new_program$rsf_program_id)
-      template$linked_reporting_cohort_id <- as.numeric(new_program$linked_reporting_cohort_id)
+      template$cohort_pfcbl_id <- as.numeric(new_program$reporting_rsf_pfcbl_id)
     }
   }
   
-  #WIDE TO LONG
-  {
-    # if (template_FORMAT=="LONG") {
-    #   name_family <- unique(tdata[,.(SYSNAME)])
-    #   name_family[,names_list:=strsplit(SYSNAME,
-    #                                            split=">",
-    #                                            fixed=T)]
-    #   name_family[,names_members:=sapply(names_list,length)]
-    #   name_family[,
-    #               `:=`(parent_pfcbl_name=as.character(NA),
-    #                    pfcbl_name=as.character(NA))]
-    #   name_family[names_members==1,pfcbl_name:=trimws(SYSNAME)]
-    # 
-    #   name_family[names_members >1,
-    #               `:=`(pfcbl_name=trimws(mapply(FUN='[[',names_list,names_members)),
-    #                    parent_pfcbl_name=trimws(mapply(FUN='[[',names_list,names_members-1)))]
-    #   name_family[,
-    #               pfcbl_category:=gsub(":.*$","",pfcbl_name)]
-    # 
-    #   
-    #   pfcbl_ranks <- dbGetQuery(pool,"select pfcbl_category,pfcbl_rank from p_rsf.rsf_pfcbl_categories")
-    #   setDT(pfcbl_ranks)
-    #   name_family[pfcbl_ranks,
-    #               pfcbl_rank:=i.pfcbl_rank,
-    #               on=.(pfcbl_category)]
-    #   name_data <- name_family[pfcbl_rank==min(name_family$pfcbl_rank),
-    #                            .(parent_pfcbl_name,
-    #                              pfcbl_name)]
-    # } 
-  }
-
+  
   #lookup the SYSNAME but also if the ID indicator and value are submitted, then also look up by ID
   lookups <- rbindlist(list(tdata[rsf_indicators[indicator_sys_category=="id",.(indicator_id)],
                        .(sys_name=SYSNAME,
@@ -362,16 +350,7 @@ parse_template_rsf_setup <- function(pool,
         on=.(SYSNAME=sys_name)]
 
   if (anyNA(tdata$SYSID)) {
-    
-    # sys_names <- unique(tdata[,.(SYSNAME)])
-    # sys_names <- sys_names[,
-    #                        name_elements:=strsplit(SYSNAME,
-    #                                                split=">",
-    #                                                fixed=T)]
-    # 
-    # sys_names[,
-    #           program_name:=trimws(sapply(name_elements,'[[',1))]
-    # 
+   
     #A negative value will prompt template_process to assign "new" action to each of these entities
     #However, parent-child relationships must also be established.
     tdata[is.na(SYSID),
@@ -409,7 +388,7 @@ parse_template_rsf_setup <- function(pool,
   if (omit.missing==TRUE) {
     tdata <- tdata[grepl("^\\{MISSING\\}$",value,ignore.case = TRUE)==FALSE]
   }
-  
+ 
   tdata[,reporting_submitted_data_formula:=as.character(NA)]
   template$template_data <- tdata[,.(SYSID,
                                      reporting_template_row_group,
@@ -421,6 +400,7 @@ parse_template_rsf_setup <- function(pool,
   
   template$template_ids_method <- "pfcbl_id"
   template$template_source_reference <- "RSF PROGRAM UPDATE"
-  
+  template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
+                                                   reporting_flags))
   return (template)
 }

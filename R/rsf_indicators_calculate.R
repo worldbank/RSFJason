@@ -457,6 +457,9 @@ rsf_indicators_calculate <- function(pool,
         
         #This will ignore timeseries .all parameters
         #is that okay?
+        #nofx is to default the currency unit to the parameter currency.  
+        #Eg, calculation is: X% rate * Fee will yield the output value in the same currency as the fee.
+        #But this also necessitates that all the parameter(s) have the same currency unit(s).  Else it's ambiguous.
         if (calculation$formula_fx_date=="nofx") {
           unit_cols <- parameters[for_fx==TRUE & grepl("unit$",parameter_variable),parameter_column_name]
           
@@ -470,6 +473,8 @@ rsf_indicators_calculate <- function(pool,
                                    value.name="unit",
                                    variable.factor = F,
                                    value.factor = F)
+          
+          #Make sure that the parameter currency units are consistent to ensure the output calculation result currency is consistent
           nofx_units <- unique(nofx_units[,.(grouping,rsf_pfcbl_id,unit)])
           
           nofx_units <- nofx_units[,
@@ -478,9 +483,12 @@ rsf_indicators_calculate <- function(pool,
                            units=list(unique(unit))),
                          by=.(grouping,rsf_pfcbl_id)]
           
+          #because we KNOW they are all the same units,
+          #the unit re-assignment occurs below after the calculation result.
           if (any(nofx_units$unit_n != 1)) {
             bad_units <- nofx_units[unit_n != 1]
             
+            #add a flag and also enforce the output currency to something...Below unit will be == 1 (whatever is first)
             for(id in unique(bad_units$rsf_pfcbl_id)) {
               add_data_flag(rsf_pfcbl_id = id,
                             indicator_id=calculation$calculate_indicator_id,
@@ -491,16 +499,28 @@ rsf_indicators_calculate <- function(pool,
                                                  ".  Calculation is defaulting to calculate FX in ",
                                                  calculation$calculate_indicator_data_unit," values. Verify results"),
                             formula_id=calculation$formula_id)
+              
+              
             }
             
             #next;
           }
           
+          
           nofx_units <- nofx_units[unit_n==1,
                                    .(grouping,
                                      rsf_pfcbl_id,
                                      nofx_unit)]
-        
+          
+          #What if the calculation hasn't defined its parameters?  Then the currency unit will be NA 
+          #Presumably this will return a zero/NA value since the required input parameter(s) are missing.  And perhaps trigger flags elsewhere.
+          #But we should ensure we know what the currency requirement is and so default to LCU
+          nofx_units[is.na(nofx_unit),
+                     nofx_unit:="LCU"]
+          
+          
+          #Since all parameter currencies must be the same, this clause is separate from else {} below as there cannot be any need for a currency
+          #conversion among the parameters (and we don't want the default conversion to local currency unit if it's different than the parameter units)
         
         } else {
           

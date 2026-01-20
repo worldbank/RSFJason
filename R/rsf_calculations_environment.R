@@ -2,8 +2,8 @@
 {
   CALCULATIONS_ENVIRONMENT <- new_environment(data=append(list(expr=expr,            #rlang
                                                                sym=sym,              #rlang
-                                                               dots_list=dots_list,  #rlang
-                                                               rsf_hash=rsf_hash),
+                                                               dots_list=dots_list  #rlang
+                                                               ),
                                                           append(mget(ls(envir = pkg_env("lubridate")),pkg_env("lubridate")),
                                                                  append(mget(ls(envir = pkg_env("data.table")),pkg_env("data.table")),
                                                                         append(mget(ls(envir = pkg_env("stringr")),pkg_env("stringr")),
@@ -200,6 +200,26 @@
            
          })
   
+  
+  assign(x="remap",
+         envir=CALCULATIONS_ENVIRONMENT,
+         pos=0,
+         value=function(map_data,
+                        mapset_from,
+                        mapset_to,
+                        sep=",") {
+           mapset_from <- tolower(trimws(strsplit(mapset_from,sep,fixed=T)[[1]]))
+           mapset_to <- tolower(trimws(strsplit(mapset_to,sep,fixed=T)[[1]]))
+           
+           if (length(mapset_from) != length(mapset_to)) stop(paste0("remap must have equal-length sets: FROM={",paste0(mapset_from,collapse=","),
+                                                              "} TO={",
+                                                              paste0(mapset_to,collapse=","),"} (split using sep='",sep,"')"))
+           
+           map_data <- tolower(trimws(as.character(map_data)))
+           matches<-match(map_data,mapset_from,nomatch=NA_character_)
+           mapset_to[matches]
+           
+         })
   
   assign(x="sum",
          envir=CALCULATIONS_ENVIRONMENT,
@@ -796,7 +816,7 @@
                        from ARL.FX_ACTIVE_DAILY2
                        where CURRENCY_CODE = '{to_code}'
                          and EXCHANGE_RATE_DATE <= '{exchange_rate_date}'
-                       order by DATETIME_STAMP desc
+                       order by EXCHANGE_RATE_DATE desc, DATETIME_STAMP desc
                        limit 1
                       "))
         
@@ -811,7 +831,7 @@
                        from ARL.FX_ACTIVE_DAILY2
                        where CURRENCY_CODE = '{from_code}'
                          and EXCHANGE_RATE_DATE <= '{exchange_rate_date}'
-                       order by DATETIME_STAMP desc
+                       order by EXCHANGE_RATE_DATE desc, DATETIME_STAMP desc
                        limit 1
                       "))
         
@@ -828,7 +848,7 @@
                        from ARL.FX_ACTIVE_DAILY2
                        where CURRENCY_CODE = '{to_code}'
                          and EXCHANGE_RATE_DATE <= '{exchange_rate_date}'
-                       order by DATETIME_STAMP desc
+                       order by EXCHANGE_RATE_DATE desc, DATETIME_STAMP desc
                        limit 1) from_code
                                
                        union all
@@ -841,7 +861,7 @@
                        from ARL.FX_ACTIVE_DAILY2
                        where CURRENCY_CODE = '{from_code}'
                          and EXCHANGE_RATE_DATE <= '{exchange_rate_date}'
-                       order by DATETIME_STAMP desc
+                       order by EXCHANGE_RATE_DATE desc, DATETIME_STAMP desc
                        limit 1) to_code
                       "))
         

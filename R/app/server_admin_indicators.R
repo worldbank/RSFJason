@@ -73,7 +73,7 @@ SERVER_ADMIN_INDICATORS_DO_RECALCULATE <- function(rsf_pfcbl_ids=NA,
     if (reset==TRUE) {
       all_ids <- DBPOOL %>% dbGetQuery("
         select pfi.rsf_pfcbl_id
-        from p_rsf.rsf_program_facility_indicators pfi 
+        from p_rsf.rsf_setup_indicators pfi 
         where pfi.is_subscribed = true
           and pfi.indicator_id = $1::int",
       params=list(indicator_id))
@@ -208,8 +208,7 @@ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR <- eventReactive(c(RSF_INDICAT
         indf.formula_notes,
         ind.is_system,
         ind.indicator_name,
-        --ind.is_periodic_or_flow_reporting,
-        exists(select * from p_rsf.rsf_program_facility_indicators pfi
+        exists(select * from p_rsf.rsf_setup_indicators pfi
                where pfi.formula_id = indf.formula_id) as is_applied
       
       from p_rsf.indicator_formulas indf
@@ -793,7 +792,7 @@ observeEvent(input$server_admin_indicators__save_indicator, {
       LOAD_SYSTEM_INDICATOR(indicator$indicator_id)
     }
       
-    monitoring <- DBPOOL %>% dbGetQuery("select exists(select * from p_rsf.rsf_program_facility_indicators pfi
+    monitoring <- DBPOOL %>% dbGetQuery("select exists(select * from p_rsf.rsf_setup_indicators pfi
                                                        where pfi.indicator_id = $1::int)::bool as monitored",
                                         params=list(indicator$indicator_id))
     monitoring <- unlist(monitoring)
@@ -1221,7 +1220,7 @@ output$admin_system_edit_indicator <- renderUI({
       coalesce(pfi.is_subscribed,false) as is_subscribed
     from p_rsf.rsf_pfcbl_ids ids
     inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
-    left join p_rsf.rsf_program_facility_indicators pfi on pfi.rsf_pfcbl_id = ids.rsf_pfcbl_id
+    left join p_rsf.rsf_setup_indicators pfi on pfi.rsf_pfcbl_id = ids.rsf_pfcbl_id
     																									 and pfi.indicator_id = $1::int
     where ids.pfcbl_category in ('global','program')",
     params=list(indicator$indicator_id))

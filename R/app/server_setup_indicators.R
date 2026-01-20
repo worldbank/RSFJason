@@ -16,27 +16,27 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
     
   monitored_indicators <- DBPOOL %>% dbGetQuery("
     select 
-      fis.*,
+      sis.*,
       indf.formula_title,
       indf.is_primary_default,
       coalesce(has.reported,false) as has_reported,
-      case when fis.is_auto_subscribed = true then NULL::bool
-           else fis.is_subscribed end
+      case when sis.is_auto_subscribed = true then NULL::bool
+           else sis.is_subscribed end
       as user_subscription,
-      ifv.indicator_id is NOT NULL as calculation_has_variety,
-      fis.formula_calculation_unit
-    from p_rsf.view_rsf_program_facility_indicator_subscriptions fis
-    left join p_rsf.indicator_formulas indf on indf.formula_id = fis.formula_id
-    left join p_rsf.view_rsf_program_facility_indicator_formula_variety ifv on ifv.indicator_id = fis.indicator_id
+      (formulas.num >= 2) OR (formulas.num > 0 AND sis.formula_id is NULL) as calculation_has_variety,
+      sis.formula_calculation_unit
+    from p_rsf.view_rsf_setup_indicator_subscriptions sis
+    left join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
+    left join lateral (select count(*) num from p_rsf.indicator_formulas indf where indf.indicator_id = sis.indicator_id) as formulas on true
     left join lateral (select exists(select * from p_rsf.view_rsf_pfcbl_id_family_tree ft
                                      inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-                                     where ft.from_rsf_pfcbl_id = fis.rsf_pfcbl_id
-                                       and rdc.indicator_id = fis.indicator_id
+                                     where ft.from_rsf_pfcbl_id = sis.rsf_pfcbl_id
+                                       and rdc.indicator_id = sis.indicator_id
                                        and rdc.data_value is NOT NULL) as reported) as has on true
-    where fis.rsf_pfcbl_id = $1::int
-      and fis.is_system = false
-      and fis.setting_allowed is true
-    order by fis.data_category_rank,fis.indicator_name",
+    where sis.rsf_pfcbl_id = $1::int
+      and sis.is_system_indicator is false
+      and sis.filter_category_manager is true
+    order by sis.data_category_rank,sis.indicator_name",
     params=list(selected_rsf_pfcbl_id))
                                                   
   setDT(monitored_indicators)
@@ -55,7 +55,7 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
                                                     indicator_name=indicator_name,
                                                     data_category=data_category,
                                                     data_type=data_type,
-                                                    is_system=is_system,
+                                                    is_system=is_system_indicator,
                                                     is_calculated=is_calculated,
                                                     is_subscribed=is_subscribed,
                                                     user_subscription=user_subscription,
@@ -87,7 +87,7 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
                                                                      is_primary_default==FALSE,"customformula",
                                                                      default="none"),
                                                  data_type=data_type,
-                                                 is_system=is_system,
+                                                 is_system=is_system_indicator,
                                                  is_calculated=TRUE,
                                                  is_subscribed=is_subscribed,
                                                  id=formula_html_id)]
@@ -216,10 +216,10 @@ SERVER_SETUP_INDICATORS_LIST_FILTERED <- eventReactive(c(SERVER_SETUP_INDICATORS
     
     setup_data <- DBPOOL %>% dbGetQuery("
       select 
-        ids.rsf_facility_id as rsf_pfcbl_id,
+        sis.rsf_pfcbl_id,
         ids.rsf_pfcbl_id as edit_rsf_pfcbl_id,
-        fis.indicator_id,
-        fis.is_calculated is false and pfcbl_category = 'facililty' as is_editable,
+        sis.indicator_id,
+        sis.is_calculated is false as is_editable,
         ids.created_in_reporting_asof_date,
         case when rdc.data_id is NULL then '{MISSING}'
              when rdc.data_value is NULL then '{NOTHING}'
@@ -227,42 +227,23 @@ SERVER_SETUP_INDICATORS_LIST_FILTERED <- eventReactive(c(SERVER_SETUP_INDICATORS
         		 else rdc.data_value end as data_value_text,
         rdc.data_id
         
-        from p_rsf.view_rsf_program_facility_indicator_subscriptions fis 
-        inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = fis.rsf_pfcbl_id
-                                                         and ft.to_pfcbl_category = fis.data_category
+        from p_rsf.view_rsf_setup_indicator_subscriptions sis 
+        inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = sis.rsf_pfcbl_id
+                                                         and ft.to_pfcbl_category = sis.data_category
+                                                         and ft.to_pfcbl_rank <= 3 -- children only up to client (but could in theory return 2+ clients!)
+                                                         and ft.pfcbl_hierarchy in ('self','child')
         inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id                                                         
-        left join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                            and rdc.indicator_id = fis.indicator_id
-                                            and rdc.reporting_asof_date = ids.created_in_reporting_asof_date
-      where fis.rsf_pfcbl_id = $1::int
-        and ft.from_pfcbl_category = 'facility'
-      	and fis.data_category in ('client','facility')
-        and ft.pfcbl_hierarchy in ('self','child')
-        and ft.to_pfcbl_category = fis.data_category",
+        left join lateral (select rdc.data_value,rdc.data_unit,rdc.data_id
+                           from p_rsf.rsf_data_current rdc 
+                           where rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
+                             and rdc.indicator_id = sis.indicator_id
+                           order by rdc.reporting_asof_date desc
+                           limit 1) as rdc on true
+      where sis.rsf_pfcbl_id = $1::int
+        and sis.filter_category_manager is true",
       params=list(selected_rsf_pfcbl_id))
     
-    # setup_data <- DBPOOL %>% dbGetQuery("
-    #   select 
-    #     ids.rsf_pfcbl_id,
-    #     fis.indicator_id,
-    #     fis.is_calculated is false and pfcbl_category = 'facililty' as is_editable,
-    #     ids.created_in_reporting_asof_date,
-    #     case when rdc.data_id is NULL then '{MISSING}'
-    #          when rdc.data_value is NULL then '{NOTHING}'
-    #     		 when rdc.data_unit is NOT NULL then rdc.data_value || ' ' || rdc.data_unit
-    #     		 else rdc.data_value end as data_value_text,
-    #     rdc.data_id
-    #     from p_rsf.rsf_pfcbl_ids ids
-    #     inner join p_rsf.view_rsf_program_facility_indicator_subscriptions fis on fis.rsf_pfcbl_id = ids.rsf_pfcbl_id
-    #     inner join p_rsf.indicators ind on ind.indicator_id = fis.indicator_id
-    #     left join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
-    #                                         and rdc.indicator_id = fis.indicator_id
-    #                                         and rdc.reporting_asof_date = ids.created_in_reporting_asof_date
-    #   where ids.rsf_pfcbl_id = $1::int
-    #     and ids.pfcbl_category = 'facility'
-    #   	and ind.data_category in ('facility','client')",
-    #   params=list(selected_rsf_pfcbl_id))
-    # 
+  
     setDT(setup_data)
     
     #monitored indicator's rsf_pfcbl_id will be the rsf_facility_id
@@ -311,66 +292,21 @@ observeEvent(input$action_setup_program_recalculate_reset, {
                value=0.5,{
     DBPOOL %>% dbExecute("
       delete from p_rsf.rsf_data_calculation_evaluations dce
-      where dce.rsf_pfcbl_id = any(select distinct fam.child_rsf_pfcbl_id
-      																					from p_rsf.rsf_pfcbl_id_family fam
-      																					where fam.parent_rsf_pfcbl_id = $1::int)
-      and not exists(select * from p_rsf.view_rsf_pfcbl_indicator_subscriptions pis 
-                     where pis.rsf_pfcbl_id = dce.rsf_pfcbl_id
-      							   and pis.indicator_id = dce.indicator_id
-      								 and pis.is_calculated = true
-                       and pis.is_subscribed = true)",
+      where dce.rsf_pfcbl_id = any(select distinct ft.to_family_rsf_pfcbl_id
+                                   from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                                   where ft.from_rsf_pfcbl_id = $1::int
+                                     and ft.pfcbl_hierarchy <> 'parent')",
       params=list(selected_rsf_pfcbl_id))
-    
-    DBPOOL %>% dbExecute("
-                         with calculations as materialized (
-                          select distinct
-                          tip.to_calculate_rsf_pfcbl_id,
-                          tip.to_calculate_indicator_id,
-                          tip.to_calculate_formula_id,
-                          tip.reporting_asof_date
-                          from p_rsf.compute_calculation_triggered_by_parameter tip
-                          where tip.from_parameter_pfcbl_id = any (select ft.to_family_rsf_pfcbl_id
-                                                                   from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                          																				 where ft.from_rsf_pfcbl_id = $1::int)
-                        )
-                        insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,indicator_id,calculation_asof_date)
-                        select 
-                          calcs.to_calculate_rsf_pfcbl_id,
-                          calcs.to_calculate_indicator_id,
-                          calcs.reporting_asof_date
-                        from calculations calcs
-                        inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = calcs.to_calculate_rsf_pfcbl_id
-                        																													 and pis.formula_id = calcs.to_calculate_formula_id
-                        where pis.is_subscribed = true
-                          and pis.is_calculated = true
-                          and calcs.to_calculate_rsf_pfcbl_id = any(select fam.child_rsf_pfcbl_id
-                                                                    from p_rsf.rsf_pfcbl_id_family fam
-                                                                    where fam.parent_rsf_pfcbl_id = $1::int)
-                          and exists(select * from p_rsf.rsf_pfcbl_reporting rpr
-                        	           where rpr.rsf_pfcbl_id = calcs.to_calculate_rsf_pfcbl_id
-                        						   and rpr.reporting_asof_date = calcs.reporting_asof_date)
-                        
-                        union all
-                        
-                        -- if ever reported, manually or calculated--recalculate it.
-                        select 
-                        	rd.rsf_pfcbl_id,
-                        	rd.indicator_id,
-                        	rd.reporting_asof_date
-                        from p_rsf.rsf_data_current rd
-                        inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = rd.rsf_pfcbl_id
-                        																													 and pis.indicator_id = rd.indicator_id
-                        where pis.is_subscribed = true
-                        	and pis.is_calculated = true
-                        	and rd.rsf_pfcbl_id = any(select fam.child_rsf_pfcbl_id
-        																						from p_rsf.rsf_pfcbl_id_family fam
-        																						where fam.parent_rsf_pfcbl_id = $1::int)
-                        	and exists(select * from p_rsf.rsf_pfcbl_reporting rpr
-                        						 where rpr.rsf_pfcbl_id = rd.rsf_pfcbl_id
-                        							 and rpr.reporting_asof_date = rd.reporting_asof_date)
-  
-                        on conflict do nothing;",
-                        params=list(selected_rsf_pfcbl_id)) #so we don't trigger Global
+
+    DBPOOL %>% dbGetQuery("
+                          select pfi.rsf_pfcbl_id,pfi.formula_id,recalc
+                          from p_rsf.rsf_setup_indicators pfi
+                          inner join lateral p_rsf.rsf_pfcbl_indicator_recalculate(v_rsf_pfcbl_id => pfi.rsf_pfcbl_id,
+                                                                                   v_formula_id => pfi.formula_id) as recalc on true
+                          where pfi.rsf_pfcbl_id = $1::int
+                            and pfi.formula_id is not null
+                            and pfi.is_subscribed is true",
+                          params=list(selected_rsf_pfcbl_id))
                })  
 })
 
@@ -403,6 +339,7 @@ observeEvent(input$server_setup_indicators__recalculate_pending, {
   
   removeModal()
   #Recalculats on a per-client basis to ensure each client is up to date before recalculating the next
+
   for (i in 1:nrow(facilities)) {
     facility <- facilities[i]
     withProgress(value=((i-1)/nrow(facilities)),
@@ -414,10 +351,10 @@ observeEvent(input$server_setup_indicators__recalculate_pending, {
                      incProgress(amount=0,
                                  message=paste0("Recalculating ",facility$nickname,": ",dots))
                    }
-
-                   DBPOOL %>% rsf_program_calculate(rsf_program_id=SELECTED_PROGRAM_ID(),
-                                                    rsf_indicators=RSF_INDICATORS(),
+                   
+                   DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
                                                     rsf_pfcbl_id.family=facility$rsf_pfcbl_id,
+                                                    for_import_id=NA,
                                                     calculate_future=FALSE,
                                                     reference_asof_date=today(),
                                                     status_message=progress_status_message)
@@ -511,7 +448,7 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
   if (length(unit_click)==0) unit_click <- NA
   
   success <- DBPOOL %>% dbGetQuery("
-    insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
+    insert into p_rsf.rsf_setup_indicators(rsf_pfcbl_id,
                                                       indicator_id,
                                                       formula_id,
                                                       rsf_program_id,
@@ -543,9 +480,9 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
       formula_id = EXCLUDED.formula_id,
       is_subscribed = EXCLUDED.is_subscribed,
       is_auto_subscribed = EXCLUDED.is_auto_subscribed,
-      subscription_comments = case when rsf_program_facility_indicators.subscription_comments ~ public.f_regexp_escape(EXCLUDED.subscription_comments)
-                                   then rsf_program_facility_indicators.subscription_comments
-                                   else concat(rsf_program_facility_indicators.subscription_comments || '; ',EXCLUDED.subscription_comments) end,
+      subscription_comments = case when rsf_setup_indicators.subscription_comments ~ public.f_regexp_escape(EXCLUDED.subscription_comments)
+                                   then rsf_setup_indicators.subscription_comments
+                                   else concat(rsf_setup_indicators.subscription_comments || '; ',EXCLUDED.subscription_comments) end,
       comments_user_id = EXCLUDED.comments_user_id,
       formula_calculation_unit = EXCLUDED.formula_calculation_unit
     returning formula_id;",
@@ -587,7 +524,7 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
     selected_facility <- setNames(c(program$rsf_pfcbl_id,
                                     facilities$rsf_pfcbl_id),
                                   c(paste0("program:",program$program_nickname," (all facilities)"),
-                                    paste0("facility:",facilities$facility_nickname)))
+                                    paste0("facility:",facilities$facility_name)))
   }
   selected_facility <- selected_facility[which(selected_facility==selected_facility_id)]
   selected_facility <- names(selected_facility)
@@ -627,21 +564,21 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
   
   current_formula <- DBPOOL %>% dbGetQuery("
     select 
-      fis.formula_id,
-      fis.is_subscribed,
-      fis.data_type,
-      fis.data_unit,
-      coalesce(fis.formula_calculation_unit,'') as formula_calculation_unit,
+      sis.formula_id,
+      sis.is_subscribed,
+      sis.data_type,
+      sis.data_unit,
+      coalesce(sis.formula_calculation_unit,'') as formula_calculation_unit,
       coalesce(case when indf.formula_fx_date = 'nofx' then false
-           when fis.data_type = 'currency' and fis.data_unit = 'LCU' then true
-           else exists(select * from p_rsf.indicators ind
-                       where ind.indicator_id = any(indf.formula_indicator_ids)
-                         and ind.data_type = 'currency')
+                    when sis.data_type = 'currency' and sis.data_unit = 'LCU' then true
+                    else exists(select * from p_rsf.indicators ind
+                                where ind.indicator_id = any(indf.formula_indicator_ids)
+                                  and ind.data_type = 'currency')
       end,false) as formula_calculation_unit_allowed                         
-      from p_rsf.view_rsf_program_facility_indicator_subscriptions fis
-      left join p_rsf.indicator_formulas indf on indf.formula_id = fis.formula_id
-    where fis.rsf_pfcbl_id = $1::int
-      and fis.indicator_id = $2::int",
+      from p_rsf.view_rsf_setup_indicator_subscriptions sis
+      left join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
+    where sis.rsf_pfcbl_id = $1::int
+      and sis.indicator_id = $2::int",
     params=list(selected_rsf_pfcbl_id,
                 selected_indicator_id))
   
@@ -849,9 +786,10 @@ output$server_setup_indicators__recalculate_pendingcount <- renderText({
 
   pc <- DBPOOL %>% dbGetQuery("select count(*) as pending_count
                               from p_rsf.rsf_data_calculation_evaluations dce 
-                              where dce.rsf_pfcbl_id = any(select distinct fam.child_rsf_pfcbl_id
-                                                           from p_rsf.rsf_pfcbl_id_family fam
-                                                           where fam.parent_rsf_pfcbl_id = $1::int)",
+                              where dce.rsf_pfcbl_id = any(select distinct ft.to_family_rsf_pfcbl_id
+                                                           from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                                                           where ft.from_rsf_pfcbl_id = $1::int
+                                                             and ft.pfcbl_hierarchy <> 'parent')",
                               params=list(selected_rsf_pfcbl_id))
   
   pc <- format(as.numeric(pc$pending_count),big.mark=",")
@@ -968,21 +906,20 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
                                      data_submitted,
                                      data_source_row_id=as.character(NA))]
           
-          reporting_cohort <- DBPOOL %>% dbGetQuery("
+          import <- DBPOOL %>% dbGetQuery("
             select 
-              coalesce(rc.parent_reporting_cohort_id,rc.reporting_cohort_id) as reporting_cohort_id, 
-              rc.reporting_user_id,
-              rc.reporting_asof_date,
-              rc.rsf_program_id
-            from p_Rsf.rsf_pfcbl_ids ids
-            inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id= ids.created_by_reporting_cohort_id
-            where ids.rsf_pfcbl_Id = $1::int",
+              rc.import_id  
+            from p_rsf.rsf_pfcbl_ids ids
+            inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = ids.created_by_reporting_cohort_id
+            where ids.rsf_pfcbl_id = $1::int",
             params=list(setup_data$rsf_pfcbl_id))
           
           setDT(reporting_cohort)
-          DBPOOL %>% db_add_update_data_user(reporting_cohort,
-                                             cohort_upload_data=setup_data,
-                                             template_has_static_row_ids=FALSE)
+          DBPOOL %>% db_add_update_data_user(import_id = import$import_id,
+                                             upload_data=setup_data,
+                                             upload_user_id=USER_ID(),
+                                             rsf_indicators=RSF_INDICATORS(),
+                                             cohort_upload_data=setup_data)
         }
       
       })
@@ -1000,7 +937,7 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
     }
     
     DBPOOL %>% dbExecute("
-    insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
+    insert into p_rsf.rsf_setup_indicators(rsf_pfcbl_id,
                                                       indicator_id,
                                                       formula_id,
                                                       rsf_program_id,
@@ -1093,15 +1030,7 @@ output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
                                                    formula_name_html,
                                                    formula_view,
                                                    data_value_text,
-                                                   subscription_comments=ifelse(is_inherited==TRUE,
-                                                                                "[program setting]",
-                                                                                subscription_comments),
-                                                   sort_preference=ifelse(is.na(sort_preference),
-                                                                          "",
-                                                                          str_pad(as.character(sort_preference),
-                                                                                  width=padding,
-                                                                                  pad="0"))
-                                                 )]
+                                                   subscription_comments)]
     dd <- DT::datatable(monitored_indicators,
                         rownames = FALSE,
                         fillContainer=TRUE,
@@ -1112,8 +1041,7 @@ output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
                                    "Calculation",
                                    "Formula",
                                    paste0("Value@",format_asof_date_label(reporting_asof_date)),
-                                   "Notes",
-                                   "Order"),
+                                   "Notes"),
                         editable=list(target = 'cell',
                                       disable = list(columns = c(0,1,2,3),
                                                      rows=which(monitored_indicators$is_editable==FALSE))), #c(0,1)))
@@ -1132,10 +1060,10 @@ output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
                   `width` = "150px",
                   `white-space`="nowrap") %>%
       
-      formatStyle(columns="sort_preference",
-                  target="cell",
-                  `width` = "50px",
-                  `white-space`="nowrap") %>%
+      # formatStyle(columns="sort_preference",
+      #             target="cell",
+      #             `width` = "50px",
+      #             `white-space`="nowrap") %>%
       
       formatStyle(columns="subscription_comments",
                   target="cell",
@@ -1151,22 +1079,14 @@ output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
                                                    indicator_html,
                                                    formula_name_html,
                                                    formula_view,
-                                                   subscription_comments=ifelse(is_inherited==TRUE,
-                                                                                "[program setting]",
-                                                                                subscription_comments),
-                                                   sort_preference=ifelse(is.na(sort_preference),
-                                                                          "",
-                                                                          str_pad(as.character(sort_preference),
-                                                                                  width=padding,
-                                                                                  pad="0"))
-                                                   )]
+                                                   subscription_comments)]
     
     dd <- DT::datatable(monitored_indicators,
                   rownames = FALSE,
                   fillContainer=TRUE,
                   #extensions = "Select",
                   selection = "none",
-                  colnames=c(toggleButton,"Indicator Name","Calculation","Formula","Notes","Order"),
+                  colnames=c(toggleButton,"Indicator Name","Calculation","Formula","Notes"),
                   editable=list(target = 'cell', disable = list(columns = c(0,1,2,3))), #c(0,1)))
                   escape = FALSE, #Shouldn't be any HTML escapable text
                   options=list(
@@ -1179,11 +1099,11 @@ output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
                       list(targets = c(0,2,3,4), orderable = FALSE),
                       list(targets = c(0,1), className = 'dt-left')))) %>%
       
-      formatStyle(columns="sort_preference",
-                  target="cell",
-                  `width` = "50px",
-                  `white-space`="nowrap") %>%
-      
+      # formatStyle(columns="sort_preference",
+      #             target="cell",
+      #             `width` = "50px",
+      #             `white-space`="nowrap") %>%
+      # 
       formatStyle(columns="subscription_comments",
                   target="cell",
                   `width` = "200px",

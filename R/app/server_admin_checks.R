@@ -346,83 +346,7 @@ observeEvent(input$server_admin_checks__edit_check_save, {
       DBPOOL %>% db_check_update(check_data=check_data,
                                  check_formulas=check_formulas,
                                  is_system_check=check$is_system)
-      
-      
-      new_subscriptions <- DBPOOL %>% dbGetQuery("
-        with new_subscriptions as MATERIALIZED (
-          insert into p_rsf.rsf_program_facility_checks(rsf_pfcbl_id,
-                                                        check_formula_id,
-                                                        indicator_check_id,
-                                                        rsf_program_id,
-                                                        rsf_facility_id,
-                                                        is_subscribed,
-                                                        is_auto_subscribed)
-          select 
-            fcs.rsf_pfcbl_id,
-            fcs.check_formula_id,
-            fcs.indicator_check_id,
-            fcs.rsf_program_id,
-            fcs.rsf_facility_id,
-            true as is_subscribed,
-            true as is_auto_subscribed
-          from p_rsf.view_rsf_program_settings rps
-          inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_program_id = rps.rsf_program_id
-          inner join p_rsf.view_rsf_program_facility_check_subscribable fcs on fcs.rsf_pfcbl_id = ids.rsf_pfcbl_id
-          where setting_name = 'auto_monitor_new_checks' and setting_value = 'true'
-            and ids.pfcbl_category = 'program'
-          	and fcs.is_subscribable = true
-          	and fcs.auto_subscribe = true
-          	and fcs.indicator_check_id = $1::int
-          on conflict
-          do nothing
-          returning rsf_pfcbl_id,check_formula_id
-        )
-        select 
-          ns.rsf_pfcbl_id,
-          ns.check_formula_id,
-          coalesce(nids.nickname,nids.name) as rsf_name,
-          ic.check_name,
-          icf.check_formula_title,
-          ic.check_class,
-          ic.check_type
-        from new_subscriptions ns
-        inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ns.rsf_pfcbl_id
-        inner join p_rsf.indicator_check_formulas icf on icf.check_formula_id = ns.check_formula_id
-        inner join p_Rsf.indicator_checks ic on ic.indicator_check_id = icf.indicator_check_id
-        order by 
-          nids.rsf_full_name,
-          ic.check_name,
-          icf.check_formula_title",
-        params=list(check_data$indicator_check_id))
-      
-      setDT(new_subscriptions)
-      
-      if (!empty(new_subscriptions)) {
-        new_subscriptions <- new_subscriptions[,
-                                               .(snames=paste0(rsf_name,collapse=", ")),
-                                               by=.(check_name,check_class,check_type,check_formula_title)]
-        ui <- tagList()
-        for (i in 1:nrow(new_subscriptions)) {
-          ns <- new_subscriptions[i]
-          ui[[length(ui)+1]] <- div(div(HTML(format_html_check(check_name=paste0(ns$check_name,":",ns$check_formula_title),
-                                                               check_class=ns$check_class,
-                                                               check_type=ns$check_type,
-                                                               is_subscribed=TRUE,
-                                                               is_system=FALSE))),
-                                            div(style="font-weight:bold;",paste0(ns$snames)))
-        }
-        
-        showNotification(type="message",
-                         duration=35,
-                         ui=div(style="font-size:18px;",
-                                div(style="font-weight:bold;padding-bottom:10px;",
-                                    "The following RSF Programs are set to auto-subscribe to new/modified checks and are now monitoring:"),
-                                div(style="padding:15px 15px 15px 15px;border-top:solid black 1px;border-bottom:solid black 1px;",
-                                    ui),
-                                div(style="padding-top:15px;",
-                                    "Change subscription or auto-subscribe behavior in RSF Setup")))
-      }
-
+     
       #already loaded, so reload to refresh the global indicators from the database
       if (check$indicator_check_id %in% SERVER_ADMIN_CHECKS.LOAD_RSF_CHECK()) {
         SERVER_ADMIN_CHECKS.LOAD_RSF_CHECK(-check$indicator_check_id)
@@ -458,7 +382,7 @@ observeEvent(input$server_admin_checks__edit_check_delete, {
   
   used <- dbGetQuery(pool,"
           select sn.sys_name
-          from p_rsf.rsf_program_facility_checks pfc
+          from p_rsf.rsf_setup_checks pfc
           inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = pfc.rsf_pfcbl_id
           where pfc.indicator_check_id = $1::int
             and pfc.is_subscribed = true",

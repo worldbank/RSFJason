@@ -1,5 +1,5 @@
 export_backup_data_to_csv <- function(pool,
-                                      rsf_pfcbl_id.familytree,
+                                      rsf_pfcbl_id.family,
                                       exporting_user_id,
                                       report_note="Reported data archive: calculations excluded") {
   # t0 <- Sys.time()
@@ -13,48 +13,59 @@ export_backup_data_to_csv <- function(pool,
   # TEMPLATE <- db_export_get_template(pool=pool,
   #                                    template_name=USE_TEMPLATE_NAME)
   
-  reported_data <- dbGetQuery(pool,'
+  reported_data <- dbGetQuery(pool,"
     select 
-      prd.sys_name as "SYSNAME",
-      prd.indicator_id as "INDID",
+      prd.sys_name as \"SYSNAME\",
+      prd.indicator_id as \"INDID\",
       prd.reporting_asof_date,
       prd.indicator_name,
       prd.data_value
-    from p_rsf.rsf_pfcbl_id_family fam 
-    inner join p_rsf.view_rsf_pfcbl_reported_data prd on prd.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
-    where fam.parent_rsf_pfcbl_id = $1::int
-    order by prd.rsf_pfcbl_id,prd.indicator_id,prd.reporting_asof_date nulls last',
-  params=list(rsf_pfcbl_id.familytree))
+    from p_rsf.view_rsf_pfcbl_id_family_tree ft 
+    inner join (select 
+        sn.sys_name,
+        rd.rsf_pfcbl_id,
+        rd.indicator_id,
+        rd.reporting_asof_date,
+        rd.data_id,
+        ind.indicator_name,
+        rpc.pfcbl_category,
+        rpc.pfcbl_rank,
+        trim(concat(rd.data_value,' ' || rd.data_unit)) as data_value,
+        NULLIF((dense_rank() over(partition by 
+        										rd.rsf_pfcbl_id,
+        										rd.indicator_id,
+        										rd.reporting_asof_date
+                          order by 
+        										(rc.is_redundancy_cohort = false) desc,
+        										rd.data_id desc))-1,0) as redundancy_rank
+      from p_rsf.rsf_data rd
+      inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = rd.rsf_pfcbl_id
+      inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
+      inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id
+      inner join p_rsf.rsf_pfcbl_categories rpc on rpc.pfcbl_category = ind.data_category
+      left join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = rd.rsf_pfcbl_id
+                                                                and sis.indicator_id = rd.indicator_id
+      left join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
+      where rc.is_reported_cohort = true
+        and ind.is_system = false
+        and (
+      				(indf.formula_id IS NULL) OR
+      				(indf.formula_id IS NOT NULL AND indf.overwrite = 'deny') OR
+      				(indf.formula_id IS NOT NULL AND indf.overwrite = 'missing')
+      			)
+      order by 
+      rd.rsf_pfcbl_id,
+      rd.indicator_id,
+      rd.reporting_asof_date,
+      redundancy_rank nulls last
+      
+    ) as prd on prd.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+    where ft.from_rsf_pfcbl_id = $1::int
+      and ft.pfcbl_hierarchy <> 'parent'
+    order by prd.rsf_pfcbl_id,prd.indicator_id,prd.reporting_asof_date nulls last",
+  params=list(rsf_pfcbl_id.family))
   
   setDT(reported_data)
-  
-  # export_cohort <- db_export_create(pool=pool,
-  #                                   exporting_user_id=exporting_user_id,
-  #                                   exporting_asof_date=max(reported_data$reporting_asof_date),
-  #                                   exporting_pfcbl_ids=rsf_pfcbl_id.familytree,
-  #                                   exporting_indicator_ids=unique(reported_data$INDID),
-  #                                   template_id=TEMPLATE$template_id,
-  #                                   export_name=NA)
-  # 
-  # if (is.na(report_note) || nchar(trim(report_note))==0) report_note = "None"
-  # 
-  # excelwb <- rsf_reports_create_excel_sheet(excelwb=NULL,
-  #                                           sheet_name="RSF_DATA",
-  #                                           sheet_data_table_name="RSF_TEMPLATE_DATA",
-  #                                           sheet_data=reported_data,
-  #                                           
-  #                                           program_name=export_cohort$program_name,
-  #                                           
-  #                                           template_key=TEMPLATE$template_key,
-  #                                           report_key=export_cohort$reporting_key,
-  #                                           #data_integrity_key=export_cohort$data_integrity_key, 
-  #                                           reporting_entity=export_cohort$exporting_entity_name,
-  #                                           reporting_asof_date=export_cohort$exporting_asof_date,
-  #                                           reporting_user=format_name_abbreviation(export_cohort$exporting_users_name),
-  #                                           reporting_time=as.character(export_cohort$exporting_time),
-  #                                           reporting_notes=report_note)
-  
-  
   
   #saveWorkbook(excelwb,file="archive_test.xlsx",overwrite=TRUE)
   

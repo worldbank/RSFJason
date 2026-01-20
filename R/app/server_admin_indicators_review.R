@@ -8,16 +8,16 @@ INDICATOR_REVIEW_RESULTS_VIEW <- reactive({
   results <- INDICATOR_REVIEW_RESULTS()
   if (empty(results)) return (NULL)
   
-  cl_filter <- as.numeric(input$indicator_review_results_filter_clients)
+  f_filter <- as.numeric(input$indicator_review_results_filter_facilities)
   ch_filter <- as.logical(input$indicator_review_results_filter_changed)
   
-  if (isTruthy(cl_filter)) {
+  if (isTruthy(f_filter)) {
   
     rsf_pfcbl_ids <- DBPOOL %>% dbGetQuery("
       select distinct ft.to_family_rsf_pfcbl_id
       from p_rsf.view_rsf_pfcbl_id_family_tree ft 
       where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-    ",params=list(paste0(cl_filter,collapse=",")))
+    ",params=list(paste0(f_filter,collapse=",")))
     
     rsf_pfcbl_ids <- as.numeric(unlist(rsf_pfcbl_ids))
     
@@ -38,7 +38,7 @@ INDICATOR_REVIEW_RESULTS_VIEW <- reactive({
 
 
 
-show_modal_indicator_review <- function(clientest_rsf_pfcbl_id,
+show_modal_indicator_review <- function(rsf_pfcbl_id,
                                         review_asof_date,
                                         review_indicator_id) {
 
@@ -56,11 +56,11 @@ show_modal_indicator_review <- function(clientest_rsf_pfcbl_id,
   INDICATOR_REVIEW_RESULTS(data.table())
   INDICATOR_REVIEW_INDICATOR_ID(review_indicator_id)
   
-  client_list <- c("",setNames(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id,
-                               SELECTED_PROGRAM_CLIENTS_LIST()$client_name))
+  facility_list <- c("",setNames(SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,
+                                 SELECTED_PROGRAM_FACILITIES_LIST()$facility_name))
   
   
-  if (!isTruthy(clientest_rsf_pfcbl_id)) clientest_rsf_pfcbl_id <- ""
+  if (!isTruthy(rsf_pfcbl_id)) rsf_pfcbl_id <- ""
   if (!isTruthy(review_asof_date)) review_asof_date <- ""
   
   review_asof_date <- as.character(review_asof_date)
@@ -77,12 +77,12 @@ show_modal_indicator_review <- function(clientest_rsf_pfcbl_id,
                                               div(style="background-color:white;padding:2px;height:400px;",
                                                   fluidRow(style="padding-top:5px;",
                                                            column(5,
-                                                                  selectizeInput(inputId="indicator_review_client_list",
-                                                                                 label="Review for Client",
-                                                                                 choices=client_list,
-                                                                                 selected=clientest_rsf_pfcbl_id,
+                                                                  selectizeInput(inputId="indicator_review_facility_list",
+                                                                                 label="Review for Project",
+                                                                                 choices=facility_list,
+                                                                                 selected=rsf_pfcbl_id,
                                                                                  multiple=TRUE,
-                                                                                 options=list(placeholder="All clients selected..."))),
+                                                                                 options=list(placeholder="All projects selected..."))),
                                                            column(2,
                                                                   selectizeInput(inputId="indicator_review_reporting_date",
                                                                                  label="Reporting Date",
@@ -94,7 +94,7 @@ show_modal_indicator_review <- function(clientest_rsf_pfcbl_id,
                                                                                  label="Audit Method",
                                                                                  choices=setNames(c("rec","calc"),
                                                                                                   c("Recursive Calculations","This indicator only")),
-                                                                                 selected='recursive',
+                                                                                 selected='calc',
                                                                                  options=list(placeholder="Select method..."))),
                                                            column(2,style='padding-left:10px;margin-top:25px;',
                                                                   actionButton(inputId="action_indicator_review_start",
@@ -126,21 +126,21 @@ observeEvent(input$action_indicator_review, {
   #if (!isTruthy(selected_indicator$is_calculated)) return (NULL)  
 
   
-  show_modal_indicator_review(clientest_rsf_pfcbl_id = NA,
+  show_modal_indicator_review(rsf_pfcbl_id = NA,
                               review_asof_date = NA,
                               review_indicator_id = unique(formulas$indicator_id))
   
   
 },ignoreInit=TRUE)
 
-observeEvent(input$indicator_review_client_list, {
+observeEvent(input$indicator_review_facility_list, {
   
-  client_rsf_pfcbl_ids <- as.numeric(input$indicator_review_client_list)
+  facility_ids <- as.numeric(input$indicator_review_facility_list)
   #SELECTED_REVIEW_CLIENT_ID(client_rsf_pfcbl_id)
   
   dates <- NULL
   
-  if (isTruthy(client_rsf_pfcbl_ids)) {
+  if (isTruthy(facility_ids)) {
     dates <- DBPOOL %>% dbGetQuery("
                                     select distinct
                                       rpr.reporting_asof_date::text
@@ -148,7 +148,7 @@ observeEvent(input$indicator_review_client_list, {
                                     inner join p_rsf.rsf_pfcbl_reporting rpr on rpr.rsf_pfcbl_id = ids.rsf_pfcbl_id
                                     where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
                                       and rpr.reporting_asof_date <= now()::date",
-                                   params=list(paste0(client_rsf_pfcbl_ids,collapse=",")))
+                                   params=list(paste0(facility_ids,collapse=",")))
     
     dates <- c("",sort(dates$reporting_asof_date))
   } else {
@@ -174,11 +174,11 @@ observeEvent(input$action_indicator_review_start, {
   
   review_indicator_id <- INDICATOR_REVIEW_INDICATOR_ID()
   rsf_program_id <- SELECTED_PROGRAM_ID()
-  client_rsf_pfcbl_id <- as.numeric(input$indicator_review_client_list)
+  review_rsf_pfcbl_id <- as.numeric(input$indicator_review_facility_list)
   indicator_review_reporting_date <- input$indicator_review_reporting_date
   
   if (!isTruthy(review_indicator_id) || !isTruthy(rsf_program_id)) return (NULL)
-  if (!isTruthy(client_rsf_pfcbl_id)) client_rsf_pfcbl_id <- as.numeric(NA)
+  if (!isTruthy(review_rsf_pfcbl_id)) review_rsf_pfcbl_id <- as.numeric(NA)
   
   if (!isTruthy(indicator_review_reporting_date)) return (showNotification(type="error",h3("Reporting date must be selected")))
   else indicator_review_reporting_date <- as.Date(indicator_review_reporting_date)
@@ -186,28 +186,19 @@ observeEvent(input$action_indicator_review_start, {
   method <- input$indicator_review_audit_method
   if (!method %in% c("rec","calc")) method <- "rec"
 
-  #Not super useful -- and now that COHORTS_LIST only returns a subset, can be very confusing.  
-  # cohort_list <- COHORTS_LIST()
-  # cohort_list <- cohort_list[reporting_asof_date==indicator_review_reporting_date,
-  #                            .(reporting_cohort_id,source_name,source_reference)]
-  # 
-  # if (nrow(cohort_list)==0) {
-  #   return(showNotification(type="warning",div(p("No data has been uploaded for the selected Program and selected Reporting Date."),
-  #                                              p("Please re-try the test with a different selection."))))
-  # }
-  
-  status_message(class="",
+   status_message(class="",
                  "Gathering information for calculation review...\n")
   
   disable(id="action_indicator_review_start")
-  disable(id="indicator_review_client_list")
+  disable(id="indicator_review_facility_list")
   disable(id="indicator_review_reporting_date")
 
   result <- tryCatch({
-    result <- DBPOOL %>% rsf_indicators_calculate_do_test(rsf_program_id=rsf_program_id,
-                                                          reporting_current_date=indicator_review_reporting_date,
+    result <- DBPOOL %>% rsf_indicators_calculate_do_test(rsf_pfcbl_id.family=ifelse(all(is.na(review_rsf_pfcbl_id),na.rm=T),
+                                                                                     rsf_program_id,
+                                                                                     review_rsf_pfcbl_id),
                                                           indicator_id=review_indicator_id,
-                                                          formula_pfcbl_id.familytree=client_rsf_pfcbl_id,
+                                                          reporting_current_date=indicator_review_reporting_date,
                                                           all_parameters=(method=="rec"),
                                                           status_message=status_message)
     result    
@@ -248,30 +239,30 @@ observeEvent(input$action_indicator_review_next, {
     indicator_review_reporting_date <- input$indicator_review_reporting_date
     indicator_review_reporting_date <- as.Date(indicator_review_reporting_date)
     
-    selected_client_review <- as.numeric(input$indicator_review_client_list)
+    selected_facility_review <- as.numeric(input$indicator_review_facility_list)
     
     
-    client_choices <- c("",setNames(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id,
-                                    SELECTED_PROGRAM_CLIENTS_LIST()$client_name))
+    facility_choices <- c("",setNames(SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,
+                                      SELECTED_PROGRAM_FACILITIES_LIST()$facility_name))
     
     if (!all(is.na(selected_client_review))) {
-      review_clients <- SELECTED_PROGRAM_CLIENTS_LIST()[rsf_pfcbl_id %in% selected_client_review,
+      review_facilities <- SELECTED_PROGRAM_FACILITIES_LIST()[rsf_pfcbl_id %in% selected_facility_review,
                                                         .(rsf_pfcbl_id,
-                                                           client_name)]
+                                                           facility_name)]
       
-      client_choices <- c("",setNames(review_clients$rsf_pfcbl_id,
-                                   review_clients$client_name))
+      facility_choices <- c("",setNames(review_facilities$rsf_pfcbl_id,
+                                        review_facilities$facility_name))
     }
 
     m <- modalDialog(title="Indicator Review Results",size="l",
           div(style="background-color:white;padding:2px;height:700px;",
-              fluidRow(column(8,selectizeInput(inputId="indicator_review_results_filter_clients",
-                                                label="Filter Clients",
+              fluidRow(column(8,selectizeInput(inputId="indicator_review_results_filter_facilities",
+                                                label="Filter Projects",
                                                 width="100%",
-                                                choices=client_choices,
+                                                choices=facility_choices,
                                                 selected="",
                                                 multiple=TRUE,
-                                                options=list(placeholder="Filter by client, or leave blank for all"))),
+                                                options=list(placeholder="Filter by project, or leave blank for all"))),
                        column(2,selectizeInput(inputId="indicator_review_results_filter_changed",
                                                label="Filter Changed",
                                                choices=c(`No Filter`="",

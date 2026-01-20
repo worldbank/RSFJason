@@ -312,28 +312,6 @@ template_parse_file <- function(pool,
         #template$program_settings$on_upload_cohort_fail_on_check_class <- "None"
       } 
       
-      #Removed this: firstly, not used once ever.
-      #Secondly, pfcbl editor template serves this purpose fine.
-      # else if (template$template_name=="PFCBL-DASHBOARD-TEMPLATE") {
-      #   stop("Template Rewrite to conform to post-migration requirements")
-      #   #Dashboard template enables users to download data from template into Excel, edit it and then re-upload it.  This may not be a meaningful use case
-      #   #and better to push users to upload a standard reporting template or edit small changes in the PFCBL Editor?
-      #   template <- parse_template_pfcbl_dashboard_report(pool=pool,
-      #                                                     template_file=template_file,
-      #                                                     rsf_indicators=rsf_indicators,
-      #                                                     rsf_program_id=rsf_program_id)
-      #   if (all(is.na(template))) {
-      #     status_message(class="error",paste0("Failed to parse template for: ",template_file,"/",template_format))
-      #     warning(paste0("Failed to parse template for: ",template_file,"/",template_format))
-      #     return (NULL)
-      #   }
-      #   
-      #   template$template_source_reference <- "RSF Editor Report"
-      #   template$template_ids_method <- "pfcbl_id"
-      #   
-      #   
-      # }
-      
       else {
         stop(paste0("Failed to find parse instructions for template: ",template$template_name))
       }
@@ -407,7 +385,7 @@ template_parse_file <- function(pool,
                  "rsf_indicators",
                  "reporting_asof_date",
                  "template_ids_method",
-                 "template_data") %in% names(template))) stop("Templates must return: cohort_pfcbl_id, rsf_indicators,  reporting_cohort, reporting_asof_date, template_source_reference, template_ids_method and template_data")
+                 "template_data") %in% names(template))) stop("Templates must return: cohort_pfcbl_id, rsf_indicators,  reporting_import, reporting_asof_date, template_source_reference, template_ids_method and template_data")
       
       
       if (length(setdiff(c("reporting_asof_date",
@@ -513,6 +491,8 @@ template_parse_file <- function(pool,
       
       template$template_data[,reporting_template_data_rank:=1:.N]
     
+    
+    
     } else {
 
       if (!all(unique(template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)])[,c(1:.N)]==1:nrow(template$template_data))) {
@@ -528,30 +508,64 @@ template_parse_file <- function(pool,
     cross_references <- unique(template$template_data[,
                                                .(reporting_template_group=gsub("^[[:digit:]]+","",reporting_template_row_group),
                                                  indicator_name,
-                                                 indicator_id)])[,.(n=.N,
-                                                                    reporting_template_group),
+                                                 indicator_id,
+                                                 data_value)])[,.(n=.N,
+                                                                  data_values=list(unique(data_value)),
+                                                                  data_counts=length(unique(data_value)),
+                                                                  reporting_template_group),
                                                                    by=.(indicator_name,indicator_id)][n>1]
+    
+    
+    cross_references <- template$template_data[,
+                                               .(reporting_template_group=gsub("^[[:digit:]]+","",reporting_template_row_group),
+                                                 indicator_name,
+                                                 indicator_id,
+                                                 data_value,
+                                                 data_unit)]
+    
+    cross_references[,n:=length(unique(reporting_template_group)),
+                    by=.(indicator_name,indicator_id)]
+    cross_references <- cross_references[n>1]
+    
     if (!empty(cross_references)) {
-      if (!empty(template$template_headers)) {
-        cross_references <- unique(cross_references[,.(indicator_name,indicator_id)][template$template_headers,
-                                                     on=.(indicator_id),
-                                                     nomatch=NULL])
-        cross_references <- cross_references[,
-                                             .(message=paste0('{',label,'} on ',data_source_index,collapse=' AND ')),
-                                             by=.(indicator_name)]
-        cross_references[,message:=paste0(indicator_name," has been reported using headers: ",message," \n")]
+    
+      cross_references[,
+                       n:=length(unique(paste0(data_value," ",data_unit))),
+                       by=.(indicator_name,indicator_id)] 
+      
+      cross_references <- cross_references[n>1]
+      if (!empty(cross_references)) {
+
+        setorder(cross_references,
+                 indicator_id,
+                 reporting_template_group)
         
-        stop(paste("Indicators cannot be reported on different template data sheets:\n",paste0(cross_references$message,collapse="\n AND\n"),
+        cross_references[,cross_id:=1:.N,
+                         by=.(indicator_id)]
+        
+        if (!empty(template$template_headers)) {
+          cross_headers <- template$template_headers[indicator_id %in% unique(cross_references$indicator_id)]
+          setorder(cross_headers,
+                   indicator_id,
+                   data_source_index)
+          cross_headers[,cross_id:=.GRP,
+                        by=.(indicator_id,
+                             data_source_index)]
+          cross_references[cross_headers,
+                           label:=i.label,
+                           on=.(indicator_id,
+                                cross_id)]
+          cross_references <- cross_references[,
+                                               message:=paste0(reporting_template_group," SHEET @",label,": ",indicator_name," {",data_value,"}\n")]
+          
+        } else {
+          cross_references <- cross_references[,
+                                               message:=paste0("SHEET ",reporting_template_group," ",indicator_name," {",data_value,"}\n")]
+        }
+        
+        
+        stop(paste("Indicators cannot be reported on different template data sheets with different values:\n",paste0(cross_references$message,collapse="\n AND\n"),
                    "\nEnsure that headers are properly labled in each section to ensure the correct indicator is mapped to the right header"))
-      } else {
-        
-        cross_references <- cross_references[,
-                                             .(message=paste0('in ',unique(reporting_template_group),collapse=' and ')),
-                                             by=.(indicator_name)]
-        cross_references[,message:=paste0(indicator_name," has been reported ",message," \n")]
-        stop(paste("Indicators cannot be reported on different template data sheets:\n",paste0(cross_references$message,collapse="\n AND\n"),
-                   "\nEnsure that headers are properly labled in each section to ensure the correct indicator is mapped to the right header"))
-        
       }
     }
     cross_references <- NULL
@@ -648,36 +662,17 @@ template_parse_file <- function(pool,
     #Create a new reporting cohort, user-created cohort will be parent of any subsequent sys-created cohorts
     #must be created first, for this chronology to have an entry for potenitally new rsf_ids yet to be created under a specific reporting cohort
     {
+    
+      reporting_import <- db_reporting_import_create(pool=pool,
+                                                     import_rsf_pfcbl_id=template$cohort_pfcbl_id,
+                                                     import_user_id=template$reporting_user_id,
+                                                     reporting_asof_date=template$reporting_asof_date,
+                                                     template_id=template$template_id,
+                                                     file_path=template_file,
+                                                     import_comments=NA,
+                                                     auto_delete_old_versions=TRUE) 
+      template$reporting_import <- reporting_import
       
-  
-      reporting_pfcbl_categories <- unique(template$template_data[,
-                                                                  .(indicator_name)
-                                                                  ])[rsf_indicators[,
-                                                                                    .(indicator_name,data_category)],
-                                                         on=.(indicator_name),
-                                                         nomatch=NULL
-                                                         ][,unique(data_category)]
-      
-       
-      
-      reporting_cohort <- db_cohort_create(pool=pool,
-                                           reporting_user_id=template$reporting_user_id,
-                                           reporting_asof_date=template$reporting_asof_date,
-                                           reporting_rsf_pfcbl_id=template$cohort_pfcbl_id,
-                                           from_reporting_template_id=template$template_id,
-                                           source_reference=template$template_source_reference,
-                                           source_name=template$template_source, 
-                                           source_note=source_note,
-                                           reporting_pfcbl_categories=reporting_pfcbl_categories,
-                                           fail_on_check_class = template$get_program_setting("on_upload_cohort_fail_on_check_class"),
-                                           fail_on_check_submitted_indicators = unique(template$template_data$indicator_name),
-                                           fail_on_incomplete_cohorts=template$fail_on_incomplete_cohorts)
-      
-      if (all(is.na(reporting_cohort))) stop(paste0("Failed to create a reporting cohort for ",source_name))
-      
-      status_message(class="info",paste0("Reporting created for ",reporting_cohort$source_reference,"\n"))
-      
-      template$reporting_cohort <- reporting_cohort
       template$template_source <- NULL #Now available in reporting_cohort$source_name
       template$cohort_pfcbl_id <- NULL #Now available in reporting_cohort$reporting_rsf_pfcbl_id
       template$template_source_reference <- NULL #Now available in reporting_cohort$source_reference, automatically adjusted
@@ -693,7 +688,7 @@ template_parse_file <- function(pool,
     #conn <- poolCheckout(pool);dbBegin(conn)
     poolWithTransaction(pool,function(conn) {
       dbExecute(conn,"
-        create temp table theaders(reporting_cohort_id int,
+        create temp table theaders(import_id int,
                                    rsf_pfcbl_id int,
                                    indicator_id int,
                                    template_header text,
@@ -707,18 +702,18 @@ template_parse_file <- function(pool,
                                                        template_header_position=data_source_index)])
       
       dbExecute(conn,"update theaders
-                set reporting_cohort_id = $1::int,
+                set import_id = $1::int,
                     rsf_pfcbl_id = $2::int",
-                params=list(reporting_cohort$reporting_cohort_id,
-                            reporting_cohort$reporting_rsf_pfcbl_id))
+                params=list(reporting_import$import_id,
+                            reporting_import$import_rsf_pfcbl_id))
       dbExecute(conn,"
-        insert into p_rsf.reporting_cohort_template_headers(reporting_cohort_id,
+        insert into p_rsf.reporting_import_template_headers(import_id,
                                                             rsf_pfcbl_id,
                                                             indicator_id,
                                                             template_header,
                                                             template_header_position)
         select 
-          reporting_cohort_id,
+          import_id,
           rsf_pfcbl_id,
           indicator_id,
           template_header,
@@ -730,10 +725,10 @@ template_parse_file <- function(pool,
     
   }
 
-  if (template$reporting_asof_date != template$reporting_cohort$reporting_asof_date) {
+  if (template$reporting_asof_date != template$reporting_import$reporting_asof_date) {
     stop(paste0("Mismatch error: template$reporting_asof_date = ",
-                as.character(template$reporting_asof_date)," and reporting_cohort$reporting_asof_date = ",
-                as.character(template$reporting_cohort$reporting_asof_date)))
+                as.character(template$reporting_asof_date)," and reporting_import$reporting_asof_date = ",
+                as.character(template$reporting_import$reporting_asof_date)))
   }
 
   template$parse_time <- as.numeric(Sys.time()-t1,"secs")

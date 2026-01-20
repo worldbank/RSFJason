@@ -335,31 +335,50 @@ rsf_computation_fx_conversion <- function(pool,
             fx_not_defined[,fx_indicator_id:=as.numeric(fx_indicator_id)]
 
             fx_indicators <- dbGetQuery(pool,"
-             select distinct on (fam.child_rsf_pfcbl_id,indf.formula_id)
-              fam.child_rsf_pfcbl_id,
-              pis.indicator_id,
-              pis.indicator_name,
-              indf.formula_id,
-              coalesce(indf.overwrite,'allow') as overwrite 
-              from p_rsf.view_rsf_pfcbl_indicator_subscriptions pis
-              inner join p_rsf.rsf_pfcbl_id_family fam on fam.parent_rsf_pfcbl_id = pis.rsf_pfcbl_id
-              inner join p_rsf.indicator_formulas indf on indf.formula_id = pis.formula_id
-              where pis.indicator_id = any(select unnest(string_to_array($1::text,','))::int)
-                and pis.is_subscribed = true
-                and fam.child_rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int)
-              order by 	fam.child_rsf_pfcbl_id,indf.formula_id,pis.rsf_facility_id is not NULL desc",
+              select distinct
+
+                sis.indicator_id,
+                sis.indicator_name,
+                indf.formula_id,
+                coalesce(indf.overwrite,'allow') as overwrite 
+              from p_rsf.view_rsf_setup_indicator_subscriptions sis 
+              inner join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
+              where sis.rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int)
+                and sis.indicator_id = any(select unnest(string_to_array($1::text,','))::int)
+                and sis.is_unsubscribed is distinct from false",
               params=list(paste0(unique(fx_not_defined$fx_indicator_id),collapse=","),
                           paste0(unique(fx_not_defined$rsf_pfcbl_id),collapse=",")))
-            #                                 select 
-            #                                   ind.indicator_id,
-            #                                   ind.indicator_name,
-            #                                   coalesce(indf.overwrite,'allow') as overwrite 
-            #                                 from p_rsf.indicators ind
-            #                                 -- All currency ratios should be calculated, so this should be inner join...just in case
-            #                                 --left join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
-            #                                 where ind.indicator_id = any(select unnest(string_to_array($1::text,','))::int)",
-            #                             params=list(paste0(unique(fx_not_defined$fx_indicator_id),collapse=",")))
+            
+            # fx_indicators <- dbGetQuery(pool,"
+            #  select distinct on (fam.child_rsf_pfcbl_id,indf.formula_id)
+            #   fam.child_rsf_pfcbl_id,
+            #   pis.indicator_id,
+            #   pis.indicator_name,
+            #   indf.formula_id,
+            #   coalesce(indf.overwrite,'allow') as overwrite 
+            #   from p_rsf.view_rsf_pfcbl_indicator_subscriptions pis
+            #   inner join p_rsf.rsf_pfcbl_id_family fam on fam.parent_rsf_pfcbl_id = pis.rsf_pfcbl_id
+            #   inner join p_rsf.indicator_formulas indf on indf.formula_id = pis.formula_id
+            #   where pis.indicator_id = any(select unnest(string_to_array($1::text,','))::int)
+            #     and pis.is_subscribed = true
+            #     and fam.child_rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int)
+            #   order by 	fam.child_rsf_pfcbl_id,indf.formula_id,pis.rsf_facility_id is not NULL desc",
+            #   params=list(paste0(unique(fx_not_defined$fx_indicator_id),collapse=","),
+            #               paste0(unique(fx_not_defined$rsf_pfcbl_id),collapse=",")))
+            # #                                 select 
+            # #                                   ind.indicator_id,
+            # #                                   ind.indicator_name,
+            # #                                   coalesce(indf.overwrite,'allow') as overwrite 
+            # #                                 from p_rsf.indicators ind
+            # #                                 -- All currency ratios should be calculated, so this should be inner join...just in case
+            # #                                 --left join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
+            # #                                 where ind.indicator_id = any(select unnest(string_to_array($1::text,','))::int)",
+            # #                             params=list(paste0(unique(fx_not_defined$fx_indicator_id),collapse=",")))
             setDT(fx_indicators)
+            
+            fx_indicators[,n:=.N,by=.(indicator_id)]
+            if (any(fx_indicators$n>1)) stop(paste0("Multiple indicator formulas returned for indicator fx lookup: ",fx_indicators$indicator_id," formula=",fx_indicators$formula_id))
+            
             fx_not_defined[,overwrite:="allow"]
             fx_not_defined[fx_indicators,
                            `:=`(indicator_name=i.indicator_name,

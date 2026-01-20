@@ -398,30 +398,33 @@ db_program_get_data  <- function(pool,
                              reportnumber=numeric(0))
       
       #issuances.previous aren't date-based so exclude 
-      program_previous_date <- as.Date(as.numeric(NA))
-      if (any(grepl("previous",query_indicators$indicator_variable)==TRUE &
-              grepl("issuances\\.previous",query_indicators$indicator_variable)==FALSE)) {
-        
-        pId <- pfcbl_ids[pfcbl_category=="program",unique(rsf_pfcbl_id)]
-        if (length(pId) !=1) {
-          stop("Multiple program IDs requested and not allowed")
-        }
-        
-        query_previous_date <- dbGetQuery(pool,"
-                                            select 
-                                              prd.valid_reporting_date 
-                                            from p_rsf.rsf_program_reporting_dates prd
-                                            where prd.rsf_program_id = $1::int
-                                              and prd.valid_reporting_date < $2::date
-                                            order by prd.valid_reporting_date desc
-                                            limit 1",
-                                          params=list(pId,
-                                                      reporting_current_date))
-        
-        if (!empty(query_previous_date)) {
-          program_previous_date <- query_previous_date$valid_reporting_date
-        } 
-      } 
+      quarter_previous_date <- lubridate::floor_date(ymd(reporting_current_date),unit="quarter")-1
+      
+      # if (any(grepl("previous",query_indicators$indicator_variable)==TRUE &
+      #         grepl("issuances\\.previous",query_indicators$indicator_variable)==FALSE)) {
+      #   
+      #   quarter_previous_date <- 
+      #   # 
+      #   # pId <- pfcbl_ids[pfcbl_category=="program",unique(rsf_pfcbl_id)]
+      #   # if (length(pId) !=1) {
+      #   #   stop("Multiple program IDs requested and not allowed")
+      #   # }
+      #   # 
+      #   # query_previous_date <- dbGetQuery(pool,"
+      #   #                                     select 
+      #   #                                       prd.valid_reporting_date 
+      #   #                                     from p_rsf.rsf_program_reporting_dates prd
+      #   #                                     where prd.rsf_program_id = $1::int
+      #   #                                       and prd.valid_reporting_date < $2::date
+      #   #                                     order by prd.valid_reporting_date desc
+      #   #                                     limit 1",
+      #   #                                   params=list(pId,
+      #   #                                               reporting_current_date))
+      #   # 
+      #   # if (!empty(query_previous_date)) {
+      #   #   program_previous_date <- query_previous_date$valid_reporting_date
+      #   # } 
+      # } 
       
       if (any(query_indicators$indicator_variable_class=="current")) {
         
@@ -535,7 +538,7 @@ db_program_get_data  <- function(pool,
                                       	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
                                      params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
                                                  paste0(query_indicator_ids,collapse=","),
-                                                 program_previous_date))
+                                                 quarter_previous_date))
         
         setDT(query_rsf_data)
         query_rsf_data[,data_class:="previous"]
@@ -543,7 +546,7 @@ db_program_get_data  <- function(pool,
         query_rsf_data[,
                        `:=`(reporting_asof_date=reporting_current_date,
                             data_value_changed=as.logical(NA),
-                            data_value_updated=(data_asof_date==program_previous_date), #update meaningful for zero-out flow data
+                            data_value_updated=(data_asof_date==quarter_previous_date), #update meaningful for zero-out flow data
                             reportnumber=as.numeric(NA))]
         
         setcolorder(query_rsf_data,neworder=names(rsf_data))
@@ -684,7 +687,7 @@ db_program_get_data  <- function(pool,
                                           min_period.reporting_asof_date asc",
                                         params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
                                                     paste0(query_mms_indicators_previous[indicator_variable_class=="min.previous",unique(indicator_id)],collapse=","),
-                                                    program_previous_date))
+                                                    quarter_previous_date))
             
             setDT(query_rsf_data)
             query_rsf_data[,
@@ -715,7 +718,7 @@ db_program_get_data  <- function(pool,
                                           max_period.reporting_asof_date desc",
                                         params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
                                                     paste0(query_mms_indicators_previous[indicator_variable_class=="max.previous",unique(indicator_id)],collapse=","),
-                                                    program_previous_date))
+                                                    quarter_previous_date))
             
             setDT(query_rsf_data)
             query_rsf_data[,
@@ -745,7 +748,7 @@ db_program_get_data  <- function(pool,
                                           sum_period.reporting_asof_date desc",
                                         params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
                                                     paste0(query_mms_indicators_previous[indicator_variable_class=="sum.previous",unique(indicator_id)],collapse=","),
-                                                    program_previous_date))
+                                                    quarter_previous_date))
             
             setDT(query_rsf_data)
             query_rsf_data[,
@@ -1784,6 +1787,8 @@ db_program_get_data  <- function(pool,
     setcolorder(pfcbl_family,order(rsf_colranks(cnames),cnames))
   }
   
+  pfcbl_family[,
+               CALCULATION_DATE:=reporting_current_date]
   
   if(SYS_PRINT_TIMING) debugtime("db_program_get_data","Done!",format(Sys.time()-t1))
   

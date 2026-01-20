@@ -1,20 +1,11 @@
 
 db_program_get_stale_calculations <- function(pool,
-                                              rsf_program_id,
-                                              rsf_pfcbl_id.family=NULL,
+                                              rsf_pfcbl_id.family,
                                               limit_future=today()) 
 {
   
   
-  if (length(rsf_pfcbl_id.family)==0) {
-    
-    rsf_pfcbl_id.family <- unlist(dbGetQuery(pool,"select ids.rsf_pfcbl_id
-                                            from p_rsf.rsf_pfcbl_ids ids
-                                            where ids.pfcbl_category in ('program','global')
-                                              and ids.rsf_program_id = $1::int",
-                                      params=list(rsf_program_id)))
-  }
-  
+
   if (length(limit_future)==0) limit_future <- NA
   
       
@@ -28,7 +19,6 @@ db_program_get_stale_calculations <- function(pool,
                                   	cd.current_data_value,
                                   	cd.current_data_unit,
                                   	coalesce(lcu.data_unit_value,'LCU') as entity_local_currency_unit,
-                                  	coalesce(rc.parent_reporting_cohort_id,rc.reporting_cohort_id) as current_reporting_cohort_id,
                                   	coalesce(rc.reporting_asof_date = calc.calculation_asof_date,false) as current_value_updated_in_reporting_current_date,
                                   	coalesce(rc.is_reported_cohort,false) as current_value_is_user_monitored,
                                   	coalesce(rc.is_calculated_cohort,false) as current_data_is_system_calculation,
@@ -58,38 +48,42 @@ db_program_get_stale_calculations <- function(pool,
                                   			 else coalesce(cd.current_data_unit,ind.data_unit)
                                   	end as calculate_indicator_data_unit,
                                     calc.formula_calculation_unit,
-                                    --calc.formula_unit_set_by_indicator_id,
                                     calc.computation_group,
                                     calc.formula_id,
                                     ind.data_type,
                                     ind.is_periodic_or_flow_reporting,
                                     rd.data_sys_flags as current_data_sys_flags
                                   from (
-                                  		select 
-                                    		dce.rsf_pfcbl_id,
-                                    		dce.indicator_id,
-                                    		dce.calculation_asof_date,
-                                    		indf.formula_calculation_rank,
-                                    		pis.formula_calculation_unit,
-                                    		indf.computation_group,
-                                    		indf.formula_fx_date,
-                                    		indf.formula_id,
-                                    		dense_rank() over(order by dce.rsf_pfcbl_id = 0 desc,          -- global always first
-                                    															 dce.calculation_asof_date asc,      -- oldest calculations first
-                                    															 indf.formula_calculation_rank asc,  -- lowest ranks first
-                                    															 indf.computation_priority_rank desc -- higher computation priorities first
-                                    										 ) calc_rank
-                                    	from p_rsf.rsf_data_calculation_evaluations dce --on dce.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-                                    	
-                                    	inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = dce.rsf_pfcbl_id
-                                    																													   and pis.indicator_id = dce.indicator_id
-                                    									 
-                                    	inner join p_rsf.indicator_formulas indf on indf.formula_id = pis.formula_id
-                                    	where dce.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
-                                    															 from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                                    															 where ft.from_rsf_pfcbl_id = $1::int)
-                                    		and coalesce(dce.calculation_asof_date <= $2::date,true)
-
+                                      select * 
+                                      from (
+                                    		select 
+                                      		dce.rsf_pfcbl_id,
+                                      		dce.indicator_id,
+                                      		dce.calculation_asof_date,
+                                      		indf.formula_calculation_rank,
+                                      		sis.formula_calculation_unit,
+                                      		indf.computation_group,
+                                      		indf.formula_fx_date,
+                                      		indf.formula_id,
+                                      		dense_rank() over(order by dce.rsf_pfcbl_id = 0 desc,          -- global always first
+                                      															 dce.calculation_asof_date asc,      -- oldest calculations first
+                                      															 indf.formula_calculation_rank asc,  -- lowest ranks first
+                                      															 indf.computation_priority_rank desc -- higher computation priorities first
+                                      										 ) calc_rank
+                                      	from p_rsf.rsf_data_calculation_evaluations dce 
+                                      	
+                                      	-- does not judge on subscription status to calculated or not, ie, may return default calc if undefined
+                                      	-- but entry shouldn't exist in dce if undefiend
+                                      	inner join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = dce.rsf_pfcbl_id
+                                      																													   and sis.indicator_id = dce.indicator_id
+                                      									 
+                                      	inner join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
+                                      	where dce.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+                                      															 from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                                      															 where ft.from_rsf_pfcbl_id = $1::int)
+                                      		and coalesce(dce.calculation_asof_date <= $2::date,true)
+                                    ) x
+                                    where x.calc_rank = 1
                                   ) calc 
                                   inner join p_rsf.indicators ind on ind.indicator_id = calc.indicator_id
                                   left join lateral (select
@@ -113,8 +107,7 @@ db_program_get_stale_calculations <- function(pool,
                                   								 limit 1) lcu on true																
                                   left join p_rsf.rsf_data rd on rd.data_id = cd.current_data_id
                                   left join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
-                                  where calc.calc_rank = 1		
-                                 ",
+                                  ",
                                  params=list(rsf_pfcbl_id.family,
                                              as.character(limit_future)))
       

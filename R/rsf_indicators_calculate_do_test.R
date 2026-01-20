@@ -1,119 +1,103 @@
 
 
 
-# reporting_current_date <- '2025-06-30'
-# indicator_id <-  157657
-# formula_pfcbl_id.familytree <-367732
-# rsf_program_id <- 367701
-# formula_pfcbl_id.familytree <- 397397 ;rsf_program_id <- unlist(dbGetQuery(pool,"select rsf_program_id from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id=$1::int",params=list(formula_pfcbl_id.familytree)))
+# reporting_current_date <- '2025-09-30'
+# indicator_id <-  157392
+# rsf_pfcbl_id.family <- 569533
 
-#x<-rsf_indicators_calculate_do_test(pool,rsf_program_id,reporting_current_date,indicator_id,formula_pfcbl_id.familytree,all_parameters=FALSE)
+#x<-rsf_indicators_calculate_do_test(pool,rsf_pfcbl_id.family,indicator_id,reporting_current_date,all_parameters=T)
 
 rsf_indicators_calculate_do_test <- function(pool,
-                                             rsf_program_id,
-                                             reporting_current_date,
+                                             rsf_pfcbl_id.family,
                                              indicator_id,
-                                             formula_pfcbl_id.familytree=NA,
+                                             reporting_current_date,
                                              all_parameters=TRUE,
                                              parent_formula_id=as.numeric(NA),
                                              status_message=function(...) {})
 {
   
   {
-    #test_indicator_id <- 451
-    if (is.null(formula_pfcbl_id.familytree) || all(is.na(formula_pfcbl_id.familytree))) {
-      pfcbl_ids.familytree <- dbGetQuery(pool,"select rsf_pfcbl_id
-                                               from p_rsf.rsf_pfcbl_ids
-                                               where rsf_program_id = $1::int
-                                                 and pfcbl_category = (select data_category from p_rsf.indicators where indicator_id = $2::int)",
-                                         params=list(rsf_program_id,
-                                                     indicator_id))
-      pfcbl_ids.familytree <- as.numeric(unlist(pfcbl_ids.familytree))
-    } else {
-      pfcbl_ids.familytree <- as.numeric(formula_pfcbl_id.familytree)
-    }
+    status_message(paste0("Running test for SYSID=",paste0(rsf_pfcbl_id.family,collapse=",")," indicator_id=",indicator_id))
     
-    status_message(paste0("Running test for SYSID=",paste0(formula_pfcbl_id.familytree,collapse=","),
-                          " indicator_id=",indicator_id,
-                          " rsf_program_id=",rsf_program_id))
+    rsf_program_calculate(pool=pool,
+                          rsf_indicators=db_indicators_get_labels(pool),
+                          rsf_pfcbl_id.family=rsf_pfcbl_id.family,
+                          for_import_id=NA,
+                          calculate_future=FALSE,
+                          reference_asof_date=reporting_current_date)
     
-    test_calculation <- dbGetQuery(pool,"select 
-                                          ids.rsf_pfcbl_id as calculate_rsf_pfcbl_id,
-                                          ind.indicator_id as calculate_indicator_id,
-                                          $3::date as calculate_asof_date,
-                                          
-                                          cd.data_id as current_data_id,
-                                          cd.data_value as current_data_value,
-                                          cd.data_unit as current_data_unit,
-                                          rd.data_sys_flags as current_data_sys_flags,
-                                          coalesce(lcu.data_unit_value,'LCU') as entity_local_currency_unit,
-                                          coalesce(rc.parent_reporting_cohort_id,rc.reporting_cohort_id) as current_reporting_cohort_id,
-                                          coalesce(rc.reporting_asof_date = $3::date,false) as current_value_updated_in_reporting_current_date,
-                                          coalesce(rc.is_reported_cohort,false) as current_value_is_user_monitored,
-                                          coalesce(rc.is_calculated_cohort,false) as current_data_is_system_calculation,
-                                          
-                                          case when ind.data_type = 'currency'     -- LCU-defined currency metrics whose settings are overwriting the output
-                                                and ind.data_unit = 'LCU'
-                                                and pis.formula_calculation_unit is not NULL
-                                                then pis.formula_calculation_unit
-                                                
-                                                when ind.data_type in ('currency','currency_ratio')     -- only calculate relevant indicator types
-                                                and ind.data_unit ~ 'LCU'
-                                                and cd.data_unit is distinct from lcu.data_unit_value -- eg, this indicator hasn't been calculated yet, it's default 
-                                                then regexp_replace(ind.data_unit,'LCU',lcu.data_unit_value)
-                                                
-                                                when ind.data_type in ('currency','currency_ratio')
-                                                and ind.data_unit ~ 'LCU' = false             -- its a defined value, eg a _USD or _EUR indicator: then this must be the calculated output
-                                                then ind.data_unit
-                                                
-                                                else coalesce(cd.data_unit,ind.data_unit)
-                                          end as calculate_indicator_data_unit,
-                                          indf.computation_group,
-                                          indf.formula_id,
-                                          indf.formula_fx_date,
-                                          pis.formula_calculation_unit,
-                                          --indf.formula_unit_set_by_indicator_id,
-    
-    
-                                          ind.data_type,
-                                          ind.data_unit as default_data_unit,
-                                          ind.is_periodic_or_flow_reporting,
-                                          indf.formula_calculation_rank,
-                                          ids.rsf_program_id,
-                                          ids.pfcbl_category_rank
-                  
-                                        from p_rsf.rsf_pfcbl_ids ids 
-                                        inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                        inner join p_rsf.indicators ind on ind.indicator_id = pis.indicator_id
-                                        inner join p_rsf.indicator_formulas indf on indf.formula_id = pis.formula_id
-
-                                        left join lateral (select 
-                                                             rdc.data_id,
-                                                             rdc.data_value,
-                                                             rdc.data_unit
-                                                           from p_rsf.rsf_data_current rdc
-                                                           where rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                                             and rdc.indicator_id = ind.indicator_id
-                                                             and rdc.reporting_asof_date <= $3::date
-                                                           order by rdc.reporting_asof_date desc
-                                                           limit 1) as cd on true
-                                        left join p_rsf.rsf_data rd on rd.data_id = cd.data_id
-                                        left join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
-                                        left join lateral (select 
-                                          									 lcu.data_unit_value,
-                                          									 lcu.reporting_asof_date as lcu_current_date
-                                          								 from p_rsf.rsf_data_current_lcu lcu
-                                          								 where lcu.for_rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                          									 and lcu.reporting_asof_date <= $3::date
-                                          								 order by lcu.reporting_asof_date desc
-                                          								 limit 1) lcu on true			
-                                        where pis.is_subscribed = true
-                                          and pis.indicator_id = $2
-                                          and $3::date >= ids.created_in_reporting_asof_date
-                                  			and ids.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id 
-                                                                   from p_rsf.view_rsf_pfcbl_id_family_tree ft 
-                                                                   where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int))",
-                                                         params=list(paste0(unique(pfcbl_ids.familytree),collapse=","),
+    test_calculation <- dbGetQuery(pool,"
+      select 
+          sis.rsf_pfcbl_id as calculate_rsf_pfcbl_id,
+          ind.indicator_id as calculate_indicator_id,
+          $3::date as calculate_asof_date,
+          
+          cd.data_id as current_data_id,
+          cd.data_value as current_data_value,
+          cd.data_unit as current_data_unit,
+          rd.data_sys_flags as current_data_sys_flags,
+          coalesce(lcu.data_unit_value,'LCU') as entity_local_currency_unit,
+          coalesce(rc.reporting_asof_date = $3::date,false) as current_value_updated_in_reporting_current_date,
+          coalesce(rc.is_reported_cohort,false) as current_value_is_user_monitored,
+          coalesce(rc.is_calculated_cohort,false) as current_data_is_system_calculation,
+          
+          case when ind.data_type = 'currency'     -- LCU-defined currency metrics whose settings are overwriting the output
+                and ind.data_unit = 'LCU'
+                and sis.formula_calculation_unit is not NULL
+                then sis.formula_calculation_unit
+                
+                when ind.data_type in ('currency','currency_ratio')     -- only calculate relevant indicator types
+                and ind.data_unit ~ 'LCU'
+                and cd.data_unit is distinct from lcu.data_unit_value -- eg, this indicator hasn't been calculated yet, it's default 
+                then regexp_replace(ind.data_unit,'LCU',lcu.data_unit_value)
+                
+                when ind.data_type in ('currency','currency_ratio')
+                and ind.data_unit ~ 'LCU' = false             -- its a defined value, eg a _USD or _EUR indicator: then this must be the calculated output
+                then ind.data_unit
+                
+                else coalesce(cd.data_unit,ind.data_unit)
+          end as calculate_indicator_data_unit,
+          indf.computation_group,
+          indf.formula_id,
+          indf.formula_fx_date,
+          sis.formula_calculation_unit,
+          ind.data_type,
+          ind.data_unit as default_data_unit,
+          ind.is_periodic_or_flow_reporting,
+          indf.formula_calculation_rank,
+          ind.pfcbl_rank as pfcbl_category_rank
+        from p_rsf.view_rsf_setup_indicator_subscriptions sis 
+        inner join p_rsf.indicators ind on ind.indicator_id = sis.indicator_id
+        inner join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
+      
+        left join lateral (select 
+                             rdc.data_id,
+                             rdc.data_value,
+                             rdc.data_unit
+                           from p_rsf.rsf_data_current rdc
+                           where rdc.rsf_pfcbl_id = sis.rsf_pfcbl_id
+                             and rdc.indicator_id = ind.indicator_id
+                             and rdc.reporting_asof_date <= $3::date
+                           order by rdc.reporting_asof_date desc
+                           limit 1) as cd on true
+        left join p_rsf.rsf_data rd on rd.data_id = cd.data_id
+        left join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
+        left join lateral (select 
+                             lcu.data_unit_value,
+                             lcu.reporting_asof_date as lcu_current_date
+                           from p_rsf.rsf_data_current_lcu lcu
+                           where lcu.for_rsf_pfcbl_id = sis.rsf_pfcbl_id
+                             and lcu.reporting_asof_date <= $3::date
+                           order by lcu.reporting_asof_date desc
+                           limit 1) lcu on true			
+        where sis.is_subscribed = true
+          and sis.filter_matched_pfcbl_indicators is true
+          and sis.indicator_id = $2::int
+          and $3::date >= sis.created_in_reporting_asof_date
+        and sis.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id 
+                                   from p_rsf.view_rsf_pfcbl_id_family_tree ft 
+                                   where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int))",
+                                                         params=list(paste0(unique(rsf_pfcbl_id.family),collapse=","),
                                                                      indicator_id,
                                                                      reporting_current_date))
     
@@ -540,11 +524,11 @@ rsf_indicators_calculate_do_test <- function(pool,
   				
           from (
     				select
-    				pis.rsf_pfcbl_id,
-    				pis.formula_id
-    				from p_rsf.view_rsf_pfcbl_indicator_subscriptions pis 
-    				where pis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-    				  and pis.formula_id = any(select unnest(string_to_array($2::text,','))::int)
+    				sis.rsf_pfcbl_id,
+    				sis.formula_id
+    				from p_rsf.view_rsf_setup_indicator_subscriptions sis 
+    				where sis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+    				  and sis.formula_id = any(select unnest(string_to_array($2::text,','))::int)
   				) as calc
   				inner join p_rsf.indicator_formulas indf on indf.formula_id = calc.formula_id
   				inner join lateral unnest(indf.formula_indicator_id_requirements) as requirement_indicator_id on true
@@ -556,13 +540,13 @@ rsf_indicators_calculate_do_test <- function(pool,
         select 
           req.parent_formula_id,
           req.requirement_indicator_id,
-          pis.rsf_pfcbl_id,
-          pis.formula_id
+          sis.rsf_pfcbl_id,
+          sis.formula_id
         from requirements req
-        inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = req.to_parameter_rsf_pfcbl_id
-                                                                   and pis.indicator_id = req.requirement_indicator_id
-        inner join p_rsf.indicator_formulas indf on indf.formula_id = pis.formula_id																								 
-        where pis.formula_id is not null
+        inner join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = req.to_parameter_rsf_pfcbl_id
+                                                                   and sis.indicator_id = req.requirement_indicator_id
+        inner join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id																								 
+        where sis.formula_id is not null
         order by 
           indf.formula_calculation_rank,
           indf.computation_group,
@@ -570,62 +554,18 @@ rsf_indicators_calculate_do_test <- function(pool,
   			params=list(paste0(unique(results$rsf_pfcbl_id),collapse=","),
   			            paste0(unique(results$formula_id),collapse=",")))
       
-
-#             prerequisites <- dbGetQuery(pool,"
-#         select 
-#           pis.rsf_pfcbl_id,
-#           requirements.requirement_indicator_id,
-#           requirements.parent_formula_id,
-#           indf.formula_id
-#           from (
-#             select 
-#             indf.formula_id as parent_formula_id,
-#             unnest(indf.formula_indicator_id_requirements) as requirement_indicator_id
-#             from p_rsf.indicator_formulas indf
-#             where indicator_id = $1::int
-#               and indf.formula_id = any(select unnest(string_to_array($2::text,','))::int)
-#           ) as requirements
-#         inner join p_rsf.indicator_formulas indf on indf.indicator_id = requirements.requirement_indicator_id
-#         inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.indicator_id = requirements.requirement_indicator_id
-#         																													 and pis.formula_id = indf.formula_id
-#         where pis.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
-# 				                             from p_rsf.view_rsf_pfcbl_id_family_tree ft
-# 																		 where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($3::text,','))::int))
-#           and (indf.formula_id <> any(select unnest(string_to_array($2::text,','))::int))
-#         order by 
-#         indf.formula_calculation_rank,
-#         indf.computation_group,
-#         indf.formula_id",
-#         params=list(indicator_id,
-#                     paste0(unique(results$formula_id),collapse=","),
-#                     paste0(unique(pfcbl_ids.familytree),collapse=",")))
-#       
       if (!empty(prerequisites)) {
         setDT(prerequisites)
         for (fId in unique(prerequisites$formula_id)) {
           pre <- prerequisites[formula_id==fId]  
           
           preResults <- rsf_indicators_calculate_do_test(pool=pool,
-                                                         rsf_program_id=rsf_program_id,
-                                                         reporting_current_date=reporting_current_date,
+                                                         rsf_pfcbl_id.family=rsf_pfcbl_id.family,
                                                          indicator_id=unique(pre$requirement_indicator_id),
-                                                         formula_pfcbl_id.familytree=unique(pfcbl_ids.familytree),
+                                                         reporting_current_date=reporting_current_date,
                                                          all_parameters=TRUE,
                                                          parent_formula_id=unique(pre$parent_formula_id),
                                                          status_message=function(...) {})
-          
-          
-          # if (any(names(preResults)=="loan_inclusion_rank") &&
-          #     !any(names(results)=="loan_inclusion_rank")) {
-          #   results[,
-          #           loan_inclusion_rank:=as.numeric(NA)]
-          # }
-          # 
-          # if (any(names(results)=="loan_inclusion_rank") &&
-          #     !any(names(preResults)=="loan_inclusion_rank")) {
-          #   preResults[,
-          #              loan_inclusion_rank:=as.numeric(NA)]
-          # }
           
           setcolorder(preResults,
                       neworder = names(results))
@@ -651,7 +591,7 @@ rsf_indicators_calculate_do_test <- function(pool,
         and ind.indicator_sys_category = 'rank_id'
         and rdc.reporting_asof_date <= $2::date
       order by ft.to_family_rsf_pfcbl_id,rdc.data_value,rdc.reporting_asof_date desc",
-      params=list(paste0(unique(pfcbl_ids.familytree),collapse=","),
+      params=list(paste0(unique(rsf_pfcbl_id.family),collapse=","),
                   reporting_current_date))
     setDT(rank_ids)
     if (!empty(rank_ids)) {

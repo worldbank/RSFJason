@@ -641,9 +641,21 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
         }
         regular_data_names <- NULL
         
-        regular_data_ids <- regular_data[indicator_sys_category == "id"]
+        regular_data_ids <- regular_data[indicator_sys_category == "id" |
+                                         indicator_sys_category == "rank_id"]
         if (!empty(regular_data_ids)) {
           
+          #An ID field with ">>" signals a change FROM old ID >> TO new ID
+          #This changes the value to right-hand-side of >>
+          #But will retain reporting_submitted_data_value and template_set_match_rsf_ids can search for ">>" to lookup old
+          modified_ids <- regular_data_ids[grepl(">>",data_value)]
+          if (!empty(modified_ids)) {
+            modified_ids[,
+                         data_value:=gsub("^.*>>(.*$)","\\1",data_value)]
+            regular_data_ids[modified_ids,
+                             data_value:=i.data_value,
+                             on=.(parse_id)]
+          }
           regular_data_ids[,data_value:=normalizeSyscategory_id(data_value)]
           
           bad_ids <- regular_data_ids[is.na(data_value) | data_value != reporting_submitted_data_value]

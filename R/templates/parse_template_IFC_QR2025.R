@@ -7,7 +7,7 @@ parse_template_IFC_QR2025 <- function(pool,
                                       status_message,
                                       CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) 
 {
- 
+  #Read file
   {
     if (!file_ext(template_file) %in% "xlsx") stop("Only .xlsx files using Excel-365 versions or later may use this template")
     ####
@@ -22,16 +22,24 @@ parse_template_IFC_QR2025 <- function(pool,
     warning = function(w) { 
       suppressWarnings(openxlsx2::wb_load(template_file))
     })
+    
+   
+    nregions_table <- openxlsx2::wb_get_named_regions(excelwb)
+    setDT(nregions_table)
+    nregions_table <- nregions_table[nchar(hidden)==0]
+    
+    snames <- openxlsx2::wb_get_sheet_names(excelwb)
+    
+    
+  } 
   
+  #Read datasets
+  {
     reporting_flags <- data.table(rsf_pfcbl_id=numeric(0),
                                   indicator_id=numeric(0),
                                   reporting_asof_date=as.Date(numeric(0)),
                                   check_name=character(0),
                                   check_message=character(0))
-    nregions_table <- openxlsx2::wb_get_named_regions(excelwb)
-    setDT(nregions_table)
-    
-    snames <- openxlsx2::wb_get_sheet_names(excelwb)
     
     reporting_asof_date <- {
       
@@ -49,6 +57,8 @@ parse_template_IFC_QR2025 <- function(pool,
     #Load the data sheets (and their formulas)  
     {
       template_headers <- NULL
+      
+      #Summary tab
       {
         summarySheet <- grep("Summary$",snames,value=T,ignore.case = T)
         if (length(summarySheet) != 1) {
@@ -75,8 +85,11 @@ parse_template_IFC_QR2025 <- function(pool,
         #                                                 truncate_predata_rows = TRUE)
         setDT(summary_sheet)
         summary_sheet[,original_row_num:=.I]
+      
+        
       }
       
+      #QReport
       {
         dataSheet <- grep("QReport$",snames,value=T,ignore.case = T)
         if (length(dataSheet) != 1) {
@@ -103,6 +116,41 @@ parse_template_IFC_QR2025 <- function(pool,
         #                                              sheetName=dataSheet,
         #                                              truncate_predata_rows = TRUE)
         setDT(data_sheet)
+      }
+      
+      
+      #Import Named Ranges into summary-level data
+      {
+        nregions_table[,data_value:=as.character(NA)]
+        
+        for (i in 1:nrow(nregions_table)) {
+
+            n <- nregions_table[i,name]
+            dval <- as.character(NA)
+            tryCatch({
+              x <- openxlsx2::wb_to_df(excelwb,named_region=n)
+              
+              if (nrow(x)==0) {
+                dval <- names(x)
+
+              } else if (ncol(x)==1) {
+                
+                x <- na.omit(c(names(x),unlist(x)))
+                if (any(grepl(",",x))) x <- gsub(","," ",x)
+                x <- paste0(x,collapse=",")
+                x <- gsub("[[:space:]]{2,}"," ",x)
+                dval <- x
+              }
+            },
+            error=function(e) { },
+            warning=function(w) { })
+            nregions_table[i,
+                     data_value:=dval]
+        }
+        
+        list_sheet <- nregions_table[sheets=="Lists",.(name,data_value)]
+        list_sheet <- list_sheet[grepl("^Template_",name)==F]
+        list_sheet[,original_row_num:=.I]
       }
     }
     
@@ -150,6 +198,375 @@ parse_template_IFC_QR2025 <- function(pool,
                                                      detection="full",
                                                      normalize=T)
     }
+  }
+  
+  data.list <- {
+    #new
+    {
+      
+      label_matches <- mapply(labelMatches,
+             find_sections=tolower(rsf_labels$template_section_lookup),
+             find_labels=tolower(rsf_labels$template_label_lookup),
+             match_id=rsf_labels$label_header_id,
+             match_postion=rsf_labels$template_header_position,
+             MoreArgs=list(search_sections=rep(x="lists",times=length(list_sheet$name)),
+                           search_labels=normalizeLabel(list_sheet$name)),
+             USE.NAMES = F)
+      
+      label_matches <- rbindlist(label_matches)
+      
+      label_matches <- label_matches[rsf_labels[,.(label_header_id,action,map_indicator_id,map_formula_id,map_check_formula_id)],
+                                     on=.(match_id=label_header_id),
+                                     nomatch=NULL]
+      
+      label_matches <- label_matches[,
+                                     .(header_ids=list(unique(match_id))),
+                                     by=.(original_row_num=match_rows,action,map_indicator_id,map_formula_id,map_check_formula_id)]
+      
+      
+      list_sheet <- label_matches[list_sheet,
+                                  on=.(original_row_num)]  
+      
+
+    }
+    
+    #Label errors/mismatching
+    {
+      list_sheet[,
+                  ignore:=anyNA(action)==FALSE & all(action=="ignore"),
+                  by=.(original_row_num)]
+
+      list_sheet <- list_sheet[ignore==FALSE]
+      
+      list_sheet[rsf_indicators,
+                    indicator_name:=i.indicator_name,
+                    on=.(map_indicator_id=indicator_id)]
+      
+      #Will fail because its ambiguous: this shouldn't be possible for defined names? Unless copy-paste errors copy-in multiple defined names??
+      {
+        list_sheet[,
+                      mismatch:=anyNA(action)==FALSE & length(unique(map_indicator_id))>1,
+                      by=.(original_row_num)]
+        
+        mismatch_labels <- list_sheet[mismatch==TRUE]
+        if (!empty(mismatch_labels)) {
+          
+          
+          mismatch_labels[,
+                          message:=paste0("List Sheet defined name \"",name,"\" maps to \"",indicator_name,"\"")]
+          
+          setorder(mismatch_labels,
+                   original_row_num)
+          
+          message <- paste0(mismatch_labels$message,collapse=" \n")
+          stop(paste0("Mismatched Column Labels:\n",
+                      "Correct the column name(s) in Summary Tab \n",
+                      "Or if this is a Template Requirement map these columns in JASON -> RSF Setup -> Setup Templates -> ",template_lookup$template_name," \n\n",
+                      message))
+        }
+      }    
+      
+      #Unfound: will asign to entity_reporting
+      {
+        list_sheet[,
+                      notfound:=all(is.na(action)),
+                      by=.(original_row_num)]
+        
+        unfound_labels <- list_sheet[notfound==TRUE]
+        
+        if (!empty(unfound_labels)) {
+          
+          setorder(unfound_labels,
+                   original_row_num)
+          
+          unfound_labels[,
+                         `:=`(rsf_pfcbl_id=rsf_pfcbl_id.facility,
+                              indicator_id=as.numeric(NA), #will be auto-assigned to reporting indicator
+                              reporting_asof_date=reporting_asof_date,
+                              check_name="sys_flag_indicator_not_found",
+                              check_message=paste0("List Tab defined name \"",name,"\""))]
+          
+          unfound_labels <- unfound_labels[,.(rsf_pfcbl_id,
+                                              indicator_id,
+                                              reporting_asof_date,
+                                              check_name,
+                                              check_message)]
+          
+          reporting_flags <- rbindlist(list(reporting_flags,
+                                            unfound_labels))
+        }
+      }
+
+      list_sheet <- list_sheet[is.na(action)==FALSE]
+      
+      if (save_headers) {
+        template_headers <- rbindlist(list(template_headers,
+                                           list_sheet[!is.na(map_indicator_id),
+                                                         .(label=name,
+                                                           data_source_index=paste0("Lists Sheet defined name ",name),
+                                                           indicator_id=map_indicator_id)]))
+      }
+      
+      
+      list_sheet <- list_sheet[is.na(map_indicator_id)==FALSE,
+                                     .(indicator_name,
+                                       data_unit=as.character(NA),
+                                       data_value,
+                                       original_row_num)]
+    }
+    
+    {
+      list_sheet <- unique(list_sheet)
+      
+      setnames(list_sheet,
+               old=c("data_unit","data_value"),
+               new=c("reporting_submitted_data_unit",
+                     "reporting_submitted_data_value"))
+      
+      list_sheet <- unique(list_sheet)
+      
+      list_sheet[rsf_indicators[!is.na(data_unit),
+                                   .(indicator_name,data_unit,joincondition=as.character(NA))],
+                    reporting_submitted_data_unit := i.data_unit,
+                    on=.(indicator_name,
+                         reporting_submitted_data_unit=joincondition)]
+      list_sheet[,
+                 reporting_submitted_data_formula:=as.numeric(NA)]
+      
+      list_sheet[rsf_indicators,
+                 indicator_sys_category:=i.indicator_sys_category,
+                 on=.(indicator_name)]
+      
+      if (any(list_sheet$indicator_sys_category=="products_eligible",na.rm=T)) {
+        products <- unlist(str_split(list_sheet[indicator_sys_category=="products_eligible",
+                                                reporting_submitted_data_value],","))
+      
+        #Funded/Unfunded
+        {
+          if (any(list_sheet$indicator_sys_category=="products_funded",na.rm=T)) {
+            list_pr <- list_sheet[indicator_sys_category=="products_funded"]
+            tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
+            if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
+              stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Funded Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
+            }
+            is_true <- sapply(tfproducts,FUN=function(p) {
+              p <- superTrim(p)
+              any(p==superTrim(products),na.rm = T) |
+              any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
+            })
+            
+            list_sheet[indicator_sys_category=="products_funded",
+                       reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
+            
+            if (!any(list_sheet$indicator_sys_category=="products_unfunded",na.rm=T)) {
+              
+              list_pr[,
+                      `:=`(indicator_sys_category="products_unfunded",
+                           indicator_name=rsf_indicators[indicator_sys_category=="products_unfunded",indicator_name],
+                           reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
+              
+              list_sheet <- rbindlist(list(list_sheet,
+                                           list_pr))
+            }
+              
+          }
+          
+          if (any(list_sheet$indicator_sys_category=="products_unfunded",na.rm=T)) {
+            list_pr <- list_sheet[indicator_sys_category=="products_unfunded"]
+            tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
+            if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
+              stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Ununded Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
+            }
+            
+            is_true <- sapply(tfproducts,FUN=function(p) {
+              p <- superTrim(p)
+              any(p==superTrim(products),na.rm = T) |
+              any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
+            })
+            
+            list_sheet[indicator_sys_category=="products_unfunded",
+                       reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
+            
+            if (!any(list_sheet$indicator_sys_category=="products_funded",na.rm=T)) {
+              
+              list_pr[,
+                      `:=`(indicator_sys_category="products_funded",
+                           indicator_name=rsf_indicators[indicator_sys_category=="products_funded",indicator_name],
+                           reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
+              
+              list_sheet <- rbindlist(list(list_sheet,
+                                           list_pr))
+            }
+            
+          }
+        }
+        
+        #Amortizing/Revolving
+        {
+          if (any(list_sheet$indicator_sys_category=="products_amortizing",na.rm=T)) {
+            list_pr <- list_sheet[indicator_sys_category=="products_amortizing"]
+            tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
+            if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
+              stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Amortizing Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
+            }
+            
+            is_true <- sapply(tfproducts,FUN=function(p) {
+              p <- superTrim(p)
+              any(p==superTrim(products),na.rm = T) |
+              any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
+            })
+            
+            list_sheet[indicator_sys_category=="products_amortizing",
+                       reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
+            
+            if (!any(list_sheet$indicator_sys_category=="products_revolving",na.rm=T)) {
+              
+              list_pr[,
+                      `:=`(indicator_sys_category="products_revolving",
+                           indicator_name=rsf_indicators[indicator_sys_category=="products_revolving",indicator_name],
+                           reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
+              
+              list_sheet <- rbindlist(list(list_sheet,
+                                           list_pr))
+            }
+            
+          }
+          
+          if (any(list_sheet$indicator_sys_category=="products_revolving",na.rm=T)) {
+            list_pr <- list_sheet[indicator_sys_category=="products_revolving"]
+            tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
+            if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
+              stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Revolving Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
+            }
+            
+            is_true <- sapply(tfproducts,FUN=function(p) {
+              p <- superTrim(p)
+              any(p==superTrim(products),na.rm = T) |
+                any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
+            })
+            
+            list_sheet[indicator_sys_category=="products_revolving",
+                       reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
+            
+            if (!any(list_sheet$indicator_sys_category=="products_amortizing",na.rm=T)) {
+              
+              list_pr[,
+                      `:=`(indicator_sys_category="products_amortizing",
+                           indicator_name=rsf_indicators[indicator_sys_category=="products_amortizing",indicator_name],
+                           reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
+              
+              list_sheet <- rbindlist(list(list_sheet,
+                                           list_pr))
+            }
+            
+          }
+        }
+
+        #Denied/Allowed
+        {
+          if (any(list_sheet$indicator_sys_category=="products_undrawn_denied",na.rm=T)) {
+            list_pr <- list_sheet[indicator_sys_category=="products_undrawn_denied"]
+            tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
+            if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
+              stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Undrawn Principal Denied Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
+            }
+            
+            is_true <- sapply(tfproducts,FUN=function(p) {
+              p <- superTrim(p)
+              any(p==superTrim(products),na.rm = T) |
+              any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
+            })
+            
+            list_sheet[indicator_sys_category=="products_undrawn_denied",
+                       reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
+            
+            if (!any(list_sheet$indicator_sys_category=="products_undrawn_allowed",na.rm=T)) {
+              
+              list_pr[,
+                      `:=`(indicator_sys_category="products_undrawn_allowed",
+                           indicator_name=rsf_indicators[indicator_sys_category=="products_undrawn_allowed",indicator_name],
+                           reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
+              
+              list_sheet <- rbindlist(list(list_sheet,
+                                           list_pr))
+            }
+            
+          }
+          
+          if (any(list_sheet$indicator_sys_category=="products_undrawn_allowed",na.rm=T)) {
+            list_pr <- list_sheet[indicator_sys_category=="products_undrawn_allowed"]
+            tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
+            if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
+              stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Revolving Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
+            }
+            
+            is_true <- sapply(tfproducts,FUN=function(p) {
+              p <- superTrim(p)
+              any(p==superTrim(products),na.rm = T) |
+                any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
+            })
+            
+            list_sheet[indicator_sys_category=="products_undrawn_allowed",
+                       reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
+            
+            if (!any(list_sheet$indicator_sys_category=="products_undrawn_denied",na.rm=T)) {
+              
+              list_pr[,
+                      `:=`(indicator_sys_category="products_undrawn_denied",
+                           indicator_name=rsf_indicators[indicator_sys_category=="products_undrawn_denied",indicator_name],
+                           reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
+              
+              list_sheet <- rbindlist(list(list_sheet,
+                                           list_pr))
+            }
+            
+          }
+        }
+        
+        #atrisk
+        if (any(list_sheet$indicator_sys_category=="products_undrawn_atrisk",na.rm=T)) {
+          list_pr <- list_sheet[indicator_sys_category=="products_undrawn_atrisk"]
+          tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
+          if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
+            stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Undrawn Principal At-Risk Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
+          }
+          
+          is_true <- sapply(tfproducts,FUN=function(p) {
+            p <- superTrim(p)
+            any(p==superTrim(products),na.rm = T) |
+              any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
+          })
+          
+          list_sheet[indicator_sys_category=="products_undrawn_atrisk",
+                     reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
+          
+        }
+      }
+      
+      list_sheet[,
+                 reporting_template_row_group:='1LISTS']
+      
+      list_sheet[,
+                 reporting_template_data_rank:=1:.N] #1:.N instead of original row number since new data may be added in products
+        
+        
+        
+        
+      }
+    
+    
+    list_sheet <- list_sheet[,
+                             .(reporting_template_row_group,
+                               reporting_template_data_rank,
+                               indicator_name,
+                               reporting_submitted_data_value,
+                               reporting_submitted_data_unit,
+                               reporting_submitted_data_formula)]
+    
+    list_sheet[is.na(reporting_submitted_data_value),
+               reporting_submitted_data_value:="N/A"]  
+    
+    list_sheet
   }
   
   data.summary <- {
@@ -296,7 +713,8 @@ parse_template_IFC_QR2025 <- function(pool,
                      by=.(original_row_num)]
 
       #Information before the Project ID is not structured the same and has no discrete labels.
-      summary_sheet[original_row_num <= summary_sheet_ID_row,
+      summary_sheet[original_row_num <= summary_sheet_ID_row &
+                    original_row_num > 0,
                     ignore:=TRUE]
       
       stop_row <- summary_sheet[map_indicator_id %in% rsf_indicators[indicator_sys_category=="template_read_stop",indicator_id],original_row_num]
@@ -479,11 +897,14 @@ parse_template_IFC_QR2025 <- function(pool,
     #If the data unit is a formula, it's probably just lazy data entry.  Make the unit equal to another cell's unit instead of retyping.
     #Unlikley that the unit is actually a calculated result.
     summary_sheet[,
-                  data_formula:=mapply(function(i,j,x) { x[i,j] },
-                                       i=original_row_num,
-                                       j=data_column_num,
-                                       MoreArgs=list(x=as.matrix(summary_formula_matrix)),
-                                       SIMPLIFY = TRUE)]
+                  data_formula:=mapply(function(i,j,x) { 
+                    if (i <= 0 || j <=0) { as.character(NA) #because List data is added as negative original row number
+                    } else { x[i,j] }
+                  },
+                   i=original_row_num,
+                   j=data_column_num,
+                   MoreArgs=list(x=as.matrix(summary_formula_matrix)),
+                   SIMPLIFY = TRUE)]
     
     summary_sheet[,
                   reporting_template_row_group:='1SUMMARY']
@@ -541,7 +962,7 @@ parse_template_IFC_QR2025 <- function(pool,
                                        find_labels=find_labels,
                                        match_id=match_id,
                                        match_postion=match_postion,
-                                       MoreArgs=list(search_sections=rep(x="qreport",times=length(x)),
+                                       MoreArgs=list(search_sections=rep(x="qreport",times=length(x)), #lower case because of tolower() and normalizeLabel
                                                      search_labels=normalizeLabel(x)),
                                        USE.NAMES = F)
                                 
@@ -697,7 +1118,8 @@ parse_template_IFC_QR2025 <- function(pool,
       data_labels[,
                     label:=trimws(label)]
       
-      data_labels[,ignore:=FALSE]
+      data_labels[,
+                  ignore:=FALSE]
       data_labels[ignore==FALSE,
                   ignore:=anyNA(action)==FALSE & all(action=="ignore"),
                   by=.(original_col_num)]
@@ -877,8 +1299,41 @@ parse_template_IFC_QR2025 <- function(pool,
                                                            indicator_id=map_indicator_id)])))
       }
       
+      data_labels <- data_labels[,
+                                 ignore:=is.na(action) | action=="ignore"]
       
-      data_labels <- data_labels[is.na(action)==FALSE,
+      #Unfound: will asign to entity_reporting
+      {
+        mismatched_labels <- data_labels[is.na(action)]
+        
+        if (!empty(mismatched_labels)) {
+          mismatched_labels[data_labels[ignore==FALSE,.(indicator_name=paste0(indicator_name,collapse=" & ")),by=.(original_col_num)],
+                         matched_indicator:=i.indicator_name,
+                         on=.(original_col_num)]
+          
+          setorder(mismatched_labels,
+                   original_col_num,
+                   header_row)
+          
+          mismatched_labels[,
+                         `:=`(rsf_pfcbl_id=rsf_pfcbl_id.facility,
+                              indicator_id=as.numeric(NA), #will be auto-assigned to reporting indicator
+                              reporting_asof_date=reporting_asof_date,
+                              check_name="sys_flag_indicator_ignored",
+                              check_message=paste0("Ignored \"",label,"\" on QReport Column ",original_col_num," because matched \"",matched_indicator,"\""))]
+          
+          mismatched_labels <- mismatched_labels[,.(rsf_pfcbl_id,
+                                              indicator_id,
+                                              reporting_asof_date,
+                                              check_name,
+                                              check_message)]
+          
+          reporting_flags <- rbindlist(list(reporting_flags,
+                                            mismatched_labels))
+        }
+      }
+      
+      data_labels <- data_labels[ignore==FALSE,
                                  .(original_col_num,
                                    action,
                                    map_indicator_id,
@@ -904,7 +1359,7 @@ parse_template_IFC_QR2025 <- function(pool,
     #          new=rename$original_col_num)
     # 
     data_cols_names <- data_labels$original_col_num
-    
+    data_cols_names <- data_cols_names[order(nchar(data_cols_names),data_cols_names)]
     data_sheet <- data_sheet[,
                              ..data_cols_names]
     
@@ -1060,7 +1515,8 @@ parse_template_IFC_QR2025 <- function(pool,
     data_sheet
   }
   
-  template_data <- rbindlist(list(data.summary,
+  template_data <- rbindlist(list(list_sheet,
+                                  data.summary,
                                   data.quarterly))
   
   template_data[,reporting_asof_date:=reporting_asof_date]

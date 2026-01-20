@@ -9,26 +9,20 @@ server <- function(input, output, session)
   serverENV <- environment()
   server_module_registry <- list()
   
-  # if (!is.null(DBPOOL) && any(pool::dbIsValid(DBPOOL)==TRUE,DBPOOL$valid)) {
-  #   print("Closing DBPOOL")
-  #   poolClose(DBPOOL)
-  # }
-  
-  # DBPOOL <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
-  # if (!is.null(DBPOOL) && pool::dbIsValid(DBPOOL)) { print("DBPOOL (MAIN) Started")
-  # } else { print("DBPOOL (MAIN) FAILED TO START") }
-  
-  
+  DBPOOL <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
+  if (!is.null(DBPOOL) && pool::dbIsValid(DBPOOL)) { print("DBPOOL (MAIN) Started")
+  } else { print("DBPOOL (MAIN) FAILED TO START") }
   
   observeEvent(session, { 
     print("Session information")
-    print(reactiveValuesToList(session$clientData))
-    print(session$user)
+    #print(reactiveValuesToList(session$clientData))
+    #print(session$user)
     
-    dbserver <- NULL
-    if (grepl("rsf-prod",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_PROD"]]
-    } else if (grepl("rsf-dev",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_DEV"]]
-    } else { dbserver <- LOCATIONS[[LOCATION]] }
+    # dbserver <- NULL
+    # if (grepl("rsf-prod",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_PROD"]]
+    # } else if (grepl("rsf-dev",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_DEV"]]
+    # } else if (grepl("rsf-stage",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_STAGE"]]
+    # } else {  }
     
     if (grepl("rsf-prod",session$clientData$url_pathname) && !identical(LOCATION,"Jason_PROD")) {
       
@@ -36,23 +30,33 @@ server <- function(input, output, session)
                        ui=h3(paste0("rsf-prod deployment does not match location setting: ",LOCATION)))
       
       stop(paste0("rsf-prod deployment does not match location setting: ",LOCATION))
-    }
-    
-    if (grepl("rsf-dev",session$clientData$url_pathname) && !identical(LOCATION,"Jason_DEV")) {
+    } else if (grepl("rsf-dev",session$clientData$url_pathname) && !identical(LOCATION,"Jason_DEV")) {
       showNotification(type="error",
                        ui=h3(paste0("rsf-dev deployment does not match location setting: ",LOCATION)))
       stop(paste0("rsf-dev deployment does not match location setting: ",LOCATION))
+    
+    } else if (grepl("rsf-stage",session$clientData$url_pathname) && !identical(LOCATION,"Jason_STAGE")) {
+      
+      showNotification(type="error",
+                       ui=h3(paste0("rsf-stage deployment does not match location setting: ",LOCATION)))
+      
+      stop(paste0("rsf-stage deployment does not match location setting: ",LOCATION))
+    
+    } else if (session$clientData$url_pathname=="/") { #Local
+      
+      if (!identical(LOCATION,"Jason_DEV")) {
+        showNotification(type="warning",
+                         ui=h3("Warning: DATABASE LOCATION = '",LOCATION,"'"))
+      }
+    } else {
+      showNotification(type="error",
+                       ui=h3("Failed to identify database LOCATION for application URL"))
+      
+      stop(paste0("Failed to parse url_pathname '",session$clientData$url_pathname,"' and Global.R LOCATION=",LOCATION))
     }
-    
-    
-    DBPOOL <<- dbStart(credentials_file=paste0(getwd(),dbserver))
-    if (!is.null(DBPOOL) && pool::dbIsValid(DBPOOL)) { print("DBPOOL (MAIN) Started")
-    } else { print("DBPOOL (MAIN) FAILED TO START") }
     
   },once=T,priority = 1)
   
-  #pool <- DBPOOL
-  #
   #https://appsilon.com/how-to-safely-remove-a-dynamic-shiny-module/
   #https://www.r-bloggers.com/2020/02/shiny-add-removing-modules-dynamically/
   #remove_shiny_inputs() permanently removes the input object, seemingly would need to be re-created through insertUI maybe?
@@ -84,8 +88,7 @@ server <- function(input, output, session)
     server_module_registry[[id]] <<- .module
   }
   
-  Shiny.destroyList <- function(observers_list)
-  {
+  Shiny.destroyList <- function(observers_list) {
     modules <- isolate({ observers_list() })
     if (all(is.na(modules)) || length(modules)==0) return(FALSE)
     for (i in 1:length(modules)) modules[[i]]$destroy()
@@ -110,9 +113,6 @@ server <- function(input, output, session)
   STATUS_MESSAGE_PANEL <- reactiveValues(container_id="dataset_upload_log_container",panel_id="dataset_upload_log")
   USER_ACCOUNT <- reactiveValues()
   
-  #source("./R/rsf_calculations_global.R",local=serverENV)
-  source("./R/app/server_programs.R",local=serverENV)
-
   module_accounts_server(id="accounts_server",
                          parent_session = session,
                          pool=DBPOOL_APPLICATIONS,
@@ -124,6 +124,24 @@ server <- function(input, output, session)
   USER_ID <- eventReactive(USER_ACCOUNT$user_account_id, { USER_ACCOUNT$user_account_id },ignoreNULL = FALSE)
   USER_NAME <- eventReactive(USER_ACCOUNT$user_name, {  format_name_abbreviation(USER_ACCOUNT$user_name) },ignoreNULL=FALSE)
   LOGGEDIN <- reactive({ isTruthy(USER_ACCOUNT$user_account_id) && isTruthy(USER_ACCOUNT$application_session_id) })
+  
+  GLOBAL_CURRENCIES <- reactive({
+    tryCatch({ get_fx_codes() },
+             warning=function(w) { 
+               showNotification(type="error",
+                                duration=NULL,
+                                ui=h3(conditionMessage(w)))
+               NULL
+             },
+             error=function(e) { 
+               showNotification(type="error",
+                                duration=NULL,
+                                ui=h3(conditionMessage(e)))
+               NULL
+             })
+  })
+  
+  source("./R/app/server_programs.R",local=serverENV)
   
   source("./R/app/server_dashboard.R",local=serverENV)
   source("./R/app/server_dashboard_options.R",local=serverENV)
@@ -156,9 +174,6 @@ server <- function(input, output, session)
   source("./R/app/server_admin_checks_review.R",local=serverENV)
   
   source("./R/app/server_admin_users.R",local=serverENV)
-  
-  source("./R/app/server_datasets_guidance_module.R",local=serverENV)
-  
   
   login_initialize <- observeEvent(USER_ID(),{ 
   
@@ -250,9 +265,12 @@ server <- function(input, output, session)
     cat(txt,"\n")    
   }
 
-  onStop(function() {
+  #onStop
+  onSessionEnded(function() {
+    print("Session onSessionEnded called.")
+    
     if (!is.null(DBPOOL) && any(pool::dbIsValid(DBPOOL)==TRUE,DBPOOL$valid)) {
-
+      print("Closing DBPOOL")
       poolClose(DBPOOL)
     }
   })

@@ -3,6 +3,7 @@ rsf_program_perform_calculations <- function(pool,
                                              current_data,
                                              rsf_indicators,
                                              rsf_calculator_checks,
+                                             for_import_id=NA,
                                              perform.test = FALSE,
                                              status_message=function(...) {},
                                              SYS_FLAGS_MANUAL_OVERWRITE=4,
@@ -104,7 +105,6 @@ rsf_program_perform_calculations <- function(pool,
                              left join p_rsf.rsf_pfcbl_categories grouping on grouping.pfcbl_rank = indf.formula_grouping_pfcbl_rank
                              left join lateral (select 
                                                   array_agg(distinct 'rsf_' || ifp.parameter_pfcbl_category || '_id') as pfcbl_id_categories
-                                                  --array_agg(distinct 'rsf_pfcbl_id.' || ifp.parameter_pfcbl_category) as pfcbl_id_categories
                               									from p_rsf.indicator_formula_parameters ifp 
                               									where ifp.formula_id = indf.formula_id) as pids on true
                              
@@ -177,10 +177,13 @@ rsf_program_perform_calculations <- function(pool,
       
       computation_groups <- sort(unique(calculations$computation_group))
       current_data[,calculated:=FALSE]
-      #compg <- computation_groups[[1]]
-      for (compg in computation_groups) {
+      #compg <- computation_groups[[3]]
+      #for (compg in computation_groups) {
         
-        calculations_group <- calculations[computation_group==compg]
+        
+        
+        calculations_group <- calculations
+#        calculations_group <- calculations[computation_group==compg]
         
         #get the requirements
         {
@@ -272,7 +275,9 @@ rsf_program_perform_calculations <- function(pool,
         calculations_groups_results <- rbindlist(list(calculations_groups_results,
                                                       calculations_results))
         
-      }
+      
+      
+      #}
       
       
       # setdiff(current_data[,
@@ -305,7 +310,6 @@ rsf_program_perform_calculations <- function(pool,
       current_results <- calculations_groups_results[current_data[,.(rsf_pfcbl_id=calculate_rsf_pfcbl_id,
                                                                      indicator_id=calculate_indicator_id,
                                                                      reporting_asof_date=calculate_asof_date,
-                                                                     current_reporting_cohort_id,
                                                                      current_data_id,
                                                                      current_data_value,
                                                                      current_data_unit,
@@ -326,7 +330,7 @@ rsf_program_perform_calculations <- function(pool,
                                                        data_flags_new,
                                                        fx_data_ids,
                                                        current_data_id,
-                                                       current_reporting_cohort_id,
+                                                       
                                                        current_data_value,
                                                        current_data_unit,
                                                        current_data_is_system_calculation,
@@ -365,17 +369,26 @@ rsf_program_perform_calculations <- function(pool,
                       `:=`(formula_overwrite=i.formula_overwrite,
                            is_system=i.is_system),
                       on=.(formula_id)]
-      
-      # current_results[rsf_indicators[,.(data_type,
-      #                                          formula_overwrite,
-      #                                          is_system,indicator_id)],
-      #                        `:=`(data_type=i.data_type,
-      #                             formula_overwrite=i.formula_overwrite,
-      #                             is_system=i.is_system),
-      #                        on=.(indicator_id)]
 
       current_results[is.na(formula_overwrite)==TRUE,
                              formula_overwrite:="allow"]
+      
+      #Changing the current_data_unit to LCU because we want to resolve toward LCU where possible
+      #And inserted data that is in LCU but reported in actual currency will be resolved to "LCU" anyway.
+      current_results[,
+                      `:=`(flags_current_unit=fcase(is.na(current_data_unit),"",
+                                                    current_data_unit=="LCU",paste0(" ",entity_local_currency_unit),
+                                                    current_data_unit!="LCU",paste0(" ",current_data_unit)),
+                           flags_unit=fcase(is.na(data_unit),"",
+                                            data_unit=="LCU",paste0(" ",entity_local_currency_unit),
+                                            data_unit!="LCU",paste0(" ",data_unit)))]
+      
+      current_results[entity_local_currency_unit != "LCU" &
+                      data_type == "currency" &
+                      data_unit == "LCU" &
+                      current_data_unit != "LCU" &
+                      current_data_unit == entity_local_currency_unit,
+                      current_data_unit:="LCU"]
       
       current_results[,data_changed:=is.na(current_data_id) |
                                      !(is.same_text(data_value,current_data_value))| 
@@ -386,7 +399,7 @@ rsf_program_perform_calculations <- function(pool,
         current_results[data_changed==TRUE
                          & data_type %in% c("number","percent","currency","currency_ratio")
                          & !is.na(current_data_id)
-                         & is.same_text(data_unit,current_data_unit), #just comaring units, not values!
+                         & is.same_text(data_unit,current_data_unit), #just comparing units, not values!
                          data_changed:=!(is.same_number(data_value,current_data_value))] #if it's deny then allowed to have different values; and if hashids are the same, calculation attempt and flag has already been done
       }
       
@@ -479,7 +492,7 @@ rsf_program_perform_calculations <- function(pool,
                              insert_action:= current_value_updated_in_reporting_current_date==FALSE | #Either nothing reported in this asof date....
                                              current_data_is_system_calculation==FALSE                #Or it's being calculated by the system 
                                                                                                       #and system may update its own calculations
-      ]
+                     ]
       
       #This shouldn't happen (but it formerly did when formula_overwrite deny categorically denied -- now, it permits first calculate)
       #Here just in case
@@ -534,45 +547,45 @@ rsf_program_perform_calculations <- function(pool,
                         equivalent:=TRUE]  #current value is {MISSING} but we calcualted 0, so don't flag.
         
         #Are currency values equivalent after converting to same fx rate?
-        fx_results <- current_results[data_changed==TRUE
-                                      & data_type == "currency"
-                                      & equivalent==FALSE 
-                                      & flag_overwrite == TRUE
-                                      & is.na(data_value) == FALSE
-                                      & is.same_text(data_unit,current_data_unit)==FALSE]
-        
-        if (!empty(fx_results)) {
-          fx_results[,
-                     `:=`(data_value=as.numeric(data_value),
-                          current_data_value=as.numeric(current_data_value))]
-          
-          fx_ratios <- db_data_get_fx_ratio(pool=pool,
-                                            fx_lookup=fx_results[,.(rsf_pfcbl_id,
-                                                                    exchange_rate_date=reporting_asof_date,
-                                                                    to_currency=current_data_unit,
-                                                                    from_currency=data_unit)],
-                                            create.indicators = FALSE,
-                                            ignore.validation = TRUE)
-          
-          fx_results[fx_ratios,
-                     `:=`(exchange_rate=i.exchange_rate,
-                          fx_value=data_value*i.exchange_rate),
-                     on=.(rsf_pfcbl_id,
-                          data_unit=from_currency,
-                          current_data_unit=to_currency,
-                          reporting_asof_date=exchange_rate_date)]
-          
-          
-          current_results[fx_results,
-                          `:=`(fx_value=i.fx_value,
-                               equivalent=is.same_number(i.fx_value,i.current_data_value)),
-                          on=.(rsf_pfcbl_id,
-                               indicator_id,
-                               reporting_asof_date,
-                               current_data_id)]
-        }
-        
-        fx_results <- NULL
+        # fx_results <- current_results[data_changed==TRUE
+        #                               & data_type == "currency"
+        #                               & equivalent==FALSE 
+        #                               & flag_overwrite == TRUE
+        #                               & is.na(data_value) == FALSE
+        #                               & is.same_text(data_unit,current_data_unit)==FALSE]
+        # 
+        # if (!empty(fx_results)) {
+        #   fx_results[,
+        #              `:=`(data_value=as.numeric(data_value),
+        #                   current_data_value=as.numeric(current_data_value))]
+        #   
+        #   fx_ratios <- db_data_get_fx_ratio(pool=pool,
+        #                                     fx_lookup=fx_results[,.(rsf_pfcbl_id,
+        #                                                             exchange_rate_date=reporting_asof_date,
+        #                                                             to_currency=current_data_unit,
+        #                                                             from_currency=data_unit)],
+        #                                     create.indicators = FALSE,
+        #                                     ignore.validation = TRUE)
+        #   
+        #   fx_results[fx_ratios,
+        #              `:=`(exchange_rate=i.exchange_rate,
+        #                   fx_value=data_value*i.exchange_rate),
+        #              on=.(rsf_pfcbl_id,
+        #                   data_unit=from_currency,
+        #                   current_data_unit=to_currency,
+        #                   reporting_asof_date=exchange_rate_date)]
+        #   
+        #   
+        #   current_results[fx_results,
+        #                   `:=`(fx_value=i.fx_value,
+        #                        equivalent=is.same_number(i.fx_value,i.current_data_value)),
+        #                   on=.(rsf_pfcbl_id,
+        #                        indicator_id,
+        #                        reporting_asof_date,
+        #                        current_data_id)]
+        # }
+        # 
+        # fx_results <- NULL
       }
       
       if (!empty(format_flags)) calculation_flags <- rbindlist(list(calculation_flags,
@@ -581,6 +594,7 @@ rsf_program_perform_calculations <- function(pool,
       overwrite_flags <- current_results[flag_overwrite==TRUE &
                                          data_changed ==TRUE &
                                          insert_action==TRUE &
+                                         current_value_updated_in_reporting_current_date==TRUE &
                                          equivalent==FALSE,
                                                 .(rsf_pfcbl_id,
                                                   indicator_id,
@@ -589,17 +603,15 @@ rsf_program_perform_calculations <- function(pool,
                                                   check_message=paste0(ifelse(formula_overwrite != "allow",
                                                                               paste0("(overwrite=\"",formula_overwrite,"\") "),
                                                                               ""),
-                                                                      "Reported: {",ifelse(is.na(current_data_value),"MISSING",current_data_value),
-                                                                                    ifelse(is.na(current_data_unit),"",paste0(" ",current_data_unit)),"}",
+                                                                      "Reported: ",
+                                                                      "{",ifelse(is.na(current_data_value),"MISSING",current_data_value),
+                                                                                    flags_current_unit,"}",
                                                                       ' -> ',
-                                                                      "System: {",ifelse(!is.na(fx_value),fx_value,
-                                                                                         ifelse(is.na(data_value),"MISSING",data_value)),
-                                                                                  ifelse(!is.na(fx_value),paste0(" ",current_data_unit),
-                                                                                         ifelse(is.na(data_unit),"",paste0(" ",data_unit))),"}"))]
+                                                                      "System: {",ifelse(is.na(data_value),"MISSING",data_value),
+                                                                                  flags_unit,"}"))]
                                                                       
                                                                       
-                                                                      #ifelse(is.na(data_value),"MISSING",data_value),
-                                                                      #    ifelse(is.na(data_unit),"",paste0(" ",data_unit)),"}"))]
+                                                                      
       
       
       if (!empty(overwrite_flags)) {
@@ -609,6 +621,41 @@ rsf_program_perform_calculations <- function(pool,
         
       }
       overwrite_flags <- NULL
+      
+      missing_flags <- current_results[flag_overwrite==TRUE &
+                                       data_changed ==TRUE &
+                                       insert_action==TRUE &
+                                       current_value_updated_in_reporting_current_date==FALSE &
+                                       equivalent==FALSE,
+                                         .(rsf_pfcbl_id,
+                                           indicator_id,
+                                           reporting_asof_date,
+                                           check_name="sys_calculator_vs_missing_calculation",
+                                           check_message=paste0(ifelse(formula_overwrite != "allow",
+                                                                       paste0("(overwrite=\"",formula_overwrite,"\") "),
+                                                                       ""),
+                                                                "Previous QDD reported: ",
+                                                                "{",
+                                                                ifelse(is.na(current_data_value),"MISSING",current_data_value),
+                                                                flags_current_unit,
+                                                                "} not updated (or missing) in current template",
+                                                                ' -> ',
+                                                                " System calculated for ",
+                                                                as.character(reporting_asof_date),
+                                                                ": {",ifelse(is.na(data_value),"MISSING",data_value),
+                                                                flags_unit,"}"))]
+      
+      
+      
+      
+      
+      if (!empty(missing_flags)) {
+        calculation_flags <- rbindlist(list(calculation_flags,
+                                            missing_flags))
+        
+        
+      }
+      missing_flags <- NULL
       
       
       vs_flags <- current_results[flag_overwrite==TRUE &
@@ -623,11 +670,14 @@ rsf_program_perform_calculations <- function(pool,
                                            check_message=paste0("System: {",
                                                                 ifelse(!is.na(fx_value),fx_value,
                                                                        ifelse(is.na(data_value),"MISSING",data_value)),
-                                                                ifelse(!is.na(fx_value),paste0(" ",current_data_unit),
-                                                                       ifelse(is.na(data_unit),"",paste0(" ",data_unit))),"}",
-                                                               " -> Reported: {",
+                                                                flags_unit,"}",
+                                                               " -> ",
+                                                               ifelse(current_value_updated_in_reporting_current_date==FALSE,
+                                                                      "Not updated (or missing) in current template. Previously Reported: ",
+                                                                      "Reported: "),
+                                                               "{",
                                                                 ifelse(is.na(current_data_value),"MISSING",current_data_value),
-                                                                ifelse(is.na(current_data_unit),"",paste0(" ",current_data_unit)),"}",
+                                                                flags_current_unit,"}",
                                                                " / Not overwritten because indicator overwrite=\"",formula_overwrite,"\""))]
       
       if (!empty(vs_flags)) calculation_flags <- rbindlist(list(calculation_flags,
@@ -646,10 +696,10 @@ rsf_program_perform_calculations <- function(pool,
                                     check_name="waiver_value_vs_sys_calculator",
                                     check_message=paste0("Reported data marked as WAIVER: MANUAL CALCULATION for {",
                                                          ifelse(is.na(current_data_value),"MISSING",current_data_value),
-                                                         ifelse(is.na(current_data_unit),"",paste0(" ",current_data_unit)),"}",
+                                                         flags_current_unit,"}",
                                                          " No Overwrite (system calculated {",
                                                          ifelse(is.na(data_value),"MISSING",data_value),
-                                                         ifelse(is.na(data_unit),"",paste0(" ",data_unit)),"})"))]
+                                                         flags_unit,"})"))]
       
       if (!empty(manual_flags)) calculation_flags <- rbindlist(list(calculation_flags,
                                                                     manual_flags))
@@ -748,20 +798,18 @@ rsf_program_perform_calculations <- function(pool,
         
         
         db_add_update_data_system(pool=pool,
+                                  for_import_id=for_import_id,
                                   system_upload_data=system_upload_data)
         
       }
       
       if (any(current_results$insert_action==FALSE)) {
-        # unchanged_results <- current_results[insert_action==FALSE,
-        #                                             .(data_id=current_data_id,
-        #                                               rsf_pfcbl_id,
-        #                                               indicator_id,
-        #                                               reporting_asof_date)] 
-        # 
+        
         t2 <- Sys.time()
+        
         verification_ids <- current_results[insert_action==FALSE,current_data_id]
         status_message(class="none","Validating ",length(verification_ids)," previously calculated results.\n")
+        
         validated <- dbGetQuery(pool,"
                       with data_ids as (
                   
@@ -796,11 +844,6 @@ rsf_program_perform_calculations <- function(pool,
         
         if(SYS_PRINT_TIMING) debugtime("rsf_program_perform_calculations","revalidate_calculations",as.numeric(Sys.time()-t2,"secs"))
         
-        # db_program_revalidate_calculations(pool=pool,
-        #                                    verification_date=current_calculation_date,
-        #                                    verification_ids=current_results[insert_action==FALSE,current_data_id])
-
-        #unchanged_results<-NULL
       }
       
       #For those calculations that required an fx conversion, save the data ID of the fx value used as part of the calculation

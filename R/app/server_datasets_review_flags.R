@@ -1,5 +1,5 @@
 
-EVENT_GUIDANCE_APPLIED <- reactiveVal(0)
+
 INDICATOR_FLAGS_SELECTED_EVALUATION_IDS <- reactiveVal(c())
 
 SERVER_DATASETS_REVIEW_FLAGS_REVERSION_CHECK_NAMES <- eventReactive(LOGGEDIN(), {
@@ -11,11 +11,14 @@ SERVER_DATASETS_REVIEW_FLAGS_REVERSION_CHECK_NAMES <- eventReactive(LOGGEDIN(), 
       ic.check_name,
       ic.indicator_check_id
     from p_rsf.indicator_checks ic
-    where ic.check_name in ('sys_calculator_overwrote_manual_calculation','sys_data_status_modified','waiver_value_vs_sys_calculator')")
+    where ic.check_name in ('sys_calculator_overwrote_manual_calculation',
+                            'sys_calculator_vs_missing_calculation',
+                            'sys_data_status_modified',
+                            'waiver_value_vs_sys_calculator')")
   
   setDT(cnames)
-  if (nrow(cnames) != 3) {
-    stop("System cannot find the following flags in database: sys_calculator_overwrote_manual_calculation, sys_data_status_modified, waiver_value_vs_sys_calculator.  Did a name change?  It must be kept for system use.")
+  if (nrow(cnames) != 4) {
+    stop("System cannot find the following flags in database: sys_calculator_vs_missing_calculation, sys_calculator_overwrote_missing_calculation, sys_data_status_modified, waiver_value_vs_sys_calculator.  Did a name change?  It must be kept for system use.")
   }
   
   return (cnames)
@@ -96,189 +99,9 @@ SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS <- function(evaluation_ids) {
   return (cohort_flag_details)
 }
 
-showModal_indicator_check_guidance_new <- function(for_indicator_id,
-                                                   indicator_check_id,
-                                                   rsf_pfcbl_id,
-                                                   close_to_modal=NULL) {
-  rsf_program_id <- SELECTED_PROGRAM_ID()
-  if (!isTruthy(rsf_program_id)) return (NULL)
-  
-  indicator <- RSF_INDICATORS()[indicator_id==for_indicator_id]
-  if (!isTruthy(indicator)) return (NULL)
-  
-  id <- paste0("guidance_0")
-  ns <- NS(id)
-  
-  indicator_html <- format_html_indicator(indicator_name=indicator$indicator_name,
-                                          data_category=indicator$data_category,
-                                          data_type=indicator$data_type,
-                                          is_system=indicator$is_system,
-                                          is_calculated=indicator$is_calculated)
-  
-  for_name <- DBPOOL %>% dbGetQuery("select 
-                                      sn.sys_name,
-                                      sn.pfcbl_category
-                                     from p_rsf.view_rsf_pfcbl_id_current_sys_names sn 
-                                     where sn.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
-                                                                 from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                                                                 where ft.from_rsf_pfcbl_id = $1::int)
-                                       and sn.pfcbl_category in ('global','program','facility')",
-                                    params=list(rsf_pfcbl_id))
-  
-  setDT(for_name)
-  
-  if (indicator$data_type == "global") for_name <- for_name[pfcbl_category=="global",sys_name]
-  else if (indicator$data_type == "program") for_name <- for_name[pfcbl_category=="program",sys_name]
-  else for_name <- for_name[pfcbl_category=="facility",sys_name]
-  
-  check <- DBPOOL %>% dbGetQuery("select
-                                    ic.indicator_check_id,
-                                    ic.check_name,
-                                    ic.check_class,
-                                    ic.check_type,
-                                    ic.is_system,
-                                    coalesce(ic.auto_resolve_system_check,false) as auto_resolve,
-                                    coalesce(ic.variance_tolerance_allowed,false)::bool as variance_tolerance_allowed
-                                 from p_rsf.indicator_checks ic
-                                 where ic.indicator_check_id = $1::int",
-                                 params=list(indicator_check_id))
-  
-  default_auto_resolve <- as.logical(check$auto_resolve)
-  default_check_class <- as.character(check$check_class)
-  
-  check_html <- format_html_check(check_name=check$check_name,
-                                  check_class=check$check_class,
-                                  check_type=check$check_type,
-                                  is_subscribed=TRUE, #Just formatting
-                                  is_system=check$is_system)
-  
-  level.choices <- c()
-  level.selected <- NULL
-  if (rsf_program_id==0) {
-    level.choices <- c(`Global Specific`="program") #because when its global program selected, we only want it for THIS program and not for everyone
-    level.selected <- "program"
-  } else {
-    program_name <- SELECTED_PROGRAM()$program_nickname
-    
-    level.choices <- c("global","program","facility")
-    level.choices <- setNames(level.choices,
-                              c("Universal",
-                                paste0("All ",program_name," Facilities"),
-                                "Facility Specific"))
-    
-    level.selected <- ifelse(indicator$data_type %in% c("global","program"),
-                             "program",
-                             "facility")
-  }
-  
-  set_level <- selectizeInput(inputId=ns("guidance_set_program_level"),
-                              label="Set Guidance Level",
-                              choices=level.choices,
-                              selected=level.selected,
-                              width="250px")
-  
-  #level_note <- "When selected, guidance is applied at the entire program level"
-  
-  if (indicator$data_type %in% c("global","program")) {
-    set_level <- disabled(set_level)
-    level_note <- "This program-level indicator must apply guidance at the entire program level"
-  }
-  
-  guidance_class_choices <- c(`Critical`='critical',
-                              `Error`='error',
-                              `Warning`='warning',
-                              `Info`='info')
-  
-  guidance_class_choices[which(guidance_class_choices==default_check_class)] <- NA
-  names(guidance_class_choices)[which(is.na(guidance_class_choices))] <- paste0(names(guidance_class_choices)[which(is.na(guidance_class_choices))],
-                                                                                " [Default]")
-  toleranceInput <- textInput(inputId=ns("tolerance_variance"),
-                              label="Apply if Variance Below:",
-                              value="",
-                              placeholder="0%")
-  
-  if (check$variance_tolerance_allowed==FALSE) toleranceInput <- disabled(toleranceInput)
-  
-  ui <- tagList(fluidRow(align="top",style="padding-top:5px;",
-                         column(12,align="top",
-                                uiOutput(outputId=ns("new_guidance_name")))),
-                fluidRow(align="top",style="margin-top:5px;",
-                         column(2,set_level),
-                         column(10,
-                                div(style="margin-top:25px",
-                                    textOutput(outputId=ns("level_description"))))),
-                fluidRow(align="top",
-                         column(12,
-                                fluidRow(align="top",
-                                         column(6,
-                                                textAreaInput(inputId=ns("guidance_text"),
-                                                              label="Guidance Text",
-                                                              value="",
-                                                              placeholder = paste0("Create and apply new guidance comment"),
-                                                              width="100%",
-                                                              rows=1)),
-                                         column(2,
-                                                selectizeInput(inputId=ns("guidance_resolving"),
-                                                               label="Resolve Action",
-                                                               choices=c(`Auto-Resolve`="RESOLVE",
-                                                                         `User Review`="REVIEW",
-                                                                         `Always Ignore`="IGNORE"),
-                                                               selected=default_auto_resolve,
-                                                               multiple=FALSE,
-                                                               width="100%")),
-                                         column(2,
-                                                selectizeInput(inputId=ns("guidance_class"),
-                                                               label="Flag Class",
-                                                               choices=guidance_class_choices,
-                                                               selected=NA,
-                                                               multiple=FALSE,
-                                                               width="100%")),
-                                         
-                                         column(1,
-                                                toleranceInput),
-                                         
-                                         column(1,style="margin-top:25px;",
-                                                actionButton(inputId=ns("guidance_apply"),
-                                                             label="Apply",
-                                                             class="btn-success"))))))
-  
-  ui <- div(style="padding:5px;border:solid black 1px;background-color:gainsboro;",
-            ui)
-  
-  
-  registerModule(id=id,
-                 .module=server_datasets_guidance_module(id=id,
-                                                         guidance_id=as.numeric(NA),
-                                                         indicator_id=for_indicator_id,
-                                                         indicator_check_id=indicator_check_id,
-                                                         for_rsf_pfcbl_id=rsf_pfcbl_id,
-                                                         for_pfcbl_category=as.character(NA),
-                                                         user_id=USER_ID(),
-                                                         INDICATOR_FLAGS_SELECTED_EVALUATION_IDS=INDICATOR_FLAGS_SELECTED_EVALUATION_IDS,
-                                                         EVENT_GUIDANCE_APPLIED=EVENT_GUIDANCE_APPLIED))
-  m <- modalDialog(id="view_indicator_check_guidance",
-                   div(
-                     fluidPage(
-                       fluidRow(column(12,style="display:inline-block",tags$label("Guidance For"),
-                                       div(style="display:inline-block;",HTML(indicator_html),
-                                           div(style="display:inline-block;",HTML(check_html)))))),
-                     fluidRow(style="padding-top:10px;",column(12,ui))),
-                   
-                   title=HTML(paste0("Indicator Check Guidance For: ",for_name)),
-                   footer=div(style="display:inline-block;width:100%;",
-                              div(style="display:inline-block;float:left;",
-                                  actionButton(inputId="action_guidance_new_cancel",
-                                               label="Cancel",
-                                               class="btn-primary btn-danger"))),
-                   size="l")
-  showModal(m)
-  
-}
-
-
-showModal_indicator_check_guidance_edit <- function(for_indicator_id,
-                                                    indicator_check_id,
-                                                    rsf_pfcbl_id) {
+showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
+                                                    for_indicator_id,
+                                                    indicator_check_id) {
   #browser()
   indicator <- RSF_INDICATORS()[indicator_id==for_indicator_id]
   if (!isTruthy(indicator)) return (NULL)
@@ -289,242 +112,283 @@ showModal_indicator_check_guidance_edit <- function(for_indicator_id,
                                           is_system=indicator$is_system,
                                           is_calculated=indicator$is_calculated)
   
-  for_name <- DBPOOL %>% dbGetQuery("select 
-                                      sn.sys_name,
-                                      sn.pfcbl_category
-                                     from p_rsf.view_rsf_pfcbl_id_current_sys_names sn 
-                                     where sn.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
-                                                                 from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                                                                 where ft.from_rsf_pfcbl_id = $1::int)
-                                       and sn.pfcbl_category in ('global','program','facility')",
-                                    params=list(rsf_pfcbl_id))
+  for_name <- SELECTED_PROGRAM_FACILITIES_LIST()[rsf_pfcbl_id==for_rsf_pfcbl_id,facility_name]
   
-  setDT(for_name)
+  config <- DBPOOL %>% dbGetQuery("
+    select
+      ic.check_name,
+      ic.check_class,
+      ic.check_type,
+      ic.is_system,
+      coalesce(scc.config_auto_resolve,ic.auto_resolve_system_check) as config_auto_resolve,
+      coalesce(scc.config_check_class,ic.check_class) as config_check_class,
+      coalesce(scc.config_threshold,0) as config_threshold,
+      coalesce(ic.variance_tolerance_allowed,false)::bool as variance_tolerance_allowed,
+      coalesce(scc.config_comments,'') as config_comments,
+      scc.comments_user_id,
+      vai.users_name
+    from p_rsf.indicator_checks ic
+    left join p_rsf.rsf_setup_checks_config scc on scc.rsf_pfcbl_id = $1::int
+                                               and scc.for_indicator_id = $2::int
+                                               and scc.indicator_check_id = ic.indicator_check_id
+    left join p_rsf.view_account_info vai on vai.account_id = scc.comments_user_id
+    where ic.indicator_check_id = $3::int",
+    params=list(for_rsf_pfcbl_id,
+                for_indicator_id,
+                indicator_check_id))
   
-  if (indicator$data_type == "global") for_name <- for_name[pfcbl_category=="global",sys_name]
-  else if (indicator$data_type == "program") for_name <- for_name[pfcbl_category=="program",sys_name]
-  else for_name <- for_name[pfcbl_category=="facility",sys_name]
-  
-  
-  check <- DBPOOL %>% dbGetQuery("select
-                                    ic.indicator_check_id,
-                                    ic.check_name,
-                                    ic.check_class,
-                                    ic.check_type,
-                                    ic.is_system,
-                                    coalesce(ic.auto_resolve_system_check,false) as auto_resolve,
-                                    coalesce(ic.variance_tolerance_allowed,false)::bool as variance_tolerance_allowed 
-                                 from p_rsf.indicator_checks ic
-                                 where ic.indicator_check_id = $1::int",
-                                 params=list(indicator_check_id))
-  
-  check_html <- format_html_check(check_name=check$check_name,
-                                  check_class=check$check_class,
-                                  check_type=check$check_type,
-                                  is_subscribed=TRUE,
-                                  is_system=check$is_system)
-  
-  guidance <- DBPOOL %>% dbGetQuery("
-                                    select
-                                    	icg.indicator_check_guidance_id,
-                                    	icg.guidance,
-                                    	icg.is_resolving_guidance,
-                                      icg.is_ignoring_guidance,
-                                    	icg.for_pfcbl_category,
-                                    	icg.overwrite_check_class,
-                                      coalesce(icg.variance_threshold,0) as variance_threshold,
-                                    	icg.for_indicator_id as indicator_id,
-                                    	icg.indicator_check_id,
-                                    	array_to_string(array_agg(nids.rsf_full_name),',') as subscribed_names
-                                    from p_rsf.indicator_check_guidance icg
+  setDT(config)
 
-                                    left join p_rsf.rsf_program_facility_check_guidance pcg on pcg.indicator_check_guidance_id = icg.indicator_check_guidance_id
-                                    left join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ft.rsf_pfcbl_id
-                                    where icg.for_indicator_id = $1::int
-                                      and icg.indicator_check_id = $2::int
-                                      and (icg.
-                                    group by
-                                    	icg.indicator_check_guidance_id,
-                                    	icg.guidance,
-                                    	icg.is_resolving_guidance,
-                                    	icg.for_pfcbl_category,
-                                    	icg.overwrite_check_class,
-                                    	icg.for_indicator_id,
-                                    	icg.indicator_check_id",
-                                    params=list(for_indicator_id,
-                                                indicator_check_id,
-                                                rsf_pfcbl_id))
-  setDT(guidance)
+  check_html <- format_html_check(check_name=config$check_name,
+                                  check_class=config$check_class,
+                                  check_type=config$check_type,
+                                  is_subscribed=TRUE,
+                                  is_system=config$is_system)
   
-  ui <- NULL
-  if (!empty(guidance)) {
-    guidance[nchar(subscribed_names)==0,subscribed_names:="GUIDANCE NOT USED"]
-    
-    
-    default_auto_resolve <- as.logical(check$auto_resolve)
-    default_check_class <- as.character(check$check_class)
-    
-    
-    indicator_is_program_level <- indicator$data_category %in% c("global","program")
-    
-    setcolorder(guidance,
-                neworder = c("indicator_check_guidance_id",
-                             "guidance",
-                             "is_resolving_guidance",
-                             "is_ignoring_guidance",
-                             "for_pfcbl_category",
-                             "indicator_id",
-                             "indicator_check_id",
-                             "subscribed_names"))
-    
-    guidance[,ui_id:=1:.N]
-    guidance[,subscribed_names:=mapply(str_split,string=subscribed_names,pattern=",")]
-    guidance[,subscribed_html_names:=paste0("<div>",
-                                            paste0(unlist(mapply(format_html_indicator,
-                                                                 indicator_name=subscribed_names,
-                                                                 data_category=for_pfcbl_category,
-                                                                 data_type="",
-                                                                 is_system=FALSE,
-                                                                 is_calculated=FALSE,
-                                                                 options_group_name=NA)),
-                                                   collapse="&nbsp; "),
-                                            "</div>"),
-             by=.(ui_id)]
-    
-    
-    
-    guidance_class_choices <- c(`Critical`='critical',
-                                `Error`='error',
-                                `Warning`='warning',
-                                `Info`='info')
-    
-    guidance_class_choices[which(guidance_class_choices==default_check_class)] <- NA
-    names(guidance_class_choices)[which(is.na(guidance_class_choices))] <- paste0(names(guidance_class_choices)[which(is.na(guidance_class_choices))],
-                                                                                  " [Default]")
-    
-    ui_list <- list()
-    
-    for (g in 1:nrow(guidance)) {
-      guide <- guidance[g]
-      
-      id <- paste0("guidance_",g)
-      ns <- NS(id)
-      
-      toleranceValue <- NULL
-      if (check$variance_tolerance_allowed==FALSE) {
-        toleranceValue <- 0.0
-      } else {
-        toleranceValue <- as.numeric(guide$variance_threshold)
-        if (!isTruthy(toleranceValue)) toleranceValue <- 0.0
-      }
-      
-      toleranceValue <- as.numeric(toleranceValue) * 100
-      toleranceValue <- paste0(toleranceValue,"%")
-      
-      toleranceInput <- textInput(inputId=ns("tolerance_variance"),
-                                  label=NULL,
-                                  value=as.character(toleranceValue),
-                                  placeholder="0% Variance")
-      
-      if (check$variance_tolerance_allowed==FALSE) toleranceInput <- disabled(toleranceInput)
-      
-      
-      resolving.selected <- fcase(guide$is_ignoring_guidance==TRUE,"IGNORE",
-                                  guide$is_resolving_guidance==TRUE,"RESOLVE",
-                                  default="REVIEW")
-      
-      {
-        ui_list[length(ui_list)+1] <- tagList(
-          fluidRow(align="top",
-                   column(12,
-                          fluidRow(align="top",
-                                   column(12,HTML(guide$subscribed_html_names))),
-                          fluidRow(align="top",
-                                   column(6,
-                                          textAreaInput(inputId=ns("guidance_text"),
-                                                        label=NULL,
-                                                        value=guide$guidance,
-                                                        placeholder = paste0("Enter new text for this ",
-                                                                             tools::toTitleCase(guide$for_pfcbl_category),
-                                                                             "Guidance."),
-                                                        width="100%",
-                                                        rows=1)),
-                                   column(2,
-                                          selectizeInput(inputId=ns("guidance_resolving"),
-                                                         label=NULL,
-                                                         choices=c(`Auto-Resolve`="RESOLVE",
-                                                                   `User Review`="REVIEW",
-                                                                   `Always Ignore`="IGNORE"),
-                                                         selected=resolving.selected,
-                                                         multiple=FALSE,
-                                                         width="100%")),
-                                   column(2,
-                                          selectizeInput(inputId=ns("guidance_class"),
-                                                         label=NULL,
-                                                         choices=guidance_class_choices,
-                                                         selected=guide$overwrite_check_class,
-                                                         multiple=FALSE,
-                                                         width="100%")),
-                                   column(1,toleranceInput),
-                                   column(1,
-                                          actionButton(inputId=ns("guidance_apply"),
-                                                       label="Apply",
-                                                       class="btn-success"))))))
-      }
-      
-      registerModule(id=id,
-                     .module=server_datasets_guidance_module(id=id,
-                                                             guidance_id=guide$indicator_check_guidance_id,
-                                                             indicator_id=guide$indicator_id,
-                                                             indicator_check_id=guide$indicator_check_id,
-                                                             for_rsf_pfcbl_id=rsf_pfcbl_id,
-                                                             for_pfcbl_category=guide$for_pfcbl_category,
-                                                             user_id=USER_ID(),
-                                                             INDICATOR_FLAGS_SELECTED_EVALUATION_IDS=INDICATOR_FLAGS_SELECTED_EVALUATION_IDS,
-                                                             EVENT_GUIDANCE_APPLIED=EVENT_GUIDANCE_APPLIED))
+  
+  toleranceInput <- {
+    toleranceValue <- NULL
+    if (config$variance_tolerance_allowed==FALSE) {
+      toleranceValue <- 0.0
+    } else {
+      toleranceValue <- as.numeric(config$config_threshold)
+      if (!isTruthy(toleranceValue)) toleranceValue <- 0.0
     }
-    ui <- do.call(what=shiny::tagList,
-                  args=ui_list)
-    ui <- div(style="padding:5px;border:solid black 1px;background-color:gainsboro;",
-              ui)
-  } else { #else guidance is empty
-    ui <- div(style="padding:5px;background-color:gainsboro;",
-              fluidRow(column(12,
-                              p("No guidance available.  Create New guidance to proceed."))))
-  }
-  
-  m <- modalDialog(id="view_indicator_check_guidance",
-                   div(#style="max-height:600px;overflow:auto;",
-                     fluidPage(
-                       fluidRow(column(12,style="display:inline-block",tags$label("Guidance For"),
-                                       div(style="display:inline-block;",HTML(indicator_html),
-                                           div(style="display:inline-block;",HTML(check_html)))))),
+    
+    toleranceValue <- as.numeric(toleranceValue) * 100
+    toleranceValue <- paste0(toleranceValue,"%")
+    
+    ttInput <- textInput(inputId="indicator_check_edit_config__tolerance",
+                                label="Auto-Resolve Below Variance",
+                                value=as.character(toleranceValue),
+                                placeholder="eg, '2.5%', '3 DAYS'")
+    
+    if (config$variance_tolerance_allowed==FALSE) ttInput <- disabled(ttInput)
+    
+    ttInput
+  }  
+
+  m <- modalDialog(id="view_indicator_check_edit_config",
+                   div(
+                     fluidRow(column(10,style="display:inline-block",tags$label("Configure System Flag"),
+                                     div(style="display:inline-block;",HTML(indicator_html),
+                                         div(style="display:inline-block;",HTML(check_html)))),
+                              column(2,
+                                     actionButton(inputId="indicator_check_edit_config__action_delete",
+                                                  label="Delete Config",
+                                                  class="btn-danger"))),
                      fluidRow(style="padding-top:10px;",
+                              
                               column(3,
-                                     actionButton(inputId="guidance_create_new",
-                                                  label="Create New Guidance",
-                                                  class="btn-primary")),
-                              column(9,"Note: to permanently delete a guidance option, delete its text and submit 'apply' with an empty guidance field.")),
-                     fluidRow(style="padding-top:10px;",
-                              column(12,ui))),
+                                     selectizeInput(inputId="indicator_check_edit_config__resolving",
+                                                    label="Default Review",
+                                                    choices=c(`User Review`="FALSE",
+                                                              `Auto-Resolve`="TRUE"),
+                                                    selected=toupper(paste0(config$config_auto_resolve)),
+                                                    multiple=FALSE,
+                                                    width="100%")),
+                              column(3,
+                                     selectizeInput(inputId="indicator_check_edit_config__class",
+                                                    label="Flag Severity",
+                                                    choices=c(`Critical`='critical',
+                                                              `Error`='error',
+                                                              `Warning`='warning',
+                                                              `Info`='info'),
+                                                    selected=tolower(config$config_check_class),
+                                                    multiple=FALSE,
+                                                    width="100%")),
+                              column(3,toleranceInput),
+
+                              column(3,
+                                     #hidden so modal can be launched by differerent UIs.  On save, need to verify the rsf_pfcbl_id is available to user and is a system check
+                                     hidden(textInput(inputId="indicator_check_edit_config__ids",label=NULL,value=paste0(for_rsf_pfcbl_id,"-",for_indicator_id,"-",indicator_check_id))))),
+                                     
                    
-                   title=HTML(paste0("Indicator Check Guidance For: ",for_name)),
+                     fluidRow(style="padding-top:10px;",
+                              column(12,
+                                     textAreaInput(inputId="indicator_check_edit_config__comments",
+                                                   label=paste0("Configuration Comments",
+                                                                ifelse(is.na(config$users_name),"",
+                                                                       paste0(" [",config$users_name,"]"))),
+                                                   value=config$config_comments)))
+                   ),
+                   
+                   title=HTML(paste0("Flag Config For: ",for_name)),
                    footer=div(style="display:inline-block;width:100%;",
                               div(style="display:inline-block;float:left;",
-                                  actionButton(inputId="action_guidance_edit_cancel",
+                                  actionButton(inputId="indicator_check_edit_config__action_cancel",
                                                label="Cancel",
-                                               class="btn-primary btn-danger"))),
-                   size="l")
+                                               class="btn-primary")),
+                              div(style="display:inline-block;float:right;",
+                                  actionButton(inputId="indicator_check_edit_config__action_submit",
+                                               label="Save & Close",
+                                               class="btn-primary btn-success"))),
+                   size="m")
   showModal(m)
 }
+
+observeEvent(input$indicator_check_edit_config__action_delete, {
+  
+  ids <- as.numeric(unlist(strsplit(input$indicator_check_edit_config__ids,split="-")))
+  
+  if (length(ids) != 3) return (NULL)
+  if (!ids[[1]] %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id ||
+      !ids[[2]] %in% RSF_INDICATORS()$indicator_id ||
+      !ids[[3]] %in% RSF_CHECKS()$indicator_check_id) {
+    showNotification(type="error",
+                     ui=h3("Failed to configure check: invalid IDs or user does not have permissions"))
+    return (NULL)
+  }
+  
+  DBPOOL %>% dbExecute("delete from p_rsf.rsf_setup_checks_config scc
+                        where scc.rsf_pfcbl_id = $1::int
+                          and scc.for_indicator_id = $2::int
+                          and scc.indicator_check_id = $3::int",
+                       params=list(ids[[1]],
+                                   ids[[2]],
+                                   ids[[3]]))
+  
+  SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1)
+  REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1)
+  removeModal()
+  
+})
+
+observeEvent(input$indicator_check_edit_config__action_submit, {
+  
+  ids <- as.numeric(unlist(strsplit(input$indicator_check_edit_config__ids,split="-")))
+  
+  if (length(ids) != 3) return (NULL)
+  if (!ids[[1]] %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id ||
+      !ids[[2]] %in% RSF_INDICATORS()$indicator_id ||
+      !ids[[3]] %in% RSF_CHECKS()$indicator_check_id) {
+    showNotification(type="error",
+                     ui=h3("Failed to configure check: invalid IDs or user does not have permissions"))
+    return (NULL)
+  }
+
+  config_comments <- input$indicator_check_edit_config__comments
+  
+  config_class <- input$indicator_check_edit_config__class
+  
+  config_resolving <- as.logical(input$indicator_check_edit_config__resolving)
+  
+  config_threshold <- input$indicator_check_edit_config__tolerance
+  config_threshold <- as.numeric(gsub("[^[:digit:]\\.]","",config_threshold))
+  
+  #For days, variance is in "DAYS"
+  if (RSF_INDICATORS()[indicator_id == ids[2],data_type] %in% c("date")) {
+    config_threshold <- round(config_threshold)
+  } else {
+    config_threshold <- round(config_threshold / 100,2)    
+  }
+
+
+  DBPOOL %>% dbExecute("
+    insert into p_rsf.rsf_setup_checks_config(rsf_pfcbl_id,
+                                            for_indicator_id,
+                                            indicator_check_id,
+                                            rsf_program_id,
+                                            rsf_facility_id,
+                                            config_auto_resolve,
+                                            config_check_class,
+                                            config_threshold,
+                                            config_comments,
+                                            comments_user_id)
+    select 
+      ids.rsf_pfcbl_id,
+      ind.indicator_id,
+      ic.indicator_check_id,
+      ids.rsf_program_id,
+      ids.rsf_facility_id,
+      coalesce($4::bool,false) as config_auto_resolve,
+      coalesce($5::text,ic.check_class) as config_check_class,
+      case when ic.variance_tolerance_allowed is true 
+           then coalesce($6::numeric,0)
+           else NULL
+      end as config_threshold,
+      $7::text as config_comments,
+      $8::text as comments_user_id
+    from p_rsf.rsf_pfcbl_ids ids,
+         p_rsf.indicators ind,
+         p_rsf.indicator_checks ic
+    where ids.rsf_pfcbl_id = $1::int 
+      and ind.indicator_id = $2::int
+      and ic.indicator_check_id = $3::int
+      and ic.is_system is true -- can only config system checks
+    on conflict(rsf_pfcbl_id,for_indicator_id,indicator_check_id)
+    do update
+    set config_auto_resolve = EXCLUDED.config_auto_resolve,
+        config_check_class = EXCLUDED.config_check_class,
+        config_threshold = EXCLUDED.config_threshold,
+        config_comments = EXCLUDED.config_comments,
+        comments_user_id = EXCLUDED.comments_user_id",
+    params=list(ids[[1]],
+                ids[[2]],
+                ids[[3]],
+                config_resolving,
+                config_class,
+                config_threshold,
+                config_comments,
+                USER_ID()))
+  
+  if (config_resolving == TRUE || 
+     (!is.na(config_threshold) && (config_threshold > 0))) {
+    
+      DBPOOL %>% dbExecute("
+      with resolve as (
+
+        select 
+          rdc.evaluation_id,
+          scc.config_comments,
+          scc.comments_user_id
+        from p_rsf.rsf_setup_checks_config scc
+        inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = scc.rsf_pfcbl_id
+        inner join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+                                            and rdc.indicator_id = scc.for_indicator_id
+                                            and rdc.indicator_check_id = scc.indicator_check_id
+        left join lateral (select ((regexp_match(check_message,'\\(([[:digit:]\\.]+)[:space:]?(%|DAYS) variance\\)$'))[1]) as val,
+                                           ((regexp_match(check_message,'\\([[:digit:]\\.]+[:space:]?(.*) variance\\)$'))[1]) as unit) as var 
+                                           on rdc.check_message ~ 'variance'
+                                           and var.val is not null
+                                           and public.isnumeric(var.val) is true                                          
+        where scc.rsf_pfcbl_id = $1::int
+          and scc.for_indicator_id = $2::int
+          and scc.indicator_check_id = $3::int
+          and rdc.check_data_id_is_current is true
+          and rdc.check_status = 'active'
+          and
+          (
+            (scc.config_auto_resolve is true)
+            or
+            (case when var.unit ~* 'days' then var.val::numeric else var.val::numeric/100 end < coalesce(scc.config_threshold,0))
+          )
+      )
+      update p_rsf.rsf_data_checks rdc
+      set check_status = 'resolved',
+          check_status_comment = concat('Resolved by Flag Configuration: ',res.config_comments),
+          check_status_user_id = res.comments_user_id
+      from resolve res
+      where res.evaluation_id = rdc.evaluation_id",
+       params=list(ids[[1]],
+                   ids[[2]],
+                   ids[[3]]))
+  }
+  
+  SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1)
+  REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1)
+  removeModal()
+  
+                       
+})
 
 #Action click to review cohort indicator flag details for resolutions: raises modal panel
 observeEvent(input$action_indicator_flags_review, {
   
-  cohort_info <- SELECTED_COHORT_INFO()
+  cohort_group <- SELECTED_IMPORT_COHORT_GROUP()
   selected_indicator_flag_id <- input$action_indicator_flags_review
   
-  if (!isTruthy(cohort_info)) return(NULL)
+  if (!isTruthy(cohort_group)) return(NULL)
   if (!isTruthy(selected_indicator_flag_id)) return(NULL)
   
   cohort_flags <- SELECTED_COHORT_SELECTED_INDICATOR_REVIEW_FLAGS()
@@ -542,15 +406,32 @@ observeEvent(input$action_indicator_flags_review, {
                        session = shiny::getDefaultReactiveDomain())
   }
   
+  check_config <- DBPOOL %>% dbGetQuery("
+    select 
+      concat('[',coalesce(vai.users_name,'UNKNOWN'),']: ',scc.config_comments) as config_comments
+    from p_rsf.view_rsf_setup_check_config scc
+    left join p_rsf.view_account_info vai on vai.account_id = scc.comments_user_id
+    where scc.rsf_pfcbl_id = $1::int
+      and scc.for_indicator_id = $2::int
+      and scc.indicator_check_id = $3::int",
+    params=list(cohort_group$import_rsf_pfcbl_id,
+                cohort_indicator_flag$indicator_id,
+                cohort_indicator_flag$indicator_check_id))
   
   check_definition <- DBPOOL %>% dbGetQuery("select 
-                                             ic.definition
+                                              ic.definition
                                              from p_rsf.indicator_checks ic
                                              where ic.indicator_check_id = any(select unnest(string_to_array($1::text,','))::int)",
-                                            params=list(paste0(na.omit(unique(c(cohort_indicator_flag$indicator_check_id,
-                                                                                cohort_indicator_flag$consolidated_from_indicator_check_id))))))
+                                            params=list(paste0(na.omit(unique(c(cohort_indicator_flag$indicator_check_id))))))
+  
   check_definition <- paste0(check_definition$definition,collapse=" {AND ALSO} ")
   
+  if (!empty(check_config)) {
+    check_config <- div(icon("edit",style="color:black"),
+                        check_config$config_comments)
+  } else {
+    check_config <- NULL
+  }
   check_html <-  cohort_indicator_flag$check_html
   check_formula_html <- cohort_indicator_flag$check_formula_html
   
@@ -562,11 +443,13 @@ observeEvent(input$action_indicator_flags_review, {
   
   check_names <- SERVER_DATASETS_REVIEW_FLAGS_REVERSION_CHECK_NAMES()
   
-  if (cohort_indicator_flag$check_name=="sys_calculator_overwrote_manual_calculation") {
+  if (cohort_indicator_flag$check_name %in% c("sys_calculator_overwrote_manual_calculation",
+                                              "sys_calculator_vs_missing_calculation")) {
     status.choices <- c(Active="active",
                         Resolved="resolved",
                         `Revert with Waiver`='revert')
     
+  
   } else if (cohort_indicator_flag$check_name=="sys_data_status_modified") {
     status.choices <- c(Active="active",
                         Resolved="resolved",
@@ -580,7 +463,6 @@ observeEvent(input$action_indicator_flags_review, {
                              New="new")
   
   status_review.selected <- "new"
-  
   
   if (!any(cohort_flags$check_status=="resolved")) {
     status_review.choices <- status_review.choices[-which(status_review.choices=="resolved")]
@@ -604,34 +486,72 @@ observeEvent(input$action_indicator_flags_review, {
   
   indicator_formula_review_ui <- NULL
   check_formula_review_ui <- NULL
+  
+  check_formula_setup_ui <- div(style="width:100px","")
+  indicator_setup_ui <- div(style="width:100px","System Metric")
+                                                
+  if (!is.na(cohort_indicator_flag$indicator_is_system) &&
+      cohort_indicator_flag$indicator_is_system != TRUE) {
+    
+    indicator_setup_ui <- div(style="width:100px",
+                              HTML(paste("<a href='#' ",
+                                         " onclick=\"Shiny.setInputValue('action_indicator_flags__setup_indicator',",
+                                                                          as.numeric(Sys.time()),
+                                                                           ",{priority:'event'})\">",
+                                         "Setup Metric <i class='far fa-eye'></i></a>")))
+    
+  }
+  
   if (!is.na(cohort_indicator_flag$indicator_formula_id)) {
     indicator_formula_review_ui <- actionButton(inputId="action_review_indicator_flags_audit_indicator",
                                                 label="Audit Calculation",
                                                 class="btn-primary",
                                                 icon=icon("calculator"))
+    
+    
   }
   
-  #System checks will not have a formula to review
+  #System checks will not have a formula to review (or setup)
   if (!is.na(cohort_indicator_flag$check_formula_id)) {
     check_formula_review_ui <- actionButton(inputId="action_review_indicator_flags_audit_check",
                                             label="Audit Check",
                                             class="btn-primary",
                                             icon=icon("flag"))
+    
+    check_formula_setup_ui <- div(style="width:100px",
+                              HTML(paste("<a href='#' ",
+                                         " onclick=\"Shiny.setInputValue('action_indicator_flags__setup_check',",
+                                         as.numeric(Sys.time()),
+                                         ",{priority:'event'})\">",
+                                         "Setup Check <i class='far fa-eye'></i></a>")))
+  
+  } else {
+    #System checks have no formula and are not "setup" strictly speaking.
+    #But being able to configure calculation overwrites is often expected
+    check_formula_setup_ui <- div(style="width:100px",
+                                  HTML(paste("<a href='#' ",
+                                             " onclick=\"Shiny.setInputValue('action_indicator_flags__config_check',",
+                                             as.numeric(Sys.time()),
+                                             ",{priority:'event'})\">",
+                                             "Config Flag <i class='far fa-edit'></i></a>")))
+    
   }
   
   m <- modalDialog(id="view_indicator_flags_review",
                    title=HTML(paste0("Review Flags: ",
-                                     cohort_info$rsf_full_name," ",
-                                     format_asof_date_label(cohort_info$reporting_asof_date)," ",
-                                     "[upload #",cohort_info$reporting_cohort_id,"]")),
+                                     cohort_group$entity_name," ",
+                                     format_asof_date_label(cohort_group$cohort_asof_date)," ",
+                                     "[upload #",cohort_group$import_id,"]")),
                    div(style="max-height:600px;width:100%;overflow-y:auto;",
                        fluidPage(
-                         fluidRow(column(2,tags$label("Flagged Indicator")),
-                                  column(6,style="display:inline-block",
+                         fluidRow(column(8,style="display:inline-block",
                                          div(style="display:flex;flex-flow:row nowrap;",
+                                             indicator_setup_ui,
                                              div(HTML(indicator_html)),
                                              div(HTML(formula_html))),
+                                         
                                          div(style="display:flex;flex-flow:row nowrap;",
+                                             check_formula_setup_ui,
                                              div(HTML(check_html)),
                                              div(HTML(check_formula_html)))
                                   ),
@@ -647,17 +567,11 @@ observeEvent(input$action_indicator_flags_review, {
                                            check_formula_review_ui
                                          )
                                   )),
-                         fluidRow(column(2,tags$label("Definition")),
-                                  column(10,div(style='display:inline-block',icon("info",style="color:blue"),check_definition))),
-                         fluidRow(column(2,div(style='display:inline-block;',
-                                               tags$label("Resolution Guidance"),
-                                               icon("edit",
-                                                    title='Edit Guidance',
-                                                    #class="btn-primary",
-                                                    style="color:blue;",
-                                                    class="pointer",
-                                                    onclick=paste0('Shiny.setInputValue("action_edit_indicator_flag_guidance","', as.numeric(Sys.time()),'",{priority:"event"})')))),
-                                  column(10,uiOutput(outputId="view_indicator_flag_guidance"))),
+                         fluidRow(style="padding-top:10px;",
+                                  column(12,
+                                         div(style='display:inline-block',icon("info",style="color:blue"),check_definition),
+                                         check_config)),
+
                          
                          fluidRow(style="padding-top:10px",
                                   column(2,
@@ -702,6 +616,7 @@ observeEvent(input$action_indicator_flags_review, {
                                                class="btn-primary btn-success"))),
                    size="l")
   showModal(m)
+  
 })
 
 observeEvent(input$server_datasets_review_flags_selected, {
@@ -714,46 +629,162 @@ observeEvent(input$server_datasets_review_flags_selected, {
   } else {
     INDICATOR_FLAGS_SELECTED_EVALUATION_IDS(unique(c(INDICATOR_FLAGS_SELECTED_EVALUATION_IDS(),evaluation_id)))
   }
-  print(INDICATOR_FLAGS_SELECTED_EVALUATION_IDS())
+  #print(INDICATOR_FLAGS_SELECTED_EVALUATION_IDS())
 })
 
-#Closes review modal and brings up guidance modal for the selected indicator/check currently under review
-observeEvent(input$action_edit_indicator_flag_guidance, {
+#When clicked, navigates to the Setup page and auto-filtered for the selected check.
+observeEvent(input$action_indicator_flags__setup_check, {
   
-  #In case any existing guidance modules haven't been cleaned up properly...
-  lapply(grep("^guidance_",registeredModules(),value=T),destroyModule)
-  #removeModal()
-  
-  selected_indicator_flag_id <- as.character(input$action_indicator_flags_review)
+  selected_indicator_flag_id <- as.numeric(input$action_indicator_flags_review)
   if (!isTruthy(selected_indicator_flag_id)) return(NULL)
   
-  cohort_indicator_flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()
-  if (!selected_indicator_flag_id %in% cohort_indicator_flags$indicator_flag_id) return (NULL)
+  setup_indicator_check <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()[indicator_flag_id==selected_indicator_flag_id]
+  if (empty(setup_indicator_check)) return (NULL)
   
-  cohort <- COHORTS_LIST()[reporting_cohort_id==SELECTED_COHORT_ID()]
-  if (!isTruthy(cohort)) return (NULL)
   
-  indicator_flag <- cohort_indicator_flags[indicator_flag_id==selected_indicator_flag_id]
   
-  for_indicator_id <- indicator_flag$indicator_id
-  indicator_check_id <- indicator_flag$indicator_check_id
-  if (!is.na(indicator_flag$consolidated_from_indicator_id) && 
-      !is.na(indicator_flag$consolidated_from_indicator_check_id)) {
-    for_indicator_id <- indicator_flag$consolidated_from_indicator_id
-    indicator_check_id <- indicator_flag$consolidated_from_indicator_check_id
+  selected_id <- NULL
+  if (!(SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id)) {
+    selected_id <- DBPOOL %>% dbGetQuery("selected coalesce(ids.rsf_facility_id,ids.rsf_program_id) as rsf_pfcbl_id
+                                          from p_rsf.rsf_pfcbl_ids ids
+                                          where ids.rsf_pfcbl_id = $1::int",
+                                         params=list(SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id))
+    selected_id <- as.numeric(unlist(selected_id))
+    
+  } else {
+    selected_id <- SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id
+    
   }
   
-  showModal_indicator_check_guidance_edit(for_indicator_id=as.numeric(for_indicator_id),
-                                          indicator_check_id=as.numeric(indicator_check_id),
-                                          rsf_pfcbl_id=cohort$reporting_rsf_pfcbl_id)
+  updateSelectizeInput(session=session,
+                       inputId="ui_setup__checks_program_facilities",
+                       selected=selected_id)
+  
+  updateSelectizeInput(session=session,
+                       inputId="ui_setup__checks_monitoring_filter",
+                       selected="")
+  
+  updateSelectizeInput(session=session,
+                       inputId="ui_setup__checks_category_filter",
+                       selected="")
+  
+  updateSelectizeInput(session=session,
+                       inputId="ui_setup__checks_type_filter",
+                       selected="")
+  
+  updateSelectizeInput(session=session,
+                       inputId="ui_setup__checks_search_filter",
+                       selected=paste0(setup_indicator_check$check_name," ",setup_indicator_check$check_formula_title))
+  
+  if (!"tabset_setup_program" %in% input$sidebarMenu)  {
+    updateTabItems(session=session,
+                   inputId="sidebarMenu",
+                   selected="setup")
+  }
+  
+  updateTabsetPanel(session=session,
+                    inputId="tabset_setup_program",
+                    selected="setup_checks")
+  
+  removeModal()
+})
+
+#When clicked, navigates to the Setup page and auto-filtered for the selected check.
+observeEvent(input$action_indicator_flags__config_check, {
+  
+  selected_indicator_flag_id <- as.numeric(input$action_indicator_flags_review)
+  
+
+  if (!isTruthy(selected_indicator_flag_id)) return(NULL)
+
+  config_indicator_flag <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()[indicator_flag_id==selected_indicator_flag_id]
+
+  if (empty(config_indicator_flag)) return (NULL)
+
+  selected_id <- NULL
+  if (!(SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id)) {
+    selected_id <- DBPOOL %>% dbGetQuery("selected coalesce(ids.rsf_facility_id,ids.rsf_program_id) as rsf_pfcbl_id
+                                          from p_rsf.rsf_pfcbl_ids ids
+                                          where ids.rsf_pfcbl_id = $1::int",
+                                         params=list(SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id))
+    selected_id <- as.numeric(unlist(selected_id))
+    
+  } else {
+    selected_id <- SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id
+    
+  }
+  
+  for_indicator_id <- config_indicator_flag$indicator_id
+  indicator_check_id <- config_indicator_flag$indicator_check_id
+  
+  showModal_indicator_check_config(for_rsf_pfcbl_id=selected_id,
+                                   for_indicator_id=config_indicator_flag$indicator_id,
+                                   indicator_check_id=config_indicator_flag$indicator_check_id)
+    
+})
+
+#When clicked, navigates to the Setup page and auto-filtered for the selected indicator.
+
+observeEvent(input$action_indicator_flags__setup_indicator, {
+  
+ 
+  selected_indicator_flag_id <- as.numeric(input$action_indicator_flags_review)
+  if (!isTruthy(selected_indicator_flag_id)) return(NULL)
+  
+  setup_indicator <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()[indicator_flag_id==selected_indicator_flag_id]
+  if (empty(setup_indicator)) return (NULL)
+  
+  selected_id <- NULL
+  if (!(SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id)) {
+    selected_id <- DBPOOL %>% dbGetQuery("selected coalesce(ids.rsf_facility_id,ids.rsf_program_id) as rsf_pfcbl_id
+                                          from p_rsf.rsf_pfcbl_ids ids
+                                          where ids.rsf_pfcbl_id = $1::int",
+                                         params=list(SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id))
+    selected_id <- as.numeric(unlist(selected_id))
+    
+  } else {
+    selected_id <- SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id
+    
+  }
+  updateSelectizeInput(session=session,
+                       inputId="ui_setup__indicator_program_facilities",
+                       selected=selected_id)
+  
+  updateSelectizeInput(session=session,
+                       inputId="ui_setup__indicator_monitoring_filter",
+                       selected="")
+  
+  updateSelectizeInput(session=session,
+                       inputId="ui_setup__indicator_category_filter",
+                       selected="")
+  
+  updateSelectizeInput(session=session,
+                       inputId="ui_setup__indicator_search_filter",
+                       selected="")
+  
+  updateSelectizeInput(session=session,
+                       inputId="ui_setup__indicator_search_filter",
+                       selected=setup_indicator$indicator_name)
+  
+  if (!"tabset_setup_program" %in% input$sidebarMenu)  {
+    updateTabItems(session=session,
+                   inputId="sidebarMenu",
+                   selected="setup")
+  }
+  
+  updateTabsetPanel(session=session,
+                    inputId="tabset_setup_program",
+                    selected="setup_indicators")
+  
+  removeModal()
+  
 })
 
 #Action button: go to dashboard.  If flag applies to a calculated indicator, import parameters, too
 observeEvent(input$action_review_indicator_flags_view_dashboard, {
-  cohort_info <- SELECTED_COHORT_INFO()
-  #cohort_id <- SELECTED_COHORT_ID()
+  cohort_group <- SELECTED_IMPORT_COHORT_GROUP()
   
-  if (empty(cohort_info)) return(NULL)
+  if (empty(cohort_group)) return(NULL)
   
   selected_indicator_flag_id <- as.character(input$action_indicator_flags_review)
   if (!isTruthy(selected_indicator_flag_id)) return(NULL)
@@ -762,11 +793,8 @@ observeEvent(input$action_review_indicator_flags_view_dashboard, {
   if (empty(indicator_flag)) return (NULL)
   
 
-  flagged_indicator_id <- unique(indicator_flag$consolidated_from_indicator_id)
-  flagged_indicator_check_id <- unique(indicator_flag$consolidated_from_indicator_check_id)
-  
-  if (!isTruthy(flagged_indicator_id)) flagged_indicator_id <- unique(indicator_flag$indicator_id)
-  if (!isTruthy(flagged_indicator_check_id)) flagged_indicator_check_id <- unique(indicator_flag$indicator_check_id)
+  flagged_indicator_id <- unique(indicator_flag$indicator_id)
+  flagged_indicator_check_id <- unique(indicator_flag$indicator_check_id)
 
   check_indicator_ids <- DBPOOL %>% dbGetQuery("
     select unnest(formula_indicator_ids) as indicator_id 
@@ -789,19 +817,13 @@ observeEvent(input$action_review_indicator_flags_view_dashboard, {
   dashboard_parameters$format_unchanged <- "black"
   
   dashboard_parameters$format_pivot <- "DATA"
-  # if (length(for_indicator_names) >= length(unlist(indicator_flag$evaluation_ids))) {
-  #   dashboard_parameters$format_pivot <- "NAME"
-  # } else {
-  #   dashboard_parameters$format_pivot <- "DATA"
-  # }
   
-  for_client_sys_names <- SELECTED_PROGRAM_CLIENTS_LIST()[rsf_program_id %in% cohort_info$rsf_program_id &
-                                                          rsf_facility_id %in% cohort_info$rsf_facility_id,
-                                                          rsf_pfcbl_id]
+  for_facility_sys_names <- SELECTED_PROGRAM_FACILITIES_LIST()[rsf_facility_id %in% cohort_group$rsf_facility_id,
+                                                             rsf_pfcbl_id]
   
-  SERVER_DASHBOARD_DO_LOAD(for_client_sys_names=for_client_sys_names,
+  SERVER_DASHBOARD_DO_LOAD(for_facility_sys_names=for_facility_sys_names,
                            for_indicator_names=for_indicator_names,
-                           for_asof_dates=cohort_info$reporting_asof_date,
+                           for_asof_dates=cohort_group$cohort_asof_date,
                            dashboard_parameters=dashboard_parameters)
 })
 
@@ -809,7 +831,7 @@ observeEvent(input$action_review_indicator_flags_audit_indicator, {
   
   
   selected_indicator_flag_id <- input$action_indicator_flags_review
-  selected_cohort <- SELECTED_COHORT_INFO()
+  selected_cohort <- SELECTED_IMPORT_COHORT_GROUP()
   #browser()
   if (!isTruthy(selected_indicator_flag_id)) return(NULL)
   cohort_indicator_flag <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()[indicator_flag_id==selected_indicator_flag_id]
@@ -817,8 +839,8 @@ observeEvent(input$action_review_indicator_flags_audit_indicator, {
   
   if (!isTruthy(review_indicator_id)) return (NULL)
   
-  show_modal_indicator_review(clientest_rsf_pfcbl_id=selected_cohort$clientest_rsf_pfcbl_id,
-                              review_asof_date=selected_cohort$reporting_asof_date,
+  show_modal_indicator_review(rsf_pfcbl_id=selected_cohort$import_rsf_pfcbl_id,
+                              review_asof_date=selected_cohort$cohort_asof_date,
                               review_indicator_id=review_indicator_id)
   
 },ignoreInit = TRUE)
@@ -827,15 +849,15 @@ observeEvent(input$action_review_indicator_flags_audit_check, {
   
   
   selected_indicator_flag_id <- input$action_indicator_flags_review
-  selected_cohort <- SELECTED_COHORT_INFO()
+  selected_cohort <- SELECTED_IMPORT_COHORT_GROUP()
   #browser()
   if (!isTruthy(selected_indicator_flag_id)) return(NULL)
   cohort_indicator_flag <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()[indicator_flag_id==selected_indicator_flag_id]
   review_check_formula_id <- as.numeric(cohort_indicator_flag$check_formula_id)
   if (!isTruthy(review_check_formula_id)) return (NULL)
   
-  show_modal_server_admin_checks_review(clientest_rsf_pfcbl_id=selected_cohort$clientest_rsf_pfcbl_id,
-                                        review_asof_date=selected_cohort$reporting_asof_date,
+  show_modal_server_admin_checks_review(rsf_pfcbl_id=selected_cohort$import_rsf_pfcbl_id,
+                                        review_asof_date=selected_cohort$cohort_asof_date,
                                         review_check_formula_id=review_check_formula_id)
   
 },ignoreInit = TRUE)
@@ -943,10 +965,7 @@ observeEvent(input$action_indicator_flags_review_save, {
                                             check_status,
                                             check_status_comment,
                                             check_status_user_id,
-                                            indicator_check_guidance_id,
-                                            check_data_id_is_current,
-                                            consolidated_from_indicator_id,
-                                            consolidated_from_indicator_check_id,
+                                            check_data_id_is_current
                                             data_sys_flags)						
           select 
           rd.data_id,
@@ -960,10 +979,7 @@ observeEvent(input$action_indicator_flags_review_save, {
           case when ic.auto_resolve_system_check = true then 'resolved' else 'active' end as check_status,
           rdc.check_status_comment,
           $2::text as check_status_user_id,
-          NULL as indicator_check_guidance_id,
           true as check_data_id_is_current, -- not now, but should become so by end of transaction!
-          NULL as consolidated_from_indicator_id,
-          NULL as consolidated_from_indicator_check_id,
           4 as data_sys_flags  -- bit 4 is manually calculated
           
           from _temp_reversions	tr
@@ -1040,7 +1056,7 @@ observeEvent(input$action_indicator_flags_review_save, {
     
     
     if (check_status_updated %in% c("revert","remove")) {
-      cohort_info <- SELECTED_COHORT_INFO()
+      cohort_group <- SELECTED_IMPORT_COHORT_GROUP()
       #Set the overwritten data point do manual overwrite
       
       withProgress(message="Reverting calculations...",value=0.25, {
@@ -1054,7 +1070,7 @@ observeEvent(input$action_indicator_flags_review_save, {
         incProgress(amount=0.25,message="Recalculating data...")
         DBPOOL %>% rsf_program_calculate(rsf_program_id = SELECTED_PROGRAM_ID(),
                                          rsf_indicators = RSF_INDICATORS(),
-                                         rsf_pfcbl_id.family = cohort_info$reporting_rsf_pfcbl_id,
+                                         rsf_pfcbl_id.family = cohort_group$import_rsf_pfcbl_id,
                                          status_message=progress_status_message)
       })
       
@@ -1069,7 +1085,7 @@ observeEvent(input$action_indicator_flags_review_save, {
         incProgress(amount=0.25,message="Rechecking data...")
         DBPOOL %>% rsf_program_check(rsf_program_id=SELECTED_PROGRAM_ID(),
                                      rsf_indicators=RSF_INDICATORS(),
-                                     rsf_pfcbl_id.family=cohort_info$reporting_rsf_pfcbl_id,
+                                     rsf_pfcbl_id.family=cohort_group$import_rsf_pfcbl_id,
                                      check_future=TRUE,
                                      check_consolidation_threshold=NA,
                                      reference_asof_date=NULL,
@@ -1092,128 +1108,6 @@ observeEvent(input$action_indicator_flags_review_cancel, {
   removeModal()
 })
 
-observeEvent(input$guidance_create_new, {
-  
-  lapply(grep("^guidance_",registeredModules(),value=T),destroyModule)
-  removeModal()
-  
-  selected_indicator_flag_id <- as.character(input$action_indicator_flags_review)
-  if (!isTruthy(selected_indicator_flag_id)) return(NULL)
-  
-  cohort_indicator_flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()
-  if (!selected_indicator_flag_id %in% cohort_indicator_flags$indicator_flag_id) return (NULL)
-  
-  cohort <- COHORTS_LIST()[reporting_cohort_id==SELECTED_COHORT_ID()]
-  if (!isTruthy(cohort)) return (NULL)
-  
-  indicator_flag <- cohort_indicator_flags[indicator_flag_id==selected_indicator_flag_id,
-                                           .(indicator_id,
-                                             indicator_check_id)]
-  
-  showModal_indicator_check_guidance_new(for_indicator_id=indicator_flag$indicator_id,
-                                         indicator_check_id=indicator_flag$indicator_check_id,
-                                         rsf_pfcbl_id=cohort$reporting_rsf_pfcbl_id,
-                                         close_to_modal=NULL)
-  
-})
-
-observeEvent(input$action_guidance_edit_cancel, {
-  lapply(grep("^guidance_",registeredModules(),value=T),destroyModule)
-  removeModal()
-  
-  if (isTruthy(input$action_indicator_flags_review)) {
-    print("sending event")
-    shinyjs::runjs(paste0("Shiny.setInputValue(\"action_indicator_flags_review\",\"",input$action_indicator_flags_review,"\",{priority:\"event\"})"))
-  }
-})
-
-observeEvent(input$action_guidance_new_cancel, {
-  lapply(grep("^guidance_",registeredModules(),value=T),destroyModule)
-  removeModal()
-  
-  if (isTruthy(input$action_indicator_flags_review)) {
-    shinyjs::runjs(paste0("Shiny.setInputValue(\"action_indicator_flags_review\",\"",input$action_indicator_flags_review,"\",{priority:\"event\"})"))
-  }
-})
-
-observeEvent(EVENT_GUIDANCE_APPLIED(), {
-  removeModal()
-  lapply(grep("^guidance_",registeredModules(),value=T),destroyModule)
-  REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1)
-  shinyjs::runjs(paste0("Shiny.setInputValue(\"action_indicator_flags_review\",\"",input$action_indicator_flags_review,"\",{priority:\"event\"})"))
-})
-
-output$view_indicator_flag_guidance <- renderUI({
-  
-  selected_cohort <- SELECTED_COHORT_INFO()
-  if (!isTruthy(selected_cohort)) return (NULL)
-  
-  review_flags <- SELECTED_COHORT_SELECTED_INDICATOR_REVIEW_FLAGS()
-  if (!isTruthy(review_flags)) return(NULL)
-  
-  applied_guidance_id <- na.omit(unique(review_flags$indicator_check_guidance_id))
-  guidance_for <- NULL
-  if (length(applied_guidance_id)==1) {
-    
-    guidance <- DBPOOL %>% dbGetQuery("
-      select 
-        icg.guidance,
-        icg.is_resolving_guidance,
-        icg.is_ignoring_guidance,
-        icg.for_pfcbl_category,
-        icg.overwrite_check_class,
-        coalesce(vai.users_name,'UNKNOWN') as users_name,
-        fcg.rsf_pfcbl_id,
-        nids.rsf_full_name
-      from p_rsf.indicator_check_guidance icg
-      inner join p_rsf.rsf_program_facility_check_guidance fcg on fcg.indicator_check_guidance_id = icg.indicator_check_guidance_id
-      inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = fcg.rsf_pfcbl_id
-      left join p_rsf.view_account_info vai on vai.account_id = icg.user_id
-      where icg.indicator_check_guidance_id = $1::int
-        and fcg.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
-      	                           from p_rsf.view_rsf_pfcbl_id_family_tree ft
-      														 where ft.from_rsf_pfcbl_id = $2::int)",
-      params=list(applied_guidance_id,
-                  selected_cohort$reporting_rsf_pfcbl_id))
-    
-    if (!empty(guidance)) {
-      is_msg <- c()
-      if (!is.na(guidance$overwrite_check_class)) {
-        class <- guidance$overwrite_check_class
-        if (class=="critical") class <- "<span style='font-weight:bold;color:brickred;'>CRITICAL</span>"
-        else if (class=="error") class <- "<span style='font-weight:bold;color:red;'>ERROR</span>"
-        else if (class=="warning") class <- "<span style='font-weight:bold;color:yellow;'>WARNING</span>"
-        else if (class=="info") class <- "<span style='font-weight:bold;color:blue;'>INFO</span>"
-        
-        class <- paste0("SET AS ",class)
-        is_msg <- c(is_msg,class)
-      }
-      
-      if (guidance$is_ignoring_guidance) {
-        is_msg <- c(is_msg,"SET TO <span style='font-weight:bold;color:brickred;'>IGNORE</span")
-      } else if (guidance$is_resolving_guidance) {
-        is_msg <- c(is_msg,"SET TO <span style='font-weight:bold;color:forestgreen;'>AUTO RESOLVE</span>")
-      }
-      
-      is_msg <- paste0(is_msg,collapse=" AND")
-      if (nchar(is_msg) >0) is_msg <- paste0(is_msg," BECAUSE: ")
-      else is_msg <- "<b>GUIDANCE</b>:"
-      
-      guidance_for <- paste0("<u>",guidance$rsf_full_name,"</u> ",is_msg,
-                             guidance$guidance,
-                             " (",format_name_abbreviation(guidance$users_name),")")
-    }
-  } else if (length(applied_guidance_id)==0) {
-    guidance_for <- "No guidance specified. Edit to change."
-  } else {
-    guidance_for <- "<b>Warning: Multiple different checks have conflicting guidance applied, perhaps due to different users applying difference guidance over time.  Recommend to review and reapply guidance for these checks.</b>"
-  } 
-  
-  ui <- HTML(guidance_for)
-  
-  return(ui)
-  
-})
 
 output$server_datasets_review_flags_dataset <- DT::renderDataTable({
   
@@ -1320,14 +1214,10 @@ output$server_datasets_review_flags_dataset <- DT::renderDataTable({
 
 output$datasets_review_download_flags_action <- downloadHandler(
   filename = function() {
-    selected_id <- input$cohort_collection_selected_id
-    cohort <- NULL
-    if (identical(selected_id,"all") || is.na(suppressWarnings(as.numeric(selected_id)))) {
-      cohort <- SELECTED_COHORT_INFO()
-    } else {
-      cohort <- COHORTS_LIST()[reporting_cohort_id==as.numeric(selected_id)]
-    }
-    paste0("Flags Report for ",file_path_sans_ext(cohort$source_name),".xlsx")
+    
+    cohort <- SELECTED_IMPORT_COHORT_GROUP()
+    
+    paste0("Flags Report for ",cohort$entity_name," ",cohort$reporting_asof_date_label,".xlsx")
   },
   content=function(file) {
     
@@ -1372,27 +1262,49 @@ output$datasets_review_download_flags_action <- downloadHandler(
       
       flags <- flags[,
                      .(FLAGID=evaluation_id,
-                       SYSID=rsf_pfcbl_id,
+                       #SYSID=rsf_pfcbl_id,
                        CHECK_DATE=check_asof_date,
                        NAME=entity_name,
-                       indicator_name,
-                       indicator_formula=formula_title,
-                       check_formula=check_formula_title,
+                       #indicator_name,
+                       #indicator_formula=formula_title,
                        type=check_type,
                        class=check_class,
-                       CHECK=check_name,
                        MESSAGE=check_message,
+                       CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
+                                                               check_formula_title)),
+                       
                        STATUS=check_status,
                        comment=check_status_comment,
                        user=check_status_users_name)]
-      
-      
+    
       wb <- openxlsx::createWorkbook()
+      wrap_style <- createStyle(wrapText = TRUE)
+
       openxlsx::addWorksheet(wb,
                              sheetName="FLAGS")
       openxlsx::writeDataTable(wb=wb,
                                sheet="FLAGS",
                                x=flags)
+      openxlsx::setColWidths(wb,
+        sheet="FLAGS",
+        cols=c(1,2,3,4,5,6,7,8,9,10),
+        widths = c(10,
+                   13, #check date 
+                   35, #entity name
+                   17, #check type
+                   10, #check class
+                   90, #check message
+                   90, #check
+                   10,
+                   10,
+                   10))
+      
+      addStyle(wb,
+               sheet="FLAGS",
+               wrap_style,
+               rows = 1:nrow(flags),
+               cols = 6)
+      
       openxlsx::saveWorkbook(wb=wb,
                              file=file,
                              overwrite=TRUE)

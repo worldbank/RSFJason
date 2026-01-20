@@ -24,6 +24,8 @@ db_program_download <- function(pool,
     
   }
   programs_export <- NULL
+  
+  
   if (verbatim==FALSE) {
     programs_export <- export_rsf_setup_files_to_excel(pool=pool,
                                                        export_pfcbl_id=export_pfcbl_id,
@@ -33,14 +35,14 @@ db_program_download <- function(pool,
                                                                  "settings",
                                                                  "indicators",
                                                                  "checks",
-                                                                 "guidance",
+                                                                 "config",
                                                                  "actions",
                                                                  "flags"))
   } else {
     consolidate.setup <- FALSE
   }
   
-  
+
   # if (is.null(rsf_pfcbl_ids.filter) || all(is.na(rsf_pfcbl_ids.filter))) {
   #   rsf_pfcbl_ids.filter <- dbGetQuery(pool,"
   #     select ids.rsf_pfcbl_id
@@ -51,48 +53,35 @@ db_program_download <- function(pool,
   #   rsf_pfcbl_ids.filter <- unlist(rsf_pfcbl_ids.filter)
   # }
   # 
-  program_upload_files <- dbGetQuery(pool,"select
-                                          rc.reporting_cohort_id,
-                                          rc.reporting_time,
-                                          rc.reporting_asof_date,
-                                          ids.pfcbl_category,
-                                          ids.pfcbl_category_rank,
-                                          rci.upload_filename,
-                                          rc.source_name,
-                                          coalesce(nids.nickname,nids.rsf_name) as upload_name,
-                                          coalesce(nids.id,upper(ids.pfcbl_category)) as upload_id,
-                                          rt.is_setup_template,
-                                          rt.template_id
-                                          from p_rsf.reporting_cohorts rc
-                                          inner join p_rsf.reporting_templates rt on rt.template_id = rc.from_reporting_template_id
-                                          inner join p_rsf.reporting_cohort_info rci on rci.reporting_cohort_id = rc.reporting_cohort_id
-                                          inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
-                                          inner join lateral(select 
-                                                              fam.parent_rsf_pfcbl_id,
-                                                              fam.parent_pfcbl_rank
-                                                            from p_rsf.rsf_pfcbl_id_family fam
-                                                            where fam.child_rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
-                                                              and fam.parent_pfcbl_rank <= 3
-                                                            order by fam.parent_pfcbl_rank desc
-                                                            limit 1) parent on true
-                                          inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = parent.parent_rsf_pfcbl_id
-                                          where case when $1::text = 'facility'
-                                                     then $2::int = rc.rsf_facility_id
-                                                     else $2::int = rc.rsf_program_id end
-                                           and rci.upload_file is not null
-                                           and rci.upload_filename is not null
-                                           and rc.is_reported_cohort = true
-                                          order by 
-                                            rt.is_setup_template desc,
-                                            parent.parent_pfcbl_rank,
-                                            parent.parent_rsf_pfcbl_id,
-                                            ids.pfcbl_category_rank,
-                                            ids.rsf_pfcbl_id,
-                                            rc.reporting_asof_date,
-                                            rc.reporting_time,
-                                            rc.reporting_cohort_id",
-                                     params=list(export_pfcbl_category,
-                                                 export_pfcbl_id))
+  
+  #if we're exporting the Facility, we want program-level setup information (else facility can't exist without its program!)
+  #if we're exporting the Program, we want all its children entities
+  program_upload_files <- dbGetQuery(pool,"
+
+  select
+    ri.import_id,
+    ri.import_time,
+    ri.reporting_asof_date,
+    ft.to_pfcbl_category as pfcbl_category,
+    ft.to_pfcbl_rank as pfcbl_category_rank,
+    ri.file_name as upload_filename,
+    regexp_replace(ri.file_name,'.gz','') as source_name,
+    ri.pfcbl_name as upload_name,
+
+    rt.is_setup_template,
+    rt.template_id
+    from p_rsf.view_rsf_pfcbl_id_family_tree ft
+    inner join p_rsf.reporting_imports ri on ri.import_rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+    inner join p_rsf.reporting_templates rt on rt.template_id = ri.template_id
+    where ft.from_rsf_pfcbl_id = $1::int and (ft.from_rsf_pfcbl_id = 0 OR ft.to_family_rsf_pfcbl_id <> 0)
+    order by 
+      rt.is_setup_template desc,
+      ft.to_pfcbl_rank,
+      ft.to_pfcbl_category,
+      ft.to_family_rsf_pfcbl_id,
+      ri.reporting_asof_date,
+      ri.import_time",
+    params=list(export_pfcbl_id))
   
   setDT(program_upload_files)
   
@@ -110,7 +99,7 @@ db_program_download <- function(pool,
     
     program_upload_files[,ext:=file_ext(source_name)]
     program_upload_files[,
-                         download_name:=paste0(upload_name," ",upload_id," ",format_asof_date_label(reporting_asof_date))]
+                         download_name:=paste0(upload_name," {",pfcbl_category," import",import_id,"} ",format_asof_date_label(reporting_asof_date))]
     
     program_upload_files[,
                          version_name:=""]
@@ -139,8 +128,8 @@ db_program_download <- function(pool,
     
   }  
   
-  download_files <- mapply(db_cohort_download_file,
-                           reporting_cohort_id=program_upload_files$reporting_cohort_id,
+  download_files <- mapply(db_import_download_file,
+                           import_id=program_upload_files$import_id,
                            save_as_filename=program_upload_files$download_filename,
                            MoreArgs=list(pool=pool,
                                          file_path=out_path,

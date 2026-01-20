@@ -170,23 +170,21 @@ db_cohort_get_data <- function(pool,
                                       rdc.check_asof_date as evaluation_asof_date,
                                       ic.check_name,
                                       ic.is_system,
-                                      coalesce(icg.overwrite_check_class,ic.check_class) as check_class,
-                                      ic.definition,
+                                      coalesce(scc.config_check_class,ic.check_class) as check_class,
+                                      concat(scc.config_comments || '\n',ic.definition) as definiition,
                                       rdc.check_status,
                                       rdc.check_status_comment,
                                       rdc.check_status_user_id,
                                       vai.users_name as check_status_users_name,
                                       rdc.check_message,
-                                      rdc.evaluation_id,
-                                      case when coalesce(icg.overwrite_check_class,ic.check_class) = 'critical' then 0
-                                           when coalesce(icg.overwrite_check_class,ic.check_class) = 'error' then 1
-                                           when coalesce(icg.overwrite_check_class,ic.check_class) = 'warning' then 2
-                                           when coalesce(icg.overwrite_check_class,ic.check_class) = 'info' then 3
-                                           else 4 end as flag_priority
+                                      rdc.evaluation_id
+                                      
                                     from _temp_cohort_data tcd 
                                     inner join p_rsf.rsf_data_checks rdc on rdc.data_id = tcd.data_id
                                     inner join p_rsf.indicator_checks ic on ic.indicator_check_id = rdc.indicator_check_id
-                                    left join p_rsf.indicator_check_guidance icg on icg.indicator_check_guidance_id = rdc.indicator_check_guidance_id
+                                    left join p_rsf.view_rsf_setup_check_config scc on scc.rsf_pfcbl_id = rdc.rsf_pfcbl_id
+                                                                                   and scc.for_indicator_id = rdc.indicator_id
+                                                                                   and scc.indicator_check_id = rdc.indicator_check_id
                                     left join p_rsf.view_account_info vai on vai.account_id = rdc.check_status_user_id
                                    
                                     where rdc.check_asof_date = $1::date     --ensure evaluations are for the current source data date
@@ -197,7 +195,11 @@ db_cohort_get_data <- function(pool,
                                params=list(source_data$reporting_asof_date))        
 
       flags_data <- setDT(flags_data)
-      
+      flags_data[,flag_priority:=fcase(check_class=='critical',0,
+                                       check_class=='error',1,
+                                       check_class=='warning',2,
+                                       check_class=='info',3,
+                                       default=4)]
 
       #This error occured when system had reporting_cohort_check_evaluations flags added to historic data points that were not present in the current cohorts/related cohorts
       #Cause seemed due to a bug that flagged wrong data -- resolution was to delete the evaluation_id for the problem check.

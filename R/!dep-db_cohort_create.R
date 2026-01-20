@@ -14,7 +14,7 @@ db_cohort_create <- function(pool,
                              linked_reporting_cohort_id=NA) 
 {
 
-  
+  stop("deprecated")  
   reporting_rsf_pfcbl_id <- unlist(reporting_rsf_pfcbl_id)
   t1 <- Sys.time()
 

@@ -91,42 +91,7 @@ rsf_checks_do_test <- function(pool,
    params=list(paste0(pfcbl_ids.familytree,collapse=","),
                check_formula_id,
                reporting_current_date))
-
-  # perform_checks <- dbGetQuery(pool,"
-  #   select 
-  #     ids.rsf_program_id,
-  #     array_to_string(array_agg(distinct ids.rsf_pfcbl_id),',')::text as check_rsf_pfcbl_ids,
-  #   	array_to_string(array_agg(rdc.evaluation_id) filter(where rdc.evaluation_id is not NULL),',')::text as current_evaluation_ids,
-  #   	$3::date as check_asof_date,
-  #   	icf.check_formula_id,
-  #     icf.computation_group,
-  #   	lcu.data_unit_value as entity_local_currency_unit
-  #   from p_rsf.rsf_pfcbl_ids ids 
-  #   inner join p_rsf.indicator_check_formulas icf on icf.check_pfcbl_category = ids.pfcbl_category
-  #   
-  #   left join lateral (select * from p_rsf.rsf_data_current_lcu lcu
-  #                      where lcu.for_rsf_pfcbl_id = ids.rsf_pfcbl_id
-  #   									   and lcu.reporting_asof_date <= $3::Date
-  #   									 order by lcu.reporting_asof_date desc
-  #   									 limit 1) as lcu on true
-  #   left join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
-  # 																		 and rdc.check_asof_date = $3::date
-  # 																		 and rdc.check_formula_id = icf.check_formula_id
-  # 																		 and rdc.check_data_id_is_current	= true
-  #   where icf.check_formula_id = $2::int
-  #     and ids.created_in_reporting_asof_date <= $3::Date
-  #     and ids.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
-  #                                from p_rsf.view_rsf_pfcbl_id_family_tree ft
-  #                                where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int))
-  #   group by 
-  #     ids.rsf_program_id,
-  #     icf.check_formula_id,
-  #     icf.computation_group,
-  #   	lcu.data_unit_value",
-  #   params=list(paste0(pfcbl_ids.familytree,collapse=","),
-  #               check_formula_id,
-  #               reporting_current_date))
-                                    
+  
   perform_checks[["check_rsf_pfcbl_ids"]] <- lapply(perform_checks[["check_rsf_pfcbl_ids"]],function(x) as.numeric(strsplit(x,split=',',fixed=T)[[1]]))
   perform_checks[["current_evaluation_ids"]] <- lapply(perform_checks[["current_evaluation_ids"]],function(x) as.numeric(strsplit(x,split=',',fixed=T)[[1]]))
   setDT(perform_checks)
@@ -165,22 +130,25 @@ rsf_checks_do_test <- function(pool,
   if (length(eval_ids) > 0) {
     current_flags <- dbGetQuery(pool,"
                                 select 
+                                 ri.import_id,
                                  rd.rsf_pfcbl_id,
                                  rdc.check_asof_date as evaluation_asof_date,
                                  rd.reporting_cohort_id,
-                                 rc.source_name,
-                                 rc.source_reference,
+                                 ri.pfcbl_name as source_name,
                                  rdc.indicator_check_id,
                                  rdc.check_formula_id,
                                  ic.check_name,
-                                 coalesce(icg.overwrite_check_class,ic.check_class) as check_class,
+                                 coalesce(scc.config_check_class,ic.check_class) as check_class,
                                  rdc.check_message,
                                  rdc.check_status_comment
                                 from p_rsf.rsf_data_checks rdc
                                 inner join p_rsf.indicator_checks ic on ic.indicator_check_id = rdc.indicator_check_id
                                 inner join p_rsf.rsf_data rd on rd.data_id = rdc.data_id
                                 inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
-                                left join p_rsf.indicator_check_guidance icg on icg.indicator_check_guidance_id = rdc.indicator_check_guidance_id
+                                inner join p_rsf.reporting_imports ri on ri.import_id = rc.import_id
+                                left join p_rsf.view_rsf_setup_check_config scc on scc.rsf_pfcbl_id = rdc.rsf_pfcbl_id
+                                                                               and scc.for_indicator_id = rdc.indicator_id
+                                                                               and scc.indicator_check_id = rdc.indicator_check_id
                                  where rdc.evaluation_id = any(select unnest(string_to_array(NULLIF($1::text,'NA'),','))::int)",
                                params=list(paste0(eval_ids,collapse=",")))
     
@@ -191,7 +159,7 @@ rsf_checks_do_test <- function(pool,
     current_flags <- data.table(rsf_pfcbl_id=numeric(0),db_flags=character(0))
   } else {
     current_flags[,flag_text:=paste0(toupper(check_class),": ",check_name,ifelse(nchar(check_message)>0,paste0("/ ",check_message),""),
-                                     " \U2208 ",evaluation_asof_date,": Upload #",reporting_cohort_id," ",source_name," ",source_reference)]
+                                     " \U2208 ",evaluation_asof_date,": Import #",import_id," ",source_name)]
     
     current_flags <- current_flags[,.(db_flags=paste0(flag_text,collapse="\n")),by=.(rsf_pfcbl_id)]
   }  

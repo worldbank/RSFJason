@@ -25,9 +25,9 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
    monitored_checks <- DBPOOL %>% dbGetQuery("
     select * from (    
     select 
-      fcs.rsf_pfcbl_id,
-      fcs.indicator_check_id,
-      fcs.check_formula_id,
+      scs.rsf_pfcbl_id,
+      scs.indicator_check_id,
+      scs.check_formula_id,
       
       icf.check_formula_title,
       icf.check_pfcbl_category,
@@ -36,17 +36,16 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
       ic.check_class,
       ict.check_type_name,
       coalesce(has.reported,false) as has_flag,
-      fcs.is_subscribed,
-      fcs.is_auto_subscribed,
-      case when fcs.is_auto_subscribed = true then NULL::bool
-           else fcs.is_subscribed end as user_subscription,
-      fcs.pfcbl_category_setting,
-      fcs.subscription_comments,
-      fcs.comments_user_id,
-      fcs.is_inherited
-    from p_rsf.view_rsf_program_facility_check_subscriptions fcs
-    inner join p_rsf.indicator_checks ic on ic.indicator_check_id = fcs.indicator_check_id
-    inner join p_Rsf.indicator_check_formulas icf on icf.check_formula_id = fcs.check_formula_id
+      scs.is_subscribed,
+      scs.is_auto_subscribed,
+      case when scs.is_auto_subscribed = true then NULL::bool
+           else scs.is_subscribed end as user_subscription,
+      
+      scs.subscription_comments,
+      scs.comments_user_id
+    from p_rsf.view_rsf_setup_check_subscriptions scs
+    inner join p_rsf.indicator_checks ic on ic.indicator_check_id = scs.indicator_check_id
+    inner join p_Rsf.indicator_check_formulas icf on icf.check_formula_id = scs.check_formula_id
     inner join p_rsf.indicator_check_types ict on ict.check_type = ic.check_type
     left join (select distinct
     						ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
@@ -55,17 +54,18 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
     						from p_rsf.view_rsf_pfcbl_id_family_tree ft
     						inner join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
     						where ft.from_rsf_pfcbl_id = $1::int
-    						  and rdc.check_formula_id is not null) as has on has.rsf_pfcbl_id = fcs.rsf_pfcbl_id
-    																												  and has.check_formula_id = fcs.check_formula_id
-    where fcs.rsf_pfcbl_id = $1::int 
+    						  and rdc.check_formula_id is not null) as has on has.rsf_pfcbl_id = scs.rsf_pfcbl_id
+    																												  and has.check_formula_id = scs.check_formula_id
+    where scs.rsf_pfcbl_id = $1::int 
     
     
     union 
-
+    
+    
     select 
-      fcs.rsf_pfcbl_id,
-      fcs.indicator_check_id,
-      fcs.check_formula_id,
+      ids.rsf_pfcbl_id,
+      icf.indicator_check_id,
+      icf.check_formula_id,
       
       icf.check_formula_title,
       icf.check_pfcbl_category,
@@ -77,19 +77,17 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
       false as is_subscribed,
       false as is_auto_subscribed,
       false as user_subscription,
-      NULL::text as pfcbl_category_setting,
       NULL::text as subscription_comments,
-      NULL::text as comments_user_id,
-      false as is_inherited
-    from p_rsf.view_rsf_program_facility_check_subscribable fcs
-    inner join p_rsf.indicator_checks ic on ic.indicator_check_id = fcs.indicator_check_id
-    inner join p_Rsf.indicator_check_formulas icf on icf.check_formula_id = fcs.check_formula_id
-    inner join p_rsf.indicator_check_types ict on ict.check_type = ic.check_type
-    where fcs.rsf_pfcbl_id = $1::int 
-      and fcs.is_subscribable = true
-      and not exists(select * from p_rsf.view_rsf_program_facility_check_subscriptions sub
-                     where sub.rsf_pfcbl_id = fcs.rsf_pfcbl_id
-                       and sub.check_formula_id = fcs.check_formula_id)
+      NULL::text as comments_user_id
+      
+      from p_rsf.rsf_pfcbl_ids ids 
+      cross join p_rsf.indicator_check_formulas icf
+      inner join p_rsf.indicator_checks ic on ic.indicator_check_id = icf.indicator_check_id
+      inner join p_rsf.indicator_check_types ict on ict.check_type = ic.check_type
+      where ids.rsf_pfcbl_id = $1::int 
+        and not exists(select * from p_rsf.view_rsf_setup_check_subscriptions scs
+                       where scs.rsf_pfcbl_id = ids.rsf_pfcbl_id
+                         and scs.check_formula_id = icf.check_formula_id)
     ) as subs                   
     
      order by 
@@ -101,51 +99,7 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
       subs.check_formula_title",
   params=list(selected_rsf_pfcbl_id))
    
-   # 
-   # monitored_checks <- DBPOOL %>% dbGetQuery("
-   #  select 
-   #    fcs.rsf_pfcbl_id,
-   #    fcs.indicator_check_id,
-   #    fcs.check_formula_id,
-   #    
-   #    icf.check_formula_title,
-   #    icf.check_pfcbl_category,
-   #    ic.check_name,
-   #    ic.check_type,
-   #    ic.check_class,
-   #    ict.check_type_name,
-   #    coalesce(has.reported,false) as has_flag,
-   #    fcs.is_subscribed,
-   #    fcs.is_auto_subscribed,
-   #    case when fcs.is_auto_subscribed = true then NULL::bool
-   #         else fcs.is_subscribed end as user_subscription,
-   #    fcs.pfcbl_category_setting,
-   #    fcs.subscription_comments,
-   #    fcs.comments_user_id,
-   #    fcs.is_inherited
-   #  from p_rsf.view_rsf_program_facility_check_subscriptions fcs
-   #  inner join p_rsf.indicator_checks ic on ic.indicator_check_id = fcs.indicator_check_id
-   #  inner join p_Rsf.indicator_check_formulas icf on icf.check_formula_id = fcs.check_formula_id
-   #  inner join p_rsf.indicator_check_types ict on ict.check_type = ic.check_type
-   #  left join (select distinct
-   #  						ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
-   #  						rdc.check_formula_id,
-   #  						true as reported
-   #  						from p_rsf.view_rsf_pfcbl_id_family_tree ft
-   #  						inner join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-   #  						where ft.from_rsf_pfcbl_id = $1::int
-   #  						  and rdc.check_formula_id is not null) as has on has.rsf_pfcbl_id = fcs.rsf_pfcbl_id
-   #  																												  and has.check_formula_id = fcs.check_formula_id
-   #  where fcs.rsf_pfcbl_id = $1::int
-   #   order by 
-   #    case when ic.check_class = 'critical' then 1
-   #         when ic.check_class = 'error' then 2
-   #         when ic.check_class = 'warning' then 3
-   #         else 4 end,
-   #    ic.check_name,
-   #    icf.check_formula_title",
-   #  params=list(selected_rsf_pfcbl_id))
-   #                                                         
+     
    setDT(monitored_checks)
   
    monitored_checks[RSF_CHECK_TYPES(),
@@ -173,14 +127,6 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
                                              is_subscribed=is_subscribed,
                                              user_subscription=user_subscription,
                                              id=formula_html_id)]
-   
-   # monitored_checks[,check_name_html:=paste0("<div onmousedown='event.stopPropagation();'
-   #                                             style='display:inline-block;'
-   #                                             class='pointer'
-   #                                             title='",definition,"'
-   #                                             onclick='Shiny.setInputValue(\"server_setup_checks__toggle_subscription\",\"",formula_html_id,"\",{priority:\"event\"})'>",
-   #                                             check_name_html,
-   #                                             "</div>")]
 
    monitored_checks[,check_name_html:=paste0("<div title='",definition,"'>",
                                              check_name_html,
@@ -224,15 +170,17 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
     smatches <- lapply(sfilter,function(x,dm) {
       sapply(as.data.frame(
         t(matrix(
-          grepl(pattern=x,x=dm),
-          ncol=5))),
+          grepl(pattern=x,x=dm,ignore.case = T),
+          ncol=7))),
         any)
       
     },dm=unlist(monitored_checks[,.(check_name,
                                     check_formula_title,
                                     check_class,
                                     check_type,
-                                    check_type_name)],
+                                    check_type_name,
+                                    indicator_check_id,
+                                    check_formula_id)],
                 recursive = F))
     
     smatches <- which(Reduce(`&`,smatches))
@@ -321,45 +269,20 @@ observeEvent(input$server_setup_checks__recheck_reset, {
                value=0.5,{
     DBPOOL %>% dbExecute("
       delete from p_rsf.rsf_data_check_evaluations dce
-      where dce.rsf_pfcbl_id = any(select distinct fam.child_rsf_pfcbl_id
-      																					from p_rsf.rsf_pfcbl_id_family fam
-      																					where fam.parent_rsf_pfcbl_id = $1::int)
-      and not exists(select * from p_rsf.view_rsf_pfcbl_check_subscriptions pcs 
-                     where pcs.rsf_pfcbl_id = dce.rsf_pfcbl_id
-      							   and pcs.check_formula_id = dce.check_formula_id
-      								 and pcs.is_subscribed = true)",
+      where dce.rsf_pfcbl_id = any(select distinct ft.to_family_rsf_pfcbl_id
+                                   from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                                   where ft.from_rsf_pfcbl_id = $1::int
+                                     and ft.pfcbl_hierarchy <> 'parent')",
       params=list(selected_rsf_pfcbl_id))
     
-    DBPOOL %>% dbExecute("with checks as materialized (
-                    			select
-                    				tip.to_check_rsf_pfcbl_id,
-                    				tip.to_check_formula_id,
-                    				tip.reporting_asof_date			
-                    			from p_rsf.compute_check_triggered_by_parameter tip
-                    			where tip.from_parameter_pfcbl_id = any (select ft.to_family_rsf_pfcbl_id
-                                                                   from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                          																				 where ft.from_rsf_pfcbl_id = $1::int)
-                            and tip.is_calculation_trigger_parameter = true
-                    		)
-                    		insert into p_rsf.rsf_data_check_evaluations(rsf_pfcbl_id,check_formula_id,check_asof_date)
-                    		select 
-                    			chk.to_check_rsf_pfcbl_id,
-                    			chk.to_check_formula_id,
-                    			chk.reporting_asof_date
-                    		from checks chk
-  											inner join p_rsf.view_rsf_pfcbl_check_subscriptions pcs on pcs.rsf_pfcbl_id = chk.to_check_rsf_pfcbl_id
-  																																						 and pcs.check_formula_id = chk.to_check_formula_id
-  																																						 
-                        where pcs.is_subscribed = true
-                          and chk.to_check_rsf_pfcbl_id = any(select distinct fam.child_rsf_pfcbl_id
-                                                                    from p_rsf.rsf_pfcbl_id_family fam
-                                                                    where fam.parent_rsf_pfcbl_id = $1::int)
-                          and exists(select * from p_rsf.rsf_pfcbl_reporting rpr
-                        	           where rpr.rsf_pfcbl_id = chk.to_check_rsf_pfcbl_id
-                        						   and rpr.reporting_asof_date = chk.reporting_asof_date)														
-  																		 
-                    		on conflict do nothing;",
-                    		params=list(selected_rsf_pfcbl_id))
+    DBPOOL %>% dbGetQuery("
+      select pfc.rsf_pfcbl_id,pfc.check_formula_id,recalc
+      from p_rsf.rsf_setup_checks pfc
+      inner join lateral p_rsf.rsf_pfcbl_check_recalculate(v_rsf_pfcbl_id => pfc.rsf_pfcbl_id,
+                                                           v_check_formula_id => pfc.check_formula_id) as recalc on true
+      where pfc.rsf_pfcbl_id = $1::int
+        ad pfc.is_subscribed is true",
+      params=list(selected_rsf_pfcbl_id))
   })
 })
 
@@ -461,52 +384,7 @@ observeEvent(input$server_setup_checks__toggle_subscriptions, {
   
   SERVER_SETUP_CHECKS_TOGGLE_SELECTED(c())  
   SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1)
-  # if (length(click_ids) != 3) return (NULL)
-  # 
-  # selected_rsf_pfcbl_id <- as.numeric(click_ids[[2]])
-  # selected_formula_id <- as.numeric(click_ids[[3]])
-  # 
-  # if (selected_rsf_pfcbl_id != as.numeric(input$ui_setup__checks_program_facilities)) return (NULL)
-
-  # withProgress(value=0.5,message = "Updating Program Indicator Monitoring...", {
-  #   
-  #   subscription_status <- DBPOOL %>% db_program_toggle_check_subscription(rsf_pfcbl_id=selected_rsf_pfcbl_id,
-  #                                                                          check_formula_id=selected_formula_id)
-  #   if (is.na(subscription_status)) {
-  #     showNotification(type="error",
-  #                      ui=h3("Failed to change subscription status.  Ensure program is monitoring the indicators that this check flags"))
-  #   } else {
-  #     if (subscription_status==TRUE) {
-  #       shinyjs::removeClass(selector=paste0("#",click),
-  #                            class="unsubscribed")
-  # 
-  #       shinyjs::removeClass(selector=paste0("#",paste0(click,"subscription")),
-  #                            class="fa-regular fa-circle-question")
-  #       
-  #       shinyjs::removeClass(selector=paste0("#",paste0(click,"subscription")),
-  #                            class="fa-regular fa-circle-xmark")
-  #       
-  #       shinyjs::addClass(selector=paste0("#",paste0(click,"subscription")),
-  #                            class="fa-regular fa-circle-check")
-  #       
-  #       
-  #     } else {
-  #       shinyjs::addClass(selector=paste0("#",click),
-  #                         class="unsubscribed")
-  #       
-  #       shinyjs::removeClass(selector=paste0("#",paste0(click,"subscription")),
-  #                            class="fa-regular fa-circle-question")
-  #       
-  #       shinyjs::removeClass(selector=paste0("#",paste0(click,"subscription")),
-  #                            class="fa-regular fa-circle-check")
-  #       
-  #       shinyjs::addClass(selector=paste0("#",paste0(click,"subscription")),
-  #                            class="fa-regular fa-circle-xmark")
-  #       
-  #       
-  #     }
-  #   }
-  # })
+ 
 })
 
 observeEvent(input$server_setup_checks__view, {
@@ -556,9 +434,10 @@ output$server_setup_checks__recheck_pending_UI <- renderText({
   
   pc <- DBPOOL %>% dbGetQuery("select count(*) as pending_count
                               from p_rsf.rsf_data_check_evaluations dce
-                              where dce.rsf_pfcbl_id = any(select distinct fam.child_rsf_pfcbl_id
-                                                           from p_rsf.rsf_pfcbl_id_family fam
-                                                           where fam.parent_rsf_pfcbl_id = $1::int)",
+                              where dce.rsf_pfcbl_id = any(select distinct ft.to_family_rsf_pfcbl_id
+                                                           from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                                                           where ft.from_rsf_pfcbl_id = $1::int
+                                                             and ft.pfcbl_hierarchy <> 'parent')",
                               params=list(selected_rsf_pfcbl_id))
   
   pc <- format(as.numeric(pc$pending_count),big.mark=",")
@@ -639,7 +518,7 @@ observeEvent(input$ui_setup__checks_monitored_table_cell_edit, {
   }
   
   DBPOOL %>% dbExecute("
-    insert into p_rsf.rsf_program_facility_checks(rsf_pfcbl_id,
+    insert into p_rsf.rsf_setup_checks(rsf_pfcbl_id,
                                                   check_formula_id,
                                                   indicator_check_id,
                                                   rsf_program_id,
@@ -714,9 +593,7 @@ output$ui_setup__checks_monitored_table <- DT::renderDataTable({
                                      type_class_label,
                                      check_name_html,
                                      check_formula_title_html,
-                                     subscription_comments=ifelse(is_inherited==TRUE,
-                                                                  paste("[",pfcbl_category_setting," setting]"),
-                                                                  subscription_comments),
+                                     subscription_comments,
                                      view_check_html)]
   DT::datatable(display_checks,
                 rownames = FALSE,

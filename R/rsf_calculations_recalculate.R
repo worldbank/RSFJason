@@ -16,41 +16,46 @@ rsf_calculations_recalculate <- function(pool,
     rsf_program_ids <- unlist(rsf_program_ids)
   }
   
-  clients <- dbGetQuery(pool,"
-                        select rsf_pfcbl_id
-                        from p_rsf.rsf_pfcbl_ids
-                        where pfcbl_category = 'client'
-                        and rsf_program_id = any(select unnest(string_to_array($1::text,','))::int)",
+  facilities <- dbGetQuery(pool,"
+                        select 
+                        ids.rsf_program_id,
+                        ids.rsf_pfcbl_id,
+                        nids.rsf_name as facility_name
+                        
+                        from p_rsf.rsf_pfcbl_ids ids
+                        inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
+                        where ids.pfcbl_category = 'facility'
+                        and ids.rsf_program_id = any(select unnest(string_to_array($1::text,','))::int)",
                         params=list(paste0(rsf_program_ids,collapse=",")))
   
-  if (!isTruthy(clients)) return (NULL)
-  clients <- clients[,.(rsf_program_id,
-                        rsf_pfcbl_id,
-                        client_name)]
+  if (empty(facilities)) return (NULL)
+  
+  facilities <- facilities[,.(rsf_program_id,
+                              rsf_pfcbl_id,
+                              facility_name)]
   
   rsf_indicators <- db_indicators_get_labels(pool=pool)
   
   if (SELECTED_PROGRAM_ID() != 0) {
-    clients <- rbindlist(list(data.table(rsf_program_id=0,
+    facilities <- rbindlist(list(data.table(rsf_program_id=0,
                                          rsf_pfcbl_id=0,
                                          client_name="GLOBAL"),
-                              clients))
+                                 facilities))
   }
   
-  for (i in 1:nrow(clients)) {
-    client <- clients[i]
-    withProgress(value=((i-1)/nrow(clients)),
-                 message=paste0("Recalculating ",client$client_name,": "), 
+  for (i in 1:nrow(facilities)) {
+    fac <- facilities[i]
+    withProgress(value=((i-1)/nrow(facilities)),
+                 message=paste0("Recalculating ",fac$facility_name,": "), 
                  {
                    progress_status_message <- function(class,...) {
                      dots <- list(...)
                      dots <- paste0(unlist(dots),collapse=" ")
                      incProgress(amount=0,
-                                 message=paste0("Recalculating ",client$client_name,": ",dots))
+                                 message=paste0("Recalculating ",fac$facility_name,": ",dots))
                    }
-                   DBPOOL %>% rsf_program_calculate(rsf_program_id=client$rsf_program_id,
-                                                    rsf_indicators=rsf_indicators,
-                                                    calculate_pfcbl_ids.familytree=client$rsf_pfcbl_id,
+                   DBPOOL %>% rsf_program_calculate(rsf_indicators=rsf_indicators,
+                                                    rsf_pfcbl_id.family=fac$rsf_pfcbl_id,
                                                     status_message=progress_status_message)
                  })
   }

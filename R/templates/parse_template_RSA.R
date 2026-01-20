@@ -1059,7 +1059,7 @@ parse_template_RSA <- function(pool,
                     value=act[,.(indicator_id,comments)][,.(comments=paste0(comments,collapse="\n AND \n")),by=.(indicator_id)])
       
       dbExecute(conn,"
-        insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
+        insert into p_rsf.rsf_setup_indicators(rsf_pfcbl_id,
                                                           indicator_id,
                                                           formula_id,
                                                           rsf_program_id,
@@ -1083,7 +1083,7 @@ parse_template_RSA <- function(pool,
        left join p_rsf.indicator_formulas indf on indf.indicator_id = act.indicator_id
                                               and indf.is_primary_default = true
        where ids.rsf_pfcbl_id = $1::int
-         and not exists(select * from  p_rsf.rsf_program_facility_indicators pfi
+         and not exists(select * from  p_rsf.rsf_setup_indicators pfi
                         where pfi.rsf_pfcbl_id = $1::int
                           and pfi.indicator_id = act.indicator_id
                           and pfi.is_subscribed is true
@@ -1094,7 +1094,7 @@ parse_template_RSA <- function(pool,
         formula_id = EXCLUDED.formula_id,
         is_subscribed = EXCLUDED.is_subscribed,
         is_auto_subscribed = EXCLUDED.is_auto_subscribed,
-        subscription_comments = concat(rsf_program_facility_indicators.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
+        subscription_comments = concat(rsf_setup_indicators.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
         comments_user_id = EXCLUDED.comments_user_id
            
        ",
@@ -1112,7 +1112,7 @@ parse_template_RSA <- function(pool,
                     value=act[,.(indicator_id,comments)][,.(comments=paste0(comments,collapse="\n AND \n")),by=.(indicator_id)])
       
       dbExecute(conn,"
-        insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
+        insert into p_rsf.rsf_setup_indicators(rsf_pfcbl_id,
                                                           indicator_id,
                                                           formula_id,
                                                           rsf_program_id,
@@ -1136,7 +1136,7 @@ parse_template_RSA <- function(pool,
        left join p_rsf.indicator_formulas indf on indf.indicator_id = act.indicator_id
                                               and indf.is_primary_default = true
        where ids.rsf_pfcbl_id = $1::int
-         and not exists(select * from  p_rsf.rsf_program_facility_indicators pfi
+         and not exists(select * from  p_rsf.rsf_setup_indicators pfi
                         where pfi.rsf_pfcbl_id = $1::int
                           and pfi.indicator_id = act.indicator_id
                           and pfi.is_subscribed is false
@@ -1147,7 +1147,7 @@ parse_template_RSA <- function(pool,
         formula_id = EXCLUDED.formula_id,
         is_subscribed = EXCLUDED.is_subscribed,
         is_auto_subscribed = EXCLUDED.is_auto_subscribed,
-        subscription_comments = concat(rsf_program_facility_indicators.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
+        subscription_comments = concat(rsf_setup_indicators.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
         comments_user_id = EXCLUDED.comments_user_id
        ",
                 params=list(rsf_facility_id,
@@ -1164,7 +1164,7 @@ parse_template_RSA <- function(pool,
                     value=act[,.(check_formula_id,comments)][,.(comments=paste0(comments,collapse="\n AND \n")),by=.(check_formula_id)])
       
       dbExecute(conn,"
-        insert into p_rsf.rsf_program_facility_checks(rsf_pfcbl_id,
+        insert into p_rsf.rsf_setup_checks(rsf_pfcbl_id,
                                                       check_formula_id,
                                                       indicator_check_id,
                                                       rsf_program_id,
@@ -1187,7 +1187,7 @@ parse_template_RSA <- function(pool,
        cross join _act act
        inner join p_rsf.indicator_check_formulas icf on icf.check_formula_id = act.check_formula_id
        where ids.rsf_pfcbl_id = $1::int
-         and not exists(select * from  p_rsf.rsf_program_facility_checks pfc
+         and not exists(select * from  p_rsf.rsf_setup_checks pfc
                         where pfc.rsf_pfcbl_id = $1::int
                           and pfc.check_formula_id = act.check_formula_id
                           and pfc.indicator_check_id = icf.indicator_check_id
@@ -1199,7 +1199,7 @@ parse_template_RSA <- function(pool,
         indicator_check_id = EXCLUDED.indicator_check_id,
         is_subscribed = EXCLUDED.is_subscribed,
         is_auto_subscribed = EXCLUDED.is_auto_subscribed,
-        subscription_comments = concat(rsf_program_facility_checks.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
+        subscription_comments = concat(rsf_setup_checks.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
         comments_user_id = EXCLUDED.comments_user_id
        ",
                 params=list(rsf_facility_id,
@@ -1217,7 +1217,7 @@ parse_template_RSA <- function(pool,
                     value=act[,.(formula_id=indicator_formula_id,comments)][,.(comments=paste0(comments,collapse="\n AND \n")),by=.(formula_id)])
       
       dbExecute(conn,"
-        insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
+        insert into p_rsf.rsf_setup_indicators(rsf_pfcbl_id,
                                                           indicator_id,
                                                           formula_id,
                                                           rsf_program_id,
@@ -1240,7 +1240,7 @@ parse_template_RSA <- function(pool,
        cross join _act act
        inner join p_rsf.indicator_formulas indf on indf.formula_id = act.formula_id -- could be a NULL formula, but header can't map to null
        where ids.rsf_pfcbl_id = $1::int
-         and not exists(select * from  p_rsf.rsf_program_facility_indicators pfi
+         and not exists(select * from  p_rsf.rsf_setup_indicators pfi
                         where pfi.rsf_pfcbl_id = $1::int
                           and pfi.indicator_id = indf.indicator_id
                           and pfi.formula_id is not distinct from act.formula_id
@@ -1251,7 +1251,7 @@ parse_template_RSA <- function(pool,
        set 
         is_subscribed = EXCLUDED.is_subscribed,
         is_auto_subscribed = EXCLUDED.is_auto_subscribed,
-        subscription_comments = concat(rsf_program_facility_indicators.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
+        subscription_comments = concat(rsf_setup_indicators.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
         comments_user_id = EXCLUDED.comments_user_id
            
        ",

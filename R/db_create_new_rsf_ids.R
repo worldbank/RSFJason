@@ -1,5 +1,5 @@
 db_create_new_rsf_ids <- function(pool,
-                                  reporting_cohort,
+                                  reporting_import,
                                   parent_pfcbl_category,
                                   for_pfcbl_category,
                                   new_ids)
@@ -86,9 +86,9 @@ db_create_new_rsf_ids <- function(pool,
     #                             loan="nextval('p_rsf.rsf_borrower_loans_rsf_loan_id_seq'::regclass)")
     
     
-    if (any(as.character(new_ids$creation_asof_date) != as.character(reporting_cohort$reporting_asof_date))) {
+    if (any(as.character(new_ids$creation_asof_date) != as.character(reporting_import$reporting_asof_date))) {
       if (anyNA(new_ids$creation_asof_date)) stop("NA creation_asof_date passed to db_create_new_rsf_pfcbl_ids")
-      message(paste0("Call to create new ",for_pfcbl_category," outside of current reporting timeline ",as.character(reporting_cohort$reporting_asof_date)))
+      message(paste0("Call to create new ",for_pfcbl_category," outside of current reporting timeline ",as.character(reporting_import$reporting_asof_date)))
     }
     
     new_ids[,
@@ -105,88 +105,79 @@ db_create_new_rsf_ids <- function(pool,
     for (g in creation_groups) {
       
       id_group <- new_ids[creation_group==g]
-      id_group_creation_date <- unique(id_group$creation_asof_date)
+      id_group_creation_date <- unique(as.character(id_group$creation_asof_date))
       setorder(id_group,
                unique_new_entity_row_id)
       {
         #create new entities as a child group of the primary reporting group
-        parent_reporting_cohort_id <- NULL
-        if (id_group_creation_date==reporting_cohort$reporting_asof_date) {
-          parent_reporting_cohort_id <- reporting_cohort$reporting_cohort_id
-        } 
-        
+        # parent_reporting_import_id <- NULL
+        # if (id_group_creation_date==reporting_cohort$reporting_asof_date) {
+        #   parent_reporting_import_id <- reporting_import$import_id
+        # } 
+        # 
         #else we're being prompted to create outside the reporting timeline and we should create or lookup a linked cohort
-        else {
-          #Does a linked cohort alraedy exist?
-          linked_cohort <- dbGetQuery(pool,"
-                                         select 
-                                          lc.reporting_cohort_id,
-                                          lc.reporting_asof_date,
-                                          lc.source_reference,
-                                          lc.source_name
-                                         from p_rsf.reporting_cohorts lc
-                                         where lc.linked_reporting_cohort_id = $1::int
-                                           and lc.reporting_asof_date = $2::date",
-                                        params=list(reporting_cohort$reporting_cohort_id,
-                                                    as.character(id_group_creation_date))) 
-          
-          if (empty(linked_cohort)) {
-            linked_cohort <- db_cohort_create(pool,
-                                              reporting_user_id=            reporting_cohort$reporting_user_id,
-                                              reporting_asof_date=          id_group_creation_date,
-                                              data_asof_date=               id_group_creation_date,
-                                              reporting_rsf_pfcbl_id=              reporting_cohort$reporting_rsf_pfcbl_id,
-                                              from_reporting_template_id=   reporting_cohort$from_reporting_template_id,
-                                              source_reference=             reporting_cohort$source_reference,
-                                              source_name=paste0(format_asof_date_label(id_group_creation_date)," {SOURCE} ",
-                                                                  reporting_cohort$source_name), 
-                                              source_note=paste0("Chronology reporting for ",as.character(id_group_creation_date),
-                                                                  " from template '",reporting_cohort$source_name,"' with ",
-                                                                  as.character(reporting_cohort$reporting_asof_date)," reporting date"),
-                                              reporting_pfcbl_categories=NA,
-                                              fail_on_check_class = "none",
-                                              fail_on_incomplete_cohorts = FALSE,
-                                              linked_reporting_cohort_id=reporting_cohort$reporting_cohort_id)
-          }
-          parent_reporting_cohort_id <- linked_cohort$reporting_cohort_id
-        }
+        # else {
+        #   #Does a linked cohort alraedy exist?
+        #   linked_cohort <- dbGetQuery(pool,"
+        #                                  select 
+        #                                   lc.reporting_cohort_id,
+        #                                   lc.reporting_asof_date,
+        #                                   lc.source_reference,
+        #                                   lc.source_name
+        #                                  from p_rsf.reporting_cohorts lc
+        #                                  where lc.linked_reporting_cohort_id = $1::int
+        #                                    and lc.reporting_asof_date = $2::date",
+        #                                 params=list(reporting_cohort$reporting_cohort_id,
+        #                                             as.character(id_group_creation_date))) 
+        #   
+        #   if (empty(linked_cohort)) {
+        #     linked_cohort <- db_cohort_create(pool,
+        #                                       reporting_user_id=            reporting_cohort$reporting_user_id,
+        #                                       reporting_asof_date=          id_group_creation_date,
+        #                                       data_asof_date=               id_group_creation_date,
+        #                                       reporting_rsf_pfcbl_id=              reporting_cohort$reporting_rsf_pfcbl_id,
+        #                                       from_reporting_template_id=   reporting_cohort$from_reporting_template_id,
+        #                                       source_reference=             reporting_cohort$source_reference,
+        #                                       source_name=paste0(format_asof_date_label(id_group_creation_date)," {SOURCE} ",
+        #                                                           reporting_cohort$source_name), 
+        #                                       source_note=paste0("Chronology reporting for ",as.character(id_group_creation_date),
+        #                                                           " from template '",reporting_cohort$source_name,"' with ",
+        #                                                           as.character(reporting_cohort$reporting_asof_date)," reporting date"),
+        #                                       reporting_pfcbl_categories=NA,
+        #                                       fail_on_check_class = "none",
+        #                                       fail_on_incomplete_cohorts = FALSE,
+        #                                       linked_reporting_cohort_id=reporting_cohort$reporting_cohort_id)
+        #   }
+        #   parent_reporting_cohort_id <- linked_cohort$reporting_cohort_id
+        # }
 
         creation_cohort <- dbGetQuery(pool,"
-          insert into p_rsf.reporting_cohorts(rsf_program_id,
-                                              reporting_rsf_pfcbl_id,
+          insert into p_rsf.reporting_cohorts(reporting_rsf_pfcbl_id,
                                               reporting_asof_date,
                                               reporting_user_id,
                                               reporting_time,
                                               data_asof_date,
-                                              from_reporting_template_id,
-                                              source_reference,
-                                              source_name,
-                                              source_note,
-                                              parent_reporting_cohort_id,
                                               is_reported_cohort,
                                               is_calculated_cohort,
-                                              is_redundancy_cohort)
+                                              import_id,
+                                              reporting_type)
             select 
-              prc.rsf_program_id,
-              prc.reporting_rsf_pfcbl_id as reporting_rsf_pfcbl_id,
-              prc.reporting_asof_date as reporting_asof_date,
-              prc.reporting_user_id,
+              ri.import_rsf_pfcbl_id as reporting_rsf_pfcbl_id,
+              $2::date as reporting_asof_date,
+              ri.import_user_id as reporting_user_id,
               TIMEOFDAY()::timestamptz as reporting_time,
-              prc.data_asof_date,
-              prc.from_reporting_template_id,
-              concat($1::text,' create/ ',prc.source_reference) as source_rference,
-              prc.source_name,
-              concat('SYSTEM COHORT - CREATE NEW ENTITIES for ',$1::text) as source_note,
-              $2::int as parent_reporting_cohort_id,
+              $2::date as data_asof_date,
               false as is_reported_cohort,
               false as is_calculated_cohort,
-              false as is_redundancy_cohort
-            from p_rsf.reporting_cohorts prc
-            where prc.reporting_cohort_id = $2::int
+              ri.import_id,
+              0 as reporting_type
+            from p_rsf.reporting_imports ri
+            inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ri.import_rsf_pfcbl_id
+            where ri.import_id = $1::int
             returning reporting_cohort_id,
                       reporting_asof_date",
-         params=list(for_pfcbl_category,
-                     parent_reporting_cohort_id))
+         params=list(reporting_import$import_id,
+                     as.character(id_group_creation_date)))
       }
       
       if (empty(creation_cohort)) {
@@ -202,7 +193,6 @@ db_create_new_rsf_ids <- function(pool,
        
         dbExecute(conn,"create temp table _temp_new_rsf_pfcbl_ids(unique_new_entity_row_id int,
                                                                   parent_rsf_pfcbl_id int,
-                                                                  --new_rsf_id int,
                                                                   new_rsf_pfcbl_id int)
                         ON COMMIT DROP")
         
@@ -256,10 +246,8 @@ db_create_new_rsf_ids <- function(pool,
                                                   rsf_client_id,
                                                   rsf_borrower_id,
                                                   rsf_loan_id,
-                                                  rsf_pf_id,
                                                   pfcbl_category,
                                                   pfcbl_category_rank,
-                                                  parent_rsf_pfcbl_id,
                                                   created_by_reporting_cohort_id,
                                                   created_in_reporting_asof_date)
         
@@ -270,10 +258,8 @@ db_create_new_rsf_ids <- function(pool,
                     ordered_ids.rsf_client_id,
                     ordered_ids.rsf_borrower_id,
                     ordered_ids.rsf_loan_id,
-                    coalesce(ordered_ids.rsf_facility_id,ordered_ids.rsf_program_id) as rsf_pf_id,
                     ordered_ids.pfcbl_category,
                     ordered_ids.pfcbl_category_rank,
-                    ordered_ids.parent_rsf_pfcbl_id,
                     ordered_ids.created_by_reporting_cohort_id,
                     ordered_ids.created_in_reporting_asof_date
                   from 
@@ -313,7 +299,6 @@ db_create_new_rsf_ids <- function(pool,
                   
                   	from _temp_new_rsf_pfcbl_ids nids	 
                   	inner join p_rsf.rsf_pfcbl_categories rpc on rpc.pfcbl_category = $3::text
-                  	-- left join is only relevant for new programs, else all other categories will have a parent
                     left join p_rsf.rsf_pfcbl_ids pids on pids.rsf_pfcbl_id = nids.parent_rsf_pfcbl_id
                   	order by 
                   	nids.new_rsf_pfcbl_id,
@@ -339,15 +324,7 @@ db_create_new_rsf_ids <- function(pool,
                                                 for_pfcbl_category))
 
         if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids",nrow(new_pfcbl_ids)," new ",toupper(for_pfcbl_category)," IDs created in database in ",format(Sys.time()-t2))                                
-        #dbExecute(conn,"drop table _temp_new_rsf_pfcbl_ids")
-                  
-                  
-                  
-        # new_pfcbl_ids[["reporting_template_row_groups"]] <- lapply(new_pfcbl_ids[["reporting_template_row_groups"]],
-        #                                                            function(x) as.character(strsplit(x,
-        #                                                                                              split=',',
-        #                                                                                              fixed=T)[[1]]))
-                  
+        
         new_pfcbl_ids
       })
       
@@ -358,9 +335,7 @@ db_create_new_rsf_ids <- function(pool,
   }  
 
   
-#  if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids","completed database actions in ",format(Sys.time()-t1))
 
-  
   if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids","Done!",as.numeric(Sys.time()-t1,"secs"))
   
   return (pfcbl_ids)

@@ -8,10 +8,8 @@ rsf_program_perform_checks <- function(pool=pool,
   # #if (!all(names(perform_checks) %in% c("indicator_check_id","for_indicator_id"))) stop("Perform checks expects a two-column data.table with indicator_check_id and for_indicator_id")
   check_asof_date <- unique(perform_checks$check_asof_date)
   if (length(check_asof_date) != 1) { stop("Multiple check dates not allowed") }
-   
-  rsf_program_id <- unique(perform_checks$rsf_program_id)
-  if (length(rsf_program_id) != 1) { stop("Multiple programs not allowed") }
-  
+ 
+
   # rsf_program_checks <- rbindlist(rsf_indicators$checks_for_indicator)
   # rsf_program_checks <- rsf_program_checks[is_system==FALSE] #This shouldn't happen anyway
   # rsf_program_checks <- rsf_program_checks[is_check_enabled==TRUE]

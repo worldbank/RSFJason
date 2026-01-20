@@ -11,11 +11,11 @@ template_set_data_match_rsf_ids <- function(pool,
   {
     #if(SYS_PRINT_TIMING) debugtime("template_set_data_match_rsf_ids")
     
-    reporting_cohort_id <- as.numeric(template$reporting_cohort$reporting_cohort_id)
-    if (is.null(reporting_cohort_id) || all(is.na(reporting_cohort_id))) stop(paste0("Bad reporting_cohort_id: ",reporting_cohort_id))
+    import_id <- as.numeric(template$reporting_import$import_id)
+    if (is.null(import_id) || all(is.na(import_id))) stop(paste0("Bad import_id: ",import_id))
     
-    if (is.null(template$template_settings$template_has_static_row_ids) ||
-        is.na(template$template_settings$template_has_static_row_ids)) stop("Undefined template setting: template_has_static_row_ids")
+    # if (is.null(template$template_settings$template_has_static_row_ids) ||
+    #     is.na(template$template_settings$template_has_static_row_ids)) stop("Undefined template setting: template_has_static_row_ids")
    
     if (length(unique(template$reporting_asof_date))>1) stop("template_set_data_match_rsf_ids() only supports data with one reporting as-of date.  Templates with multiple chronologies must use template_set_data_match_pfcbl_ids()") 
     
@@ -23,34 +23,32 @@ template_set_data_match_rsf_ids <- function(pool,
     template_data <- template$template_data
     
     
-    template_has_static_row_ids <- template$template_settings$template_has_static_row_ids
+    #template_has_static_row_ids <- template$template_settings$template_has_static_row_ids
     
-    #These are the only indicator category types that are used for looking-up and matching entities (aside from hashvalue)
-    indicator_sys_category_match_indicators <- data.table(indicator_sys_category=c("id",        #*should* be unique -- affected by loan renewals
-                                                                                   "rank_id",   #*should* be unique -- affected by loan renrewals
-                                                                                   "name",      #not guaranteed to be unique, may not be
-                                                                                   "entity_creation_date", #Entity create date 
-                                                                                   
-                                                                                   "data_source_row_id"),     #pseudo-category
-                                                          #hashvalue itself may not be unique in the database
-                                                          should_be_unique=c(TRUE,
-                                                                             TRUE,
-                                                                             FALSE,
-                                                                             FALSE,
-                                                                             FALSE), #known NOT to be unique for renewals, for example
-                                                          #If new entity exists on multiple rows (eg, a borrower entering the portfolio with multiple loans issued in the same QR),
-                                                          #use these categories.  Ie, we don't want to use the row_id as a unique category, as we know it will be different and fail to group;
-                                                          #but even the hashvalue should not be used because the formating could be applied to the name and cause different hashvalues for same-named entities
-                                                          use_create_new=c(TRUE,
-                                                                           TRUE,
-                                                                           TRUE,
-                                                                           TRUE,
-                                                                           FALSE),
-                                                          score=c(4, #ID:            best, highest quality match
-                                                                  3, #rank_id:       (for loans) excellent match (when compliant and not having copy-paste errors!!)
-                                                                  2, #name:          is a mediocre match: should be pretty unique (for borrowers) but typos and change a lot due to data entry issues
-                                                                  2, #creation_date: Not too much happens on exactly the same date across multiple entities within the same parent (but can); more frquently, clients report an identical default date for borrowers
-                                                                  4)) 
+    # #These are the only indicator category types that are used for looking-up and matching entities (aside from hashvalue)
+    # indicator_sys_category_match_indicators <- data.table(indicator_sys_category=c("id",        #*should* be unique -- affected by loan renewals
+    #                                                                                "rank_id",   #*should* be unique -- affected by loan renrewals
+    #                                                                                "name",      #not guaranteed to be unique, may not be
+    #                                                                                "entity_creation_date"),     #pseudo-category
+    #                                                       #hashvalue itself may not be unique in the database
+    #                                                       should_be_unique=c(TRUE,
+    #                                                                          TRUE,
+    #                                                                          FALSE,
+    #                                                                          FALSE,
+    #                                                                          FALSE), #known NOT to be unique for renewals, for example
+    #                                                       #If new entity exists on multiple rows (eg, a borrower entering the portfolio with multiple loans issued in the same QR),
+    #                                                       #use these categories.  Ie, we don't want to use the row_id as a unique category, as we know it will be different and fail to group;
+    #                                                       #but even the hashvalue should not be used because the formating could be applied to the name and cause different hashvalues for same-named entities
+    #                                                       use_create_new=c(TRUE,
+    #                                                                        TRUE,
+    #                                                                        TRUE,
+    #                                                                        TRUE,
+    #                                                                        FALSE),
+    #                                                       score=c(5, #ID:            best, highest quality match
+    #                                                               4, #rank_id:       (for loans) excellent match (when compliant and not having copy-paste errors!!)
+    #                                                               2, #name:          is a mediocre match: should be pretty unique (for borrowers) but typos and change a lot due to data entry issues
+    #                                                               2, #creation_date: Not too much happens on exactly the same date across multiple entities within the same parent (but can); more frquently, clients report an identical default date for borrowers
+    #                                                               3)) 
 
     
     
@@ -98,7 +96,7 @@ template_set_data_match_rsf_ids <- function(pool,
       #setup current ranks and match data filters
       {
         #get first required lookup category, from parent-est to child-est
-        ranks <- template_match_data[is.na(rsf_pfcbl_id),
+        ranks <- template_match_data[is.na(rsf_pfcbl_id) | rsf_pfcbl_id <= 0,
                                      #is.na(match_action), #because match action can be "new" and therefore blank rsf_pfcbl_id
                                      unique(pfcbl_rank)]
         
@@ -120,40 +118,59 @@ template_set_data_match_rsf_ids <- function(pool,
       {
         
         current_match_data <- template_match_data[pfcbl_rank==current_rsf_id_rank]
-        current_match_data <- current_match_data[is.na(rsf_pfcbl_id)]
+        
+        current_match_data <- current_match_data[is.na(rsf_pfcbl_id) | rsf_pfcbl_id <= 0]
         
         
         current_data_category <- template_match_data[pfcbl_rank==current_rsf_id_rank,unique(pfcbl_category)]
         
-        parent_data_category <- dbGetQuery(pool,"
-                                           select rpc.pfcbl_category
-                                           from p_rsf.rsf_pfcbl_categories rpc
-                                           where pfcbl_rank < $1
-                                           order by pfcbl_rank desc
-                                           limit 1",
-                                           params=list(current_rsf_id_rank))
-        parent_data_category <- parent_data_category$pfcbl_category
+        # parent_data_category <- dbGetQuery(pool,"
+        #                                    select rpc.pfcbl_category
+        #                                    from p_rsf.rsf_pfcbl_categories rpc
+        #                                    where pfcbl_rank < $1
+        #                                    order by pfcbl_rank desc
+        #                                    limit 1",
+        #                                    params=list(current_rsf_id_rank))
+        # parent_data_category <- parent_data_category$pfcbl_category
+        parent_data_category <- fcase(current_rsf_id_rank==0,as.character(NA),
+                                      current_rsf_id_rank==1,"global",
+                                      current_rsf_id_rank==2,"program",
+                                      current_rsf_id_rank==3,"facility",
+                                      current_rsf_id_rank==4,"client",
+                                      current_rsf_id_rank==5,"borrower",
+                                      default=NULL)
         
         parent_rsf_pfcbl_id_col <- paste0("rsf_",parent_data_category,"_id")
         rsf_id_col <- paste0("rsf_",current_data_category,"_id")
         
+        #Because most IFC QR templates include the CLIENT ID and not facility ID
+        #We need to lookup the facility ID from the client
+        #But this is also used for JASON templates that can look-up the parent chain if for example just a loan data point is uploaded that it can look-up the loan's borrower
         if (anyNA(current_match_data$parent_rsf_pfcbl_id)) {
           
           #If the parent ID is undefined...
           #And if the parent ID only has one child at the current data category, then we can set it.
           parent_ids <- dbGetQuery(pool,"
                                     select 
-                                      fam.child_rsf_pfcbl_id as rsf_pfcbl_id
-                                    from p_rsf.rsf_pfcbl_id_family fam
-                                    where fam.parent_rsf_pfcbl_id = $1::int
-                                      and fam.child_pfcbl_category = $2::text",
-                                   params=list(template$reporting_cohort$reporting_rsf_pfcbl_id,
+                                      ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id
+                                    from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                                    where ft.from_rsf_pfcbl_id = $1::int
+                                      and ft.pfcbl_hierarchy = 'child'
+                                      and ft.to_pfcbl_category = $2::text",
+                                   params=list(template$reporting_import$import_rsf_pfcbl_id,
                                                parent_data_category))
           if (nrow(parent_ids)==1) {
             
             current_match_data[is.na(parent_rsf_pfcbl_id),
                                parent_rsf_pfcbl_id:=parent_ids$rsf_pfcbl_id]
           
+          
+          } else if (template$reporting_import$import_pfcbl_category=="program" && current_data_category=="facility") {
+            current_match_data[is.na(parent_rsf_pfcbl_id),
+                               parent_rsf_pfcbl_id:=template$reporting_import$import_rsf_pfcbl_id]
+          } else if (template$reporting_import$import_pfcbl_category=="facility" && current_data_category=="client") {
+            current_match_data[is.na(parent_rsf_pfcbl_id),
+                               parent_rsf_pfcbl_id:=template$reporting_import$import_rsf_pfcbl_id]
           } else if (!is.null(template_data_sys_names)) {
             parent_sys_names <- current_match_data[is.na(parent_rsf_pfcbl_id),
                                .(reporting_template_row_group,
@@ -196,6 +213,7 @@ template_set_data_match_rsf_ids <- function(pool,
                                     reporting_template_row_group,
                                     pfcbl_category)]
             
+          
           } else if (!empty(template$match_SYSNAMES) && any(names(template_data)=="SYSID")) {
               
               current_SYSIDS <- unique(template_data[data_category==current_data_category,
@@ -240,6 +258,7 @@ template_set_data_match_rsf_ids <- function(pool,
               
             
             
+          
           } else {
               
               bad_data <- unique(template$template_data[data_category==current_data_category,
@@ -266,7 +285,7 @@ template_set_data_match_rsf_ids <- function(pool,
         }
         
         #Just for lonans
-        issuance_rank_indicator <- rsf_indicators[data_category==current_data_category & indicator_sys_category=="issuance_rank"]
+        #issuance_rank_indicator <- rsf_indicators[data_category==current_data_category & indicator_sys_category=="issuance_rank"]
         
       }
       
@@ -276,8 +295,15 @@ template_set_data_match_rsf_ids <- function(pool,
         
         #template_current_lookup_data -- relevant lookup data available in the submitted template to match against db_lookup_data
         {
+          current_id_category <- fcase(current_data_category=="loan","rank_id",
+                               current_data_category=="borrower","id",
+                               current_data_category=="client","id",
+                               current_data_category=="facility","id",
+                               current_data_category=="program","name", #not all programs have IFC project ID numbers (but some do! eg, SLGP)
+                               current_data_category=="global","name",
+                               default=NA)
 
-          template_current_data <- template_data[indicator_sys_category %in% indicator_sys_category_match_indicators$indicator_sys_category & 
+          template_current_data <- template_data[indicator_sys_category == current_id_category &
                                                  data_category==current_data_category,
                                                  .(reporting_template_row_group,
                                                    pfcbl_category=data_category,
@@ -294,6 +320,7 @@ template_set_data_match_rsf_ids <- function(pool,
                                                   nomatch=NULL]
           
           if (empty(template_current_data)) break;
+          
           
           #duplicates?
           #This can happen when client templates repeat the same columns (why on earth?).  But Equity BCDC redundantly reports the internal ID number for some reason?
@@ -322,6 +349,7 @@ template_set_data_match_rsf_ids <- function(pool,
             
           }
           
+          #If somehow template_process() did not setup match_data correctly
           if (!all(current_match_data$reporting_template_row_group %in% template_current_data$reporting_template_row_group)) {
             
             no_id_data_rows <- current_match_data$reporting_template_row_group[!current_match_data$reporting_template_row_group %in% template_current_data$reporting_template_row_group]
@@ -343,22 +371,43 @@ template_set_data_match_rsf_ids <- function(pool,
                           paste0(valid_indicators,collapse=" AND/OR ")))
             }
           }
-          
-          #template_current_lookup_data[,reporting_template_id:=template$template_id]
-          template_current_data[is.na(data_value),
-                                data_value:=data_submitted] #so NAs don't get compared as <NA> but as "NA" or "{MISSING}"
-          
+
           template_current_lookup_data <- template_current_data[,
                                                                 .(parent_rsf_pfcbl_id,
                                                                   reporting_template_row_group,
                                                                   indicator_id,
                                                                   indicator_sys_category,
                                                                   data_value)]
-          
-         
+
           if (nrow(template_current_lookup_data) != nrow(unique(template_current_lookup_data))) {
-           
+            
             stop(paste0("Duplicated data in template_current_lookup_data(",nrow(template_current_lookup_data),") vs template_current_data(",nrow(template_current_data),")"))
+          }
+          
+          #if an ID value has ">>" it is a trigger for indicating a changed/modified/updated ID
+          #where it is necessary to report the OLD ID that it is being changed FROM and the new ID that it is being changed TO: FROM >> TO
+          #So the system can lookup FROM and then change TO
+          #Will result in BOTH the OLD and the NEW IDs being part of the lookup
+          modified_ids <- template_current_data[grepl(">>",data_submitted)]
+          if (!empty(modified_ids)) {
+            modified_ids[,
+                         data_value:=strsplit(data_value,split=">>")]
+            modified_ids <- modified_ids[,
+                                         .(data_value=unlist(data_value,recursive=F)),
+                                         by=.(parent_rsf_pfcbl_id,
+                                              reporting_template_row_group,
+                                              indicator_id,
+                                              indicator_sys_category)]
+            
+            modified_ids[,
+                         data_value:=normalizeSyscategory_id(data_value)]
+            modified_ids <- modified_ids[!is.na(data_value)]
+            
+            template_current_lookup_data <- rbindlist(list(template_current_lookup_data,
+                                                           modified_ids))
+            
+            template_current_lookup_data <- unique(template_current_lookup_data)
+            
           }
         } 
         
@@ -367,21 +416,9 @@ template_set_data_match_rsf_ids <- function(pool,
          
           #create pseudo columns: normalized_id and data_source_row_id
           {
-            if (template_has_static_row_ids==TRUE) {
-              
-              row_source_ids <- unique(template_current_lookup_data[,
-                                                                   .(parent_rsf_pfcbl_id,
-                                                                     reporting_template_row_group,
-                                                                     indicator_id=as.numeric(NA),
-                                                                     indicator_sys_category="data_source_row_id",
-                                                                     data_value=reporting_template_row_group)])
-              
-              template_current_lookup_data <- rbindlist(list(template_current_lookup_data,
-                                                             row_source_ids))
-              row_source_ids <- NULL
-            }
             
-            template_current_lookup_data[,missing_values:=FALSE]
+            #happens through parse_data            
+            #leading zeros will get matched as id_modified and this is really not very modified enough to count.  So omit zero-padding here.
             template_current_lookup_data[(is.na(data_value)    |
                                           data_value=="" |
                                           data_value=="{MISSING}" |
@@ -392,22 +429,16 @@ template_set_data_match_rsf_ids <- function(pool,
                                          `:=`(missing_values=TRUE,
                                               data_value="{MISSING}")]
 
-            #happens through parse_data            
-            # #leading zeros will get matched as id_modified and this is really not very modified enough to count.  So omit zero-padding here.
-            # template_current_lookup_data[indicator_sys_category=="id",
-            #                              data_value:=gsub("^0+","",data_value)]
+            if (anyNA(template_current_data$data_value)) {
+              stop(paste0(template_current_data[is.na(data_value),paste0(pfcbl_category," on ",reporting_template_row_group," has {MISSING} ",indicator_sys_category)],collapse=" \n"))
+            }
             
-            #Fully omitted because we don't want remaining NA matches to count toward NEW entity matches
-            template_current_lookup_data <- template_current_lookup_data[missing_values==FALSE]
             template_current_lookup_data <- unique(template_current_lookup_data)
-            template_current_lookup_data[,missing_values:=NULL]
-            
+
             template_current_lookup_data <- template_current_lookup_data[,
                                                                          .(reporting_template_row_groups=paste0(reporting_template_row_group,
                                                                                                                 collapse=",")),
                                                                          by=.(parent_rsf_pfcbl_id,
-                                                                              indicator_id,
-                                                                              indicator_sys_category,
                                                                               data_value)]
           }
           
@@ -427,1016 +458,574 @@ template_set_data_match_rsf_ids <- function(pool,
               
               dbExecute(conn,"
                         create temp table _temp_match(parent_rsf_pfcbl_id int,
-                                                      indicator_id int,
-                                                      indicator_sys_category text,
                                                       data_value text,
                                                       reporting_template_row_groups text)
                         on commit drop;")
               
-              t3 <- Sys.time()
+              #t3 <- Sys.time()
               dbAppendTable(conn,
                             name="_temp_match",
                             value=template_current_lookup_data[,
                                                                .(parent_rsf_pfcbl_id,
-                                                                 indicator_id,
-                                                                 indicator_sys_category,
                                                                  data_value,
                                                                  reporting_template_row_groups)])
               
               dbExecute(conn,"analyze _temp_match")
-              
-              if(SYS_PRINT_TIMING) debugtime("template_set_data_match_rsf_ids",
-                                             paste0("upload data for ",current_data_category," ",nrow(template_current_lookup_data))," rows in ",
-                                             format(Sys.time()-t3))
-              
-              
+             
               dbExecute(conn,"alter table _temp_match add primary key(parent_rsf_pfcbl_id,
-                                                                      indicator_sys_category,
                                                                       data_value, 
                                                                       reporting_template_row_groups)")
               
               
-           
-              matches <- dbGetQuery(conn,"
+              #glue matches on parent_rsf_pfcbl_id_col eg, if we're borrower match on rsf_client_id col
+              #NOTE: p_rsf.rsf_data_current_names_and_ids MUST have column names identical to INDICATOR_SYS_CATEGORY, eg, "id" and "rank_id"
+              matches <- dbGetQuery(conn,glue("
                                     select
                                     	tmd.parent_rsf_pfcbl_id,
                                     	tmd.reporting_template_row_groups,
-                                    	tmd.indicator_id,
-                                    	tmd.indicator_sys_category,
                                     	ids.rsf_pfcbl_id as matched_rsf_pfcbl_id
                                     from p_rsf.rsf_pfcbl_ids ids
+                                    inner join p_rsf.rsf_data_current_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
+                                    inner join _temp_match tmd on tmd.parent_rsf_pfcbl_id = ids.{parent_rsf_pfcbl_id_col}
+                                    													and tmd.data_value is not distinct from nids.{current_id_category}
                                     inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
-                                    inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                                                         and rdc.indicator_id = ind.indicator_id
-                                    inner join _temp_match tmd on tmd.parent_rsf_pfcbl_id = ids.parent_rsf_pfcbl_id
-                                    													and tmd.indicator_id = rdc.indicator_id
-                                    													and tmd.data_value is not distinct from rdc.data_value
                                     where ids.created_in_reporting_asof_date <= $1::date
-                                    	and ids.parent_rsf_pfcbl_id = any((select distinct tm.parent_rsf_pfcbl_id from _temp_match tm))
-                                    	and ind.indicator_id = any((select unnest(string_to_array($2,','))::int))
-                                    	and rdc.data_value is not null",
+                                    	and ids.pfcbl_category = $2::text"),
                                     params=list(template$reporting_asof_date,
-                                                #na.omit because data_source_row_id will have NA indicator_id
-                                                paste0(na.omit(unique(template_current_lookup_data$indicator_id)),collapse=",")))
+                                                current_data_category))
               setDT(matches)
-              
-              if (template_has_static_row_ids) {
-                row_ids <- dbGetQuery(conn,"
-                                      select 
-                                        tm.parent_rsf_pfcbl_id,
-                                      	tm.reporting_template_row_groups,
-                                      	tm.indicator_id,
-                                      	tm.indicator_sys_category,
-                                      	tri.rsf_pfcbl_id as matched_rsf_pfcbl_id
-                                      from _temp_match tm 
-                                      inner join p_rsf.rsf_pfcbl_reporting_template_row_ids tri on tri.parent_rsf_pfcbl_id = tm.parent_rsf_pfcbl_id
-                                                                                               and tri.data_source_row_id = tm.data_value
-                                                                                               and tri.template_id = $1::int
-                                      inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = tri.rsf_pfcbl_id
-                                      where ids.pfcbl_category = $2::text",
-                                      params=list(template$template_id,
-                                                  current_data_category))
-                setDT(row_ids)
-                matches <- rbindlist(list(matches,
-                                          row_ids))
-                row_ids <- NULL
-              }
               
               return (matches)
               
             })
           
             setDT(template_db_current_match_data)
-
+          }
+          
+          {
+            
             if(SYS_PRINT_TIMING) debugtime("template_set_data_match_rsf_ids",paste0("db_current_match_data for ",current_data_category),format(Sys.time()-t2))
             
             template_current_lookup_data[,data_value:=NULL]
             unmatched_data <- fsetdiff(template_current_lookup_data[,
                                                  .(parent_rsf_pfcbl_id,
-                                                   reporting_template_row_groups,
-                                                   indicator_id,
-                                                   indicator_sys_category)],
+                                                   reporting_template_row_groups)],
                                       template_db_current_match_data[,
                                                                      .(parent_rsf_pfcbl_id,
-                                                                       reporting_template_row_groups,
-                                                                       indicator_id,
-                                                                       indicator_sys_category)])
+                                                                       reporting_template_row_groups)])
 
 
             #when creating new entities with db_create_new_rsf_ids, some minimal level of ID information must be within the dataset (so that we can look it up later!)
             #so if we see a new data_source_row_id (because the template has static rows), then does that new row have an ID value in it?
             #if not, then don't score a new row as a new possible new entity
+            current_match_data_new <- current_match_data[!is.na(rsf_pfcbl_id) & rsf_pfcbl_id < 0,rsf_pfcbl_id]
+            if (length(current_match_data_new) > 0) {
+              current_match_data_new <- abs(min(current_match_data_new))
+            } else { 
+              current_match_data_new <- 0
+            }
+            
             unmatched_data[,
-                           `:=`(matched_rsf_pfcbl_id=as.numeric(NA))]
-  
-            unmatched_data[,newable:=TRUE]
-            unmatched_data[indicator_sys_category=="data_source_row_id",
-                           newable:=reporting_template_row_groups %in% template_current_lookup_data[indicator_sys_category=="id",
-                                                                                                    unique(reporting_template_row_groups)] ]
+                           `:=`(matched_rsf_pfcbl_id=-(.I+current_match_data_new))]
             
-            unmatched_data <- unmatched_data[newable==TRUE]
-            unmatched_data[,newable:=NULL]
-            
-            
-
             template_current_lookup_data <- rbindlist(list(template_db_current_match_data,
                                                            unmatched_data))
             
             template_current_lookup_data <- template_current_lookup_data[,
                                                                          .(reporting_template_row_group=as.character(
-                                                                                                          unlist(
-                                                                                                            strsplit(reporting_template_row_groups,
-                                                                                                                      split=",",
-                                                                                                                     fixed=T),
-                                                                                                            recursive=F))),
+                                                                           unlist(
+                                                                             strsplit(reporting_template_row_groups,
+                                                                                      split=",",
+                                                                                      fixed=T),
+                                                                             recursive=F))),
                                                                          by=.(parent_rsf_pfcbl_id,
-                                                                              indicator_id,
-                                                                              indicator_sys_category,
                                                                               matched_rsf_pfcbl_id)]
             
-            #Filter out recognized entities that have been matched
-            #Filter here so they can go through disambiguation matching in case lookup returns multiple matches.
-            #They'll be re-assosciated with the best match later.
-            # if (!empty(template_match_data[pfcbl_category==current_data_category & 
-            #                                is.na(recognized_entity_number) == FALSE])) {
-            #   
-            #   unmatched_recognized_rows <- template_current_lookup_data[,
-            #                                                             .(nomatches=all(is.na(matched_rsf_pfcbl_id))),
-            #                                                             by=.(reporting_template_row_group)
-            #                                                             ][nomatches==TRUE
-            #                                                               ][template_match_data[!is.na(recognized_entity_number),
-            #                                                                                     .(reporting_template_row_group,
-            #                                                                                       recognized_entity_number)],
-            #                                                                 on=.(reporting_template_row_group),
-            #                                                                 nomatch=NULL]
-            #   
-            #   #Filter-out unmatched rows that are recogized but have not submitted and ID information.  As these will be re-associated with those rows that
-            #   #did submit that ID information.
-            #   no_id_data_rows <- current_match_data[!reporting_template_row_group %in% template_current_data$reporting_template_row_group,
-            #                                         .(reporting_template_row_group,
-            #                                           recognized_entity_number)]
-            #   
-            #   #current_match_data[recognized_entity_number==2551]
-            #   #template_current_lookup_data[reporting_template_row_group %in% c("9012RSFDATA","9013RSFDATA")]
-            #   
-            #   unmatched_recognized_rows[!reporting_template_row_group %in% no_id_data_rows]
-            #   
-            #   recognized_ids_with_data <- current_match_data[reporting_template_row_group %in% template_current_data$reporting_template_row_group,recognized_entity_number]
-            #   
-            #   # matched_recognized_rows <- template_match_data[pfcbl_category==current_data_category & 
-            #   #                                                is.na(recognized_entity_number) == FALSE,
-            #   #                                                 .(reporting_template_row_group,
-            #   #                                                   recognized_entity_number)
-            #   #                                                 ][template_current_lookup_data[,.(reporting_template_row_group,
-            #   #                                                                                   matched_rsf_pfcbl_id)],
-            #   #                                                   on=.(reporting_template_row_group),
-            #   #                                                   nomatch=NULL][,
-            #   #                                                          .(hasmatches=any(!is.na(matched_rsf_pfcbl_id))),
-            #   #                                                          by=.(recognized_entity_number)
-            #   #                                                          ][hasmatches==TRUE]
-            #   
-            #   #has to match something if it'll be matched.  Else they're all new!... and new entities will group by recognition otherwise.
-            #   unmatched_recognized_rows <- unmatched_recognized_rows[recognized_entity_number %in% matched_recognized_rows$recognized_entity_number]
-            # 
-            #   
-            #   template_current_lookup_data <- template_current_lookup_data[!(reporting_template_row_group %in% unmatched_recognized_rows$reporting_template_row_group)]
-            # }
+            #In the unlikely event we matched NEW and EXISTING (such as through an ID modification, for example, where OLD is matched and NEW is not)
+            #Then max() will return the actual ID (positive number) before the NEW ID trigger (negative number)
+            template_current_lookup_data[,
+                                         matched_rsf_pfcbl_id:=max(matched_rsf_pfcbl_id,na.rm=T),
+                                         by=.(parent_rsf_pfcbl_id,
+                                              reporting_template_row_group)]
             
-            
-            #for entities (borrowers) that change their name and/or other info AND ALSO add a new entry on a new row,
-            #then the heretofore unreported name change isn't available to match in the database.  So here, if we dcast all sys categories
-            #and they're all the same on multiple rows, and some rows match existing reported rows -- and some rows match new (ie, NA), then
-            #we can infer because all their ID info is the same, that this is "new" row, should match the same row.
-            if (template_has_static_row_ids) {
-              multiple_row_entries <- template_current_data[,.(parent_rsf_pfcbl_id,reporting_template_row_group,data_value,indicator_sys_category)]
-              multiple_row_entries <- dcast.data.table(multiple_row_entries,
-                                                       parent_rsf_pfcbl_id+reporting_template_row_group ~ indicator_sys_category,
-                                                       value.var = "data_value")
-              
-              by_cols <- names(multiple_row_entries)[-which(names(multiple_row_entries) %in% c("parent_rsf_pfcbl_id","reporting_template_row_group"))]
-              multiple_row_entries[,
-                                   `:=`(n=.N,
-                                        g=.GRP),
-                                   by=by_cols]
-              multiple_row_entries <- multiple_row_entries[n>1]
-              
-              
-              matched_rows <- template_current_lookup_data[!is.na(matched_rsf_pfcbl_id) & indicator_sys_category=="data_source_row_id"]
-              multiple_row_entries[matched_rows,
-                                   `:=`(matched_rsf_pfcbl_id=i.matched_rsf_pfcbl_id),
-                                   on=.(reporting_template_row_group,
-                                        parent_rsf_pfcbl_id)]
-              
-              multiple_row_entries_matched <- multiple_row_entries[!is.na(matched_rsf_pfcbl_id),
-                                                                   .(g,
-                                                                     matched_rsf_pfcbl_id)]
-              
-              multiple_row_entries_matched <- unique(multiple_row_entries_matched)
-              multiple_row_entries_matched[,
-                                           matches:=.N,
-                                           by=.(g)]
-              
-              multiple_row_entries_matched <- multiple_row_entries_matched[matches==1]
-              multiple_row_entries_unmatched <- multiple_row_entries[is.na(matched_rsf_pfcbl_id),
-                                                                     .(parent_rsf_pfcbl_id,
-                                                                       reporting_template_row_group,
-                                                                       g)]
-              multiple_row_entries_unmatched <- multiple_row_entries_unmatched[multiple_row_entries_matched,
-                                                                               on=.(g),
-                                                                               nomatch=NULL]
-              
-              multiple_row_entries_unmatched[,indicator_sys_category:="data_source_row_id"]
-              template_current_lookup_data[multiple_row_entries_unmatched,
-                                           `:=`(matched_rsf_pfcbl_id=i.matched_rsf_pfcbl_id),
-                                           on=.(reporting_template_row_group,
-                                                parent_rsf_pfcbl_id,
-                                                indicator_sys_category)]
-            }
-          }
-          
-         
-          template_current_lookup_data[,actioned:=FALSE]
-        }
-        
-        #ACTION NEW RSF IDS: Any rows where no identifying information can be matched
-        {
-          #Not found in database means: not already matched (no rsf_pfcbl_id) and also not matched "with confidence" using a reported data point
-          
-          new_entities <- template_current_lookup_data[,
-                                                       .(new_entity=all(is.na(matched_rsf_pfcbl_id))),
-                                                       by=.(reporting_template_row_group)][new_entity==TRUE]
-          
-          current_match_data[reporting_template_row_group %in% unique(new_entities$reporting_template_row_group),
-                             `:=`(rsf_pfcbl_id=as.numeric(NA),
-                                  match_action="new",
-                                  matched_by="nomatches")]
-          
-          template_current_lookup_data[reporting_template_row_group %in% current_match_data[!is.na(match_action),reporting_template_row_group],
-                                       actioned:=TRUE]
-          
-          template_current_lookup_data <- template_current_lookup_data[actioned==FALSE]
-          
-          if (!empty(issuance_rank_indicator)) {
-            
-            #entries that have a NEW rank_id AND a new entity_creation_date
-            new_entries <- template_current_lookup_data[indicator_sys_category %in% c("rank_id","entity_creation_date"),
-                                                          .(new_entry=all(is.na(matched_rsf_pfcbl_id))),
-                                                          by=.(reporting_template_row_group)][new_entry==TRUE]
-            
-            #entries that matched ID
-            #protocol will have clients add a sequence ID to end of ID, eg 12345#1, making these unique and not matching
-            #but client may not do that and just repeat the same ID for the new issuance
-            id_matches <- template_current_lookup_data[indicator_sys_category == "id" &
-                                                       is.na(matched_rsf_pfcbl_id)==FALSE,
-                                                         .(existing_id=length(unique(matched_rsf_pfcbl_id))==1),
-                                                         by=.(reporting_template_row_group)][existing_id==TRUE]
-            
-            #When rank_id and/or creation_date are new but ID matches an existing entry, then it will be counted as a new entity (that is
-            #an issuance of the loan series that matches the ID).
-            #This block will skip the ambiguous matching, which would presumable match "new" to NA rank_id and entity_creation_date and
-            #"update" to the matched loan ID.  The result would be based on how the scoring preferences are tuned.  This is a better hueuristic
-            #for issuances in this situation
-            issuance_matches <- new_entries[id_matches,
-                                            on=.(reporting_template_row_group),
-                                            nomatch=NULL]
-            
-            if (!empty(issuance_matches)) {
-              current_match_data[is.na(match_action) &
-                                 reporting_template_row_group %in% unique(issuance_matches$reporting_template_row_group),
-                                 `:=`(rsf_pfcbl_id=as.numeric(NA),
-                                      match_action="new",
-                                      matched_by="issuance")]
-              
-              template_current_lookup_data[reporting_template_row_group %in% current_match_data[!is.na(match_action),reporting_template_row_group],
-                                           actioned:=TRUE]
-              
-              template_current_lookup_data <- template_current_lookup_data[actioned==FALSE]
-              
-            }
-            issuance_matches <- NULL
-            id_matches <- NULL
-            new_entries <- NULL
-          }
-
-          
-          #EXIT early if all rsf_ids are matched
-          if (empty(current_match_data[is.na(match_action)])) break; 
-          
-        }
-        
-        #Here: (1) we've matched hashvalues (identical information as previously submitted)
-        #      (2) we've matched new IDs (nothing matched anything previously submitted)
-        #Therefore, somethings match somethings previously submitted...
-        
-        #BLOCK: Identify unambiguous rsf_ids for update
-        {
-          setorder(template_current_lookup_data,
-                   matched_rsf_pfcbl_id,
-                   indicator_sys_category)
-          
-          unambiguous_match_data <- template_current_lookup_data[,
-                                                                 .(unambiguous_match=length(unique(matched_rsf_pfcbl_id))==1 &
-                                                                                     any(is.na(matched_rsf_pfcbl_id))==FALSE,
-                                                                   matched_by=paste0("Unambiguous Match with ",
-                                                                                     .N," values: ",
-                                                                                     paste0(indicator_sys_category,
-                                                                                            collapse=" & ")),
-                                                                   matched_rsf_pfcbl_id=matched_rsf_pfcbl_id[1]),
-                                                                 by=.(reporting_template_row_group,
-                                                                      parent_rsf_pfcbl_id)][unambiguous_match==TRUE]
-          #Unambiguous match data
-          #All identifying information submitted matches only one RSF_ID
-          if (!empty(unambiguous_match_data)) {
-            
-            current_match_data[unambiguous_match_data,
+            template_current_lookup_data[,joincondition:=as.numeric(NA)]
+            current_match_data[template_current_lookup_data,
                                `:=`(rsf_pfcbl_id=i.matched_rsf_pfcbl_id,
-                                    match_action="update",
-                                    matched_by=i.matched_by),
-                               on=.(reporting_template_row_group,
-                                    parent_rsf_pfcbl_id)]
-            
-            
-            unambiguous_match_data <- NULL
-            
-            template_current_lookup_data[reporting_template_row_group %in% current_match_data[!is.na(match_action),reporting_template_row_group],
-                                         actioned:=TRUE]
-            
-            template_current_lookup_data <- template_current_lookup_data[actioned==FALSE]
-          }
-          
-          
-          #EXIT early if all matches are unambiguous
-          if (empty(current_match_data[is.na(match_action)])) break; 
-          
-          template_current_lookup_data[current_match_data[!is.na(match_action),
-                                                           .(reporting_template_row_group)],
-                                         actioned:=TRUE,
-                                         on=.(reporting_template_row_group)]
-          
-          template_current_lookup_data <- template_current_lookup_data[actioned==FALSE]
-          
-        }
-        
-        #BLOCK: Identify quasi-unambiguous rsf_ids for update (all except for create date, which should be semi-unique but may be generic and therefore spammy)
-        {
-          
-          qunambiguous_match_data <- template_current_lookup_data[indicator_sys_category != "entity_creation_date",
-                                                                 .(qunambiguous_match=length(unique(matched_rsf_pfcbl_id))==1 & 
-                                                                                      .N >=2,
-                                                                                      #& any(is.na(matched_rsf_pfcbl_id))==FALSE,
-                                                                   matched_by=paste0("Quasi-unambiguous Match with ",
-                                                                                     .N," values: ",
-                                                                                     paste0(indicator_sys_category,
-                                                                                            collapse=" & ")),
-                                                                   matched_rsf_pfcbl_id=matched_rsf_pfcbl_id[1]),
-                                                                 by=.(reporting_template_row_group,
-                                                                      parent_rsf_pfcbl_id)][qunambiguous_match==TRUE]
-          
-        
-          
-          #Unambiguous match data
-          #All identifying information submitted matches only one RSF_ID
-          if (!empty(qunambiguous_match_data)) {
-            
-            current_match_data[qunambiguous_match_data,
-                               `:=`(rsf_pfcbl_id=i.matched_rsf_pfcbl_id,
-                                    match_action=ifelse(is.na(i.matched_rsf_pfcbl_id),
-                                                              "new",
-                                                              "update"),
-                                    matched_by=i.matched_by),
-                               on=.(reporting_template_row_group,
-                                    parent_rsf_pfcbl_id)]
-            
-            
-            qunambiguous_match_data <- NULL
-            
-            template_current_lookup_data[reporting_template_row_group %in% current_match_data[!is.na(match_action),reporting_template_row_group],
-                                         actioned:=TRUE]
-            
-            template_current_lookup_data <- template_current_lookup_data[actioned==FALSE]
-          }
-          
-          
-          #EXIT early if all matches are unambiguous
-          if (empty(current_match_data[is.na(match_action)])) break; 
-          
-          template_current_lookup_data[current_match_data[!is.na(match_action),
-                                                            .(reporting_template_row_group)],
-                                         actioned:=TRUE,
-                                         on=.(reporting_template_row_group)]
-          
-          template_current_lookup_data <- template_current_lookup_data[actioned==FALSE]
-          
-        }
-        
-        #Ambiguous match data
-        {
-          
-          #Slightly redundant, but ambiguous match data is by definition what is left over from previous matches
-          ambiguous_match_data <- template_current_lookup_data[current_match_data[is.na(match_action),
-                                                                                    .(reporting_template_row_group,
-                                                                                      parent_rsf_pfcbl_id)],
-                                                                 on=.(reporting_template_row_group,
-                                                                      parent_rsf_pfcbl_id),
-                                                                 nomatch=NULL
-                                                               ][,
-                                                                 .(matched_rsf_pfcbl_id,
-                                                                   reporting_template_row_group,
-                                                                   indicator_sys_category,
-                                                                   parent_rsf_pfcbl_id,
-                                                                   indicator_id,
-                                                                   actioned)] #basically omits data_value, which can have redundant
-                                                                              #matches due to id_normalized matching the same ID for compound_ids
-          
-          if (!empty(ambiguous_match_data)) {
-            
-            ambiguous_match_data <- unique(ambiguous_match_data)
-            ambiguous_match_data[indicator_sys_category_match_indicators,
-                                 score:=i.score,
-                                 on=.(indicator_sys_category)]
-            
-            if (any(is.na(ambiguous_match_data$score))) {
-              stop(paste0("Failed to score the following indicator_sys_categories: ",
-                          paste0(ambiguous_match_data[is.na(score),unique(indicator_sys_category)],collapse=", ")))
-            }
-            
-            ambiguous_match_data <- unique(ambiguous_match_data)
-            ambiguous_match_data[template_current_data,
-                                 data_value:=i.data_value,
-                                 on=.(reporting_template_row_group,
-                                      indicator_id,
-                                      parent_rsf_pfcbl_id)]
-            ambiguous_match_data[indicator_sys_category=="data_source_row_id",
-                                 data_value:=reporting_template_row_group]
-            
-            ambiguous_match_data_scores <- ambiguous_match_data[,.(matched_by=paste0(ifelse(is.na(matched_rsf_pfcbl_id),
-                                                                                     paste0("NEW ",toupper(current_data_category)),
-                                                                                     paste0("MATCHES SYSID#",matched_rsf_pfcbl_id)),
-                                                                                     " for ",paste0(
-                                                                                       paste0("{",indicator_sys_category,
-                                                                                              "=",
-                                                                                              data_value,"}"),
-                                                                                                    collapse=" & ")),
-                                                                   match_count=.N,
-                                                                   score_total=sum(score)),
-                                                             by=.(reporting_template_row_group,
-                                                                  parent_rsf_pfcbl_id,
-                                                                  matched_rsf_pfcbl_id)]
-            
-            ambiguous_match_data_scores[,
-                                        `:=`(reporting_template_row_group_score_total=sum(score_total),
-                                             reporting_template_row_group_score_median=median(score_total)),
-                                        by=.(reporting_template_row_group,
-                                             parent_rsf_pfcbl_id)]
-            
-            ambiguous_match_data_scores[,match_score_confidence:=score_total/reporting_template_row_group_score_total]
-            
-            setorder(ambiguous_match_data_scores,
-                     reporting_template_row_group,
-                     score_total)
-            
-            ambiguous_match_data_scores[,selected:=FALSE]
-            ambiguous_match_data_scores[,selected:=score_total==max(score_total),
-                                        by=.(reporting_template_row_group,
-                                             parent_rsf_pfcbl_id)]
-            
-            ambiguous_match_data_scores[,n:=sum(selected),
-                                        by=.(reporting_template_row_group,
-                                             parent_rsf_pfcbl_id)]
-            
-            #Between multiple ambiguous IDs or NEW vs UPDATE, select UPDATE (na.rm)
-            ambiguous_match_data_scores[selected==TRUE & n>1,
-                                        selected:=matched_rsf_pfcbl_id==min(matched_rsf_pfcbl_id,na.rm=TRUE),
-                                        by=.(reporting_template_row_group)]
-            
-            ambiguous_match_data_scores[is.na(selected),
-                                        selected:=FALSE]
-            
-            selected_ambiguous_match_data <- ambiguous_match_data_scores[selected==TRUE]
-            
-            selected_ambiguous_match_data[is.na(matched_rsf_pfcbl_id),
-                                          match_issues:=paste0(" CREATE NEW ",toupper(current_data_category)," on ROW ",reporting_template_row_group)]
-            
-            selected_ambiguous_match_data[!is.na(matched_rsf_pfcbl_id),
-                                          match_issues:=matched_by]
-            
-            unselected_ambiguous_match_data <- ambiguous_match_data_scores[selected==FALSE]
-            
-            unselected_ambiguous_match_data <- unselected_ambiguous_match_data[score_total>=reporting_template_row_group_score_median |
-                                                                                 match_score_confidence > 0.3]
-            
-            unselected_info <- unselected_ambiguous_match_data[,.(current_info=paste0(unique(matched_by),collapse=" AND ALSO ")),
-                                                               by=.(parent_rsf_pfcbl_id,
-                                                                    reporting_template_row_group)]
-            
-            unselected_info[,current_info:=gsub("MATCHES ","",current_info)]
-            
-            selected_ambiguous_match_data[,unselected_info:=as.character(NA)]
-            selected_ambiguous_match_data[unselected_info,
-                                          unselected_info:=paste0(" -- with uncertainty because partial-match with: ",i.current_info),
-                                          on=.(reporting_template_row_group,
-                                               parent_rsf_pfcbl_id)]
-            
-            selected_ambiguous_match_data[is.na(unselected_info),
-                                          match_issues:=as.character(NA)]
-            
-            selected_ambiguous_match_data[!is.na(unselected_info),
-                                          match_issues:=paste0(match_issues,unselected_info)]
-            
-            current_match_data[selected_ambiguous_match_data[is.na(matched_rsf_pfcbl_id)==FALSE],
-                                  `:=`(rsf_pfcbl_id=i.matched_rsf_pfcbl_id,
-                                       match_action="update",
-                                       matched_by=i.matched_by,
-                                       match_issues=i.match_issues),
-                                  on=.(reporting_template_row_group,
-                                       parent_rsf_pfcbl_id)]
-            
-            new_ids <- selected_ambiguous_match_data[is.na(matched_rsf_pfcbl_id)==TRUE,
-                                                     .(reporting_template_row_group,
-                                                       parent_rsf_pfcbl_id,
-                                                       matched_by,
-                                                       match_issues)]
-          
-            if (!empty(new_ids)) {
-
-              current_match_data[unique(new_ids),
-                                 `:=`(rsf_id=as.numeric(NA),
-                                      rsf_pfcbl_id=as.numeric(NA),
-                                      match_action="new",
-                                      matched_by=i.matched_by,
-                                      match_issues=i.match_issues),
-                                 on=.(reporting_template_row_group,
-                                      parent_rsf_pfcbl_id)]
-            }  
+                                    match_action=ifelse(matched_rsf_pfcbl_id < 0,
+                                                        "new",
+                                                        "update"),
+                                    matched_by=ifelse(matched_rsf_pfcbl_id < 0,
+                                                      "nomatches",
+                                                      current_id_category)),
+                               on=.(parent_rsf_pfcbl_id,
+                                    rsf_pfcbl_id=joincondition,   #in case it's already defined somehow
+                                    reporting_template_row_group)]
             
           }
-        }
-        
-        
-        recognized_actions <- current_match_data[!is.na(match_action) & !is.na(recognized_entity_number),
-                                                 .(rsf_pfcbl_id,
-                                                   match_action,
-                                                   recognized_entity_number)]
-        
-        if (!empty(recognized_actions)) {
-          recognized_actions[,n:=nrow(unique(.SD)),by=.(recognized_entity_number)]
-          recognized_actions <- recognized_actions[n==1]
-          recognized_actions[,n:=NULL]
           
-          recognized_actions <- current_match_data[is.na(match_action) &
-                                                   !is.na(recognized_entity_number),
-                                                   .(reporting_template_row_group,
-                                                     recognized_entity_number)
-                                ][recognized_actions,
-                                  on=.(recognized_entity_number)]
+          if (!empty(current_match_data[is.na(match_action)])) {
+            stop(paste0("Failed to match or determine as new for: ",
+                        current_match_data[is.na(match_action),paste0(pfcbl_category," on ",reporting_template_row_group)]))
+          }
           
-          current_match_data[recognized_actions,
-                             `:=`(rsf_pfcbl_id=i.rsf_pfcbl_id,
-                                  match_action=i.match_action,
-                                  matched_by='Recognized entity'),
-                             on=.(reporting_template_row_group,
-                                  recognized_entity_number)]
+          break;
         }
         
-        if (!empty(current_match_data[is.na(match_action)])) {
-          bad_actions <- current_match_data[is.na(match_action)]
-          bad_data <- template_data[reporting_template_row_group %in% bad_actions$reporting_template_row_group
-                                    & data_category == current_data_category
-                                    & indicator_sys_category %in% indicator_sys_category_match_indicators$indicator_sys_category,
-                        .(reporting_template_row_group,
-                          indicator_name,
-                          data_submitted,
-                          data_flags_new)]
-          bad_data[,flags:=lapply(data_flags_new,function(dt) {
-            if (!empty(dt)) {
-              paste0(paste0("[",dt$check_name,": ",dt$check_message),"]",collapse=" AND ALSO")
-            } else { "" }
-          })]
-          bad_data[,error:=paste0(indicator_name,"=",data_submitted," ",flags)]
-          bad_data <- bad_data[,.(error=paste0(error,collapse = ";  ")),
-                               by=.(reporting_template_row_group)]
-          bad_data <- bad_data[,paste0("Error on row ",reporting_template_row_group,": ",error)]
-          bad_data <- paste0(bad_data,collapse=" + + + + ")
-          stop(paste0("Failed to match all IDs for '",current_data_category,"' on rows ",
-                      paste0(current_match_data[is.na(match_action),unique(reporting_template_row_group)],collapse=","),
-                      ". Ambiguities in the reporting prevented entity from being neither Uniquely Recognized nor New.  Verify on these rows that ",current_data_category," IDs are correct: ",
-                      bad_data))
+        #OLD OLD DELETE
+        { 
+        # #ACTION NEW RSF IDS: Any rows where no identifying information can be matched
+        # {
+        #   #Not found in database means: not already matched (no rsf_pfcbl_id) and also not matched "with confidence" using a reported data point
+        #   
+        #   
+        #   new_entities <- template_current_lookup_data[,
+        #                                                .(new_entity=all(is.na(matched_rsf_pfcbl_id))),
+        #                                                by=.(reporting_template_row_group)][new_entity==TRUE][order(reporting_template_row_group)]
+        #   
+        #   current_match_data[reporting_template_row_group %in% unique(new_entities$reporting_template_row_group),
+        #                      `:=`(rsf_pfcbl_id=as.numeric(NA),
+        #                           match_action="new",
+        #                           matched_by="nomatches")]
+        #   
+        #   template_current_lookup_data[reporting_template_row_group %in% current_match_data[!is.na(match_action),reporting_template_row_group],
+        #                                actioned:=TRUE]
+        #   
+        #   template_current_lookup_data <- template_current_lookup_data[actioned==FALSE]
+        #   
+        #   # if (!empty(issuance_rank_indicator)) {
+        #   #   
+        #   #   #entries that have a NEW rank_id AND a new entity_creation_date
+        #   #   new_entries <- template_current_lookup_data[indicator_sys_category %in% c("rank_id","entity_creation_date"),
+        #   #                                                 .(new_entry=all(is.na(matched_rsf_pfcbl_id))),
+        #   #                                                 by=.(reporting_template_row_group)][new_entry==TRUE]
+        #   #   
+        #   #   #entries that matched ID
+        #   #   #protocol will have clients add a sequence ID to end of ID, eg 12345#1, making these unique and not matching
+        #   #   #but client may not do that and just repeat the same ID for the new issuance
+        #   #   id_matches <- template_current_lookup_data[indicator_sys_category == "id" &
+        #   #                                              is.na(matched_rsf_pfcbl_id)==FALSE,
+        #   #                                                .(existing_id=length(unique(matched_rsf_pfcbl_id))==1),
+        #   #                                                by=.(reporting_template_row_group)][existing_id==TRUE]
+        #   #   
+        #   #   #When rank_id and/or creation_date are new but ID matches an existing entry, then it will be counted as a new entity (that is
+        #   #   #an issuance of the loan series that matches the ID).
+        #   #   #This block will skip the ambiguous matching, which would presumable match "new" to NA rank_id and entity_creation_date and
+        #   #   #"update" to the matched loan ID.  The result would be based on how the scoring preferences are tuned.  This is a better hueuristic
+        #   #   #for issuances in this situation
+        #   #   issuance_matches <- new_entries[id_matches,
+        #   #                                   on=.(reporting_template_row_group),
+        #   #                                   nomatch=NULL]
+        #   #   
+        #   #   if (!empty(issuance_matches)) {
+        #   #     current_match_data[is.na(match_action) &
+        #   #                        reporting_template_row_group %in% unique(issuance_matches$reporting_template_row_group),
+        #   #                        `:=`(rsf_pfcbl_id=as.numeric(NA),
+        #   #                             match_action="new",
+        #   #                             matched_by="issuance")]
+        #   #     
+        #   #     template_current_lookup_data[reporting_template_row_group %in% current_match_data[!is.na(match_action),reporting_template_row_group],
+        #   #                                  actioned:=TRUE]
+        #   #     
+        #   #     template_current_lookup_data <- template_current_lookup_data[actioned==FALSE]
+        #   #     
+        #   #   }
+        #   #   issuance_matches <- NULL
+        #   #   id_matches <- NULL
+        #   #   new_entries <- NULL
+        #   # }
+        # 
+        #   
+        #   #EXIT early if all rsf_ids are matched
+        #   if (empty(current_match_data[is.na(match_action)])) break; 
+        #   
+        # }
+        # 
+        # #Here: (1) we've matched hashvalues (identical information as previously submitted)
+        # #      (2) we've matched new IDs (nothing matched anything previously submitted)
+        # #Therefore, somethings match somethings previously submitted...
+        # 
+        # #BLOCK: Identify unambiguous rsf_ids for update
+        # {
+        #   setorder(template_current_lookup_data,
+        #            matched_rsf_pfcbl_id,
+        #            indicator_sys_category)
+        #   
+        #   unambiguous_match_data <- template_current_lookup_data[,
+        #                                                          .(unambiguous_match=length(unique(matched_rsf_pfcbl_id))==1 &
+        #                                                                              any(is.na(matched_rsf_pfcbl_id))==FALSE,
+        #                                                            matched_by=paste0("Unambiguous Match with ",
+        #                                                                              .N," values: ",
+        #                                                                              paste0(indicator_sys_category,
+        #                                                                                     collapse=" & ")),
+        #                                                            matched_rsf_pfcbl_id=matched_rsf_pfcbl_id[1]),
+        #                                                          by=.(reporting_template_row_group,
+        #                                                               parent_rsf_pfcbl_id)][unambiguous_match==TRUE]
+        #   #Unambiguous match data
+        #   #All identifying information submitted matches only one RSF_ID
+        #   if (!empty(unambiguous_match_data)) {
+        #     
+        #     current_match_data[unambiguous_match_data,
+        #                        `:=`(rsf_pfcbl_id=i.matched_rsf_pfcbl_id,
+        #                             match_action="update",
+        #                             matched_by=i.matched_by),
+        #                        on=.(reporting_template_row_group,
+        #                             parent_rsf_pfcbl_id)]
+        #     
+        #     
+        #     unambiguous_match_data <- NULL
+        #     
+        #     template_current_lookup_data[reporting_template_row_group %in% current_match_data[!is.na(match_action),reporting_template_row_group],
+        #                                  actioned:=TRUE]
+        #     
+        #     template_current_lookup_data <- template_current_lookup_data[actioned==FALSE]
+        #   }
+        #   
+        #   
+        #   #EXIT early if all matches are unambiguous
+        #   if (empty(current_match_data[is.na(match_action)])) break; 
+        #   
+        #   template_current_lookup_data[current_match_data[!is.na(match_action),
+        #                                                    .(reporting_template_row_group)],
+        #                                  actioned:=TRUE,
+        #                                  on=.(reporting_template_row_group)]
+        #   
+        #   template_current_lookup_data <- template_current_lookup_data[actioned==FALSE]
+        #   
+        # }
+        # 
+        # #BLOCK: Identify quasi-unambiguous rsf_ids for update (all except for create date, which should be semi-unique but may be generic and therefore spammy)
+        # {
+        #   
+        #   qunambiguous_match_data <- template_current_lookup_data[indicator_sys_category != "entity_creation_date",
+        #                                                          .(qunambiguous_match=length(unique(matched_rsf_pfcbl_id))==1 & 
+        #                                                                               .N >=2,
+        #                                                                               #& any(is.na(matched_rsf_pfcbl_id))==FALSE,
+        #                                                            matched_by=paste0("Quasi-unambiguous Match with ",
+        #                                                                              .N," values: ",
+        #                                                                              paste0(indicator_sys_category,
+        #                                                                                     collapse=" & ")),
+        #                                                            matched_rsf_pfcbl_id=matched_rsf_pfcbl_id[1]),
+        #                                                          by=.(reporting_template_row_group,
+        #                                                               parent_rsf_pfcbl_id)][qunambiguous_match==TRUE]
+        #   
+        # 
+        #   
+        #   #Unambiguous match data
+        #   #All identifying information submitted matches only one RSF_ID
+        #   if (!empty(qunambiguous_match_data)) {
+        #     
+        #     current_match_data[qunambiguous_match_data,
+        #                        `:=`(rsf_pfcbl_id=i.matched_rsf_pfcbl_id,
+        #                             match_action=ifelse(is.na(i.matched_rsf_pfcbl_id),
+        #                                                       "new",
+        #                                                       "update"),
+        #                             matched_by=i.matched_by),
+        #                        on=.(reporting_template_row_group,
+        #                             parent_rsf_pfcbl_id)]
+        #     
+        #     
+        #     qunambiguous_match_data <- NULL
+        #     
+        #     template_current_lookup_data[reporting_template_row_group %in% current_match_data[!is.na(match_action),reporting_template_row_group],
+        #                                  actioned:=TRUE]
+        #     
+        #     template_current_lookup_data <- template_current_lookup_data[actioned==FALSE]
+        #   }
+        #   
+        #   
+        #   #EXIT early if all matches are unambiguous
+        #   if (empty(current_match_data[is.na(match_action)])) break; 
+        #   
+        #   template_current_lookup_data[current_match_data[!is.na(match_action),
+        #                                                     .(reporting_template_row_group)],
+        #                                  actioned:=TRUE,
+        #                                  on=.(reporting_template_row_group)]
+        #   
+        #   template_current_lookup_data <- template_current_lookup_data[actioned==FALSE]
+        #   
+        # }
+        # 
+        # #Ambiguous match data
+        # {
+        #   
+        #   #Slightly redundant, but ambiguous match data is by definition what is left over from previous matches
+        #   ambiguous_match_data <- template_current_lookup_data[current_match_data[is.na(match_action),
+        #                                                                             .(reporting_template_row_group,
+        #                                                                               parent_rsf_pfcbl_id)],
+        #                                                          on=.(reporting_template_row_group,
+        #                                                               parent_rsf_pfcbl_id),
+        #                                                          nomatch=NULL
+        #                                                        ][,
+        #                                                          .(matched_rsf_pfcbl_id,
+        #                                                            reporting_template_row_group,
+        #                                                            indicator_sys_category,
+        #                                                            parent_rsf_pfcbl_id,
+        #                                                            indicator_id,
+        #                                                            actioned)] #basically omits data_value, which can have redundant
+        #                                                                       #matches due to id_normalized matching the same ID for compound_ids
+        #   
+        #   if (!empty(ambiguous_match_data)) {
+        #     
+        #     ambiguous_match_data <- unique(ambiguous_match_data)
+        #     ambiguous_match_data[indicator_sys_category_match_indicators,
+        #                          score:=i.score,
+        #                          on=.(indicator_sys_category)]
+        #     
+        #     if (any(is.na(ambiguous_match_data$score))) {
+        #       stop(paste0("Failed to score the following indicator_sys_categories: ",
+        #                   paste0(ambiguous_match_data[is.na(score),unique(indicator_sys_category)],collapse=", ")))
+        #     }
+        #     
+        #     ambiguous_match_data <- unique(ambiguous_match_data)
+        #     ambiguous_match_data[template_current_data,
+        #                          data_value:=i.data_value,
+        #                          on=.(reporting_template_row_group,
+        #                               indicator_id,
+        #                               parent_rsf_pfcbl_id)]
+        #     # ambiguous_match_data[indicator_sys_category=="data_source_row_id",
+        #     #                      data_value:=reporting_template_row_group]
+        #     
+        #     ambiguous_match_data_scores <- ambiguous_match_data[,.(matched_by=paste0(ifelse(is.na(matched_rsf_pfcbl_id),
+        #                                                                              paste0("NEW ",toupper(current_data_category)),
+        #                                                                              paste0("MATCHES SYSID#",matched_rsf_pfcbl_id)),
+        #                                                                              " for ",paste0(
+        #                                                                                paste0("{",indicator_sys_category,
+        #                                                                                       "=",
+        #                                                                                       data_value,"}"),
+        #                                                                                             collapse=" & ")),
+        #                                                            match_count=.N,
+        #                                                            score_total=sum(score)),
+        #                                                      by=.(reporting_template_row_group,
+        #                                                           parent_rsf_pfcbl_id,
+        #                                                           matched_rsf_pfcbl_id)]
+        #     
+        #     ambiguous_match_data_scores[,
+        #                                 `:=`(reporting_template_row_group_score_total=sum(score_total),
+        #                                      reporting_template_row_group_score_median=median(score_total)),
+        #                                 by=.(reporting_template_row_group,
+        #                                      parent_rsf_pfcbl_id)]
+        #     
+        #     ambiguous_match_data_scores[,match_score_confidence:=score_total/reporting_template_row_group_score_total]
+        #     
+        #     setorder(ambiguous_match_data_scores,
+        #              reporting_template_row_group,
+        #              score_total)
+        #     
+        #     ambiguous_match_data_scores[,selected:=FALSE]
+        #     ambiguous_match_data_scores[,selected:=score_total==max(score_total),
+        #                                 by=.(reporting_template_row_group,
+        #                                      parent_rsf_pfcbl_id)]
+        #     
+        #     ambiguous_match_data_scores[,n:=sum(selected),
+        #                                 by=.(reporting_template_row_group,
+        #                                      parent_rsf_pfcbl_id)]
+        #     
+        #     #Between multiple ambiguous IDs or NEW vs UPDATE, select UPDATE (na.rm)
+        #     ambiguous_match_data_scores[selected==TRUE & n>1,
+        #                                 selected:=matched_rsf_pfcbl_id==min(matched_rsf_pfcbl_id,na.rm=TRUE),
+        #                                 by=.(reporting_template_row_group)]
+        #     
+        #     ambiguous_match_data_scores[is.na(selected),
+        #                                 selected:=FALSE]
+        #     
+        #     selected_ambiguous_match_data <- ambiguous_match_data_scores[selected==TRUE]
+        #     
+        #     selected_ambiguous_match_data[is.na(matched_rsf_pfcbl_id),
+        #                                   match_issues:=paste0(" CREATE NEW ",toupper(current_data_category)," on ROW ",reporting_template_row_group)]
+        #     
+        #     selected_ambiguous_match_data[!is.na(matched_rsf_pfcbl_id),
+        #                                   match_issues:=matched_by]
+        #     
+        #     unselected_ambiguous_match_data <- ambiguous_match_data_scores[selected==FALSE]
+        #     
+        #     unselected_ambiguous_match_data <- unselected_ambiguous_match_data[score_total>=reporting_template_row_group_score_median |
+        #                                                                          match_score_confidence > 0.3]
+        #     
+        #     unselected_info <- unselected_ambiguous_match_data[,.(current_info=paste0(unique(matched_by),collapse=" AND ALSO ")),
+        #                                                        by=.(parent_rsf_pfcbl_id,
+        #                                                             reporting_template_row_group)]
+        #     
+        #     unselected_info[,current_info:=gsub("MATCHES ","",current_info)]
+        #     
+        #     selected_ambiguous_match_data[,unselected_info:=as.character(NA)]
+        #     selected_ambiguous_match_data[unselected_info,
+        #                                   unselected_info:=paste0(" -- with uncertainty because partial-match with: ",i.current_info),
+        #                                   on=.(reporting_template_row_group,
+        #                                        parent_rsf_pfcbl_id)]
+        #     
+        #     selected_ambiguous_match_data[is.na(unselected_info),
+        #                                   match_issues:=as.character(NA)]
+        #     
+        #     selected_ambiguous_match_data[!is.na(unselected_info),
+        #                                   match_issues:=paste0(match_issues,unselected_info)]
+        #     
+        #     current_match_data[selected_ambiguous_match_data[is.na(matched_rsf_pfcbl_id)==FALSE],
+        #                           `:=`(rsf_pfcbl_id=i.matched_rsf_pfcbl_id,
+        #                                match_action="update",
+        #                                matched_by=i.matched_by,
+        #                                match_issues=i.match_issues),
+        #                           on=.(reporting_template_row_group,
+        #                                parent_rsf_pfcbl_id)]
+        #     
+        #     new_ids <- selected_ambiguous_match_data[is.na(matched_rsf_pfcbl_id)==TRUE,
+        #                                              .(reporting_template_row_group,
+        #                                                parent_rsf_pfcbl_id,
+        #                                                matched_by,
+        #                                                match_issues)]
+        #   
+        #     if (!empty(new_ids)) {
+        # 
+        #       current_match_data[unique(new_ids),
+        #                          `:=`(rsf_id=as.numeric(NA),
+        #                               rsf_pfcbl_id=as.numeric(NA),
+        #                               match_action="new",
+        #                               matched_by=i.matched_by,
+        #                               match_issues=i.match_issues),
+        #                          on=.(reporting_template_row_group,
+        #                               parent_rsf_pfcbl_id)]
+        #     }  
+        #     
+        #   }
+        # }
+        # 
+        # 
+        # recognized_actions <- current_match_data[!is.na(match_action) & !is.na(recognized_entity_number),
+        #                                          .(rsf_pfcbl_id,
+        #                                            match_action,
+        #                                            recognized_entity_number)]
+        # 
+        # if (!empty(recognized_actions)) {
+        #   recognized_actions[,n:=nrow(unique(.SD)),by=.(recognized_entity_number)]
+        #   recognized_actions <- recognized_actions[n==1]
+        #   recognized_actions[,n:=NULL]
+        #   
+        #   recognized_actions <- current_match_data[is.na(match_action) &
+        #                                            !is.na(recognized_entity_number),
+        #                                            .(reporting_template_row_group,
+        #                                              recognized_entity_number)
+        #                         ][recognized_actions,
+        #                           on=.(recognized_entity_number)]
+        #   
+        #   current_match_data[recognized_actions,
+        #                      `:=`(rsf_pfcbl_id=i.rsf_pfcbl_id,
+        #                           match_action=i.match_action,
+        #                           matched_by='Recognized entity'),
+        #                      on=.(reporting_template_row_group,
+        #                           recognized_entity_number)]
+        # }
+        # 
+        # if (!empty(current_match_data[is.na(match_action)])) {
+        #   bad_actions <- current_match_data[is.na(match_action)]
+        #   bad_data <- template_data[reporting_template_row_group %in% bad_actions$reporting_template_row_group
+        #                             & data_category == current_data_category
+        #                             & indicator_sys_category %in% indicator_sys_category_match_indicators$indicator_sys_category,
+        #                 .(reporting_template_row_group,
+        #                   indicator_name,
+        #                   data_submitted,
+        #                   data_flags_new)]
+        #   bad_data[,flags:=lapply(data_flags_new,function(dt) {
+        #     if (!empty(dt)) {
+        #       paste0(paste0("[",dt$check_name,": ",dt$check_message),"]",collapse=" AND ALSO")
+        #     } else { "" }
+        #   })]
+        #   bad_data[,error:=paste0(indicator_name,"=",data_submitted," ",flags)]
+        #   bad_data <- bad_data[,.(error=paste0(error,collapse = ";  ")),
+        #                        by=.(reporting_template_row_group)]
+        #   bad_data <- bad_data[,paste0("Error on row ",reporting_template_row_group,": ",error)]
+        #   bad_data <- paste0(bad_data,collapse=" + + + + ")
+        #   stop(paste0("Failed to match all IDs for '",current_data_category,"' on rows ",
+        #               paste0(current_match_data[is.na(match_action),unique(reporting_template_row_group)],collapse=","),
+        #               ". Ambiguities in the reporting prevented entity from being neither Uniquely Recognized nor New.  Verify on these rows that ",current_data_category," IDs are correct: ",
+        #               bad_data))
+        # }
+        # 
+        # break;
         }
-        
-        break;
       }
       
       #NEW IDS
       {
-        if (!empty(current_match_data[is.na(rsf_pfcbl_id)])) {
+        if (!empty(current_match_data[rsf_pfcbl_id < 0])) {
           
-          if (!all(current_match_data[is.na(rsf_pfcbl_id),unique(match_action)]=="new")) {
-            stop("Failed to match rsf_pfcbl_id and match_action specifies: ",paste0(current_match_data[is.na(rsf_pfcbl_id),unique(match_action)],collapse = " & "))            
-          }
-          
-          if (current_data_category=="program") {
-                                    
-            stop(paste0("Attempted to create new ",toupper(current_data_category)," within ID matching: however ",current_data_category,
-                        " IDs should be created through other setup processes"))
-          }
-
-          create_new_defined <- NULL
-          create_new_undefined <- NULL
+        
+         
           
           #pfcbl_id can pre-assign new groups on template read-in without need to group by data-values across rows (pfcbl templates 
           #will also read-in "long" data and therefore not have parent-child relationships on individual rows)
           {
-            #This is semi-obsoleted and replaced by recognized_entity_number
-            #But as it works and as it is used by setup template, it's left in.
-            if (template$template_ids_method=="pfcbl_id" && any(names(template_data)=="SYSID") && !empty(template_data[SYSID < 0])) {
-              
-              #for defined, they'are already defined...we don't care if there are redundancies or in any way aboud the data_value values.
-              
-              create_new_defined <- template_data[SYSID < 0 &
-                                                  data_category == current_data_category,
-                                                  .(unique_new_entity_row_id=-SYSID,
-                                                    reporting_template_row_group)
-                                                  ][current_match_data[is.na(rsf_pfcbl_id),
-                                                                       .(reporting_template_row_group,
-                                                                         parent_rsf_pfcbl_id)],
-                                                    on=.(reporting_template_row_group),
-                                                    nomatch=NULL]
-              
-              create_new_defined <- create_new_defined[,
-                                                       .(reporting_template_row_groups=list(unique(reporting_template_row_group))),
-                                                       by=.(unique_new_entity_row_id,
-                                                            parent_rsf_pfcbl_id)]
-              
-              #pfcbl_id templates may (more likely) have multiple reporting periods within the same template
-              #where entities need to be created, ENSURE THEY ARE CREATED IN THE CORRECT TIMELINE
-              creation_asof_dates <- template_data[SYSID < 0 &
-                                                   data_category == current_data_category &
-                                                   #Not everyone has a creation date, eg, facilities
-                                                   #Everyone must report an ID, but sometimes it's blank and reported later, eg, loans
-                                                   indicator_sys_category %in% c("entity_creation_date","id"),
-                                                   .(unique_new_entity_row_id=-SYSID,
-                                                     reporting_asof_date)
-                                                   ][,
-                                                     .(creation_asof_date=min(reporting_asof_date,na.rm=T)),
-                                                     by=.(unique_new_entity_row_id)]
-              
-              create_new_defined[creation_asof_dates,
-                                 creation_asof_date:=i.creation_asof_date,
-                                 on=.(unique_new_entity_row_id)]
-              
-              create_new_defined[is.na(creation_asof_date),
-                                 creation_asof_date:=template$reporting_cohort$reporting_asof_date]
-              
-              setorder(create_new_defined,
-                       unique_new_entity_row_id,
-                       creation_asof_date,
-                       parent_rsf_pfcbl_id)
-            } 
+            create_new_undefined <- current_match_data[rsf_pfcbl_id < 0,
+                                                       .(reporting_template_row_group,
+                                                         unique_new_entity_row_id=-rsf_pfcbl_id,
+                                                         parent_rsf_pfcbl_id)]
+            creation_dates <- template_data[indicator_sys_category == current_id_category &
+                                            data_category == current_data_category &
+                                            reporting_template_row_group %in% create_new_undefined$reporting_template_row_group,
+                                            .(reporting_template_row_group,
+                                              reporting_asof_date)]
             
-            else {
+            create_new_undefined[creation_dates,
+                                 creation_asof_date:=i.reporting_asof_date,
+                                 on=.(reporting_template_row_group)]
+            
+            create_new_undefined <- create_new_undefined[,
+                                                         .(reporting_template_row_groups=list(unique(reporting_template_row_group)),
+                                                           creation_asof_date=min(creation_asof_date,na.rm=T)),
+                                                         by=.(unique_new_entity_row_id,
+                                                              parent_rsf_pfcbl_id)]
+           
+            
+            setorder(create_new_undefined,
+                     unique_new_entity_row_id,
+                     creation_asof_date,
+                     parent_rsf_pfcbl_id)
+           
               
-              creation_data <- template_data[data_category==current_data_category & 
-                                             indicator_sys_category %in% indicator_sys_category_match_indicators[use_create_new==TRUE,
-                                                                                                                 indicator_sys_category],
-                                             .(reporting_template_row_group,
-                                               for_pfcbl_category=data_category,
-                                               indicator_sys_category,
-                                               data_value,
-                                               reporting_asof_date)]
-  
-              {
-                duplicates <- creation_data[,
-                                            .(duplicated=.N),
-                                            by=names(creation_data)][duplicated>1]
-                
-                #if there are both duplicates and unique duplicates, it's a problem.  Otherwise we just remove duplicates.
-                if (!empty(duplicates)) {
-                  
-                  duplicates <- duplicates[,.(uduplicates=length(unique(data_value))),
-                                           by=names(duplicates)][uduplicates>1]
-                  
-                  if (!empty(duplicates)) {
-                    duplicates <- duplicates[,
-                                             .(message=paste0(reporting_template_row_group," ambiguous ",toupper(indicator_sys_category)," as: ",paste0("{",data_value,"}",collapse=" & "),"\n")),
-                                             by=.(reporting_template_row_group,indicator_sys_category)]
-                    stop(paste0("Template reports ambiguous values in multiple columns:\n",
-                                paste0(duplicates$message,collapse=" \n")))
-                  } else {
-                    creation_data <- unique(creation_data)
-                  }
-                }
-                duplicates <- NULL
-              }
-              
-              
-              creation_data <- current_match_data[is.na(rsf_pfcbl_id),
-                                               .(reporting_template_row_group,
-                                                 parent_rsf_pfcbl_id, 
-                                                 parent_pfcbl_category=parent_data_category, 
-                                                 for_pfcbl_category=pfcbl_category,
-                                                 recognized_entity_number)
-                                                ][creation_data,
-                                                    on=.(reporting_template_row_group,
-                                                         for_pfcbl_category),
-                                                    nomatch=NULL]
-              
-              if (!empty(creation_data)) {
-                
-                setorder(creation_data,
-                         reporting_template_row_group,
-                         parent_rsf_pfcbl_id,
-                         parent_pfcbl_category,
-                         for_pfcbl_category,
-                         indicator_sys_category,
-                         data_value)
-                
-                if (any(creation_data$parent_pfcbl_category != parent_data_category)) {
-                  stop(paste0("Mismatch between create_new_undefined$parent_pfcbl_category and ",parent_data_category))
-                }
-                
-                if (any(creation_data$for_pfcbl_category != current_data_category)) {
-                  stop(paste0("Mismatch between create_new_undefined$for_pfcbl_category and ",current_data_category))
-                }
-             
-                #Because parent entities may be new and also repeated across multiple rows.
-                #Eg, a new borrower this quarter has taken two new loans.  Ensure that only one new borrower is created.
-                #(hopefully) that borrower's ID value information, name and ID, etc, will be the same across all the template rows.
-                #If so, dcast will enable grouping by submitted values and only one borrower will be created for the two new loans.
-                #If not, presumably checks will throw critical errors 
-                create_new_undefined <- dcast.data.table(creation_data,
-                                                         reporting_template_row_group + 
-                                                         parent_rsf_pfcbl_id + 
-                                                         parent_pfcbl_category + 
-                                                         recognized_entity_number +
-                                                         for_pfcbl_category ~ 
-                                                         indicator_sys_category,
-                                                         value.var="data_value")
-                
-                if (!any(names(create_new_undefined)=="id")) {
-                  stop(paste0("Attempted to create new ",current_data_category," but could not resolve ID value in the data template.  ID is a minimally required field."))
-                }
-                
-                #NOTE: !important!
-                #cannot filter-out NA ID values.
-                #Actually, many loans will start with NA id values if comitted before an ID is internally assigned.            
-                # if (anyNA(create_new$id)) {
-                #   stop(paste0("Attemptd to create new ",current_data_category," but ID is {MISSING} for the following rows: ",
-                #               paste0(create_new[is.na(id),reporting_template_row_group],collapse=",")))
-                # }
-                
-                id_cols <- names(create_new_undefined)[-which(names(create_new_undefined) %in% c("reporting_template_row_group",
-                                                                                                 "parent_rsf_pfcbl_id",
-                                                                                                 "parent_pfcbl_category",
-                                                                                                 "for_pfcbl_category",
-                                                                                                 "recognized_entity_number"))]
-                
-                
-                #This check basically inserted as a result of database unique index violations on rsf_data_current_names_and_ids
-                #Where, eg, borrowers with same and and ID have different establishment dates.  Previously, this was a check.  But with a table and index for
-                #names and IDs, this can now result in an insert violation.  So it's controlled here.
-                #But new borrowers should be unique by NAME and by ID
-                #And new loans should be unique by ID and Rank: since clients that re-report same ID for revolvers, each revolver may have the same ID but a different
-                #setup date and, accordingly, a different rank. And for clients that report on tranche, the tranche ID will be unique but also generate a unique inclusion rank.
-                name_id_cols <- id_cols[which(id_cols %in% c("id","name","rank_id"))]
-                duplicate_name_ids <- create_new_undefined[,
-                                                           n:=nrow(unique(.SD)),
-                                                           by=name_id_cols,
-                                                           .SDcols=id_cols][n>1]
-                if (!empty(duplicate_name_ids)) {
-                  setorderv(duplicate_name_ids,
-                            cols=unique(c(name_id_cols,id_cols,"reporting_template_row_group")))
-                  
-                  duplicate_name_ids <- duplicate_name_ids[,.SD,
-                                                           .SDcols = c("reporting_template_row_group",id_cols)]
-                  
-                  stop(paste0("Failed to create NEW ",toupper(current_data_category)," due to inconsistent values for: ",paste0(id_cols,collapse=", "),"\n\n",
-                              paste0(apply(duplicate_name_ids,1,paste,collapse=" "),collapse=" \n")),
-                       "\n\nThese values can change over time...but when creating a new ",toupper(current_data_category)," these must all be the same as-of ",
-                       template$reporting_asof_date)
-                }
-                
-                duplicate_name_ids <- NULL
-                create_new_undefined[,
-                                     n:=NULL]
-                
-                create_new_undefined[,row_number:=as.numeric(gsub("^([[:digit:]]+).*$","\\1",reporting_template_row_group))]
-                
-                #Ensures new entity IDs are ordered by the reporting row in which they appear in the upload
-                setorder(create_new_undefined,
-                         row_number)
-                
-                if (any(!is.na(create_new_undefined$recognized_entity_number))) {
-                  
-                  first_cols <- c("recognized_entity_number",id_cols)
-                  
-                  first_recognized_entity <- create_new_undefined[!is.na(recognized_entity_number)
-                                             ][unique(creation_data[,.(reporting_template_row_group,reporting_asof_date)]),
-                                               on=.(reporting_template_row_group)]
-                  setorder(first_recognized_entity,
-                           reporting_asof_date,
-                           -row_number) #within the reporting dates, we want the last (latest) row first as "currentest data"
-                  
-                  first_recognized_entity[,
-                                          n:=1:.N,
-                                          by=.(recognized_entity_number)]
-                  
-                  first_recognized_entity <- first_recognized_entity[n==1,
-                                                                     ..first_cols]
-                  
-                  first_recognized_entity <- first_recognized_entity[current_match_data[,
-                                                                                        .(reporting_template_row_group,
-                                                                                          parent_rsf_pfcbl_id, 
-                                                                                          parent_pfcbl_category=parent_data_category, 
-                                                                                          for_pfcbl_category=pfcbl_category,
-                                                                                          recognized_entity_number)],
-                                          on=.(recognized_entity_number)]
-                  
-                  #just to allow merge, removed subsequently
-                  first_recognized_entity[,row_number:=.I]
-                  
-                  setcolorder(first_recognized_entity,
-                              neworder=names(create_new_undefined))
-                  
-                  
-                  create_new_undefined <- create_new_undefined[!(recognized_entity_number %in% unique(first_recognized_entity$recognized_entity_number))]
-                  create_new_undefined <- rbindlist(list(create_new_undefined,
-                                                         first_recognized_entity))
-                  
-                }
-                
-                create_new_undefined[,row_number:=NULL]
-                
-                #all indicator_sys_category files are NA for the reporting row
-                missing_ids <- which(sapply(as.data.frame(t(create_new_undefined[,..id_cols])),function(x) all(is.na(x))))
-                if (length(missing_ids) > 0) {
-                  bad_rows <- create_new_undefined[missing_ids,reporting_template_row_group]
-                  stop(paste0("Failed to create new ",toTitleCase(current_data_category)," entities because ",
-                              paste0(id_cols,collapse=", "),
-                              " columnas are ALL {MISSING} on ROWS ",
-                              paste0(bad_rows,collapse=" & "),
-                              ". At least one non-missing ",current_data_category," ID value must be reported on these rows."))
-                }
-                
-                group_cols <- names(create_new_undefined)[-which(names(create_new_undefined)=="reporting_template_row_group")]
-                create_new_undefined[,
-                                     unique_new_entity_row_id:=.GRP,
-                                     by=group_cols]
-                
-                
-                #Now we now which entities are reported across multiple rows, we can look back to see if there are multiple creation dates, too.
-                creation_data <- creation_data[,.(creation_asof_date=min(reporting_asof_date,na.rm=T)),
-                                               by=.(reporting_template_row_group,
-                                                    parent_rsf_pfcbl_id)]
-                creation_data[create_new_undefined,
-                              unique_new_entity_row_id:=i.unique_new_entity_row_id,
-                              on=.(reporting_template_row_group,
-                                   parent_rsf_pfcbl_id)]
-                
-                creation_data <- creation_data[,
-                                               .(creation_asof_date=min(creation_asof_date,na.rm=T)),
-                                               by=.(unique_new_entity_row_id,
-                                                    parent_rsf_pfcbl_id)]
-                
-                create_new_undefined <- create_new_undefined[,
-                                                             .(reporting_template_row_groups=list(reporting_template_row_group)),
-                                                             by=.(unique_new_entity_row_id,
-                                                                  parent_rsf_pfcbl_id)]
-                
-                create_new_undefined[creation_data,
-                                     creation_asof_date:=i.creation_asof_date,
-                                     on=.(unique_new_entity_row_id,
-                                          parent_rsf_pfcbl_id)]
-                
-                create_new_undefined[is.na(creation_asof_date),
-                                     creation_asof_date:=template$reporting_cohort$reporting_asof_date]
-                
-                setorder(create_new_undefined,
-                         unique_new_entity_row_id,
-                         creation_asof_date,
-                         parent_rsf_pfcbl_id)
-              }
-            }
+
+            
+            
           }
           
-          #Should never have opportunity to have differently defined new entities, since template will either be pfcbl_id or rsf_id method
-          #just a convenience here
-          create_new <- rbindlist(list(create_new_defined,
-                                       create_new_undefined))       
-          
-          create_new[,
+        
+          create_new_undefined[,
                      unique_new_entity_row_id:=1:.N]
           
-          create_new[,count:=sapply(reporting_template_row_groups,length)]
+          create_new_undefined[,count:=sapply(reporting_template_row_groups,length)]
          
             
-          if (sum(create_new$count) != nrow(current_match_data[match_action=="new"])) {
+          if (sum(create_new_undefined$count) != nrow(current_match_data[match_action=="new"])) {
             stop(paste0("Expected to create ",nrow(current_match_data[match_action=="new"])," new ",current_data_category,"s. ",
-                        "But match data resulted in ",sum(create_new$count)," entities"))
+                        "But match data resulted in ",sum(create_new_undefined$count)," entities"))
           }
             
 
           new_pfcbl_ids <- db_create_new_rsf_ids(pool=pool,
-                                                 reporting_cohort=template$reporting_cohort,
+                                                 reporting_import=template$reporting_import,
                                                  parent_pfcbl_category=parent_data_category,
                                                  for_pfcbl_category=current_data_category,
-                                                 new_ids=create_new[,
+                                                 new_ids=create_new_undefined[,
                                                                     .(unique_new_entity_row_id,
                                                                       parent_rsf_pfcbl_id,
                                                                       creation_asof_date)])
-          create_new[new_pfcbl_ids,
+          create_new_undefined[new_pfcbl_ids,
                      `:=`(rsf_id=i.new_rsf_pfcbl_id,
                           rsf_pfcbl_id=i.new_rsf_pfcbl_id),
                      on=.(unique_new_entity_row_id,
                           parent_rsf_pfcbl_id)]
           
-          create_new <- create_new[,
+          create_new_undefined <- create_new_undefined[,
                                    .(reporting_template_row_group=unlist(reporting_template_row_groups,recursive=F)),
                                    by=.(unique_new_entity_row_id,
                                         parent_rsf_pfcbl_id,
                                         rsf_pfcbl_id,
                                         rsf_id)]
           
-          current_match_data[create_new,
-                             `:=`(rsf_id=i.rsf_id,
-                                  rsf_pfcbl_id=i.rsf_pfcbl_id),
+          current_match_data[create_new_undefined,
+                             `:=`(rsf_pfcbl_id=i.rsf_pfcbl_id),
                              on=.(reporting_template_row_group,
                                   parent_rsf_pfcbl_id)]
           new_pfcbl_ids <- NULL
-          create_new <- NULL
+          create_new_undefined <- NULL
        }
-      }
-      
-      #if template has static row IDs and any IDs for this category are unmatched,
-      #then entity must have reported on a new row ID (probably because it's either a newly created entity OR its parent is repeated, ie an
-      #existing borrower takes a new loan)
-      if (template_has_static_row_ids==TRUE) {
-        
-        matched_row_ids <- template_db_current_match_data[indicator_sys_category=="data_source_row_id",
-                                       .(reporting_template_row_group=as.character(
-                                         unlist(
-                                           strsplit(reporting_template_row_groups,
-                                                    split=",",
-                                                    fixed=T),
-                                           recursive=F))),
-                                       by=.(parent_rsf_pfcbl_id,
-                                            indicator_id,
-                                            indicator_sys_category,
-                                            matched_rsf_pfcbl_id)
-                                       ][,.(rsf_pfcbl_id=matched_rsf_pfcbl_id,
-                                            parent_rsf_pfcbl_id,
-                                            reporting_template_row_group)]
-        matched_row_ids[,exists:=TRUE]
-        
-        new_row_ids <- matched_row_ids[current_match_data,
-                                       on=.(rsf_pfcbl_id,
-                                            parent_rsf_pfcbl_id,
-                                            reporting_template_row_group)
-                                       ][is.na(exists)==TRUE & 
-                                         is.na(rsf_pfcbl_id)==FALSE &
-                                         is.na(reporting_template_row_group)==FALSE,
-                                         .(rsf_pfcbl_id,
-                                           reporting_template_row_group)]
-        new_row_ids <- unique(new_row_ids)
-        # first reporting_cohort_id to register this data_source_row_id will take credit for the reporting line 
-        # note: if an old cohort is deleted and newer ones still exist, this data_source_row_id may no longer be
-        # registered...but deleting data out of time will have much bigger impacts on (mis)calculated data!
-        #conn <- poolCheckout(pool)
-        #poolReturn(conn)
-        #dbBegin(conn)
-        #dbRollback(conn)
-        poolWithTransaction(pool,function(conn) {
-          
-          dbExecute(conn,"
-                    create temp table _new_row_ids(rsf_pfcbl_id int,
-                                                   reporting_template_row_group text)
-                    on commit drop;")
-          
-          dbAppendTable(conn,
-                        name="_new_row_ids",
-                        value=new_row_ids)
-          
-          dbExecute(conn,"
-                    insert into p_rsf.rsf_pfcbl_reporting_template_row_ids(rsf_pfcbl_id,
-                																													 reporting_cohort_id,
-                																													 data_source_row_id,
-                																													 template_id,
-                																													 parent_rsf_pfcbl_id)
-                  	select
-                  		nri.rsf_pfcbl_id,
-                  		$1::int,
-                  		nri.reporting_template_row_group as data_source_row_id,
-                  		$2::int,
-                  	  ids.parent_rsf_pfcbl_id
-                  	from _new_row_ids nri
-                  	inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = nri.rsf_pfcbl_id
-                		on conflict 
-                		do nothing; -- first reporting cohort per data_source_row_id per template to be registered
-                    ",
-                    params=list(template$reporting_cohort$reporting_cohort_id,
-                                template$template_id))
-          
-        })
-        
       }
       
       #join new rsf_ids into relevant data tables
@@ -1461,55 +1050,18 @@ template_set_data_match_rsf_ids <- function(pool,
                             on=.(parent_rsf_pfcbl_id=joincondition,
                                  reporting_template_row_group,
                                  pfcbl_rank=child_rank)]
-        
-        
-        #This should hopefully now also be obsolete!?
-        template_match_data[,
-                            n:=.N,
-                            by=.(reporting_template_row_group,
-                                        pfcbl_category)]
-        
-        if (any(template_match_data$n > 1)) {
-          new_updates <- template_match_data[n>1,.(new_update=all(match_action %in% c("new","update")),
-                                                   matched_by=paste0(na.omit(unique(fcase(match_action=="update",matched_by,
-                                                                            default=NA)),
-                                                                     collapse=" AND ALSO "))),
-                                             by=.(reporting_template_row_group,
-                                                  pfcbl_category)][new_update==TRUE]
-          
-          if (!empty(new_updates)) {
-            new_updates[,message:=paste0(toTitleCase(pfcbl_category)," specified as NEW matched existing ",pfcbl_category,". ",matched_by)]
-            message <- paste0(new_updates$message,collapse=" & ")
-            stop("Failed to create NEW entity because an existing entity already exists with the same identifiers: ",
-                 message,
-                 ". If you want to update information for the existing entity, do so via the Dashboard and not through 'Create New'. ",
-                 " If you are certain that you want to create a new entity, ensure that it has unique identifying information, name, id number, etc")
-          }
-          
-          multiples <- template_match_data[n>1,.(message=paste0(na.omit(unique(paste0(toupper(match_action)," ",toupper(pfcbl_category),": Because ",matched_by)),
-                                                                   collapse=" AND ALSO "))),
-                                             by=.(reporting_template_row_group,
-                                                  pfcbl_category)]
-          message <- paste0(multiples$message,collapse=" & ")
-          stop(paste0("Template match data and current match data matched the same reporting_template_row_group and pfcbl_category and identified different match actions: ",
-                      message))
-        }
-        
-        template_match_data[,n:=NULL]
-        
 
-        if (!empty(template_match_data[pfcbl_category==current_data_category & is.na(rsf_pfcbl_id)==TRUE])) {
+        if (!empty(template_match_data[pfcbl_category==current_data_category & (is.na(rsf_pfcbl_id)==TRUE | rsf_pfcbl_id <= 0)])) {
           
           stop("Template has missing rsf_pfcbl_ids")
         }
       }    
       
     } #NEXT ENTITY
-    
   }
   
-  if (!all(template_match_data$match_action %in% c("new","update","unchanged"))) {
-    stop("template_match_data match actions not defined as: new, update or unchanged")
+  if (!all(template_match_data$match_action %in% c("new","update"))) {
+    stop("template_match_data match actions not defined as: new or update")
   } 
   
   match_action_issues <- template_match_data[is.na(match_issues)==FALSE,

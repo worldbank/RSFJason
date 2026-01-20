@@ -5,19 +5,19 @@ SERVER_ADMIN_CHECKS_REVIEW.VIEW <- reactive({
   results <- SERVER_ADMIN_CHECKS_REVIEW.RESULTS()
   if (empty(results)) return (NULL)
   
-  cl_filter <- as.numeric(input$server_admin_checks_review__filter_clients)
+  fac_filter <- as.numeric(input$server_admin_checks_review__filter_facilities)
   fl_filter <- as.logical(input$server_admin_checks_review__filter_flags)
   
-  if (length(fl_filter)==0) fl_filter <- as.logical(NA)
+  if (length(fac_filter)==0) fac_filter <- as.logical(NA)
   if (length(cl_filter)==0) cl_filter <- as.numeric(NA)
   
-  if (isTruthy(cl_filter)) {
+  if (isTruthy(fac_filter)) {
     
     rsf_pfcbl_ids <- DBPOOL %>% dbGetQuery("
       select distinct ft.to_family_rsf_pfcbl_id
       from p_rsf.view_rsf_pfcbl_id_family_tree ft 
       where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-    ",params=list(paste0(cl_filter,collapse=",")))
+    ",params=list(paste0(fac_filter,collapse=",")))
     
     rsf_pfcbl_ids <- as.numeric(unlist(rsf_pfcbl_ids))
     
@@ -35,11 +35,11 @@ SERVER_ADMIN_CHECKS_REVIEW.VIEW <- reactive({
   else return (results)
 })
 
-observeEvent(input$server_admin_checks_review__test_client_list, { 
-  client_rsf_pfcbl_ids <- as.numeric(input$server_admin_checks_review__test_client_list)
+observeEvent(input$server_admin_checks_review__test_facilities_list, { 
+  test_rsf_pfcbl_ids <- as.numeric(input$server_admin_checks_review__test_facilities_list)
   
   dates <- NULL
-  if (isTruthy(client_rsf_pfcbl_ids)) {
+  if (isTruthy(test_rsf_pfcbl_ids)) {
     dates <- DBPOOL %>% dbGetQuery("
       select distinct
         rpr.reporting_asof_date::text
@@ -47,7 +47,7 @@ observeEvent(input$server_admin_checks_review__test_client_list, {
       inner join p_rsf.rsf_pfcbl_reporting rpr on rpr.rsf_pfcbl_id = ids.rsf_pfcbl_id
       where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
         and rpr.reporting_asof_date <= now()::date",
-      params=list(paste0(client_rsf_pfcbl_ids,collapse=",")))
+      params=list(paste0(test_rsf_pfcbl_ids,collapse=",")))
     
     dates <- c("",sort(dates$reporting_asof_date))
   } else {
@@ -63,7 +63,7 @@ observeEvent(input$server_admin_checks_review__test_client_list, {
 
 
 
-show_modal_server_admin_checks_review <- function(clientest_rsf_pfcbl_id,
+show_modal_server_admin_checks_review <- function(rsf_pfcbl_id,
                                                   review_asof_date,
                                                   review_check_formula_id) {
   
@@ -82,10 +82,10 @@ show_modal_server_admin_checks_review <- function(clientest_rsf_pfcbl_id,
   SERVER_ADMIN_CHECKS_REVIEW.RESULTS(data.table())
   SERVER_ADMIN_CHECKS_REVIEW__CHECK_FORMULA_ID(review_check_formula_id)
   
-  client_list <- c("",setNames(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id,
-                               SELECTED_PROGRAM_CLIENTS_LIST()$client_name))
+  facility_list <- c("",setNames(SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,
+                               SELECTED_PROGRAM_FACILITIES_LIST()$facility_name))
   
-  if (!isTruthy(clientest_rsf_pfcbl_id)) clientest_rsf_pfcbl_id <- ""
+  if (!isTruthy(rsf_pfcbl_id)) rsf_pfcbl_id <- ""
   if (!isTruthy(review_asof_date)) review_asof_date <- ""
   
   review_asof_date <- as.character(review_asof_date)
@@ -108,12 +108,12 @@ show_modal_server_admin_checks_review <- function(clientest_rsf_pfcbl_id,
                                             
                                             fluidRow(style="padding-top:5px;",
                                                      column(6,
-                                                            selectizeInput(inputId="server_admin_checks_review__test_client_list",
+                                                            selectizeInput(inputId="server_admin_checks_review__test_facility_list",
                                                                            label="Client",
-                                                                           choices=client_list,
-                                                                           selected=clientest_rsf_pfcbl_id,
+                                                                           choices=facility_list,
+                                                                           selected=rsf_pfcbl_id,
                                                                            multiple=TRUE,
-                                                                           options=list(placeholder="All clients selected..."))),
+                                                                           options=list(placeholder="All projects selected..."))),
                                                      column(3,
                                                             selectizeInput(inputId="server_admin_checks_review__test_reporting_date",
                                                                            label="Reporting Date",
@@ -149,7 +149,7 @@ observeEvent(input$server_admin_checks_review__test, {
                             h3("Formula has unsaved changes.  Save check formula before running test.")))
   }
   
-  show_modal_server_admin_checks_review(clientest_rsf_pfcbl_id=NA,
+  show_modal_server_admin_checks_review(rsf_pfcbl_id=NA,
                                         review_asof_date=NA,
                                         review_check_formula_id=test_check_formula_id)
   
@@ -158,7 +158,7 @@ observeEvent(input$server_admin_checks_review__test, {
 observeEvent(input$server_admin_checks_review__test_start, {
   
   rsf_program_id <- SELECTED_PROGRAM_ID()
-  client_rsf_pfcbl_ids <- as.numeric(input$server_admin_checks_review__test_client_list)
+  test_rsf_pfcbl_ids <- as.numeric(input$server_admin_checks_review__test_facilities_list)
   check_test_reporting_date <- input$server_admin_checks_review__test_reporting_date
   test_check_formula_id <- as.numeric(SERVER_ADMIN_CHECKS_REVIEW__CHECK_FORMULA_ID())
   
@@ -171,17 +171,17 @@ observeEvent(input$server_admin_checks_review__test_start, {
   if (!isTruthy(check_test_reporting_date)) return (showNotification(type="error",h3("Reporting date must be selected")))
   else check_test_reporting_date <- as.Date(check_test_reporting_date)
   
-  if (!isTruthy(client_rsf_pfcbl_ids)) client_rsf_pfcbl_ids <- NULL
+  if (!isTruthy(test_rsf_pfcbl_ids)) test_rsf_pfcbl_ids <- NULL
   
   disable(id="server_admin_checks_review__test_start")
-  disable(id="server_admin_checks_review__test_client_list")
+  disable(id="server_admin_checks_review__test_facilities_list")
   disable(id="server_admin_checks_review__test_reporting_date")
   
   status_message(class="info","Starting test.  This may take a few moments...\n")
   
   result <- tryCatch({
     DBPOOL %>% rsf_checks_do_test(rsf_program_id=rsf_program_id,
-                                  pfcbl_ids.familytree=client_rsf_pfcbl_ids,
+                                  pfcbl_ids.familytree=test_rsf_pfcbl_ids,
                                   reporting_current_date=check_test_reporting_date,
                                   check_formula_id=test_check_formula_id)
   },
@@ -227,7 +227,7 @@ observeEvent(input$server_admin_checks_review__test_next, {
     check_test_reporting_date <- as.Date(check_test_reporting_date)
     
     test_check_formula_id <- as.numeric(input$server_admin_checks_review__test)
-    selected_client_review <- as.numeric(input$server_admin_checks_review__test_client_list)
+    selected_facility_review <- as.numeric(input$server_admin_checks_review__test_facility_list)
     
     check_formula <- DBPOOL %>% dbGetQuery("
       select 
@@ -240,27 +240,27 @@ observeEvent(input$server_admin_checks_review__test_next, {
     
     #check_formula <- check_formula$formula
     
-    client_choices <- c("",setNames(SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id,
-                                    SELECTED_PROGRAM_CLIENTS_LIST()$client_name))
+    facility_choices <- c("",setNames(SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,
+                                    SELECTED_PROGRAM_FACILITIES_LIST()$facility_name))
     
-    if (!all(is.na(selected_client_review))) {
-      review_clients <- SELECTED_PROGRAM_CLIENTS_LIST()[rsf_pfcbl_id %in% selected_client_review,
-                                                        ,.(rsf_pfcbl_id,
-                                                           client_name)]
-      client_choices <- c("",setNames(review_clients$rsf_pfcbl_id,
-                                      review_clients$client_name))
+    if (!all(is.na(selected_facility_review))) {
+      review_facilities <- SELECTED_PROGRAM_FACILITIES_LIST()[rsf_pfcbl_id %in% selected_facility_review,
+                                                           .(rsf_pfcbl_id,
+                                                             facility_name)]
+      facility_choices <- c("",setNames(review_facilities$rsf_pfcbl_id,
+                                        review_facilities$facility_name))
     }
     
     
     m <- modalDialog(title="Check Review Results",size="l",
                      div(style="background-color:white;padding:2px;height:700px;",
-                         fluidRow(column(8,selectizeInput(inputId="server_admin_checks_review__filter_clients",
-                                                          label="Filter Clients",
+                         fluidRow(column(8,selectizeInput(inputId="server_admin_checks_review__filter_facilities",
+                                                          label="Filter Projects",
                                                           width="100%",
-                                                          choices=client_choices,
+                                                          choices=facility_choices,
                                                           selected="",
                                                           multiple=TRUE,
-                                                          options=list(placeholder="Filter by client, or leave blank for all"))),
+                                                          options=list(placeholder="Filter by project, or leave blank for all"))),
                                   column(2,selectizeInput(inputId="server_admin_checks_review__filter_flags",
                                                           label="Filter Flagged",
                                                           choices=c(`No Filter`="",

@@ -10,7 +10,6 @@ SERVER_DASHBOARD_EDIT_COLUMN_IS_EDITABLE <- function(col_name,
 }
 
 SERVER_DASHBOARD_EDIT_STATUS <- reactiveVal(FALSE)
-#DASH_DATA_EDITING_COUNT <- reactiveVal(0) #Counter of number of times user has edited data in this session -- used only for guidance message.
 SERVER_DASHBOARD_EDIT_NEW_DATA <- reactiveVal(NULL)
 
 SERVER_DASHBOARD_EDIT_CELL_INFO <- reactiveVal("")
@@ -568,7 +567,7 @@ observeEvent(input$action_server_dashboard__edit_save, {
     SERVER_DASHBOARD_EDIT_STATUS(FALSE)
     SERVER_DASHBOARD_EDIT_NEW_DATA(NULL)
     SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1)
-    LOAD_REPORTING_COHORT(results[nrow(results),reporting_cohort_id])
+    LOAD_IMPORT(results[nrow(results),import_id]) #if multiple, loads last upload
     
     if (!any(as.character(unique(results$reporting_asof_date)) %in% as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))) {
       new_dates <- setdiff(sort(as.character(unique(results$reporting_asof_date))),as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))

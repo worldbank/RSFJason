@@ -208,33 +208,33 @@ observeEvent(input$modal_dataset_upload_next, {
   } else {
     #reporting_cohort_ids <- sapply(up_template,function(x) x[['reporting_cohort']][['reporting_cohort_id']])
     
-    last_cohort_id <- results[nrow(results),reporting_cohort_id]
-    cohort_ids <- DBPOOL %>% dbGetQuery("
+    last_import_id <- results[nrow(results),import_id]
+    import_ids <- DBPOOL %>% dbGetQuery("
       select 
       ids.rsf_pfcbl_id,
       ids.rsf_program_id,
       ids.rsf_facility_id,
       ids.rsf_client_id
-      from p_rsf.reporting_cohorts rc
-      inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
-      where rc.reporting_cohort_id = $1::int",
-      params=list(last_cohort_id))
+      from p_rsf.reporting_imports ri
+      inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ri.import_rsf_pfcbl_id
+      where ri.import_id = $1::int",
+      params=list(last_import_id))
     
     #print(paste0("SETTING NEW/LAST cohort_id=",last_cohort_id))
     #If we uploaded a dataset while the selected program is empty, then it means we've created a new program. So let's load it now.
-    if (empty(SELECTED_PROGRAM()) || !identical(as.numeric(SELECTED_PROGRAM_ID()),as.numeric(cohort_ids$rsf_program_id))) {
+    if (empty(SELECTED_PROGRAM()) || !identical(as.numeric(SELECTED_PROGRAM_ID()),as.numeric(import_ids$rsf_program_id))) {
       
-      if (!as.numeric(cohort_ids$rsf_program_id) %in% USER_PROGRAMS()$rsf_pfcbl_id) {
-        LOAD_PROGRAM_ID(cohort_ids$rsf_program_id)
+      if (!as.numeric(import_ids$rsf_program_id) %in% USER_PROGRAMS()$rsf_pfcbl_id) {
+        LOAD_PROGRAM_ID(import_ids$rsf_program_id)
       }
       
       updateSelectizeInput(session=session,
                            inputId="select_rsf_program_id",
-                           selected=as.numeric(cohort_ids$rsf_program_id))
+                           selected=as.numeric(import_ids$rsf_program_id))
     }
     
-    COHORT_NEW_ID(last_cohort_id)
-    LOAD_REPORTING_COHORT(last_cohort_id)
+    COHORT_NEW_ID(last_import_id)
+    LOAD_IMPORT(last_import_id)
     
     if (!any(as.character(unique(results$reporting_asof_date)) %in% as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))) {
       new_dates <- setdiff(sort(as.character(unique(results$reporting_asof_date))),as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))
@@ -248,24 +248,14 @@ observeEvent(input$modal_dataset_upload_next, {
     enable(id="modal_dataset_upload_dashboard")
 
     
-    if (is.na(as.numeric(input$dataset_review_filter_client)) || !any(as.numeric(unlist(cohort_ids)) %in% as.numeric(input$dataset_review_filter_client))) {
+    if (is.na(as.numeric(input$dataset_review_filter_facility)) || 
+        !any(as.numeric(unlist(import_ids)) %in% as.numeric(input$dataset_review_filter_facility))) {
       
-      first_id <- DBPOOL %>% dbGetQuery("
-        select 
-        ft.to_family_rsf_pfcbl_id rsf_pfcbl_id
-        from p_rsf.view_rsf_pfcbl_id_family_tree ft
-        where ft.from_rsf_pfcbl_id = $1::int
-          and ft.to_pfcbl_rank <= 3
-        order by ft.to_pfcbl_rank desc",
-        params=list(cohort_ids$rsf_pfcbl_id))
-      
-      if (any(first_id$rsf_pfcbl_id %in% SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id)) {
-        first_id <- first_id$rsf_pfcbl_id[first_id$rsf_pfcbl_id %in% SELECTED_PROGRAM_CLIENTS_LIST()$rsf_pfcbl_id]
+    if (any(import_ids$rsf_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,na.rm=T)) {
         updateSelectInput(session=session,
-                          inputId="dataset_review_filter_client",
-                          selected = first_id[1])
-        
-      }
+                          inputId="dataset_review_filter_facility",
+                          selected = import_ids[rsf_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,rsf_facility_id][[1]])
+      } 
     }
   }
   
@@ -321,7 +311,8 @@ observeEvent(input$dataset_upload_file, {
       
       updateSelectInput(session=session,
                         inputId="dataset_upload_rsf_facility_id",
-                        choices = c("",setNames(facilities$rsf_facility_id,facilities$facility_nickname)))
+                        choices = c("",setNames(facilities$rsf_facility_id,
+                                                facilities$facility_name)))
     }
   } else {  
     enable(id="modal_dataset_upload_next")

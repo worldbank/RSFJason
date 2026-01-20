@@ -1,5 +1,4 @@
-#report_title <- "RSF Data"
-#client_names <- "
+
 #test_dt <- copy(dd_dt)
 #dd_dt <- as.data.table(as.data.frame(test_dt)[1:100,])
 #dd_dt$reporting_group <- 1:.N

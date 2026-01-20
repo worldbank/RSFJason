@@ -1,15 +1,13 @@
 rsf_program_check <- function(pool,
-                             rsf_program_id,
                              rsf_indicators,
-                             rsf_pfcbl_id.family=NULL,
+                             rsf_pfcbl_id.family,
                              check_future=TRUE,
                              check_consolidation_threshold=NA,
                              reference_asof_date=NULL,
                              status_message) {
   
   t1 <- Sys.time()
-  #rsf_program_id <- 23
-  
+
   #rsf_pfcbl_id.family <- 59268
   
   limit_date <- NA
@@ -27,7 +25,6 @@ rsf_program_check <- function(pool,
       any(check_consolidation_threshold <= 1)) check_consolidation_threshold <- NA
   
   stale_checks <- db_program_get_stale_checks(pool=pool,
-                                              rsf_program_id=rsf_program_id,
                                               rsf_pfcbl_id.family=rsf_pfcbl_id.family,
                                               limit_future=limit_date)
   
@@ -49,8 +46,7 @@ rsf_program_check <- function(pool,
   for (group in check_groups) {
     
     perform_checks <- stale_checks[check_group==group,
-                                   .(rsf_program_id,
-                                     check_rsf_pfcbl_ids,
+                                   .(check_rsf_pfcbl_ids,
                                      check_asof_date,
                                      entity_local_currency_unit,
                                      current_evaluation_ids,
@@ -197,6 +193,7 @@ rsf_program_check <- function(pool,
                                         .(rsf_pfcbl_id,
                                           check_asof_date,
                                           check_formula_id)])
+      
       dbExecute(conn,"analyze _temp_checks")
       
       #efficiency opportuniy to first select only those that have one parameter at for_pfcbl_category level, as no need to query latest parameter on which to apply  

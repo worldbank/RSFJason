@@ -1,6 +1,7 @@
 #shiny::runApp(display.mode="showcase")
 options(shiny.reactlog=TRUE) #press Ctrl+F3 to launch the reactive log visualization
 options(shiny.autoload.r = FALSE)
+options(shiny.autoreload = FALSE)
 options(stringsAsFactors = FALSE)
 options(scipen=999)
 options(warning.length=8170)
@@ -11,17 +12,18 @@ options(shiny.maxRequestSize=500*1024^2) #500MB
 options(warn=0, error=NULL)
 #Sys.setlocale("LC_ALL",c("English"))
 
-RSF_MANAGEMENT_APPLICATION_ID <- "4608A309E2E38860DC98FAC53F967CF2"
   
 LOCATIONS <- list(ARL="/credentials/credentials-remote-ARL.yaml",
                   #SSA_DEV="/credentials/credentials-remote-dev.yaml",
                   #SSA_PROD="/credentials/credentials-remote-RSF.yaml",
-                  Jason_DEV_Shafique="/credentials/credentials-rsfjson-rsfshafique.yaml",
+                  #Jason_DEV_Shafique="/credentials/credentials-rsfjson-rsfshafique.yaml",
                   Jason_DEV="/credentials/credentials-rsfjson-rsfdev.yaml",
-                  Jason_PROD="/credentials/credentials-rsfjson-rsfprod.yaml")
+                  Jason_PROD="/credentials/credentials-rsfjson-rsfprod.yaml",
+                  Jason_STAGE="/credentials/credentials-rsfjson-rsfstaging.yaml")
 
 #LOCATION <- "Jason_DEV_Shafique"
 LOCATION <- "Jason_DEV"
+#LOCATION <- "Jason_STAGE"
 #LOCATION <- "Jason_PROD"
 
 if (grepl("DEV",LOCATION)==TRUE) {
@@ -54,12 +56,16 @@ library(openxlsx)
 library(openxlsx2)
 #library(reshape2)
 library(rlang)
-
+library(odbc)
 library(RPostgres)
 library(pool)
 library(yaml)
 library(sendmailR)
 library(english)
+
+source("./R/rsf_database.R") #First
+source("./R/rsf_calculations_environment.R") #Second
+
 
 source("./R/openxlsx_get_formulas.R")
 
@@ -79,7 +85,7 @@ source("./R/db_create_new_rsf_ids.R")
 source("./R/db_create_entity_indicator_requirements.R")
 
 source("./R/db_data_get_info.R")
-source("./R/db_data_get_flags.R")
+#source("./R/db_data_get_flags.R")
 source("./R/db_data_update_flags.R")
 source("./R/db_data_get_fx_ratio.R")
 source("./R/db_data_get_current.R")
@@ -87,10 +93,12 @@ source("./R/db_data_pivot_family.R")
 
 source("./R/db_cohort_get_data.R")
 
-source("./R/db_cohort_create.R")
-source("./R/db_cohort_upload_file.R")
-source("./R/db_cohort_download_file.R")
+#source("./R/db_cohort_create.R")
+#source("./R/db_import_upload_file.R")
+source("./R/db_import_download_file.R")
 source("./R/db_export_template_download_file.R")
+
+source("./R/db_reporting_import_create.R")
 
 source("./R/db_rsf_reports_list.R")
 
@@ -116,7 +124,7 @@ source("./R/rsf_program_perform_calculations.R")
 source("./R/rsf_program_perform_checks.R")
 source("./R/db_program_get_stale_calculations.R")
 source("./R/db_program_get_stale_checks.R")
-source("./R/db_program_facility_checks_add_update_guidance.R")
+#source("./R/db_program_facility_checks_add_update_guidance.R")
 source("./R/db_indicators_get_labels.R")
 source("./R/db_indicators_get_header_actions.R")
 source("./R/db_indicator_update.R")
@@ -150,11 +158,9 @@ source("./R/rsf_reports_data_integrity_key.R")
 source("./R/rsf_reports_create_excel_sheet.R")
 source("./R/rsf_reports_excel_read_rsf_data.R")
 
-source("./R/db_rsf_get_pfcbl_from_sys_ids.R")
+#source("./R/db_rsf_get_pfcbl_from_sys_ids.R")
 source("./R/db_get_rsf_pfcbl_id_by_sys_name.R")
 source("./R/slgp_helpers_trim.R")
-source("./R/rsf_database.R")
-source("./R/rsf_calculations_environment.R")
 source("./R/rsf_calculations_resolve_parameters.R")
 source("./R/rsf_checks_resolve_parameters.R")
 source('./R/templates/template_excel_read_sheet.R')
@@ -536,8 +542,7 @@ user_send_email <- function(pool,
   })
 }
 
-format_name_abbreviation <- function(person_name)
-{
+format_name_abbreviation <- function(person_name) {
   
   re <- "^\\w{1}|\\w+-?\\w+$"
   
@@ -548,7 +553,7 @@ format_name_abbreviation <- function(person_name)
 }
 
 #See: https://stackoverflow.com/questions/60977641/r-function-for-rgba-to-hex-color-conversion
-rgba2rgb <- function(color_RGBA,background_RGB=col2rgb("white")){
+rgba2rgb <- function(color_RGBA,background_RGB=col2rgb("white")) {
   
   # get alpha
   if (length(color_RGBA)==1) color_RGBA <- as.numeric(trimws(unlist(str_split(color_RGBA,","))))
@@ -566,7 +571,7 @@ rgba2rgb <- function(color_RGBA,background_RGB=col2rgb("white")){
   return(new_col)
 }
 
-rgb2hex <- function(x) rgb(x[1], x[2], x[3], maxColorValue = 255)
+rgb2hex <- function(x) { rgb(x[1], x[2], x[3], maxColorValue = 255) }
 rgba2hex <- function(color_RGBA,background_RGB) {
   rgb2hex(rgba2rgb(color_RGBA = color_RGBA))
 }
@@ -643,8 +648,7 @@ labelMatches <- function(find_sections=NA, #match any section if NA, section may
   }
 }
 
-openxlsx_getNamedRegionsTable <- function(excelwb)
-{
+openxlsx_getNamedRegionsTable <- function(excelwb) {
   nregions <- openxlsx::getNamedRegions(excelwb)
   nregions_locations <- attr(nregions,"position")
   nregions_allowed <- grep("^[A-Z]+[0-9]+$|^[A-Z]+[0-9]+:[A-Z]+[0-9]+$",nregions_locations)

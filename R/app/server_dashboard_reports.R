@@ -16,7 +16,7 @@ SERVER_DASHBOARD_REPORTS_LIST <- eventReactive(c(LOGGEDIN(),
     re.is_public,
     re.report_title,
     re.report_notes,
-    coalesce(re.for_client_sys_names,'[null]'::jsonb) as for_client_sys_names,
+    coalesce(re.for_facility_sys_names,'[null]'::jsonb) as for_facility_sys_names,
     coalesce(re.for_indicator_names,'[null]'::jsonb) as for_indicator_names,
     coalesce(re.for_asof_dates,'[null]'::jsonb) as for_asof_dates,
     coalesce(re.report_parameters,'[null]'::jsonb) as report_parameters
@@ -35,7 +35,7 @@ SERVER_DASHBOARD_REPORTS_LIST <- eventReactive(c(LOGGEDIN(),
     re.is_public,
     re.report_title,
     re.report_notes,
-    coalesce(re.for_client_sys_names,'[null]'::jsonb) as for_client_sys_names,
+    coalesce(re.for_facility_sys_names,'[null]'::jsonb) as for_facility_sys_names,
     coalesce(re.for_indicator_names,'[null]'::jsonb) as for_indicator_names,
     coalesce(re.for_asof_dates,'[null]'::jsonb) as for_asof_dates,
     coalesce(re.report_parameters,'[null]'::jsonb) as report_parameters
@@ -97,7 +97,7 @@ SERVER_DASHBOARD_REPORTS_LIST_FILTERED <- eventReactive(c(SERVER_DASHBOARD_REPOR
     keywords <- trimws(unlist(strsplit(input$server_dashboard_reports__search,"[^[:alnum:]]")))
     
     matches <- lapply(keywords,FUN=function(kw) { 
-      rowSums(as.data.frame(lapply(reports[,.(users_name,report_title,report_notes,for_client_sys_names,for_indicator_names)],
+      rowSums(as.data.frame(lapply(reports[,.(users_name,report_title,report_notes,for_facility_sys_names,for_indicator_names)],
                                    FUN=grepl,
                                    pattern=kw,
                                    ignore.case=TRUE))) > 0
@@ -122,7 +122,7 @@ observeEvent(input$server_dashboard_reports__action_view, {
     report <- SERVER_DASHBOARD_REPORTS_LIST()[report_id==selected_report_id,
                                               .(report_id,
                                                 report_title,
-                                                for_client_sys_names,
+                                                for_facility_sys_names,
                                                 for_indicator_names,
                                                 for_asof_dates,
                                                 report_parameters)]
@@ -130,7 +130,7 @@ observeEvent(input$server_dashboard_reports__action_view, {
   }
 },ignoreNULL=FALSE,priority = 100)
 
-SERVER_DASHBOARD_DO_LOAD <- function(for_client_sys_names=NA,
+SERVER_DASHBOARD_DO_LOAD <- function(for_facility_sys_names=NA,
                                      for_indicator_names=NA,
                                      for_asof_dates=NA,
                                      dashboard_parameters) {
@@ -158,37 +158,37 @@ SERVER_DASHBOARD_DO_LOAD <- function(for_client_sys_names=NA,
   
   if (isTruthy(for_indicator_names)) SERVER_DASHBOARD_RUN_OPTIONS$indicator_names <- for_indicator_names
 
-  if (isTruthy(for_client_sys_names)) {
-    selected_clients <- as.character(for_client_sys_names)
-    client_rsf_pfcbl_ids <- NULL
-    if (any(selected_clients=="ALL")) {
-      client_rsf_pfcbl_ids <- SERVER_DASHBOARD_CLIENTS_LIST()$rsf_pfcbl_id
+  if (isTruthy(for_facility_sys_names)) {
+    selected_facilities <- as.character(for_facility_sys_names)
+    facility_rsf_pfcbl_ids <- NULL
+    if (any(selected_facilities=="ALL")) {
+      facility_rsf_pfcbl_ids <- SERVER_DASHBOARD_FACILITIES_LIST()$rsf_pfcbl_id
       
-    } else if (any(as.character(SERVER_DASHBOARD_CLIENTS_LIST()$rsf_pfcbl_id) %in% as.character(for_client_sys_names),na.rm = T)) {
+    } else if (any(as.character(SERVER_DASHBOARD_FACILITIES_LIST()$rsf_pfcbl_id) %in% as.character(for_facility_sys_names),na.rm = T)) {
       
-      for_client_sys_names <- for_client_sys_names[as.character(for_client_sys_names) %in% as.character(SERVER_DASHBOARD_CLIENTS_LIST()$rsf_pfcbl_id)]
-      client_rsf_pfcbl_ids <- suppressWarnings(as.numeric(for_client_sys_names))
+      for_facility_sys_names <- for_facility_sys_names[as.character(for_facility_sys_names) %in% as.character(SERVER_DASHBOARD_FACILITIES_LIST()$rsf_pfcbl_id)]
+      facility_rsf_pfcbl_ids <- suppressWarnings(as.numeric(for_facility_sys_names))
                
     } else {
-      client_rsf_pfcbl_ids <- DBPOOL %>% dbGetQuery("
+      facility_rsf_pfcbl_ids <- DBPOOL %>% dbGetQuery("
       select 
         sn.rsf_pfcbl_id
       from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
       where sn.sys_name = any(select unnest(string_to_array($1::text,','))::text)",
-      params=list(paste0(selected_clients,collapse=",")))
-      client_rsf_pfcbl_ids <- client_rsf_pfcbl_ids$rsf_pfcbl_id
+      params=list(paste0(selected_facilities,collapse=",")))
+      facility_rsf_pfcbl_ids <- facility_rsf_pfcbl_ids$rsf_pfcbl_id
     } 
     
-    SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids <- client_rsf_pfcbl_ids
+    SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids <- facility_rsf_pfcbl_ids
     updateSelectizeInput(session=session,
-                         inputId="server_dashboard__reporting_client",
-                         selected=client_rsf_pfcbl_ids)
+                         inputId="server_dashboard__reporting_facility",
+                         selected=facility_rsf_pfcbl_ids)
   }
   
   if (isTruthy(for_asof_dates)) {
     asof_dates <- NULL
     
-    #means for_client_sys_names was not NA
+    #means for_facility_sys_names was not NA
     if (!empty(SERVER_DASHBOARD_VALID_ASOF_DATES())) {
       for_asof_ranks <- na.omit(suppressWarnings(as.numeric(for_asof_dates)))
       asof_dates <- c(for_asof_ranks,
@@ -242,7 +242,7 @@ SERVER_DASHBOARD_DO_LOAD <- function(for_client_sys_names=NA,
   #runjs(paste0('Shiny.setInputValue("server_dashboard__autorun",true,{priority: "event"})'))
   if (length(na.omit(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids))==0) {
     showNotification(type="message",
-                     ui=h3("This report does not save clients: Select relevant client(s) from the drop-down list"))
+                     ui=h3("This report does not save projects: Select relevant project(s) from the drop-down list"))
   } else if (length(na.omit(SERVER_DASHBOARD_RUN_OPTIONS$asof_dates))==0) {
     showNotification(type="message",
                      ui=h3("This report does not save timeline: Select relevant date(s) from the drop-down list"))
@@ -281,7 +281,7 @@ observeEvent(input$action_server_dashboard_reports__save_as, {
                              ui=h3("One or more indicators must be selected to save a report.")))
   }
   
-  all_clients_selected <- setequal(SERVER_DASHBOARD_CLIENTS_LIST()$rsf_pfcbl_id,
+  all_facilities_selected <- setequal(SERVER_DASHBOARD_FACILITIES_LIST()$rsf_pfcbl_id,
                                    SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids)
   
   m <- modalDialog(id="dash_reports_save_modal",
@@ -326,14 +326,14 @@ observeEvent(input$action_server_dashboard_reports__save_as, {
                                        selected=FALSE,
                                        options=list(placeholder="NO"))),
                        column(3,
-                        enabled(state=all_clients_selected,
-                        selectizeInput(inputId="server_dashboard_reports__save_clients",
-                                       label="Save Clients",
+                        enabled(state=all_facilities_selected,
+                        selectizeInput(inputId="server_dashboard_reports__save_facilities",
+                                       label="Save Facilities",
                                        choices=c(`YES`=TRUE,
                                                  `NO`=FALSE),
                                        width="100%",
                                        multiple=FALSE,
-                                       selected=all_clients_selected,
+                                       selected=all_facilities_selected,
                                        options=list(placeholder="NO")))),
                        column(3,
                               disabled(
@@ -376,26 +376,26 @@ observeEvent(input$action_server_dashboard_reports__save_as, {
 observeEvent(input$server_dashboard_reports__save_program, {
   save_program <- isTruthy(as.logical(input$server_dashboard_reports__save_program))
   
-  all_clients_selected <- setequal(SERVER_DASHBOARD_CLIENTS_LIST()$rsf_pfcbl_id,
+  all_facilities_selected <- setequal(SERVER_DASHBOARD_FACILITIES_LIST()$rsf_pfcbl_id,
                                    SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids)
-  if (save_program || all_clients_selected) {
-    enable(id="server_dashboard_reports__save_clients")
+  if (save_program || all_facilities_selected) {
+    enable(id="server_dashboard_reports__save_facilities")
   } else {
     
     updateSelectInput(session=session,
-                      inputId="server_dashboard_reports__save_clients",
+                      inputId="server_dashboard_reports__save_facilities",
                       selected=FALSE)
     
-    disable(id="server_dashboard_reports__save_clients")
+    disable(id="server_dashboard_reports__save_facilities")
   }
 })
 
-observeEvent(input$server_dashboard_reports__save_clients, {
-  save_clients <- isTruthy(as.logical(input$server_dashboard_reports__save_clients))
+observeEvent(input$server_dashboard_reports__save_facilities, {
+  save_facilities <- isTruthy(as.logical(input$server_dashboard_reports__save_facilities))
   has_name_filter <- isTruthy(as.logical(input$server_dashboard__name_filter))
   
-  for_client_names <- as.character(NA)
-  if ((save_clients & has_name_filter)) {
+  for_facility_names <- as.character(NA)
+  if ((save_facilities & has_name_filter)) {
     enable(id="server_dashboard_reports__save_names")
   } else {
   
@@ -414,8 +414,8 @@ observeEvent(input$server_dashboard_reports__action_save, {
   dashboard_settings <- reactiveValuesToList(SERVER_DASHBOARD_RUN_OPTIONS)
   
   save_program <- isTruthy(as.logical(input$server_dashboard_reports__save_program))
-  all_clients_selected <- setequal(SERVER_DASHBOARD_CLIENTS_LIST()$rsf_pfcbl_id,
-                                   SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids)
+  all_facilities_selected <- setequal(SERVER_DASHBOARD_FACILITIES_LIST()$rsf_pfcbl_id,
+                                      SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids)
   
   for_program_name <- as.character(NA)
   if (save_program) {
@@ -428,21 +428,21 @@ observeEvent(input$server_dashboard_reports__action_save, {
     if (!isTruthy(for_program_name)) for_program_name <- as.character(NA)
   }
 
-  save_clients <- isTruthy(as.logical(input$server_dashboard_reports__save_clients))
-  for_client_names <- as.character(NA)
-  if (save_clients || all_clients_selected) {
+  save_facilities <- isTruthy(as.logical(input$server_dashboard_reports__save_facilities))
+  for_facility_names <- as.character(NA)
+  if (save_facilities || all_facilities_selected) {
     
-    clients_list <- SERVER_DASHBOARD_CLIENTS_LIST()
-    if (all_clients_selected) {
-      for_client_names <- "ALL"
+    facilities_list <- SERVER_DASHBOARD_FACILITIES_LIST()
+    if (all_facilities_selected) {
+      for_facility_names <- "ALL"
     } else {
-      for_client_names <- DBPOOL %>% dbGetQuery("
+      for_facility_names <- DBPOOL %>% dbGetQuery("
         select sn.sys_name
         from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
         where sn.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
         params=list(paste0(dashboard_settings$rsf_pfcbl_ids,collapse=",")))
-      for_client_names <- for_client_names$sys_name
-      if (!isTruthy(for_client_names)) for_client_names <- as.character(NA)
+      for_facility_names <- for_facility_names$sys_name
+      if (!isTruthy(for_facility_names)) for_facility_names <- as.character(NA)
     }
   }
 
@@ -538,7 +538,7 @@ observeEvent(input$server_dashboard_reports__action_save, {
                               report_title,
                               report_notes,
                               for_program_sys_name,
-                              for_client_sys_names,
+                              for_facility_sys_names,
                               for_indicator_names,
                               for_asof_dates,
                               report_parameters)
@@ -548,7 +548,7 @@ observeEvent(input$server_dashboard_reports__action_save, {
       $3::text as report_title,
       $4::text as report_notes,
       NULLIF($5::text,'NA') as for_program_sys_name,
-      NULLIF($6::text,'[null]')::jsonb as for_client_sys_names,
+      NULLIF($6::text,'[null]')::jsonb as for_facility_sys_names,
       NULLIF($7::text,'[null]')::jsonb as for_indicator_names,
       NULLIF($8::text,'[null]')::jsonb as for_asof_dates,
       NULLIF($9::text,'[null]')::jsonb as report_parameters
@@ -558,7 +558,7 @@ observeEvent(input$server_dashboard_reports__action_save, {
                 report_title,
                 report_notes,
                 for_program_name,
-                toJSON(for_client_names),
+                toJSON(for_facility_names),
                 toJSON(for_indicator_names),
                 toJSON(for_asof_dates),
                 toJSON(dashboard_settings)))
@@ -750,7 +750,7 @@ observeEvent(SERVER_DASHBOARD_REPORT_SELECTED(), {
   # report_parameters$indicator_names <- NULL
   # report_parameters$asof_dates <- NULL
   
-  SERVER_DASHBOARD_DO_LOAD(for_client_sys_names=unlist(report$for_client_sys_names),
+  SERVER_DASHBOARD_DO_LOAD(for_facility_sys_names=unlist(report$for_facility_sys_names),
                            for_indicator_names=for_indicator_names,
                            for_asof_dates=for_asof_dates,
                            dashboard_parameters=report$report_parameters[[1]])
@@ -759,32 +759,6 @@ observeEvent(SERVER_DASHBOARD_REPORT_SELECTED(), {
 },
 priority = 10) #need this observer to fire before observeEvent(SERVER_DASHBOARD_INDICATORS()
 
-# observeEvent(input$server_dashboard_reports__action_view, {
-#   
-#   report <- SERVER_DASHBOARD_REPORT_SELECTED()
-#   dashboard_indicators <- SERVER_DASHBOARD_INDICATORS()
-#   if (empty(report)) return (NULL)
-#   
-#   for_indicator_names <- unlist(report$for_indicator_names)
-#   if (!empty(dashboard_indicators[indicator_id==0])) {
-#     for_indicator_names <- dashboard_indicators[indicator_id==0,indicator_name]
-#   }
-#   
-#   for_asof_dates <- unique(suppressWarnings(as.numeric(unlist(report$for_asof_dates))))
-#   if (!isTruthy(for_asof_dates)) for_asof_dates <- 1
-#   
-#   report_parameters <- report$report_parameters[[1]]
-#   
-#   report_parameters$rsf_pfcbl_ids <- NULL
-#   report_parameters$indicator_names <- NULL
-#   report_parameters$asof_dates <- NULL
-#   
-#   SERVER_DASHBOARD_DO_LOAD(for_client_sys_names=unlist(report$for_client_sys_names),
-#                            for_indicator_names=for_indicator_names,
-#                            for_asof_dates=unlist(report$for_asof_dates),
-#                            dashboard_parameters=report_parameters)
-# },
-# priority = 10) #need this observer to fire before observeEvent(SERVER_DASHBOARD_INDICATORS()
 
 observeEvent(input$tabset_dashboard, {
   

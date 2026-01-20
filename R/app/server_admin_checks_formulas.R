@@ -175,7 +175,7 @@ server_admin_checks_formulas.module_server <- function(id,
       
       used <- dbGetQuery(pool,"
           select sn.sys_name
-          from p_rsf.rsf_program_facility_checks pfc
+          from p_rsf.rsf_setup_checks pfc
           inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = pfc.rsf_pfcbl_id
           where pfc.check_formula_id = $1::int
             and pfc.is_subscribed = true",

@@ -40,7 +40,7 @@ template_parse_process_and_upload <- function(pool,
   #tf <- template_files[[1]]
   for (tf in template_files) {
     
-    current_cohort_id <- NULL
+    current_import_id <- NULL
     if(SYS_PRINT_TIMING) debugtime(reset=T)
     #status_message(class="none","Reading file",tf,"\n",reset=T)
     
@@ -79,10 +79,10 @@ template_parse_process_and_upload <- function(pool,
     }
     
 
-    current_cohort_id <- template$reporting_cohort$reporting_cohort_id
+    current_import_id <- template$reporting_import$import_id
     
-    if (is.null(current_cohort_id)) {
-      stop("Failed to create reporting_cohort_id")
+    if (is.null(current_import_id)) {
+      stop("Failed to create current_import_id")
     }
     
     #If there's an error with parsing edits, then all edits will be lost.  And people will be pissed off!
@@ -112,13 +112,13 @@ template_parse_process_and_upload <- function(pool,
     
     #On error
     if (is.null(template)) {
-      status_message("Rolling back upload #",current_cohort_id)
+      status_message("Rolling back upload #",current_import_id)
       
       if (delete_on_error==TRUE) {
         dbExecute(pool,"
-                        delete from p_rsf.reporting_cohorts rc
-                        where rc.reporting_cohort_id = $1::int",
-                  params=list(current_cohort_id))
+                        delete from p_rsf.reporting_imports ri
+                        where ri.import_id = $1::int",
+                  params=list(current_import_id))
       }
       if (continue_on_error==FALSE) {
         stop(paste0("Failed to process file because: \n",gsub("^(.*)CONTEXT.*$","\\1",error_message)))
@@ -149,11 +149,11 @@ template_parse_process_and_upload <- function(pool,
     if (is.null(template)) {
       
       if (delete_on_error==TRUE) {
-        status_message("Rolling back upload #",current_cohort_id)
+        status_message("Rolling back upload #",current_import_id)
         dbExecute(pool,"
-                        delete from p_rsf.reporting_cohorts rc
-                        where rc.reporting_cohort_id = $1::int",
-                  params=list(current_cohort_id))
+                        delete from p_rsf.reporting_imports ri
+                        where ri.import_id = $1::int",
+                  params=list(current_import_id))
       }
 
       if (continue_on_error==FALSE) {
@@ -173,19 +173,17 @@ template_parse_process_and_upload <- function(pool,
         template$log <- dm
       }
       
-      result <- data.table(reporting_cohort_id=current_cohort_id,
-                           #rsf_program_id=rsf_program_id,
+      result <- data.table(import_id=current_import_id,
                            reporting_asof_date=template$reporting_asof_date,
-                           template_source=template$reporting_cohort$source_name,
+                           template_source=template$reporting_import$file_name,
                            parse_time=template$parse_time,
                            process_time=template$process_time,
                            upload_time=template$upload_time,
                            calculate_time=template$calculate_time,
                            check_time=template$check_time,
-                           backup_time=template$backup_time,
                            total_time=template$parse_time+
-                             template$process_time+
-                             template$upload_time,
+                                      template$process_time+
+                                      template$upload_time,
                            log=paste0(template$log,collapse=" | "))
       
       if (which(tf==template_files) < length(template_files)) {
@@ -201,36 +199,33 @@ template_parse_process_and_upload <- function(pool,
       
       poolWithTransaction(pool,function(conn) {
         
-        dbExecute(conn,"create TEMP table _temp_upload_results(reporting_cohort_id int,
+        dbExecute(conn,"create TEMP table _temp_upload_results(import_id int,
                                                                parse_time numeric,
                                                                process_time numeric,
                                                                upload_time numeric,
-                                                               backup_time numeric,
                                                                total_time numeric,
                                                                log text)
                   on commit drop;")
         
         dbAppendTable(conn,
                       name="_temp_upload_results",
-                      value=result[,.(reporting_cohort_id,
-                                           parse_time=as.numeric(parse_time,units="secs"),
-                                           process_time=as.numeric(process_time,units="secs"),
-                                           upload_time=as.numeric(upload_time,units="secs"),
-                                           backup_time=as.numeric(backup_time,units="secs"),
-                                           total_time=as.numeric(total_time,units="secs"),
-                                           log=as.character(log))])
+                      value=result[,.(import_id,
+                                       parse_time=as.numeric(parse_time,units="secs"),
+                                       process_time=as.numeric(process_time,units="secs"),
+                                       upload_time=as.numeric(upload_time,units="secs"),
+                                       total_time=as.numeric(total_time,units="secs"),
+                                       log=as.character(log))])
         
-        dbExecute(conn,"update p_rsf.reporting_cohort_info rcd
+        dbExecute(conn,"update p_rsf.reporting_imports rcd
                         set metadata = rcd.metadata || 
                             jsonb_build_object('timing',
                               jsonb_build_object('parse_time',parse_time,
                                                  'process_time',process_time,
                                                  'upload_time',upload_time,
-                                                 'backup_time',backup_time,
                                                  'total_time',total_time),
-                                                'log',log)
+                                                 'log',log)
                         from _temp_upload_results tur
-                        where tur.reporting_cohort_id = rcd.reporting_cohort_id")
+                        where tur.import_id = rcd.import_id")
       })
       
       
@@ -244,8 +239,6 @@ template_parse_process_and_upload <- function(pool,
     }
     file.remove(template_files)
   }
-  
-
 
   poolClose(pool)
   pool <- NULL

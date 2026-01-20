@@ -1,7 +1,7 @@
 db_rsf_get_pfcbl_from_sys_ids <- function(pool,
                                           sys_ids,
                                           include.sysnames=FALSE) {
-  
+  stop("DEPRECATED!")
   valid_cols <- c("reporting_SYSID","pfcbl_category")
   invalid_cols <- setdiff(union(valid_cols,names(sys_ids)),valid_cols)
   if (length(invalid_cols) >0) stop(paste0("Expecting sys_ids to have two columns: reporting_SYSID and pfcbl_category.  Invalid columns: ",paste0(invalid_cols,collapse=", ")))

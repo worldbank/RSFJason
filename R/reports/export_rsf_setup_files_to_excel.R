@@ -6,11 +6,12 @@ export_rsf_setup_files_to_excel <- function(pool,
                                             # rsf_pfcbl_ids.filter=as.numeric(NA),
                                             exporting_user_id,
                                             include_never_reported=FALSE,
+                                            exclude_auto_subscribe=TRUE,
                                             include=c("data",
                                                       "settings",
                                                       "indicators",
                                                       "checks",
-                                                      "guidance",
+                                                      "config",
                                                       "actions",
                                                       "flags",
                                                       "review")
@@ -28,28 +29,16 @@ export_rsf_setup_files_to_excel <- function(pool,
     if (length(export_pfcbl_category)==0 || !export_pfcbl_category %in% c("global","program","facility")) {
       stop("export_rsf_pfcbl_id must be a valid entity and be either global, program or facility-level")  
     }
-    
-    # if (!is.na(rsf_program_id)) {
-    #   valid <- dbGetQuery(pool,
-    #                      "select exists(select * from p_rsf.rsf_programs rp
-    #                                      where rp.rsf_program_id = $1::int)::bool as valid",
-    #                       params=list(rsf_program_id))
-    #   valid <- as.logical(unlist(valid))
-    #   if (!valid) stop(paste0("Program ID:",rsf_program_id," is not a valid program.  Use rsf_program_id=NA to generate setup files for all rsf programs"))
-    # } else {
-    #   stop("rsf program ID required")
-    # }
-    # if (length(rsf_pfcbl_ids.filter)==0) rsf_pfcbl_ids.filter <- as.numeric(NA)
-    # 
-    if (length(include)==0) stop("Include must have one or all of: data, settings, indicators, checks, guidance, actions")
+   
+    if (length(include)==0) stop("Include must have one or all of: data, settings, indicators, checks, config, actions")
     if (!all(include %in% c("data",
                             "settings",
                             "indicators",
                             "checks",
-                            "guidance",
+                            "config",
                             "actions",
                             "flags",
-                            "review") )) stop("Include must have one or all of: data, settings, indicators, checks, guidance, actions, flags")
+                            "review") )) stop("Include must have one or all of: data, settings, indicators, checks, config, actions, flags")
     
     if (!any(include=="data")) stop("Include must at least include: data")
     
@@ -130,6 +119,8 @@ export_rsf_setup_files_to_excel <- function(pool,
                                        params=list(export_pfcbl_category,
                                                    export_pfcbl_id))
       setDT(program_indicators)
+      
+      if (exclude_auto_subscribe==TRUE) { program_indicators <- program_indicators[is_auto_subscribed==FALSE] }
     }
     
     program_checks <- NULL
@@ -146,20 +137,18 @@ export_rsf_setup_files_to_excel <- function(pool,
                                                export_pfcbl_id))
       setDT(program_checks)
       
+      if (exclude_auto_subscribe==TRUE) { program_checks <- program_checks[is_auto_subscribed==FALSE] }
     }
     
-    program_guidance <- NULL
-    if (any(include=="guidance")) {
-      #Can inherit GLOBAL guidance
-      program_guidance <- dbGetQuery(pool,"
+    checks_config <- NULL
+    if (any(include=="config")) {
+      
+      checks_config <- dbGetQuery(pool,"
                                      select * 
-                                     from p_rsf.view_rsf_setup_programs_guidance spg
-                                     where spg.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
-                                                                  from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                                                                  where ft.from_rsf_pfcbl_id = $1::int
-                                                                    and ft.to_pfcbl_category in ('global','program','facility'))",
+                                     from p_rsf.view_rsf_setup_check_config scc
+                                     where scc.rsf_pfcbl_id = $1::int",
                                      params=list(export_pfcbl_id))
-      setDT(program_guidance)
+      setDT(checks_config)
     }
 
     program_template_actions <- NULL
@@ -190,8 +179,6 @@ export_rsf_setup_files_to_excel <- function(pool,
                                     cae.check_status_user_id,
                                     cae.check_status_comment,
                                     cae.check_message,
-                                    cae.consolidated_from_indicator_id,
-                                    cae.consolidated_from_indicator_check_id,
                                     cae.data_sys_flags,
                                     cae.data_value_unit
                                   from p_rsf.view_rsf_data_checks_archive_eligible cae
@@ -241,8 +228,7 @@ export_rsf_setup_files_to_excel <- function(pool,
                                  reporting_asof_date,
                                  indicator_name,
                                  value=data_value,
-                                 unit=data_unit,
-                                 source_name)]
+                                 unit=data_unit)]
   
   excelwb <- rsf_reports_create_excel_sheet(excelwb=NULL,
                                             sheet_name="RSF_DATA",
@@ -267,10 +253,13 @@ export_rsf_setup_files_to_excel <- function(pool,
                                            monitored=toupper(as.character(monitored)),
                                            is_auto_subscribed,
                                            FRMID=formula_id,
+                                           
                                            formula_title,
+                                           formula_calculation_unit,
                                            sort_preference,
                                            subscription_comments,
-                                           comments_user_id)]
+                                           comments_user_id,
+                                           options_group_id)]
     
     excelwb <- rsf_reports_create_excel_sheet(excelwb=excelwb,
                                               sheet_name="PROGRAM_INDICATORS",
@@ -340,25 +329,15 @@ export_rsf_setup_files_to_excel <- function(pool,
                                               reporting_notes="")
   }  
   
-  if (!empty(program_guidance)) {
-    program_guidance <- program_guidance[,
-                                         .(GUIDANCEID=indicator_check_guidance_id,
-                                           CHKID=indicator_check_id,
-                                           INDID=for_indicator_id,
-                                           FOR=for_pfcbl_category,
-                                           SYSNAME=sys_name,
-                                           indicator_name,
-                                           check_name,
-                                           guidance,
-                                           autoresolve=toupper(as.character(is_resolving_guidance)),
-                                           guidance_class=overwrite_check_class,
-                                           created_by_user_id,
-                                           applied_by_user_id)]
+  if (!empty(checks_config)) {
+    setcolnames(checks_config,
+                old="sys_name",
+                new="SYSNAME")
     
     excelwb <- rsf_reports_create_excel_sheet(excelwb=excelwb,
-                                              sheet_name="PROGRAM_GUIDANCE",
-                                              sheet_data_table_name="RSF_GUIDANCE_DATA",
-                                              sheet_data=program_guidance,
+                                              sheet_name="checks_config",
+                                              sheet_data_table_name="RSF_CONFIG_DATA",
+                                              sheet_data=checks_config,
                                               
                                               program_name=exporting_name,
                                               
@@ -372,15 +351,6 @@ export_rsf_setup_files_to_excel <- function(pool,
   }
   
   if (!empty(program_template_actions)) {
-    # program_template_actions <- program_template_actions[,
-    #                                                      .(HEADERID=header_id,
-    #                                                        TEMPLATE=template_name,
-    #                                                        SYSNAME=sys_name,
-    #                                                        SHEET_NAME=template_header_sheet_name,
-    #                                                        HEADER_NAME=template_header,
-    #                                                        HEADER_INDEX=template_header_encounter_index,
-    #                                                        ACTION=action,
-    #                                                        REMAP_HEADER=remap_header)]
     
     excelwb <- rsf_reports_create_excel_sheet(excelwb=excelwb,
                                               sheet_name="PROGRAM_TEMPLATE_ACTIONS",
@@ -409,8 +379,6 @@ export_rsf_setup_files_to_excel <- function(pool,
                                      check_status_user_id,
                                      check_status_comment,
                                      check_message,
-                                     CINDID=consolidated_from_indicator_id,
-                                     CCHKID=consolidated_from_indicator_check_id,
                                      data_sys_flags,
                                      data_value_unit)]  
     

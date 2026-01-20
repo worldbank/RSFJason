@@ -12,7 +12,7 @@
  Target Server Version : 160000 (160000)
  File Encoding         : 65001
 
- Date: 29/08/2025 14:06:01
+ Date: 20/01/2026 17:01:03
 */
 
 
@@ -56,6 +56,17 @@ CACHE 1;
 -- ----------------------------
 DROP SEQUENCE IF EXISTS "p_rsf"."exporting_cohorts_exporting_cohort_id_seq";
 CREATE SEQUENCE "p_rsf"."exporting_cohorts_exporting_cohort_id_seq" 
+INCREMENT 1
+MINVALUE  1
+MAXVALUE 2147483647
+START 1
+CACHE 1;
+
+-- ----------------------------
+-- Sequence structure for import_templates_import_id_seq
+-- ----------------------------
+DROP SEQUENCE IF EXISTS "p_rsf"."import_templates_import_id_seq";
+CREATE SEQUENCE "p_rsf"."import_templates_import_id_seq" 
 INCREMENT 1
 MINVALUE  1
 MAXVALUE 2147483647
@@ -250,10 +261,10 @@ START 1
 CACHE 1;
 
 -- ----------------------------
--- Table structure for deleted_reporting_cohorts
+-- Table structure for !dep-deleted_reporting_cohorts
 -- ----------------------------
-DROP TABLE IF EXISTS "p_rsf"."deleted_reporting_cohorts";
-CREATE TABLE "p_rsf"."deleted_reporting_cohorts" (
+DROP TABLE IF EXISTS "p_rsf"."!dep-deleted_reporting_cohorts";
+CREATE TABLE "p_rsf"."!dep-deleted_reporting_cohorts" (
   "reporting_cohort_id" int4 NOT NULL,
   "upload_filename" text COLLATE "pg_catalog"."default" NOT NULL,
   "upload_file" text COLLATE "pg_catalog"."default",
@@ -264,6 +275,50 @@ CREATE TABLE "p_rsf"."deleted_reporting_cohorts" (
   "data_asof_date" date NOT NULL,
   "source_note" text COLLATE "pg_catalog"."default",
   "deleted_time" timestamptz(6) NOT NULL DEFAULT (timeofday())::timestamp with time zone
+)
+;
+
+-- ----------------------------
+-- Table structure for !dep-rsf_pfcbl_id_family
+-- ----------------------------
+DROP TABLE IF EXISTS "p_rsf"."!dep-rsf_pfcbl_id_family";
+CREATE TABLE "p_rsf"."!dep-rsf_pfcbl_id_family" (
+  "parent_pfcbl_category" varchar(255) COLLATE "pg_catalog"."default" NOT NULL,
+  "parent_rsf_pfcbl_id" int4 NOT NULL,
+  "child_rsf_pfcbl_id" int4 NOT NULL,
+  "child_pfcbl_category" varchar(255) COLLATE "pg_catalog"."default" NOT NULL,
+  "parent_pfcbl_rank" int2 NOT NULL,
+  "child_pfcbl_rank" int2 NOT NULL
+)
+;
+
+-- ----------------------------
+-- Table structure for !dep-rsf_program_reporting_dates
+-- ----------------------------
+DROP TABLE IF EXISTS "p_rsf"."!dep-rsf_program_reporting_dates";
+CREATE TABLE "p_rsf"."!dep-rsf_program_reporting_dates" (
+  "rsf_program_id" int4 NOT NULL,
+  "valid_reporting_date" date NOT NULL,
+  "reporting_sequence_rank" int4 NOT NULL,
+  "rsf_pfcbl_id" int4 NOT NULL
+)
+;
+
+-- ----------------------------
+-- Table structure for _temp_headers
+-- ----------------------------
+DROP TABLE IF EXISTS "p_rsf"."_temp_headers";
+CREATE TABLE "p_rsf"."_temp_headers" (
+  "sys_name" text COLLATE "pg_catalog"."default",
+  "template_id" int4,
+  "header_id" int4,
+  "template_header_sheet_name" text COLLATE "pg_catalog"."default",
+  "template_header" text COLLATE "pg_catalog"."default",
+  "action" text COLLATE "pg_catalog"."default",
+  "comment" text COLLATE "pg_catalog"."default",
+  "map_indicator_id" int4,
+  "map_formula_id" int4,
+  "map_check_formula_id" int4
 )
 ;
 
@@ -684,19 +739,6 @@ CREATE TABLE "p_rsf"."reporting_cohort_info" (
 ;
 
 -- ----------------------------
--- Table structure for reporting_cohort_template_headers
--- ----------------------------
-DROP TABLE IF EXISTS "p_rsf"."reporting_cohort_template_headers";
-CREATE TABLE "p_rsf"."reporting_cohort_template_headers" (
-  "reporting_cohort_id" int4 NOT NULL,
-  "rsf_pfcbl_id" int4 NOT NULL,
-  "indicator_id" int4 NOT NULL,
-  "template_header" text COLLATE "pg_catalog"."default" NOT NULL,
-  "template_header_position" text COLLATE "pg_catalog"."default" NOT NULL
-)
-;
-
--- ----------------------------
 -- Table structure for reporting_cohorts
 -- ----------------------------
 DROP TABLE IF EXISTS "p_rsf"."reporting_cohorts";
@@ -706,27 +748,85 @@ CREATE TABLE "p_rsf"."reporting_cohorts" (
   "reporting_rsf_pfcbl_id" int4 NOT NULL,
   "reporting_user_id" text COLLATE "pg_catalog"."default" NOT NULL DEFAULT 'UNKNOWN'::text,
   "reporting_time" timestamptz(6) NOT NULL DEFAULT now(),
-  "source_name" text COLLATE "pg_catalog"."default",
-  "source_reference" text COLLATE "pg_catalog"."default",
-  "source_note" text COLLATE "pg_catalog"."default",
-  "rsf_program_id" int4 NOT NULL,
-  "parent_reporting_cohort_id" int4,
+  "!dep-source_name" text COLLATE "pg_catalog"."default",
+  "!dep-source_reference" text COLLATE "pg_catalog"."default",
+  "!dep-source_note" text COLLATE "pg_catalog"."default",
+  "!dep-rsf_program_id" int4,
+  "!dep-parent_reporting_cohort_id" int4,
   "is_calculated_cohort" bool NOT NULL DEFAULT false,
   "is_reported_cohort" bool NOT NULL DEFAULT true,
-  "is_redundancy_cohort" bool NOT NULL DEFAULT false,
-  "from_reporting_template_id" int4,
-  "linked_reporting_cohort_id" int4,
-  "cohort_processing_completed" bool NOT NULL DEFAULT true,
+  "!dep-is_redundancy_cohort" bool DEFAULT false,
+  "!dep-from_reporting_template_id" int4,
+  "!dep-linked_reporting_cohort_id" int4,
+  "!dep-cohort_processing_completed" bool DEFAULT true,
   "data_asof_date" date NOT NULL,
-  "rsf_facility_id" int4
+  "!dep-rsf_facility_id" int4,
+  "import_id" int4,
+  "reporting_type" int2 NOT NULL DEFAULT 0
 )
 ;
 COMMENT ON COLUMN "p_rsf"."reporting_cohorts"."reporting_user_id" IS 'References: ARL.arlapplications.accounts.account_id';
-COMMENT ON COLUMN "p_rsf"."reporting_cohorts"."rsf_program_id" IS 'program for which cohort is reporting';
-COMMENT ON COLUMN "p_rsf"."reporting_cohorts"."parent_reporting_cohort_id" IS 'For system calculator and other cohorts that report "under" a primary cohort';
-COMMENT ON COLUMN "p_rsf"."reporting_cohorts"."is_redundancy_cohort" IS 'Generally the result of a data entry error in excel: when the same entity repeats multiple different information on different rows.  The latest (highest row number) is interepted as the current data, whereas data on lower row numbers are saved for change log recording in a redundancy cohort.';
-COMMENT ON COLUMN "p_rsf"."reporting_cohorts"."linked_reporting_cohort_id" IS 'Linked reporting cohort does NOT have fk to reporting_asof_date.  Its used by system-created cohorts and backfills that are triggerd by newer reporting cohorts that create cohorts on different reporting timelines to ensure a complete reporting timeseries is available for calculations and checks.';
+COMMENT ON COLUMN "p_rsf"."reporting_cohorts"."!dep-rsf_program_id" IS 'program for which cohort is reporting';
+COMMENT ON COLUMN "p_rsf"."reporting_cohorts"."!dep-parent_reporting_cohort_id" IS 'For system calculator and other cohorts that report "under" a primary cohort';
+COMMENT ON COLUMN "p_rsf"."reporting_cohorts"."!dep-is_redundancy_cohort" IS 'Generally the result of a data entry error in excel: when the same entity repeats multiple different information on different rows.  The latest (highest row number) is interepted as the current data, whereas data on lower row numbers are saved for change log recording in a redundancy cohort.';
+COMMENT ON COLUMN "p_rsf"."reporting_cohorts"."!dep-linked_reporting_cohort_id" IS 'Linked reporting cohort does NOT have fk to reporting_asof_date.  Its used by system-created cohorts and backfills that are triggerd by newer reporting cohorts that create cohorts on different reporting timelines to ensure a complete reporting timeseries is available for calculations and checks.';
 COMMENT ON COLUMN "p_rsf"."reporting_cohorts"."data_asof_date" IS 'If the data timestamp is not quarter end, precisely.';
+COMMENT ON COLUMN "p_rsf"."reporting_cohorts"."reporting_type" IS '0=Setup/System, 1=User Import, 2=Calculator';
+
+-- ----------------------------
+-- Table structure for reporting_import_template_headers
+-- ----------------------------
+DROP TABLE IF EXISTS "p_rsf"."reporting_import_template_headers";
+CREATE TABLE "p_rsf"."reporting_import_template_headers" (
+  "import_id" int4 NOT NULL,
+  "rsf_pfcbl_id" int4 NOT NULL,
+  "indicator_id" int4 NOT NULL,
+  "template_header" text COLLATE "pg_catalog"."default" NOT NULL,
+  "template_header_position" text COLLATE "pg_catalog"."default" NOT NULL
+)
+;
+
+-- ----------------------------
+-- Table structure for reporting_imports
+-- ----------------------------
+DROP TABLE IF EXISTS "p_rsf"."reporting_imports";
+CREATE TABLE "p_rsf"."reporting_imports" (
+  "import_id" int4 NOT NULL DEFAULT (nextval('"p_rsf".import_templates_import_id_seq'::regclass))::integer,
+  "import_rsf_pfcbl_id" int4 NOT NULL,
+  "import_pfcbl_category" text COLLATE "pg_catalog"."default" NOT NULL,
+  "import_user_id" text COLLATE "pg_catalog"."default" NOT NULL,
+  "import_time" timestamptz(6) NOT NULL DEFAULT (timeofday())::timestamp with time zone,
+  "import_completed" bool NOT NULL DEFAULT false,
+  "reporting_asof_date" date NOT NULL,
+  "template_id" int4 NOT NULL,
+  "file_name" text COLLATE "pg_catalog"."default" NOT NULL,
+  "file_data" bytea NOT NULL,
+  "is_finalized" bool NOT NULL DEFAULT false,
+  "finalized_by_user_id" text COLLATE "pg_catalog"."default",
+  "finalized_time" timestamptz(6),
+  "import_comments" text COLLATE "pg_catalog"."default",
+  "finalized_comments" text COLLATE "pg_catalog"."default",
+  "pfcbl_name" text COLLATE "pg_catalog"."default" NOT NULL,
+  "metadata" jsonb NOT NULL DEFAULT '{}'::jsonb
+)
+;
+
+-- ----------------------------
+-- Table structure for reporting_imports_deleted_archive
+-- ----------------------------
+DROP TABLE IF EXISTS "p_rsf"."reporting_imports_deleted_archive";
+CREATE TABLE "p_rsf"."reporting_imports_deleted_archive" (
+  "import_id" int4 NOT NULL,
+  "import_rsf_pfcbl_id" int4 NOT NULL,
+  "file_name" text COLLATE "pg_catalog"."default" NOT NULL,
+  "file_data" bytea,
+  "reporting_asof_date" date NOT NULL,
+  "import_user_id" text COLLATE "pg_catalog"."default" NOT NULL,
+  "import_comments" text COLLATE "pg_catalog"."default",
+  "deleting_user_id" text COLLATE "pg_catalog"."default" NOT NULL,
+  "deleted_time" timestamptz(6) NOT NULL DEFAULT (timeofday())::timestamp with time zone
+)
+;
 
 -- ----------------------------
 -- Table structure for reporting_templates
@@ -757,7 +857,7 @@ CREATE TABLE "p_rsf"."reports" (
   "report_title" text COLLATE "pg_catalog"."default" NOT NULL,
   "report_notes" text COLLATE "pg_catalog"."default",
   "for_program_sys_name" text COLLATE "pg_catalog"."default",
-  "for_client_sys_names" jsonb,
+  "for_facility_sys_names" jsonb,
   "for_indicator_names" jsonb,
   "for_asof_dates" jsonb,
   "report_parameters" jsonb NOT NULL
@@ -788,7 +888,8 @@ CREATE TABLE "p_rsf"."rsf_data" (
   "data_unit" text COLLATE "pg_catalog"."default",
   "data_submitted" text COLLATE "pg_catalog"."default",
   "data_source_row_id" varchar(128) COLLATE "pg_catalog"."default",
-  "data_sys_flags" int2
+  "data_sys_flags" int2,
+  "data_sys_source" int2 NOT NULL DEFAULT 0
 )
 ;
 COMMENT ON COLUMN "p_rsf"."rsf_data"."data_submitted" IS 'Whatever was submitted via user input or sys (whereas data_value is the data of record and potentially normalized)';
@@ -800,6 +901,7 @@ COMMENT ON COLUMN "p_rsf"."rsf_data"."data_sys_flags" IS 'Flags:
 4: manual overwrite (if calculated, accept; no overwrite)
 6: "reverted" ie, delete current and restore previously reported value.
 8: ';
+COMMENT ON COLUMN "p_rsf"."rsf_data"."data_sys_source" IS '0=Undefined; 1=Reported Cohort; 2=System Calculation Cohort; 3=System Generated';
 
 -- ----------------------------
 -- Table structure for rsf_data_calculation_evaluations
@@ -809,6 +911,19 @@ CREATE TABLE "p_rsf"."rsf_data_calculation_evaluations" (
   "rsf_pfcbl_id" int4 NOT NULL,
   "indicator_id" int4 NOT NULL,
   "calculation_asof_date" date NOT NULL
+)
+;
+
+-- ----------------------------
+-- Table structure for rsf_data_calculation_validations
+-- ----------------------------
+DROP TABLE IF EXISTS "p_rsf"."rsf_data_calculation_validations";
+CREATE TABLE "p_rsf"."rsf_data_calculation_validations" (
+  "rsf_pfcbl_id" int4 NOT NULL,
+  "indicator_id" int4 NOT NULL,
+  "calculation_asof_date" date NOT NULL,
+  "data_id" int4 NOT NULL,
+  "validation_time" timestamptz(6) NOT NULL DEFAULT (timeofday())::timestamp with time zone
 )
 ;
 
@@ -935,7 +1050,9 @@ CREATE TABLE "p_rsf"."rsf_data_current_names_and_ids" (
   "nickname" text COLLATE "pg_catalog"."default",
   "rank_id" text COLLATE "pg_catalog"."default",
   "pfcbl_category" text COLLATE "pg_catalog"."default",
-  "pfcbl_name" text COLLATE "pg_catalog"."default"
+  "pfcbl_name" text COLLATE "pg_catalog"."default",
+  "tranche_id" text COLLATE "pg_catalog"."default",
+  "series_id" text COLLATE "pg_catalog"."default"
 )
 ;
 
@@ -972,20 +1089,6 @@ CREATE TABLE "p_rsf"."rsf_pfcbl_categories" (
 ;
 
 -- ----------------------------
--- Table structure for rsf_pfcbl_id_family
--- ----------------------------
-DROP TABLE IF EXISTS "p_rsf"."rsf_pfcbl_id_family";
-CREATE TABLE "p_rsf"."rsf_pfcbl_id_family" (
-  "parent_pfcbl_category" varchar(255) COLLATE "pg_catalog"."default" NOT NULL,
-  "parent_rsf_pfcbl_id" int4 NOT NULL,
-  "child_rsf_pfcbl_id" int4 NOT NULL,
-  "child_pfcbl_category" varchar(255) COLLATE "pg_catalog"."default" NOT NULL,
-  "parent_pfcbl_rank" int2 NOT NULL,
-  "child_pfcbl_rank" int2 NOT NULL
-)
-;
-
--- ----------------------------
 -- Table structure for rsf_pfcbl_ids
 -- ----------------------------
 DROP TABLE IF EXISTS "p_rsf"."rsf_pfcbl_ids";
@@ -1001,12 +1104,16 @@ CREATE TABLE "p_rsf"."rsf_pfcbl_ids" (
   "created_by_reporting_cohort_id" int4 NOT NULL DEFAULT 0,
   "created_in_reporting_asof_date" date NOT NULL,
   "created_timestamp" timestamp(6) NOT NULL DEFAULT now(),
-  "parent_rsf_pfcbl_id" int4,
-  "rsf_pf_id" int4
+  "!dep-parent_rsf_pfcbl_id" int4,
+  "!dep-rsf_pf_id" int4,
+  "deactivated_in_reporting_asof_date" date,
+  "deactivated_by_reporting_cohort_id" int4
 )
 ;
 COMMENT ON COLUMN "p_rsf"."rsf_pfcbl_ids"."created_by_reporting_cohort_id" IS 'Zero value indicates parse_template created new rsf_pfcbl_ids and related rsf_ids but as-yet didn''t upload any data or create a cohort to claim these IDs.  If something faltered mid-upload, these IDs are effectively null and should be cleaned-up.  When claimed, cohort will also provide creation timestamp and uploader user_id etc';
 COMMENT ON COLUMN "p_rsf"."rsf_pfcbl_ids"."created_in_reporting_asof_date" IS 'Convenient field joins to reporting_cohorts''s rsf_reporting reporting_asof_date, set by parse_template''s claim cohort ';
+COMMENT ON COLUMN "p_rsf"."rsf_pfcbl_ids"."!dep-parent_rsf_pfcbl_id" IS 'TO BE DEPRECATED - SEP2020 along with rsf_pfcbl_id_family';
+COMMENT ON COLUMN "p_rsf"."rsf_pfcbl_ids"."!dep-rsf_pf_id" IS 'TO BE DEPRECATED - SEP2020 along with rsf_pfcbl_id_family';
 
 -- ----------------------------
 -- Table structure for rsf_pfcbl_reporting
@@ -1026,7 +1133,7 @@ CREATE TABLE "p_rsf"."rsf_pfcbl_reporting" (
 DROP TABLE IF EXISTS "p_rsf"."rsf_pfcbl_reporting_template_row_ids";
 CREATE TABLE "p_rsf"."rsf_pfcbl_reporting_template_row_ids" (
   "rsf_pfcbl_id" int4 NOT NULL,
-  "reporting_cohort_id" int4 NOT NULL,
+  "import_id" int4,
   "data_source_row_id" text COLLATE "pg_catalog"."default" NOT NULL,
   "template_id" int4 NOT NULL,
   "parent_rsf_pfcbl_id" int4 NOT NULL
@@ -1047,52 +1154,6 @@ CREATE TABLE "p_rsf"."rsf_program_facility_check_guidance" (
 )
 ;
 COMMENT ON COLUMN "p_rsf"."rsf_program_facility_check_guidance"."rsf_facility_id" IS 'Null when guidance is set at the program level';
-
--- ----------------------------
--- Table structure for rsf_program_facility_checks
--- ----------------------------
-DROP TABLE IF EXISTS "p_rsf"."rsf_program_facility_checks";
-CREATE TABLE "p_rsf"."rsf_program_facility_checks" (
-  "rsf_pfcbl_id" int4 NOT NULL,
-  "check_formula_id" int4 NOT NULL,
-  "indicator_check_id" int4 NOT NULL,
-  "rsf_program_id" int4 NOT NULL,
-  "rsf_facility_id" int4,
-  "is_subscribed" bool NOT NULL,
-  "is_auto_subscribed" bool NOT NULL DEFAULT false,
-  "subscription_comments" text COLLATE "pg_catalog"."default",
-  "comments_user_id" text COLLATE "pg_catalog"."default"
-)
-;
-
--- ----------------------------
--- Table structure for rsf_program_facility_indicators
--- ----------------------------
-DROP TABLE IF EXISTS "p_rsf"."rsf_program_facility_indicators";
-CREATE TABLE "p_rsf"."rsf_program_facility_indicators" (
-  "rsf_pfcbl_id" int4 NOT NULL,
-  "indicator_id" int4 NOT NULL,
-  "formula_id" int4,
-  "rsf_program_id" int4 NOT NULL,
-  "rsf_facility_id" int4,
-  "is_subscribed" bool NOT NULL,
-  "is_auto_subscribed" bool NOT NULL DEFAULT false,
-  "sort_preference" int2,
-  "subscription_comments" text COLLATE "pg_catalog"."default",
-  "comments_user_id" text COLLATE "pg_catalog"."default",
-  "options_group_id" int4,
-  "formula_calculation_unit" text COLLATE "pg_catalog"."default"
-)
-;
-COMMENT ON COLUMN "p_rsf"."rsf_program_facility_indicators"."formula_id" IS 'If it''s a calculated indicator (or possibly not?), the default (program) or specific formula (facility) is using to calculate this indicator''s value';
-COMMENT ON COLUMN "p_rsf"."rsf_program_facility_indicators"."is_subscribed" IS 'True: Yes, proactively monitored; False: No, proactively not monitored; Null: Reported and therefore implicitly monitored';
-COMMENT ON COLUMN "p_rsf"."rsf_program_facility_indicators"."is_auto_subscribed" IS 'System will set as auto subscribed at the program level when it''s reported (and delete entries that are auto subscribed only if no entries remain after a dataset delete)';
-COMMENT ON COLUMN "p_rsf"."rsf_program_facility_indicators"."sort_preference" IS 'Display sorting in RSF Setup and Reporting';
-COMMENT ON COLUMN "p_rsf"."rsf_program_facility_indicators"."formula_calculation_unit" IS 'This is only used for currency units.
-
-This can only be set on currency data type indicators that have LCU as their defined currency unit (indicators with specific currencies, like USD) must return those values.
-
-If an invalid currency unit is entered, it will given a calculation error message.';
 
 -- ----------------------------
 -- Table structure for rsf_program_facility_template_headers
@@ -1122,18 +1183,6 @@ COMMENT ON COLUMN "p_rsf"."rsf_program_facility_template_headers"."action" IS 'd
 COMMENT ON COLUMN "p_rsf"."rsf_program_facility_template_headers"."action_mapping" IS 'to enable unique constraint';
 
 -- ----------------------------
--- Table structure for rsf_program_reporting_dates
--- ----------------------------
-DROP TABLE IF EXISTS "p_rsf"."rsf_program_reporting_dates";
-CREATE TABLE "p_rsf"."rsf_program_reporting_dates" (
-  "rsf_program_id" int4 NOT NULL,
-  "valid_reporting_date" date NOT NULL,
-  "reporting_sequence_rank" int4 NOT NULL,
-  "rsf_pfcbl_id" int4 NOT NULL
-)
-;
-
--- ----------------------------
 -- Table structure for rsf_program_settings
 -- ----------------------------
 DROP TABLE IF EXISTS "p_rsf"."rsf_program_settings";
@@ -1153,6 +1202,73 @@ CREATE TABLE "p_rsf"."rsf_programs" (
   "reporting_period" varchar(255) COLLATE "pg_catalog"."default" NOT NULL DEFAULT 'quarter'::character varying
 )
 ;
+
+-- ----------------------------
+-- Table structure for rsf_setup_checks
+-- ----------------------------
+DROP TABLE IF EXISTS "p_rsf"."rsf_setup_checks";
+CREATE TABLE "p_rsf"."rsf_setup_checks" (
+  "rsf_pfcbl_id" int4 NOT NULL,
+  "check_formula_id" int4 NOT NULL,
+  "indicator_check_id" int4 NOT NULL,
+  "rsf_program_id" int4 NOT NULL,
+  "rsf_facility_id" int4,
+  "is_subscribed" bool NOT NULL,
+  "is_auto_subscribed" bool NOT NULL DEFAULT false,
+  "subscription_comments" text COLLATE "pg_catalog"."default",
+  "comments_user_id" text COLLATE "pg_catalog"."default",
+  "auto_subscribed_by_reporting_cohort_id" int4
+)
+;
+
+-- ----------------------------
+-- Table structure for rsf_setup_checks_config
+-- ----------------------------
+DROP TABLE IF EXISTS "p_rsf"."rsf_setup_checks_config";
+CREATE TABLE "p_rsf"."rsf_setup_checks_config" (
+  "rsf_pfcbl_id" int4 NOT NULL,
+  "for_indicator_id" int4 NOT NULL,
+  "indicator_check_id" int4 NOT NULL,
+  "rsf_program_id" int4 NOT NULL,
+  "rsf_facility_id" int4,
+  "config_auto_resolve" bool NOT NULL,
+  "config_check_class" text COLLATE "pg_catalog"."default" NOT NULL DEFAULT false,
+  "config_threshold" numeric NOT NULL DEFAULT 0.0,
+  "config_comments" text COLLATE "pg_catalog"."default",
+  "comments_user_id" text COLLATE "pg_catalog"."default",
+  "auto_subscribed_by_reporting_cohort_id" int4
+)
+;
+
+-- ----------------------------
+-- Table structure for rsf_setup_indicators
+-- ----------------------------
+DROP TABLE IF EXISTS "p_rsf"."rsf_setup_indicators";
+CREATE TABLE "p_rsf"."rsf_setup_indicators" (
+  "rsf_pfcbl_id" int4 NOT NULL,
+  "indicator_id" int4 NOT NULL,
+  "formula_id" int4,
+  "rsf_program_id" int4 NOT NULL,
+  "rsf_facility_id" int4,
+  "is_subscribed" bool NOT NULL,
+  "is_auto_subscribed" bool NOT NULL DEFAULT false,
+  "sort_preference" int2,
+  "subscription_comments" text COLLATE "pg_catalog"."default",
+  "comments_user_id" text COLLATE "pg_catalog"."default",
+  "options_group_id" int4,
+  "formula_calculation_unit" text COLLATE "pg_catalog"."default",
+  "auto_subscribed_by_reporting_cohort_id" int4
+)
+;
+COMMENT ON COLUMN "p_rsf"."rsf_setup_indicators"."formula_id" IS 'If it''s a calculated indicator (or possibly not?), the default (program) or specific formula (facility) is using to calculate this indicator''s value';
+COMMENT ON COLUMN "p_rsf"."rsf_setup_indicators"."is_subscribed" IS 'True: Yes, proactively monitored; False: No, proactively not monitored; Null: Reported and therefore implicitly monitored';
+COMMENT ON COLUMN "p_rsf"."rsf_setup_indicators"."is_auto_subscribed" IS 'System will set as auto subscribed at the program level when it''s reported (and delete entries that are auto subscribed only if no entries remain after a dataset delete)';
+COMMENT ON COLUMN "p_rsf"."rsf_setup_indicators"."sort_preference" IS 'Display sorting in RSF Setup and Reporting';
+COMMENT ON COLUMN "p_rsf"."rsf_setup_indicators"."formula_calculation_unit" IS 'This is only used for currency units.
+
+This can only be set on currency data type indicators that have LCU as their defined currency unit (indicators with specific currencies, like USD) must return those values.
+
+If an invalid currency unit is entered, it will given a calculation error message.';
 
 -- ----------------------------
 -- Function structure for cascade_check_subgrouping_changes_to_formulas
@@ -1294,20 +1410,20 @@ BEGIN
 						  and exists(select * from p_rsf.rsf_program_facility_check_guidance pfcg
 												 where pfcg.indicator_check_guidance_id = other_icg.indicator_check_guidance_id
 												   and pfcg.rsf_program_id = NEW.rsf_program_id
-													 and coalesce(pfcg.rsf_facility_id,-1) = coalesce(NEW.rsf_facility_id,-1))) then
+													 and pfcg.rsf_facility_id is not distinct from NEW.rsf_facility_id)) then
     raise exception 'Unable to add guidance as this program/facility is already subscribed to another relevant guidance.';
 		return NULL;
 	end if;
-		
+		/*
 	if not exists(select * from p_rsf.rsf_pfcbl_ids ids
 	              where ids.rsf_pfcbl_id = NEW.rsf_pfcbl_id
 								  and ids.rsf_program_id = NEW.rsf_program_id
-									and coalesce(ids.rsf_facility_id,-1) = coalesce(NEW.rsf_facility_id,-1)) then
+									and ids.rsf_facility_id is not distinct from NEW.rsf_facility_id) then
 	  raise exception 'Invalid subscription for rsf_pfcbl_id=%, rsf_program_id=%, rsf_facility_id=%',
-		                NEW.rsf_pfcbl_id, NEW.rsf_program_id, coalesce(NEW.rsf_facility_id,-1);
+		                NEW.rsf_pfcbl_id, NEW.rsf_program_id, NEW.rsf_facility_id;
 	  return NULL;
 	end if;
-	
+	*/
 	if NEW.rsf_facility_id is NULL
 		 and not exists(select * from p_rsf.indicator_check_guidance this_icg
 										where this_icg.indicator_check_guidance_id = NEW.indicator_check_guidance_id
@@ -1402,111 +1518,6 @@ BEGIN
 	return NEW;
 END; 
 $BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
--- Function structure for compute_calculation_from_parameter
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."compute_calculation_from_parameter"("parameter_rsf_pfcbl_id" int4, "parameter_indicator_id" int4, "parameter_reporting_asof_date" date);
-CREATE FUNCTION "p_rsf"."compute_calculation_from_parameter"("parameter_rsf_pfcbl_id" int4, "parameter_indicator_id" int4, "parameter_reporting_asof_date" date)
-  RETURNS "pg_catalog"."void" AS $BODY$
-#variable_conflict use_variable
-declare to_calculation record;
-declare calculation record;
-declare testing record;
-begin                                                                             
-
-  FOR to_calculation IN 
-      (SELECT ifp.calculate_pfcbl_category,ifp.parameter_pfcbl_hierarchy,ifp.parameter_pfcbl_category,array_agg(formula_id) as formula_ids
-       FROM p_rsf.indicator_formula_parameters ifp
-       where ifp.parameter_indicator_id = parameter_indicator_id
-       group by ifp.calculate_pfcbl_category,ifp.parameter_pfcbl_hierarchy,ifp.parameter_pfcbl_category)
-  LOOP
-        
-    if (to_calculation.parameter_pfcbl_hierarchy='self')
-    then
-    
-      insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,indicator_id,calculation_asof_date)
-      select       
-      rpr.rsf_pfcbl_id,
-      pis.indicator_id,
-      rpr.reporting_asof_date
-      from p_rsf.rsf_pfcbl_reporting rpr
-      inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = rpr.rsf_pfcbl_id	                                                                                                                             
-      where pis.is_subscribed = true
-        and pis.formula_id = any(to_calculation.formula_ids)        
-        and rpr.rsf_pfcbl_id = parameter_rsf_pfcbl_id
-        and rpr.reporting_asof_date >= parameter_reporting_asof_date
-      on conflict do nothing;
-    
-    elseif (to_calculation.parameter_pfcbl_hierarchy='child') -- meaning parameter is the child of the calculation, so to_calculation_rsf_pfcbl_id means parent entity
-    then
-      with parent_rsf_pfcbl_id as (
-        select
-          case when to_calculation.calculate_pfcbl_category = 'global' then 0
-               when to_calculation.calculate_pfcbl_category = 'program' then ids.rsf_program_id
-               when to_calculation.calculate_pfcbl_category = 'facility' then ids.rsf_facility_id
-               when to_calculation.calculate_pfcbl_category = 'client' then ids.rsf_client_id
-               when to_calculation.calculate_pfcbl_category = 'borrower' then ids.rsf_borrower_id
-               when to_calculation.calculate_pfcbl_category = 'loan' then ids.rsf_loan_id
-          end as calculate_rsf_pfcbl_id           
-        from p_rsf.rsf_pfcbl_ids ids
-        where ids.rsf_pfcbl_id = parameter_rsf_pfcbl_id     
-      )
-      insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,indicator_id,calculation_asof_date)
-      select       
-      rpr.rsf_pfcbl_id,
-      pis.indicator_id,
-      rpr.reporting_asof_date
-      from p_rsf.rsf_pfcbl_reporting rpr 
-      inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = rpr.rsf_pfcbl_id	                                                               
-                                                                      
-      where pis.is_subscribed = true
-        and pis.formula_id = any(to_calculation.formula_ids)
-        and rpr.rsf_pfcbl_id = (select calculate_rsf_pfcbl_id from parent_rsf_pfcbl_id)
-        and rpr.reporting_asof_date >= parameter_reporting_asof_date
-      on conflict do nothing;
-    
-    elseif (to_calculation.parameter_pfcbl_hierarchy='parent') -- meaning parameter is the child of the calculation, so to_calculation_rsf_pfcbl_id means parent entity
-    then
-      with child_rsf_pfcbl_id as materialized (
-      
-         select ft.to_family_rsf_pfcbl_id as calculate_rsf_pfcbl_id
-         from p_rsf.view_rsf_pfcbl_id_family_tree ft
-         where ft.from_rsf_pfcbl_id = parameter_rsf_pfcbl_id
-           and ft.from_pfcbl_category = to_calculation.parameter_pfcbl_category
-           and ft.to_pfcbl_category = to_calculation.calculate_pfcbl_category
-           and ft.pfcbl_hierarchy = 'child'
-      
-      /*
-          select rsf_pfcbl_id as calculate_rsf_pfcbl_id
-          from p_rsf.get_rsf_pfcbl_family_children(parent_rsf_pfcbl_id => parameter_rsf_pfcbl_id,
-                                                   parent_pfcbl_category => to_calculation.parameter_pfcbl_category,
-                                                   child_pfcbl_category => to_calculation.calculate_pfcbl_category)                                                 
-      */
-      )
-      insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,indicator_id,calculation_asof_date)
-      select       
-      rpr.rsf_pfcbl_id,
-      pis.indicator_id,
-      rpr.reporting_asof_date
-      from p_rsf.rsf_pfcbl_reporting rpr 
-      inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = rpr.rsf_pfcbl_id
-      where pis.is_subscribed = true
-        and pis.formula_id = any(to_calculation.formula_ids)                                                                      
-        and rpr.rsf_pfcbl_id = any(select calculate_rsf_pfcbl_id from child_rsf_pfcbl_id)
-        and rpr.reporting_asof_date >= parameter_reporting_asof_date
-      on conflict do nothing;
-      
-    end if;      
-    
-    
-  END LOOP;
-  
-return;
-
-end $BODY$
   LANGUAGE plpgsql VOLATILE
   COST 100;
 
@@ -1706,6 +1717,170 @@ $BODY$
   COST 100;
 
 -- ----------------------------
+-- Function structure for data_value_is_meaningfully_different2
+-- ----------------------------
+DROP FUNCTION IF EXISTS "p_rsf"."data_value_is_meaningfully_different2"("input_rsf_pfcbl_id" int4, "input_indicator_id" int4, "input_reporting_asof_date" date, "input_data_value" text, "input_data_unit" text, "is_user_reporting" bool);
+CREATE FUNCTION "p_rsf"."data_value_is_meaningfully_different2"("input_rsf_pfcbl_id" int4, "input_indicator_id" int4, "input_reporting_asof_date" date, "input_data_value" text, "input_data_unit" text, "is_user_reporting" bool=false)
+  RETURNS "pg_catalog"."bool" AS $BODY$
+declare existing_data_id int;
+declare existing_data_value text;
+declare existing_data_unit text;
+declare existing_data_unit_current text;
+declare existing_data_reporting_asof_date date;
+declare existing_data_cohort_id int;
+declare different bool;
+--declare flow_data bool default false;
+--declare flow_data_category text;
+BEGIN
+
+  --v_current_data_sequence_rank:=1;
+	input_data_value := trim(input_data_value);
+	input_data_unit := upper(trim(input_data_unit));
+
+	--rdc is queried because rdc has normalzied data units for currency
+	select
+		rd.data_value,
+		rd.data_unit,  -- IMPORTANT: rd.data_unit and NOT rdc.data_unit because rd.data_unit is what is submitted, and for LCU/LCY, rdc is adjusted!!
+		coalesce(rdc.data_id,rd.data_id) as data_id,
+		
+		-- because rsf_data_current changes data units based on LCU values and may more may not be equal to rd.data_unit as a result
+		coalesce(rdc.data_unit,rd.data_unit) as data_unit, 
+		rd.reporting_asof_date,
+		rd.reporting_cohort_id
+		into 
+		existing_data_value, existing_data_unit, existing_data_id, existing_data_unit_current, existing_data_reporting_asof_date, existing_data_cohort_id
+	from p_rsf.rsf_data rd  
+	left join p_rsf.rsf_data_current rdc on rdc.data_id = rd.data_id
+	where rd.rsf_pfcbl_id = input_rsf_pfcbl_id
+		and rd.indicator_id = input_indicator_id
+		and rd.reporting_asof_date <= input_reporting_asof_date
+		and (coalesce(rd.data_sys_flags,0) & 2)=0
+	order by rd.reporting_asof_date desc,rdc.data_id is not null desc,rd.data_id desc
+	limit 1;
+
+
+	
+	 -- no entry exists whatsoever, so any entry, even NULL is meaningfully new
+	 if existing_data_id is NULL then
+	   return true;
+	 end if;
+
+   different := (existing_data_value is distinct from input_data_value)  -- different value
+								or 
+								(existing_data_unit_current is distinct from input_data_unit AND -- different 
+								 existing_data_unit is distinct from input_data_unit);
+   /*
+	 raise notice 'Data is meaningfully different: % and 
+	               existing_data_value=% existing_data_unit=% existing_data_id=% existing_data_unit_current=% existing_data_reporting_asof_date=%',
+		different,
+		existing_data_value, existing_data_unit, existing_data_id, existing_data_unit_current, existing_data_reporting_asof_date;
+	 */
+	 
+	 -- if the currentest value is a redundancy reporting and this is not redundancy reporting, then it doesn't matter
+		 -- if the previous row already reported: we need to ensure that redundancy data gets cleared out of being current.
+   
+   -- Its NOT different...
+   -- But is it a "flow" data?
+   -- If so, one can reasonably report the same magnitude of change consecutively.
+	 if different = false
+      AND exists(select * from p_rsf.indicators ind 
+                 where ind.indicator_id = input_indicator_id
+                   and ind.is_periodic_or_flow_reporting is TRUE)
+	 then
+	 
+		 
+		 -- flow data is by definition a measure of a change over time
+		 -- so if last time reported NULL then nothing changed.  And if reporting again NULL then it's spam so reject it.
+		 -- Whereas reporting 0 last time and 0 again can indicate an actual quantity of something that (didn't) happen in the period.
+		 if NULLIF(existing_data_value,'0') is NULL
+				AND NULLIF(input_data_value,'0') is NULL
+		 then
+			
+			--different := false;
+			return (false);
+			
+		 elseif existing_data_reporting_asof_date is distinct from input_reporting_asof_date
+		 		-- in case, eg, a borrower has a flow data and multiple reporting entries that won't spam each vaule
+				-- if its in active we don't want to spam it with zeros or nulls.
+				-- but inactive loans may still report recoveries.
+		    AND (NULLIF(input_data_value,'0') is NOT NULL
+				     OR
+						 (NULLIF(existing_data_value,'0') is NOT NULL AND NULLIF(input_data_value,'0') is NULL)
+				     OR
+             --THIS NEEDS TO CHANGE!!
+						 exists(select * from p_rsf.get_rsf_pfcbl_id_reporting_status_asof_date(input_rsf_pfcbl_id,
+				                                                                            (select ind.data_category from p_rsf.indicators ind
+                                                                                     where ind.indicator_id = input_indicator_id),
+																																									  input_reporting_asof_date) as status
+							         where status.quarter_reporting_expected = true)
+						)
+		 then
+		   --different := true;
+			 return (true);
+		 end if;
+		 
+	 end if;
+   
+   -- It's NOT flow data (flow data exits)
+   -- If it's not different, then exit (source doesn't matter if it's unchanged)
+   if different is false then
+		   return false;
+       
+   -- if it's not user reported (ie, it's system/calcualted)
+   -- then we only want to compare to the currentest, whether that's system or user data
+	 elseif is_user_reporting is false
+   then
+       return (different); -- is true
+   
+   -- We aren't flow
+   -- We are different
+   -- We are user-reported
+   -- And currentest data is NOT user-reported
+   elseif exists(select *
+                 from p_rsf.reporting_cohorts rc 
+                 where rc.reporting_cohort_id = existing_data_cohort_id
+                   and rc.is_reported_cohort is false)
+   then
+      -- Then let's look at the last user-reported data    
+		 select
+			 rd.data_value,
+			 rd.data_unit  -- IMPORTANT: rd.data_unit and NOT rdc.data_unit because rd.data_unit is what is submitted, and for LCU/LCY, rdc is adjusted!!			 
+			 into 
+			 -- NOTE: existing_data_id is NOT updated here, data_id remains latest-added in time/sequence
+			 existing_data_value, 
+       existing_data_unit
+		 from p_rsf.rsf_data rd 
+     inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
+		 where rd.rsf_pfcbl_id = input_rsf_pfcbl_id
+			 and rd.indicator_id = input_indicator_id
+			 and rd.reporting_asof_date <= input_reporting_asof_date
+			 and rc.is_reported_cohort is true
+			 and (coalesce(rd.data_sys_flags,0) & 2)=0 -- BIT 2 = SOFT DELETE FLAG
+		 order by rd.reporting_asof_date desc, rd.data_id desc
+		 limit 1;
+     
+    -- if it is different, then insert the change
+		if existing_data_value is distinct from input_data_value OR
+			 existing_data_unit is distinct from input_data_unit
+		then					 
+				return true;
+    else
+				return false;
+		end if;
+    
+   -- We aren't flow
+   -- We are different
+   -- We are user-reported
+   -- And currentest data IS user-reported
+   else 
+     return different; -- will be true
+   end if;     	 
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+
+-- ----------------------------
 -- Function structure for dblink_account_info
 -- ----------------------------
 DROP FUNCTION IF EXISTS "p_rsf"."dblink_account_info"();
@@ -1765,10 +1940,10 @@ $BODY$
   COST 100;
 
 -- ----------------------------
--- Function structure for deleted_reporting_cohorts_action
+-- Function structure for deleted_reporting_imports_action
 -- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."deleted_reporting_cohorts_action"();
-CREATE FUNCTION "p_rsf"."deleted_reporting_cohorts_action"()
+DROP FUNCTION IF EXISTS "p_rsf"."deleted_reporting_imports_action"();
+CREATE FUNCTION "p_rsf"."deleted_reporting_imports_action"()
   RETURNS "pg_catalog"."trigger" AS $BODY$
 DECLARE deleted_rsf_pf_id int;
 BEGIN
@@ -1778,12 +1953,12 @@ BEGIN
 		return NULL;
 	end if;
 
-	delete from p_rsf.reporting_cohorts rc
+	delete from p_rsf.reporting_imports ri
 	using newly_deleted
-	where newly_deleted.reporting_cohort_id = rc.reporting_cohort_id;
+	where newly_deleted.import_id = ri.import_id;
 	
 	-- delete logged deletes after 100 days
-	delete from p_rsf.deleted_reporting_cohorts drc
+	delete from p_rsf.reporting_imports_deleted_archive drc
 	where (drc.deleted_time + interval '100 days') < TIMEOFDAY()::timestamptz;
 
 	return NULL;
@@ -1793,289 +1968,52 @@ $BODY$
   COST 100;
 
 -- ----------------------------
--- Function structure for deleted_reporting_cohorts_logging
+-- Function structure for deleted_reporting_imports_logging
 -- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."deleted_reporting_cohorts_logging"();
-CREATE FUNCTION "p_rsf"."deleted_reporting_cohorts_logging"()
+DROP FUNCTION IF EXISTS "p_rsf"."deleted_reporting_imports_logging"();
+CREATE FUNCTION "p_rsf"."deleted_reporting_imports_logging"()
   RETURNS "pg_catalog"."trigger" AS $BODY$
 BEGIN	
 	
 	perform users.rsf_pfcbl_id_validate_permissions(validate_account_id => NEW.deleting_user_id,
-                                                  validate_rsf_pfcbl_id => (select rc.reporting_rsf_pfcbl_id
-																									                          from p_rsf.reporting_cohorts rc
-																																						where rc.reporting_cohort_id = NEW.reporting_cohort_id),
+                                                  validate_rsf_pfcbl_id => (select ri.import_rsf_pfcbl_id
+																									                          from p_rsf.reporting_imports ri
+																																						where ri.import_id = NEW.import_id),
 																									validate_permission_name => 'DELETE');	
 		
 	
 	if exists(select * 
-	          from p_rsf.reporting_cohorts rc	
-						left join p_rsf.reporting_cohort_info rci on rci.reporting_cohort_id = rc.reporting_cohort_id
-						where rci.upload_file is NOT NULL
-						   or (rc.parent_reporting_cohort_id is NULL and rc.linked_reporting_cohort_id is NULL))
+	          from p_rsf.reporting_imports ri
+            where ri.import_id = NEW.import_id)
   then 
 									
 		select 
-			rci.upload_filename,
-			rci.upload_file,
-			rc.reporting_asof_date,
-			rc.reporting_rsf_pfcbl_id,
-			rc.reporting_user_id,
-			rc.data_asof_date,
-			rc.source_note
+			ri.import_rsf_pfcbl_id,
+      ri.file_name,
+      ri.file_data,
+      ri.reporting_asof_date,
+      ri.import_user_id,
+      ri.import_comments
 		into
-			NEW.upload_filename,
-			NEW.upload_file,
-			NEW.reporting_asof_date,
-			NEW.reporting_rsf_pfcbl_id,
-			NEW.reporting_user_id,
-			NEW.data_asof_date,
-			NEW.source_note
-		from p_rsf.reporting_cohorts rc
-		inner join p_rsf.reporting_cohort_info rci on rci.reporting_cohort_id = rc.reporting_cohort_id
-		where rc.reporting_cohort_id = NEW.reporting_cohort_id;
+			NEW.import_rsf_pfcbl_id,
+      NEW.file_name,
+      NEW.file_data,
+      NEW.reporting_asof_date,
+      NEW.import_user_id,
+      NEW.import_comments
+		from p_rsf.reporting_imports ri
+		where ri.import_id = NEW.import_id;
 
 		NEW.deleted_time := timeofday()::timestamptz;
 		
 		return NEW;
 		
   else 
-	
-		delete from p_rsf.reporting_cohorts rc
-		where rc.reporting_cohort_id = NEW.reporting_cohort_id;
 		
 		return NULL;
   end if;		
 END;
 $BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
--- Function structure for function_evaluate_calculations_using__modified_data
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."function_evaluate_calculations_using__modified_data"("event_type" text, "event_is_calculated_cohort" bool);
-CREATE FUNCTION "p_rsf"."function_evaluate_calculations_using__modified_data"("event_type" text='update'::text, "event_is_calculated_cohort" bool=false)
-  RETURNS "pg_catalog"."void" AS $BODY$
-begin
-     
-  if (not event_type in ('insert','update','delete')) 
-  then
-    raise exception 'event_type must be: insert, update, delete; use update for manual resets or testing';
-  end if;
-  
-  create temp table _sys_calculated_data(rsf_pfcbl_id int,
-                                         indicator_id int,
-                                         reporting_asof_date date)
-  on commit drop;
-  
-  
-  if (event_type = 'insert') and
-     (event_is_calculated_cohort is true)
-  then
-    
-    select
-    md.rsf_pfcbl_id,
-    md.indicator_id,
-    md.reporting_asof_date
-    from _modified_data md
-    inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = rpr.rsf_pfcbl_id
-    where pis.is_subscribed is true
-      and pis.is_calculated is true;    
-    
-    delete from p_rsf.rsf_data_calculation_evaluations dce
-    using _sys_calculated_data scd
-    where dce.rsf_pfcbl_id = scd.rsf_pfcbl_id
-      and dce.indicator_id = scd.indicator_id
-      and dce.calculation_asof_date = scd.reporting_asof_date;
-      
-  end if;
-  
-  with reporting_formula_subscriptions as (
-    select 
-      rpr.rsf_pfcbl_id,
-      rpr.reporting_asof_date,
-      pis.indicator_id,
-      pis.formula_id
-    from p_rsf.rsf_pfcbl_reporting rpr
-    inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = rpr.rsf_pfcbl_id
-    where pis.is_subscribed is true
-      and pis.is_calculated is true
-      and exists(select * from _modified_data mcd
-                 where mcd.data_id = rpr.created_by_data_id) -- rpr.created_by_data_id has an index
-  ),
-  parameter_triggers as (
-          
-    select 
-      mcd.rsf_pfcbl_id as parameter_pfcbl_id,
-      ifp.indicator_id as calculate_indicator_id,
-      mcd.reporting_asof_date,
-      ifp.parameter_pfcbl_category,
-      ifp.calculate_pfcbl_category,
-      ifp.formula_id,
-      ifp.parameter_pfcbl_hierarchy
-    from _modified_data mcd                                   
-    inner join p_rsf.indicator_formula_parameters ifp on ifp.parameter_indicator_id = mcd.indicator_id
-    
-    union 
-    
-    select
-      rfs.rsf_pfcbl_id as parameter_pfcbl_id,
-      ifp.indicator_id as calculate_indicator_id,
-      rfs.reporting_asof_date,
-      ifp.parameter_pfcbl_category,
-      ifp.calculate_pfcbl_category,
-      ifp.formula_id,
-      ifp.parameter_pfcbl_hierarchy
-    from reporting_formula_subscriptions rfs
-    inner join p_rsf.indicator_formula_parameters ifp on ifp.formula_id = rfs.formula_id
-    where ifp.parameter_trigger_by_reporting = true -- this is basically for formulas that use .previous or .all (ie, use historical data when current data may not be reported)
-  ),
-  
-  -- because we cannot join on to_family_rsf_pfcbl_id without materializing it; else the indexes will fail and the query will take forever. Vastly faster if materialized.
-  calculation_parameter_triggers_mat as materialized (
-    select distinct
-    calc.calculate_indicator_id,
-    ft.to_family_rsf_pfcbl_id as calculate_rsf_pfcbl_id,
-    calc.reporting_asof_date as calculation_asof_date,
-    calc.formula_id
-    from parameter_triggers calc
-    inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = calc.parameter_pfcbl_id
-                                                     --and ft.from_pfcbl_category = calc.parameter_pfcbl_category
-                                                     and ft.to_pfcbl_category = calc.calculate_pfcbl_category
-    where (ft.pfcbl_hierarchy = calc.parameter_pfcbl_hierarchy)
-      or  (ft.pfcbl_hierarchy = 'child' and calc.parameter_pfcbl_hierarchy = 'parent')
-      or  (ft.pfcbl_hierarchy = 'parent' and calc.parameter_pfcbl_hierarchy = 'child')
-  ),
-  
-  
-  --#1: Calculations triggered by inserted parameters and new reporting
-  calculation_parameter_triggers as (
-
-      select 
-        cpt.calculate_rsf_pfcbl_id,
-        cpt.calculate_indicator_id,
-        cpt.calculation_asof_date,
-        cpt.formula_id
-      from calculation_parameter_triggers_mat cpt
-      -- because parameters to which it is subscribed may not also be calculations to which it is subscribed so re-filter on the calculation
-      -- (we know its subscribed to the parameters because they've been inserted in the trigger's data)
-      inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = cpt.calculate_rsf_pfcbl_id
-                                                                 and pis.indicator_id = cpt.calculate_indicator_id
-      where pis.formula_id = cpt.formula_id
-  ),
-  
-  --#2: Calculations triggered by new reporting that listen to fx rate changes (regardless of any parameter changes)
-  -- we are reporting for the first time this period
-  -- and we monitor calculation formulas
-  -- and those formulas are set to update according to fx rate changes
-  -- and those formulas have, historically, used an fx rate in their calculation
-  -- so recalculate them this period (even if no parameters have triggered it).
-  calculation_fx_triggers as (
-  
-    select 
-      rfs.rsf_pfcbl_id as calculate_rsf_pfcbl_id,
-      indf.indicator_id as calculate_indicator_id,
-      rfs.reporting_asof_date as calculation_asof_date,
-      indf.formula_id
-    from reporting_formula_subscriptions rfs
-    inner join p_rsf.indicator_formulas indf on indf.formula_id = rfs.formula_id
-    where indf.formula_fx_date = 'fx'
-      and exists(select * from p_rsf.rsf_data_current_fx cfx
-                 where cfx.rsf_pfcbl_id = rfs.rsf_pfcbl_id
-                   and cfx.indicator_id = indf.indicator_id
-                   and cfx.reporting_asof_date <= rfs.reporting_asof_date) -- it's listening to fx rates
-	
-  ), 
-  
-  --#3: Calculations triggered by a parameter that has _already_ been reported by a parent entity that was reported or calcualted already
-  --ie, these calculations would be triggered if those parent reporting data were present in this cohort
-  calculation_existing_parameter_triggers as (
-  
-    select 
-      rfs.rsf_pfcbl_id as calculate_rsf_pfcbl_id,
-      rfs.indicator_id as calculate_indicator_id,
-      rfs.reporting_asof_date as calculation_asof_date,
-      rfs.formula_id
-    from reporting_formula_subscriptions rfs
-    inner join p_rsf.indicator_formula_parameters ifp on ifp.formula_id = rfs.formula_id
-                                                     and ifp.parameter_pfcbl_hierarchy = 'parent'
-    inner join p_rsf.rsf_data_current rdc on rdc.indicator_id = ifp.parameter_indicator_id
-                                         and rdc.reporting_asof_date = rfs.reporting_asof_date
-    where rdc.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
-                                 from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                                 where ft.from_rsf_pfcbl_id = rfs.rsf_pfcbl_id
-                                   and ft.pfcbl_hierarchy = 'parent')
-  ),
-  
-  --#4: Calculations triggered by the need for the system to verify/validate user-reported calculated values
-  --ie, maybe no relevant parameters trigger this calculation; but the user has reported their own value for this calculation (correctly or not).
-  --so trigger an evaluation so the system can check that the user has reported correctly.
-  --but we don't want to trigger these for DELETES because the user hasn't actually reported in such an event.
-  --and we don't want to trigger these for 'event_is_calculated_cohort' because this occurs when the system is reporting correct data, so we don't want to re-trigger the calculation!
-  calculation_triggered_by_reporting as (
-  
-		select 
-			mcd.rsf_pfcbl_id as calculate_rsf_pfcbl_id,
-			mcd.indicator_id as calculate_indicator_id,
-			mcd.reporting_asof_date as calculation_asof_date,
-      pis.formula_id
-		from _modified_data mcd
-		inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = mcd.rsf_pfcbl_id 
-                                                               and pis.indicator_id = mcd.indicator_id
-		inner join p_rsf.rsf_data rd on rd.data_id = mcd.data_id
-		inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
-		where event_type <> 'delete' --true --(TG_OP <> 'DELETE') -- so it's an insert or an update: which can only have one cohort at a time inserted.  Deletes can be in bulk.
-
-      -- NOT calculated insert into rsf_data (it's user reported calculation)
-			-- if it's a calculated cohort then system is de-facto validating this
-			-- we don't want to re-trigger the evaluation or the confirmation that it's validated.
-		  and event_is_calculated_cohort is false
-      
-      
-      and pis.is_subscribed = true
-      and pis.formula_id is not null
-      
-      
-      --and (select rc.is_calculated_cohort from p_rsf.reporting_cohorts rc
-      --     where rc.reporting_cohort_id = (select reporting_cohort_id from _modified_data limit 1)) is false
-  ),
-  
-  calculations as (
-  
-    select * from calculation_parameter_triggers
-    union all 
-    select * from calculation_fx_triggers
-    union all 
-    select * from calculation_existing_parameter_triggers
-    union all
-    select * from calculation_triggered_by_reporting
-  
-  )
-  insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,
-                                                     indicator_id,
-                                                     calculation_asof_date)
-  select 
-    calc.calculate_rsf_pfcbl_id,
-    calc.calculate_indicator_id,
-    calc.calculation_asof_date
-  from calculations calc
-  inner join p_rsf.rsf_pfcbl_reporting rpr on rpr.rsf_pfcbl_id = calc.calculate_rsf_pfcbl_id
-                                          and rpr.reporting_asof_date >= calc.calculation_asof_date
-  except
-  
-  select
-    scd.rsf_pfcbl_id,
-    scd.indicator_id,
-    scd.reporting_asof_date
-  from _sys_calculated_data scd
-  
-  on conflict do nothing;  
-  
-  drop table _sys_calculated_data;
-  
-  return;
-  
-end; $BODY$
   LANGUAGE plpgsql VOLATILE
   COST 100;
 
@@ -2101,6 +2039,9 @@ begin
   
   raise info 'function_evaluate_calculations_using_modified_data(%,%)',event_type,event_is_calculated_cohort;
   
+  --##validate pending evaluations when insert is by system calculator
+  --  anything that is in serted in a calculated cohort must have been prompted by a subscribed calculation!
+  --  and if somehow it isn't a subscribed calculation, we should definitely remove it!  So this seems unnecessary
   if (event_type = 'insert') and
      (event_is_calculated_cohort is true)
   then
@@ -2116,55 +2057,25 @@ begin
         using _modified_data md
         where dce.rsf_pfcbl_id = md.rsf_pfcbl_id
           and dce.indicator_id = md.indicator_id
-          and dce.calculation_asof_date = md.reporting_asof_date;
-
-    -- anything that is in serted in a calculated cohort must have been prompted by a subscribed calculation!
-    -- and if somehow it isn't a subscribed calculation, we should definitely remove it!  So this seems unnecessary
-    /*
-    insert into _sys_calculated_data(rsf_pfcbl_id,indicator_id,reporting_asof_date)
-    select
-    md.rsf_pfcbl_id,
-    pis.indicator_id,
-    md.reporting_asof_date
-    from _modified_data md
-    inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = md.rsf_pfcbl_id
-                                                               and pis.indicator_id = md.indicator_id
-    where pis.is_subscribed is true
-      and pis.is_calculated is true;    
-    */
+          and dce.calculation_asof_date = md.reporting_asof_date;  
     
-    /*
-    if (exists(select * from _sys_calculated_data
-               where _sys_calculated_data.rsf_pfcbl_id = (select rsf_pfcbl_id 
-               from p_rsf.view_rsf_pfcbl_id_current_sys_names sn where sn.sys_name = 'program:SMALL LOAN GUARANTEE PROGRAM (41038) > facility:SLGP RSF TEB (41672) > client:RSF TEB KOSOVO (1006679) > loan:RANK1190 (733097)')
-                 and _sys_calculated_data.indicator_id = 157394))
-    then 
-       raise info 'Insert value: %',(select data_value from p_rsf.rsf_data rd where rsf_pfcbl_id = (select rsf_pfcbl_id 
-               from p_rsf.view_rsf_pfcbl_id_current_sys_names sn where sn.sys_name = 'program:SMALL LOAN GUARANTEE PROGRAM (41038) > facility:SLGP RSF TEB (41672) > client:RSF TEB KOSOVO (1006679) > loan:RANK1190 (733097)') and indicator_id = 157394);
-       raise info 'Current value: %',(select data_value from p_rsf.rsf_data_current where rsf_pfcbl_id = (select rsf_pfcbl_id 
-               from p_rsf.view_rsf_pfcbl_id_current_sys_names sn where sn.sys_name = 'program:SMALL LOAN GUARANTEE PROGRAM (41038) > facility:SLGP RSF TEB (41672) > client:RSF TEB KOSOVO (1006679) > loan:RANK1190 (733097)') and indicator_id = 157394);
-       
-       raise exception 'TESTING EXCEPTION';
-    end if;
-
-    delete from p_rsf.rsf_data_calculation_evaluations dce
-    using _sys_calculated_data scd
-    where dce.rsf_pfcbl_id = scd.rsf_pfcbl_id
-      and dce.indicator_id = scd.indicator_id
-      and dce.calculation_asof_date = scd.reporting_asof_date;
-*/      
   end if;
   
   with reporting_formula_subscriptions as (
     select 
       rpr.rsf_pfcbl_id,
       rpr.reporting_asof_date,
-      pis.indicator_id,
-      pis.formula_id
+      sis.indicator_id,
+      sis.formula_id
     from p_rsf.rsf_pfcbl_reporting rpr
-    inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = rpr.rsf_pfcbl_id
-    where pis.is_subscribed is true
-      and pis.is_calculated is true
+    inner join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = rpr.rsf_pfcbl_id
+                                                               and sis.filter_matched_pfcbl_indicators is true 
+                                                               -- because this would pair all indicators across their reporting hierarchies
+                                                               -- eg, we may end up with a facility indicator being paired with the global entity, etc.
+                                                               -- note: other subscription references join on indicator_id as well, which serves this filter matching
+    where sis.is_subscribed is true
+      and sis.is_calculated is true
+      
       and exists(select * from _modified_data mcd
                  where mcd.data_id = rpr.created_by_data_id) -- rpr.created_by_data_id has an index
   ),
@@ -2193,7 +2104,8 @@ begin
       ifp.parameter_pfcbl_hierarchy
     from reporting_formula_subscriptions rfs
     inner join p_rsf.indicator_formula_parameters ifp on ifp.formula_id = rfs.formula_id
-    where ifp.parameter_trigger_by_reporting = true -- this is basically for formulas that use .previous or .all (ie, use historical data when current data may not be reported)
+    where ifp.parameter_trigger_by_reporting = true 
+    -- this is basically for formulas that use .previous or .all (ie, use historical data when current data may not be reported)
   ),
   
   -- because we cannot join on to_family_rsf_pfcbl_id without materializing it; else the indexes will fail and the query will take forever. Vastly faster if materialized.
@@ -2205,11 +2117,7 @@ begin
     calc.formula_id
     from parameter_triggers calc
     inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = calc.parameter_pfcbl_id
-                                                     --and ft.from_pfcbl_category = calc.parameter_pfcbl_category
-                                                     and ft.to_pfcbl_category = calc.calculate_pfcbl_category
-    where (ft.pfcbl_hierarchy = calc.parameter_pfcbl_hierarchy)
-      or  (ft.pfcbl_hierarchy = 'child' and calc.parameter_pfcbl_hierarchy = 'parent')
-      or  (ft.pfcbl_hierarchy = 'parent' and calc.parameter_pfcbl_hierarchy = 'child')
+                                                     and ft.to_pfcbl_category = calc.calculate_pfcbl_category                                                   
   ),
   
   
@@ -2224,10 +2132,10 @@ begin
       from calculation_parameter_triggers_mat cpt
       -- because parameters to which it is subscribed may not also be calculations to which it is subscribed so re-filter on the calculation
       -- (we know its subscribed to the parameters because they've been inserted in the trigger's data)
-      inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = cpt.calculate_rsf_pfcbl_id
-                                                                 and pis.indicator_id = cpt.calculate_indicator_id
-      where pis.formula_id = cpt.formula_id
-        and pis.is_subscribed is true
+      inner join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = cpt.calculate_rsf_pfcbl_id
+                                                                 and sis.indicator_id = cpt.calculate_indicator_id
+      where sis.formula_id = cpt.formula_id
+        and sis.is_subscribed is true
   ),
   
   --#2: Calculations triggered by new reporting that listen to fx rate changes (regardless of any parameter changes)
@@ -2270,14 +2178,7 @@ begin
     inner join lateral (select ((array[0,ids.rsf_program_id,ids.rsf_facility_id,ids.rsf_client_id,ids.rsf_borrower_id])[ifp.parameter_pfcbl_rank+1]) as rsf_pfcbl_id) as parent on true
     inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = parent.rsf_pfcbl_id
                                          and rdc.indicator_id = ifp.parameter_indicator_id
-                                         and rdc.reporting_asof_date = rfs.reporting_asof_date
-/*                                         
-    where rdc.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
-                                 from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                                 where ft.from_rsf_pfcbl_id = rfs.rsf_pfcbl_id
-                                   and ft.pfcbl_hierarchy = 'parent'
-                                   )
-*/                                   
+                                         and rdc.reporting_asof_date = rfs.reporting_asof_date                                
                                    
   ),
   
@@ -2292,10 +2193,10 @@ begin
 			mcd.rsf_pfcbl_id as calculate_rsf_pfcbl_id,
 			mcd.indicator_id as calculate_indicator_id,
 			mcd.reporting_asof_date as calculation_asof_date,
-      pis.formula_id
+      sis.formula_id
 		from _modified_data mcd
-		inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = mcd.rsf_pfcbl_id 
-                                                               and pis.indicator_id = mcd.indicator_id
+		inner join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = mcd.rsf_pfcbl_id 
+                                                               and sis.indicator_id = mcd.indicator_id
 		--inner join p_rsf.rsf_data rd on rd.data_id = mcd.data_id
 		--inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
 		where event_type <> 'delete' --true --(TG_OP <> 'DELETE') -- so it's an insert or an update: which can only have one cohort at a time inserted.  Deletes can be in bulk.
@@ -2304,14 +2205,8 @@ begin
 			-- if it's a calculated cohort then system is de-facto validating this
 			-- we don't want to re-trigger the evaluation or the confirmation that it's validated.
 		  and event_is_calculated_cohort is false
-      
-      
-      and pis.is_subscribed = true
-      and pis.formula_id is not null
-      
-      
-      --and (select rc.is_calculated_cohort from p_rsf.reporting_cohorts rc
-      --     where rc.reporting_cohort_id = (select reporting_cohort_id from _modified_data limit 1)) is false
+      and sis.is_subscribed = true
+      and sis.formula_id is not null      
   ),
   
   calculations as (
@@ -2346,19 +2241,10 @@ begin
       md.indicator_id,
       md.reporting_asof_date
     from _modified_data md      
-    where (event_type = 'insert') and (event_is_calculated_cohort is true)
+    where (event_type = 'insert') and (event_is_calculated_cohort is true)    
     
-    /*
-    select
-      scd.rsf_pfcbl_id,
-      scd.indicator_id,
-      scd.reporting_asof_date
-    from _sys_calculated_data scd
-    */
   ) x
-  on conflict do nothing;  
-  
-  --drop table _sys_calculated_data;
+  on conflict do nothing;    
   
   return;
   
@@ -2754,8 +2640,8 @@ begin
 	rsf_data_current
 	********************************************/
 
-  raise info 'function_rsf_data_current_update(%)',
-	(select count(*) from _temp_current_data);
+  raise info ' - function_rsf_data_current_update(%)',
+	(select count(*) from _temp_current_data); msg_time := clock_timestamp();
 	
 --raise info 'function_rsf_data_current_update export table data: %',(select json_agg(tab) FROM (SELECT * from _temp_current_data) tab);
 --msg_time := clock_timestamp();
@@ -2815,11 +2701,19 @@ begin
 				
 				-- not including a check on created_in_reporting_asof_date on the child: because parent could update its LCU value historically
 				-- and it should cascade forward to the subsequently created child entity.
+        select 
+          ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id
+        from _temp_current_data ird
+        inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = ird.rsf_pfcbl_id
+                                                         and ft.pfcbl_hierarchy <> 'parent' -- ie, is self OR child
+        where ird.indicator_sys_category = 'entity_local_currency_unit'
+        /*
 				select 
 					fam.child_rsf_pfcbl_id as rsf_pfcbl_id
 				from _temp_current_data ird
 				inner join p_rsf.rsf_pfcbl_id_family fam on fam.parent_rsf_pfcbl_id = ird.rsf_pfcbl_id		
 				where ird.indicator_sys_category = 'entity_local_currency_unit'
+        */
 		)
 		insert into _temp_lcu(lcu_unit_data_id,
 													for_rsf_pfcbl_id,
@@ -2894,7 +2788,9 @@ begin
 		
 		drop table _temp_lcu;
 		
-		raise notice 'function_rsf_data_current_update: completed local/currency_units: %',(clock_timestamp()-msg_time);
+      raise info ' - function_rsf_data_current_update: completed local/currency_units: in %',
+      (select clock_timestamp()-msg_time); msg_time := clock_timestamp();
+
 	end if;
 /*
 	
@@ -2905,7 +2801,7 @@ begin
 	 ) as js);
 */
 
-			
+
 --select * from p_rsf.indicators where indicator_id = 157434
 		insert into p_rsf.rsf_data_current(data_id,
 																			 rsf_pfcbl_id,
@@ -2970,9 +2866,8 @@ begin
 			data_unit_data_id = EXCLUDED.data_unit_data_id;
 
 
-	raise notice 'function_rsf_data_current_update: current currency ratios: %',(clock_timestamp()-msg_time);
-	msg_time := clock_timestamp();
-
+   raise info ' - function_rsf_data_current_update: current currency ratios in %',
+   (select clock_timestamp()-msg_time); msg_time := clock_timestamp();
 
 		insert into p_rsf.rsf_data_current(data_id,
 																			 rsf_pfcbl_id,
@@ -3019,8 +2914,8 @@ begin
 			data_unit = EXCLUDED.data_unit,
 			data_unit_data_id = EXCLUDED.data_unit_data_id;
 
-	raise notice 'function_rsf_data_current_update: current currencies: %',(clock_timestamp()-msg_time);
-	msg_time := clock_timestamp();
+	raise notice ' - function_rsf_data_current_update: current currencies: %',
+  (clock_timestamp()-msg_time); msg_time := clock_timestamp();
 
 
 
@@ -3054,8 +2949,9 @@ begin
 		data_unit = EXCLUDED.data_unit,
 		data_unit_data_id = EXCLUDED.data_unit_data_id; 
 
-	raise notice 'function_rsf_data_current_update: current data: %',(clock_timestamp()-msg_time);
-	msg_time := clock_timestamp();
+	raise notice ' - function_rsf_data_current_update: current data: %',
+  (clock_timestamp()-msg_time); msg_time := clock_timestamp();
+
 
 /*
   --https://stackoverflow.com/questions/24006291/postgresql-return-result-set-as-json-array
@@ -3118,121 +3014,6 @@ end; $BODY$
   LANGUAGE plpgsql VOLATILE
   COST 100
   ROWS 1000;
-
--- ----------------------------
--- Function structure for function_rsf_program_facility_indicators_auto_subscribeable
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."function_rsf_program_facility_indicators_auto_subscribeable"("rsf_program_id" int4, "rsf_facility_id" int4, "indicator_id" int4, "overwrite" bool);
-CREATE FUNCTION "p_rsf"."function_rsf_program_facility_indicators_auto_subscribeable"("rsf_program_id" int4, "rsf_facility_id" int4, "indicator_id" int4, "overwrite" bool=false)
-  RETURNS "pg_catalog"."bool" AS $BODY$ 
-#variable_conflict use_variable
-begin
-
-  -- should we subscribe at the facility level?
-  if (rsf_facility_id is not null) then
-    -- an entry exists (whether subscribed or not), so don't auto-subscribe
-    if (exists(select * from p_rsf.rsf_program_facility_indicators pfi 
-               where pfi.rsf_facility_id = rsf_facility_id
-                 and pfi.indicator_id = indicator_id
-                 and pfi.is_subscribed = true)) then
-      return false;
-    elseif (exists(select * from p_rsf.rsf_program_facility_indicators pfi 
-                 where pfi.rsf_facility_id = rsf_facility_id
-                   and pfi.indicator_id = indicator_id
-                   and pfi.is_subscribed = false))
-    then
-      return overwrite;
-    -- we are subscribed at the program level, even if not at the facility level.
-    -- program IS subscribed (whether active or auto).
-    elseif (exists(select * from p_rsf.rsf_program_facility_indicators pfi 
-                    where pfi.rsf_program_id = rsf_program_id
-                      and pfi.rsf_facility_id is NULL
-                      and pfi.indicator_id = indicator_id
-                      and pfi.is_subscribed = true))
-    then                      
-      return false;
-    -- else means 
-    -- (a) we have no entry at the program level at all
-    -- (b) we have an entry at program level, but is_subscribed = false
-    -- therefore we CAN auto-subscribe at the facility level
-    else
-       return true; -- means yes, we can auto-subscribe AT THE FACILITY LEVEL (because we have no entry at facility nor an active subscription at program level)
-    end if;
-    
-  -- else the facility_id request IS NULL, so we're asking at the program level
-  else 
-    -- an entry exists, whether subscribed or not, so not auto subscribable
-    if (exists(select * from p_rsf.rsf_program_facility_indicators pfi 
-               where pfi.rsf_program_id = rsf_program_id
-                 and pfi.rsf_facility_id is NULL
-                 and pfi.indicator_id = indicator_id
-                 and pfi.is_subscribed = true))
-    then 
-      return false;
-    elseif (exists(select * from p_rsf.rsf_program_facility_indicators pfi 
-                   where pfi.rsf_program_id = rsf_program_id
-                     and pfi.rsf_facility_id is NULL
-                     and pfi.indicator_id = indicator_id
-                     and pfi.is_subscribed = false))
-    then                   
-      return overwrite;
-    else
-      return true;
-    end if;
-  end if;
-
-end $BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
--- Function structure for function_rsf_program_facility_indicators_auto_subscribeable
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."function_rsf_program_facility_indicators_auto_subscribeable"("rsf_program_id" int4, "rsf_facility_id" int4, "indicator_id" int4);
-CREATE FUNCTION "p_rsf"."function_rsf_program_facility_indicators_auto_subscribeable"("rsf_program_id" int4, "rsf_facility_id" int4, "indicator_id" int4)
-  RETURNS "pg_catalog"."bool" AS $BODY$ 
-#variable_conflict use_variable
-begin
-
-  -- should we subscribe at the facility level?
-  if (rsf_facility_id is not null) then
-    -- an entry exists (whether subscribed or not), so don't auto-subscribe
-    if (exists(select * from p_rsf.rsf_program_facility_indicators pfi 
-               where pfi.rsf_facility_id = rsf_facility_id
-                 and pfi.indicator_id = indicator_id)) then
-      return false;
-    -- we are subscribed at the program level, even if not at the facility level.
-    -- program IS subscribed (whether active or auto).
-    elseif (exists(select * from p_rsf.rsf_program_facility_indicators pfi 
-                    where pfi.rsf_program_id = rsf_program_id
-                      and pfi.rsf_facility_id is NULL
-                      and pfi.indicator_id = indicator_id
-                      and pfi.is_subscribed = true))
-    then                      
-      return false;
-    -- else means 
-    -- (a) we have no entry at the program level at all
-    -- (b) we have an entry at program level, but is_subscribed = false
-    -- therefore we CAN auto-subscribe at the facility level
-    else
-      return true;
-    end if;
-  -- else the facility_id request IS NULL, so we're asking at the program level
-  else 
-    -- an entry exists, whether subscribed or not, so not auto subscribable
-    if (exists(select * from p_rsf.rsf_program_facility_indicators pfi 
-               where pfi.rsf_program_id = rsf_program_id
-                 and pfi.indicator_id = indicator_id))
-    then 
-      return false;
-    else
-      return true;
-    end if;
-  end if;
-
-end $BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
 
 -- ----------------------------
 -- Function structure for fx_currency_ratio_has_alphabetic_order
@@ -3403,6 +3184,101 @@ BEGIN
 					
 		-- Else don't force global, rather lookup locally-defined FX rates (ie, those defined and reported at facility level, where applicable!)			
 		ELSE
+    select 
+				rdc.reporting_asof_date as exchange_rate_date,
+				ind.indicator_id as fx_indicator_id,
+				--fam.parent_pfcbl_category as fx_pfcbl_category,
+        ft.to_pfcbl_category as fx_pfcbl_category,
+				rdc.data_id as exchange_rate_data_id,
+				rdc.data_unit as v_fx_data_unit_currency_ratio,
+			  --input_to_currency || '/' || input_from_currency as currency_ratio,
+				rdc.data_value::numeric as exchange_rate,
+        ft.to_family_rsf_pfcbl_id
+				--fam.parent_rsf_pfcbl_id
+				
+			into 
+				exchange_rate_date,
+				fx_indicator_id,
+				fx_pfcbl_category,
+				exchange_rate_data_id,
+				v_fx_data_unit_currency_ratio,
+				exchange_rate,
+				v_fx_rsf_pfcbl_id
+        
+			from p_rsf.view_rsf_pfcbl_id_family_tree ft
+			inner join p_rsf.indicators ind on ind.data_category = ft.to_pfcbl_category
+			                               and ind.data_type = 'currency_ratio'
+			left join lateral (select data_unit_value
+			                   from p_rsf.rsf_data_current_lcu lcu
+												 where lcu.for_rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+			                     and lcu.reporting_asof_date <= input_exchange_rate_date::date
+												 order by lcu.reporting_asof_date desc
+												 limit 1) lcu on true
+
+      left join lateral (select
+				                      rdc.data_id,
+															rdc.data_value,
+															rdc.data_unit,
+															rdc.reporting_asof_date
+													  from p_rsf.rsf_data_current rdc 
+														where rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+				                      and rdc.indicator_id = ind.indicator_id
+															and rdc.reporting_asof_date <= input_exchange_rate_date::date
+													  order by 
+														  rdc.reporting_asof_date desc
+															limit 1) as rdc on true
+
+			where ft.from_rsf_pfcbl_id = input_rsf_pfcbl_id 
+        and ft.pfcbl_hierarchy <> 'child' -- ie, self or parent.
+			  -- check enforces currency_ratio_data_type_LCU_must_be_denominator LCU in denominator if it's an LCU indicator
+				and (ind.data_unit = v_currency_ratio OR
+				     coalesce(rdc.data_unit=v_currency_ratio,false) OR
+			       p_rsf.fx_currency_ratio_in_alphabetic_order(regexp_replace(ind.data_unit,'LCU',lcu.data_unit_value)) = v_currency_ratio)
+						 
+			  -- 2024-11-15: programs not subscribed to USD_LCU fx indicator were querying it.
+			  -- exists are much faster than joining the subscriptions view
+			  and ((ind.data_category = 'global' and ft.to_family_rsf_pfcbl_id = 0)
+				     or 
+             (
+				       -- have I ever reported on it (not just subscribed to it!)
+							 -- if it's an empty/mistaken subscription then don't return it and then tell us it's missing a data_id
+							 -- which will given the system calculation an fx error.
+						   exists(select * from p_rsf.rsf_data_current rdc
+					            where rdc.indicator_id = ind.indicator_id
+											  and rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id)
+							 and 
+               
+               exists(select * from p_rsf.view_rsf_setup_indicator_subscriptions sis
+                      where sis.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+                        and sis.indicator_id = ind.indicator_id
+                        and sis.is_subscribed is true)
+						   -- is the requested entity subscribed to the indicator?
+						   -- fx indicators only at facility or global levels
+							 -- if facility is UN-subscribed, will return false and return global-level
+							 -- if facility is empty, will return subscription at program level (true or false)
+							 -- if program is empty, will return NULL is true (false)
+               /*
+						   (select pfi.is_subscribed
+							  from p_rsf.rsf_pfcbl_ids ids 
+								inner join p_rsf.rsf_program_facility_indicators pfi on pfi.rsf_program_id = ids.rsf_program_id
+								where ids.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+								  and pfi.indicator_id = ind.indicator_id
+                  and (pfi.rsf_facility_id is NULL or pfi.rsf_facility_id is not distinct from ft.to_family_rsf_pfcbl_id)
+								order by pfi.rsf_facility_id is NOT NULL DESC
+								limit 1) is true */
+					   )
+			   ) 
+												 
+			order by 
+				
+				rdc.data_id is not null desc, -- if uses a facility-level indicator but no data submitted, then default to global.
+				ft.to_pfcbl_rank desc,   -- from self closest to global last
+				rdc.reporting_asof_date desc, -- if facility uploaded multiple (eg, LCU/USD where LCU=EUR and EUR/USD) then most recent reporting
+				ind.data_unit ~ 'LCU' desc    -- facility *could* define LCU/USD and USD/XOF fx rate columns and its LCU is XOF, meaning
+				                              -- two facility-level indicators are (presumably) capturing the same fx rate at the same time.
+																	    -- hopefully client is reporting these identically...but prefer the defined USD/XOF over the implied LCU/USD
+			limit 1;	
+    /*
 			--raise notice 'YES';
 			select 
 				rdc.reporting_asof_date as exchange_rate_date,
@@ -3422,6 +3298,7 @@ BEGIN
 				v_fx_data_unit_currency_ratio,
 				exchange_rate,
 				v_fx_rsf_pfcbl_id
+        
 			from p_rsf.rsf_pfcbl_id_family fam
 			inner join p_rsf.indicators ind on ind.data_category = fam.parent_pfcbl_category
 			
@@ -3488,7 +3365,7 @@ BEGIN
 				                              -- two facility-level indicators are (presumably) capturing the same fx rate at the same time.
 																	    -- hopefully client is reporting these identically...but prefer the defined USD/XOF over the implied LCU/USD
 			limit 1;	
-			
+			*/
 		end if;
 		
 		is_invalidated := exists(select * 
@@ -3524,127 +3401,12 @@ $BODY$
   COST 100;
 
 -- ----------------------------
--- Function structure for fx_pfcbl_timeseries_currency_ratios
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."fx_pfcbl_timeseries_currency_ratios"("v_rsf_pfcbl_id" int4, "v_currency_ratio" text, "v_exchange_rate_date" date);
-CREATE FUNCTION "p_rsf"."fx_pfcbl_timeseries_currency_ratios"("v_rsf_pfcbl_id" int4, "v_currency_ratio" text, "v_exchange_rate_date" date)
-  RETURNS TABLE("rsf_pfcbl_id" int4, "exchange_rate_date" date, "fx_indicator_id" int4, "fx_pfcbl_category" text, "is_system_calculated" bool, "is_validated" bool, "exchange_rate_data_id" int4, "currency_ratio" text, "exchange_rate" numeric) AS $BODY$
-BEGIN
-
-  if (v_currency_ratio is NULL) then
-		return;
-	end if;
-	
-  v_currency_ratio := trim(upper(v_currency_ratio));
-
-	if (v_currency_ratio ~ '^([A-Z]{3})/[A-Z]{3}$') = false then
-		raise exception 'Invalid currency ratio: %',v_currency_ratio;
-	end if;
-	
-	if (v_currency_ratio ~ 'LCU') OR (v_currency_ratio ~ 'LCY') then
-	  raise exception 'Invalid currency ratio: LCU and LCY are not valid currency units';
-	end if;
-	
-	-- unary, eg, USD/USD requested will always be 1
-	if (substring(v_currency_ratio,'^([A-Z]{3})/[A-Z]{3}$') = substring(v_currency_ratio,'^[A-Z]{3}/([A-Z]{3})$')) then
-		return query 
-		select
-			v_rsf_pfcbl_id as rsf_pfcbl_id,
-			v_exchange_rate_date as exchange_rate_date,
-			NULL::int as fx_indicator_id,
-			'global' as fx_pfcbl_category,
-			true as is_system_calculated,
-			true as is_validated,
-			NULL::int as exchange_rate_data_id,
-			v_currency_ratio as currency_ratio,
-			1::numeric as exchange_rate;
-	else 	
-		return query 
-		
-		with entities as (
-					select
-						parent_rsf_pfcbl_id,
-						parent_pfcbl_category,
-						parent_pfcbl_rank
-					from p_rsf.rsf_pfcbl_id_family fam
-					where fam.child_rsf_pfcbl_id = v_rsf_pfcbl_id
-						and v_rsf_pfcbl_id <> 0
-					
-					union all -- will always be unique and all is faster
-					
-					select 
-						0 as parent_rsf_pfcbl_id,
-						'global' as parent_pfcbl_category,
-						0 as parent_pfcbl_rank
-		)
-		select distinct on (dat.reporting_asof_date)
-			v_rsf_pfcbl_id as rsf_pfcbl_id,
-			dat.reporting_asof_date as exchange_rate_date,
-			fx_ind.indicator_id as fx_indicator_id,
-			fx_ind.data_category::text as fx_pfcbl_category,
-			fx_ind.is_system_calculated,
-			case when fx_ind.is_system_calculated = true
-			     then dce.validated_data_id is NOT NULL
-					 else true
-		  end as is_validated,
-			
-			dat.data_id as exchange_rate_data_id,
-			v_currency_ratio as currency_ratio,
-			
-			case when v_currency_ratio <> dat.data_unit
-					 then 1/(dat.data_value::numeric)
-					 else dat.data_value::numeric end as exchange_rate
-				 
-		from entities ent
-		-- indicators can specify LCU as a currency code in currency ration, eg USD/LCU
-		-- whereas in rsf_data_timeseries LCU values are replaced with the relative LCU unit
-		-- and therefore, we cannot guarantee match request with v_currency_ratio and fx_ind.data_unit
-		-- but we (should) be able to match v_currency_ratio and rdt.data_unit, if sorted.
-		inner join p_rsf.indicators fx_ind on fx_ind.data_category = ent.parent_pfcbl_category
-																			and fx_ind.data_type = 'currency_ratio'
-		inner join lateral (select 
-		                      rdc.reporting_asof_date,
-													rdc.data_id,
-													rdc.data_value,
-													rdc.data_unit
-												from p_rsf.rsf_data_current rdc 
-												where rdc.rsf_pfcbl_id = ent.parent_rsf_pfcbl_id
-													and rdc.indicator_id = fx_ind.indicator_id	
-													and rdc.reporting_asof_date <= v_exchange_rate_date -- because pegged currencies won't change fx values over time
-																																						  -- and therefore re-querying the value over time will not generate
-																																						  -- new timeseries data.
-																																							-- on the other hand, floating fx rates that are from a previous quarter
-																																							-- are outdated and irrelevant.
-												 and rdc.data_value is NOT NULL -- default entry, for example
-												 and p_rsf.fx_currency_ratio_in_alphabetic_order(v_currency_ratio) 
-												     is not distinct from -- equals
-												     p_rsf.fx_currency_ratio_in_alphabetic_order(rdc.data_unit) -- checked here because inserts into data_current
-																																											  -- will replace LCU with actual values, where applicable
-																																												-- whereas in indicators table, will be, eg USD/LCU
-												order by
-												  rdc.reporting_asof_date desc
-												limit 1) dat on true
-		left join p_rsf.rsf_data_calculation_evaluations dce on dce.rsf_pfcbl_id = ent.parent_rsf_pfcbl_id
-																											  and dce.indicator_id = fx_ind.indicator_id
-																												and dce.calculation_asof_date = dat.reporting_asof_date
-		order by 
-			dat.reporting_asof_date,
-			currency_ratio nulls last,
-			ent.parent_pfcbl_rank desc;
-	end if;
-END;
-$BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100
-  ROWS 1000;
-
--- ----------------------------
 -- Function structure for get_data_by_family_tree
 -- ----------------------------
 DROP FUNCTION IF EXISTS "p_rsf"."get_data_by_family_tree"("input_rsf_pfcbl_ids_familytree" _int4, "input_indicator_ids" _int4, "input_current_date" date, "input_to_currency" text, "fx_force_global" bool, "fx_reported_date" bool, "include_flags" bool);
 CREATE FUNCTION "p_rsf"."get_data_by_family_tree"("input_rsf_pfcbl_ids_familytree" _int4, "input_indicator_ids" _int4, "input_current_date" date, "input_to_currency" text=NULL::text, "fx_force_global" bool=true, "fx_reported_date" bool=false, "include_flags" bool=true)
-  RETURNS TABLE("rsf_pfcbl_id" int4, "pfcbl_category" text, "pfcbl_rank" int2, "parent_rsf_pfcbl_id" int4, "parent_pfcbl_category" text, "indicator_id" int4, "data_type" text, "indicator_name" text, "data_id" int4, "data_value" text, "data_unit" text, "data_asof_date" date, "data_value_updated" bool, "exchange_rate_date" date, "fx_indicator_id" int4, "fx_calculation_category" text, "currency_ratio" text, "exchange_rate_data_id" int4, "exchange_rate" numeric, "current_asof_date" date, "current_value" text, "current_unit" text, "flag_ids_active" _int4, "flag_ids_resolved" _int4) AS $BODY$
-declare v_data_categories text[];
+  RETURNS TABLE("rsf_pfcbl_id" int4, "pfcbl_category" text, "pfcbl_rank" int2, "parentest_rsf_pfcbl_id" int4, "parentest_pfcbl_category" text, "indicator_id" int4, "data_type" text, "indicator_name" text, "data_id" int4, "data_value" text, "data_unit" text, "data_asof_date" date, "data_value_updated" bool, "exchange_rate_date" date, "fx_indicator_id" int4, "fx_calculation_category" text, "currency_ratio" text, "exchange_rate_data_id" int4, "exchange_rate" numeric, "current_asof_date" date, "current_value" text, "current_unit" text, "flag_ids_active" _int4, "flag_ids_resolved" _int4) AS $BODY$
+--declare v_data_categories text[];
 BEGIN
 
 input_to_currency := upper(trim(input_to_currency));
@@ -3652,26 +3414,43 @@ input_to_currency := upper(trim(input_to_currency));
 input_rsf_pfcbl_ids_familytree := uniq(sort(input_rsf_pfcbl_ids_familytree));
 
 input_indicator_ids := uniq(input_indicator_ids);
-
-
+/*
+select array_agg(x.data_category order by x.pfcbl_rank)
+into v_data_categories
+from (
+  select distinct ind.data_category,ind.pfcbl_rank
+  from p_rsf.indicators ind
+  where ind.indicator_id = any(array[input_indicator_ids]::int[])
+) x;
+*/
+/*
 select array_agg(rpc.pfcbl_category order by rpc.pfcbl_rank)
 into v_data_categories
 from p_rsf.rsf_pfcbl_categories rpc
 where exists(select * from p_rsf.indicators ind
              where rpc.pfcbl_category = ind.data_category
 							 and ind.indicator_id = any(array[input_indicator_ids]::int[]));
+*/
 
 return query 
+  with cats as (
+    select 
+      x.data_category as pfcbl_category,
+      x.pfcbl_rank,
+      lag(x.pfcbl_rank, 1) over(order by x.pfcbl_rank) as parentest_pfcbl_rank
+    from (
+    select distinct ind.data_category,ind.pfcbl_rank
+    from p_rsf.indicators ind
+    where ind.indicator_id = any(input_indicator_ids)
+    order by ind.pfcbl_rank
+    ) x
+  )
 	select
 	ids.rsf_pfcbl_id,
 	ids.pfcbl_category::text,
 	ids.pfcbl_rank::smallint,
-	case when fam.parent_rsf_pfcbl_id is NULL
-	      and ids.parent_pfcbl_category = 'global'
-			 then 0
-			 else fam.parent_rsf_pfcbl_id
-	end as parent_rsf_pfcbl_id,
-	ids.parent_pfcbl_category,
+	ids.parentest_rsf_pfcbl_id,
+	ids.parentest_pfcbl_category,
 	ids.indicator_id,
 	ids.data_type::text,
 	ids.indicator_name::text,
@@ -3721,6 +3500,29 @@ return query
 
 	from (
 	
+  select
+		ids.rsf_pfcbl_id,
+		ind.indicator_id,
+		ind.data_type,
+		ind.data_unit,
+		ind.indicator_name,
+		ind.is_periodic_or_flow_reporting,
+		ids.pfcbl_category as pfcbl_category,
+		ids.pfcbl_category_rank as pfcbl_rank,
+    (array['global','program','facility','client','borrower'])[cats.parentest_pfcbl_rank+1] as parentest_pfcbl_category,
+    (array[0,ids.rsf_program_id,ids.rsf_facility_id,ids.rsf_client_id,ids.rsf_borrower_id])[cats.parentest_pfcbl_rank+1]
+     as parentest_rsf_pfcbl_id
+	from p_rsf.rsf_pfcbl_ids ids
+  inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
+  inner join cats on cats.pfcbl_category = ids.pfcbl_category
+  where ids.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id 
+                               from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                               where ft.from_rsf_pfcbl_id = any(input_rsf_pfcbl_ids_familytree))
+    and ind.indicator_id = any(array[input_indicator_ids]::int[])
+		and ids.created_in_reporting_asof_date <= input_current_date::date
+			
+  
+  /*
 	  select 
 		ids.rsf_pfcbl_id,
 		ind.indicator_id,
@@ -3779,9 +3581,9 @@ return query
 			and children.child_pfcbl_rank > children.parent_pfcbl_rank
 			and ind.indicator_id = any(array[input_indicator_ids]::int[])
 			and ids.created_in_reporting_asof_date <= input_current_date::date
+*/      
 	) as ids
-  left join p_rsf.rsf_pfcbl_id_family fam on fam.child_rsf_pfcbl_id = ids.rsf_pfcbl_id
-																				 and fam.parent_pfcbl_category = ids.parent_pfcbl_category	
+
 	left join lateral (select
 											 rdc.data_id,
 											 rdc.data_value,
@@ -3848,151 +3650,6 @@ end $BODY$
   COST 100;
 
 -- ----------------------------
--- Function structure for get_rsf_pfcbl_family_children
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."get_rsf_pfcbl_family_children"("parent_rsf_pfcbl_id" int4, "parent_pfcbl_category" text, "child_pfcbl_category" text);
-CREATE FUNCTION "p_rsf"."get_rsf_pfcbl_family_children"("parent_rsf_pfcbl_id" int4, "parent_pfcbl_category" text, "child_pfcbl_category" text=NULL::text)
-  RETURNS TABLE("rsf_pfcbl_id" int4) AS $BODY$
-BEGIN 
-
-if (parent_rsf_pfcbl_id is not distinct from 0 and parent_pfcbl_category is distinct from 'global') OR
-   (parent_rsf_pfcbl_id is distinct from 0 and parent_pfcbl_category is not distinct from 'global') 
-then
-  return query select NULL::int;
-   
-elseif (parent_pfcbl_category = child_pfcbl_category)
-then
-  return query
-  select parent_rsf_pfcbl_id as rsf_pfcbl_id;
-  
-elseif (parent_pfcbl_category='global')
-then
-
-  return query
-  select ids.rsf_pfcbl_id 
-  from p_rsf.rsf_pfcbl_ids ids
-  where ids.pfcbl_category = child_pfcbl_category;
-                  
-elseif (child_pfcbl_category='global')
-then
-  return query select NULL::int;
-
-elseif (child_pfcbl_category is NULL) 
-then
-
-  return query
-  execute format('SELECT ids.rsf_pfcbl_id
-                  from p_rsf.rsf_pfcbl_ids ids
-                  where ids.rsf_%s_id = %s ',
-                  parent_pfcbl_category,parent_rsf_pfcbl_id);
-
-else
-
-  return query
-  execute format('SELECT ids.rsf_pfcbl_id
-                  from p_rsf.rsf_pfcbl_ids ids
-                  where ids.rsf_%s_id = %s 
-                    and ids.pfcbl_category = ''%s''',parent_pfcbl_category,parent_rsf_pfcbl_id,child_pfcbl_category);
-end if;
-END 
-$BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100
-  ROWS 1000;
-
--- ----------------------------
--- Function structure for get_rsf_pfcbl_family_parents
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."get_rsf_pfcbl_family_parents"("from_child_rsf_pfcbl_id" int4, "from_child_pfcbl_category" text, "to_parent_pfcbl_category" text);
-CREATE FUNCTION "p_rsf"."get_rsf_pfcbl_family_parents"("from_child_rsf_pfcbl_id" int4, "from_child_pfcbl_category" text, "to_parent_pfcbl_category" text=NULL::text)
-  RETURNS TABLE("rsf_pfcbl_id" int4) AS $BODY$
-BEGIN 
-
--- global ID and global category mismatch: return null
-if (from_child_rsf_pfcbl_id is not distinct from 0 and to_parent_pfcbl_category is distinct from 'global') OR
-   (from_child_rsf_pfcbl_id is distinct from 0 and to_parent_pfcbl_category is not distinct from 'global') 
-then
-  return query select NULL::int;
-
--- child and parent the same: return self   
-elseif (from_child_pfcbl_category is not distinct from to_parent_pfcbl_category)
-then
-  return query
-  select from_child_rsf_pfcbl_id as rsf_pfcbl_id;
-
--- global as child requested: only global parent is possible; else will return NULL
-elseif (from_child_pfcbl_category='global' and to_parent_pfcbl_category is not NULL)
-then
-
-  return query
-  select ids.rsf_pfcbl_id
-  from p_rsf.rsf_pfcbl_ids ids 
-  where ids.rsf_pfcbl_id = from_child_rsf_pfcbl_id
-    and ids.pfcbl_category = to_parent_pfcbl_category;
-                  
-elseif (from_child_pfcbl_category='global' and to_parent_pfcbl_category is NULL)
-then
-  return query select 0::int;
-
-elseif (to_parent_pfcbl_category is NULL) 
-then
-
-
-  if (from_child_pfcbl_category = 'loan') 
-  then
-    return query
-    select unnest(array[0,rsf_program_id,rsf_facility_id,rsf_client_id,rsf_borrower_id,rsf_loan_id]) as rsf_pfcbl_id
-    from p_rsf.rsf_pfcbl_ids ids
-    where ids.rsf_pfcbl_id = from_child_rsf_pfcbl_id;
-    
-  elseif (from_child_pfcbl_category = 'borrower') 
-  then
-    return query
-    select unnest(array[0,rsf_program_id,rsf_facility_id,rsf_client_id,rsf_borrower_id]) as rsf_pfcbl_id
-    from p_rsf.rsf_pfcbl_ids ids
-    where ids.rsf_pfcbl_id = from_child_rsf_pfcbl_id;
-    
-  elseif (from_child_pfcbl_category = 'client') 
-  then
-    return query
-    select unnest(array[0,rsf_program_id,rsf_facility_id,rsf_client_id]) as rsf_pfcbl_id
-    from p_rsf.rsf_pfcbl_ids ids
-    where ids.rsf_pfcbl_id = from_child_rsf_pfcbl_id;
-    
-  elseif (from_child_pfcbl_category = 'facility') 
-  then
-    return query
-    select unnest(array[0,rsf_program_id,rsf_facility_id]) as rsf_pfcbl_id
-    from p_rsf.rsf_pfcbl_ids ids
-    where ids.rsf_pfcbl_id = from_child_rsf_pfcbl_id;
-    
-  elseif (from_child_pfcbl_category = 'program') 
-  then
-    return query
-    select unnest(array[0,rsf_program_id]) as rsf_pfcbl_id
-    from p_rsf.rsf_pfcbl_ids ids
-    where ids.rsf_pfcbl_id = from_child_rsf_pfcbl_id;
-  else 
-    return query
-    select null::int;
-  end if;  
-    
-
-else
-
-  return query
-  execute format('SELECT ids.rsf_%s_id
-                  from p_rsf.rsf_pfcbl_ids ids
-                  where ids.rsf_pfcbl_id = %s
-                    and ids.pfcbl_category = ''%s''',to_parent_pfcbl_category,from_child_rsf_pfcbl_id,from_child_pfcbl_category);
-end if;
-END 
-$BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100
-  ROWS 1000;
-
--- ----------------------------
 -- Function structure for get_rsf_pfcbl_id_by_sys_name
 -- ----------------------------
 DROP FUNCTION IF EXISTS "p_rsf"."get_rsf_pfcbl_id_by_sys_name"("v_sys_name" text);
@@ -4003,36 +3660,33 @@ declare v_parent_pfcbl_id int default null;
 declare v_id int;
 begin
 
-
+  v_pfcbl_name := trim(regexp_substr(v_sys_name,'[^>]+$'));
   
-  
+  select 
+  nai.rsf_pfcbl_id
+  into v_id
+  from p_rsf.rsf_data_current_names_and_ids nai
+  where nai.sys_name = v_sys_name 
+     or nai.pfcbl_name = v_sys_name
+     or nai.pfcbl_name = v_pfcbl_name
+  group by nai.rsf_pfcbl_id
+  having count(distinct nai.rsf_pfcbl_id)=1;
+  /*
   select 
   nai.rsf_pfcbl_id
   into v_id
   from p_rsf.rsf_data_current_names_and_ids nai
   where nai.sys_name = v_sys_name
   limit 1;
-  
+  */
   if v_id is not null
   then
     return v_id;
   end if;  
   
   
-  v_pfcbl_name := trim(regexp_substr(v_sys_name,'[^>]+$'));
-  /*
-  select  
-  ids.rsf_pfcbl_id
-  into v_id 
-  from (
-    select nai.rsf_pfcbl_id 
-    from p_rsf.rsf_data_current_names_and_ids nai
-    where nai.pfcbl_name = v_pfcbl_name
-  ) as ids
-  inner join p_rsf.view_rsf_pfcbl_id_timeline_sys_names tsn on tsn.rsf_pfcbl_id = ids.rsf_pfcbl_id
-  where tsn.sys_name = v_sys_name
-  limit 1;
-  */
+  
+
   if v_id is not null
   then
     raise info 'get_rsf_pfcbl_id_by_sys_name located from view_rsf_pfcbl_id_timeline_sys_names for: %',v_sys_name;
@@ -4065,9 +3719,10 @@ begin
                                                        and nai.pfcbl_category = lookup.pfcbl_category
     where v_parent_pfcbl_id is NULL 
           OR
-          nai.rsf_pfcbl_id in (select fam.child_rsf_pfcbl_id
-                               from p_rsf.rsf_pfcbl_id_family fam
-                               where fam.parent_rsf_pfcbl_id = v_parent_pfcbl_id)
+          nai.rsf_pfcbl_id in (select ft.to_family_rsf_pfcbl_id
+                               from p_rsf.view_rsf_pfcbl_id_family_tree ft 
+                               where ft.from_rsf_pfcbl_id = v_parent_pfcbl_id
+                                 and ft.pfcbl_hierarchy <> 'parent')
   ) ids
   where ids.matches = 1;
   
@@ -4088,13 +3743,14 @@ begin
             (regexp_match(v_pfcbl_name,'^([a-z]+):'))[1] as pfcbl_category,
             (regexp_match(v_pfcbl_name,'^.*:([^(]+).*$'))[1] as reported_name 
          ) as lookup
-    inner join p_rsf.rsf_data_current_names_and_ids nai on nai."name" = lookup.reported_name
+    inner join p_rsf.rsf_data_current_names_and_ids nai on nai."name" = trim(lookup.reported_name)
                                                        and nai.pfcbl_category = lookup.pfcbl_category
     where v_parent_pfcbl_id is NULL 
           OR
-          nai.rsf_pfcbl_id in (select fam.child_rsf_pfcbl_id
-                               from p_rsf.rsf_pfcbl_id_family fam
-                               where fam.parent_rsf_pfcbl_id = v_parent_pfcbl_id)
+          nai.rsf_pfcbl_id in (select ft.to_family_rsf_pfcbl_id
+                               from p_rsf.view_rsf_pfcbl_id_family_tree ft 
+                               where ft.from_rsf_pfcbl_id = v_parent_pfcbl_id
+                                 and ft.pfcbl_hierarchy <> 'parent')
   ) ids
   where ids.matches = 1;
   
@@ -4110,39 +3766,6 @@ begin
 end $BODY$
   LANGUAGE plpgsql VOLATILE
   COST 100;
-
--- ----------------------------
--- Function structure for get_rsf_pfcbl_id_family_tree
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."get_rsf_pfcbl_id_family_tree"("v_rsf_pfcbl_id" int4);
-CREATE FUNCTION "p_rsf"."get_rsf_pfcbl_id_family_tree"("v_rsf_pfcbl_id" int4)
-  RETURNS TABLE("rsf_pfcbl_id" int4, "pfcbl_category" varchar, "pfcbl_rank" int2) AS $BODY$
-declare v_pfcbl_rank int;
-begin 
-
-return query
-select
-		fam.child_rsf_pfcbl_id as rsf_pfcbl_id,
-		fam.child_pfcbl_category as pfcbl_category,
-		fam.child_pfcbl_rank as pfcbl_rank
-	from p_rsf.rsf_pfcbl_id_family fam
-	where fam.parent_rsf_pfcbl_id = v_rsf_pfcbl_id
-	  and fam.child_pfcbl_rank >= fam.parent_pfcbl_rank
-
-	union 
-
-	select 
-		fam.parent_rsf_pfcbl_id as rsf_pfcbl_id,
-		fam.parent_pfcbl_category as pfcbl_category,
-		fam.parent_pfcbl_rank as pfcbl_rank
-	from p_rsf.rsf_pfcbl_id_family fam
-	where fam.child_rsf_pfcbl_id = v_rsf_pfcbl_id
-	  and fam.parent_pfcbl_rank < fam.child_pfcbl_rank;
-		
-end $BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100
-  ROWS 1000;
 
 -- ----------------------------
 -- Function structure for get_rsf_pfcbl_id_reporting_status_asof_date
@@ -4178,38 +3801,23 @@ begin
 		-- program determined by its facilities 
 		elseif input_pfcbl_category = 'program'
 		then 
-			select array_agg(fam.child_rsf_pfcbl_id)
+			select array_agg(distinct ids.rsf_facility_id)
 			into recursive_rsf_pfcbl_ids
-			from p_rsf.rsf_pfcbl_id_family fam
-			where fam.parent_rsf_pfcbl_id = input_rsf_pfcbl_id
-				and fam.parent_pfcbl_category = 'program'
-				and fam.child_pfcbl_category = 'facility';
+			from p_rsf.rsf_pfcbl_ids ids
+			where ids.rsf_program_id = input_rsf_pfcbl_id;
 				
 			input_pfcbl_category := 'facility';
 		-- facility has its own logic
 		-- client a mix of facility and its own
-		/*
-		elseif input_pfcbl_category = 'client'
-		then
-			select array_agg(fam.parent_rsf_pfcbl_id)
-			into recursive_rsf_pfcbl_ids
-			from p_rsf.rsf_pfcbl_id_family fam
-			where fam.child_rsf_pfcbl_id = input_rsf_pfcbl_id
-				and fam.child_pfcbl_category = 'client'
-				and fam.parent_pfcbl_category = 'facility';
-								
-			input_pfcbl_category := 'facility';
-		*/
+		
 		-- borrowers determined by its loans dates
 		elseif input_pfcbl_category = 'borrower'
 		then 
 
-			select array_agg(fam.child_rsf_pfcbl_id)
+			select array_agg(distinct ids.rsf_loan_id)
 			into recursive_rsf_pfcbl_ids
-			from p_rsf.rsf_pfcbl_id_family fam
-			where fam.parent_rsf_pfcbl_id = input_rsf_pfcbl_id
-				and fam.parent_pfcbl_category = 'borrower'
-				and fam.child_pfcbl_category = 'loan';
+			from p_rsf.rsf_pfcbl_ids ids
+			where ids.rsf_borrower_id = input_rsf_pfcbl_id;
 				
 			input_pfcbl_category := 'loan';
 		
@@ -4316,10 +3924,10 @@ begin
 	then			
 			select sd.data_value::date
 			into entity_completion_date
-			from p_rsf.rsf_pfcbl_id_family fam
-			inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = fam.parent_rsf_pfcbl_id
+			from p_rsf.rsf_pfcbl_ids ids
+			inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ids.rsf_facility_id
 			inner join p_rsf.indicators ind on ind.indicator_id = rdc.indicator_id
-			where fam.child_rsf_pfcbl_id = input_rsf_pfcbl_id
+			where ids.rsf_client_id = input_rsf_pfcbl_id
 			  and rdc.reporting_asof_date <= input_current_date
 				and ind.indicator_sys_category = 'entity_completion_date'
       order by
@@ -4328,366 +3936,6 @@ begin
 	end if;		
 	
 
-	select ids.created_in_reporting_asof_date
-		into reporting_init_date
-		from p_rsf.rsf_pfcbl_ids ids
-		where ids.rsf_pfcbl_id = input_rsf_pfcbl_id;
-		
-	select exists(select * from p_rsf.rsf_pfcbl_reporting rpr
-								where rpr.rsf_pfcbl_id = input_rsf_pfcbl_id
-									and rpr.reporting_asof_date = input_current_date)
-	into quarter_reporting_exists;
-		
-	if entity_completion_date is NULL 
-	then
-		entity_completion_date := greatest(reporting_init_date,input_current_date) + interval '1 day';
-	end if;
-	
-	if entity_completion_extension_days is NULL
-	then 
-		entity_completion_extension_days:= 0;
-	end if;
-	
-	-- if I report a deactivation date, then as of current date, I have reported ACTIVE=FALSE												
-	if (entity_deactivated_date is NOT NULL)    
-	then
-		quarter_end_active_status := false;
-	end if;									
-
---	 select * from p_rsf.indicators where indicator_sys_category = 'entity_completion_date'
-		
-	-- previously: loan's default "reporting_expected_end_date" was set to facility's entity_completion_date 
-	-- as many loans are reported without final maturity date -- so when NULL, assume reports until end of facility
-	-- now, assume it ends "tomorrow"
-		
-
-	if (entity_completion_extension_from_date is not null)
-	then
-		-- if first missed payment date is reported, it cannot be missed after the end date.
-		-- sometimes client report it because if how systems or time of reporting goes.
-		if entity_completion_extension_from_date > entity_completion_date
-		then 
-			entity_completion_extension_from_date := entity_completion_date;
-			
-			-- eg, if 5 days is reported and first missed date is after maturity
-			-- then add the difference, eg 7 days from maturity to end of quarter.
-			entity_completion_extension_days := entity_completion_extension_days +
-																					(entity_completion_date - entity_completion_extension_from_date)::int + 1;
-		end if;
-		
-		-- if its amoritizing and they've missed a loan installment before final maturity, then this isn't an arrears end date extension
-		if (entity_completion_extension_from_date + 
-				make_interval(days => entity_completion_extension_days::int)) <= entity_completion_date
-		then
-			entity_completion_extension_days := 0;
-		end if;
-		
-	end if;
-
-	-- we reported overdue days...
-	if entity_completion_extension_days is not null and entity_completion_extension_days > 0
-	then
-		if (entity_completion_date <= input_current_date)
-				AND 
-				(entity_completion_date + 
-				 make_interval(days => entity_completion_extension_days::int)) > (input_current_date) 
-		then 
-			entity_completion_date := input_current_date;
-		else 
-			entity_completion_date := entity_completion_date + 
-																make_interval(days => entity_completion_extension_days::int);
-		end	if;
-		
-		-- If we reported an extension, then the end date isn't the date of the extension, but the day after.
-		entity_completion_date := entity_completion_date + interval '1 day';
-		
-	end if;			
-	
-	reporting_expected_end_date :=  least(
-	                                  (date_trunc('quarter',reporting_expected_end_date) + interval '3 mons' - interval '1 day')::date,
-																		(date_trunc('quarter',entity_completion_date) + interval '3 mons' - interval '1 day')::date,
-																		entity_deactivated_date,
-																		reporting_expected_end_date
-																	);
-																	
-	quarter_end_active_status := (reporting_init_date <= input_current_date and        -- I started in/before current date
-															reporting_expected_end_date > input_current_date and  -- I complete after current date
-															entity_deactivated_date is NULL);                     -- I dont report that I'm deactive
-
- /*
- raise notice 'quarter_end_active_status: % 
-               reporting_init_date <= input_current_date=%
-							 reporting_expected_end_date > input_current_date=%
-							 entity_deactivated_date is NULL=% 
-							 entity_deactivated_date <= input_current_date=%',
- quarter_end_active_status,
- reporting_init_date <= input_current_date,
- reporting_expected_end_date > input_current_date,
- entity_deactivated_date is NULL,
- entity_deactivated_date <= input_current_date;
- */
- -- then I expect to be active as-of the end of the quarter
- 
-  -- Do I end begin on/before the quarter start?  Do I end on/after the quarter end?
-	-- If so, I must be active as-of quarter start
- quarter_begin_active_status := reporting_init_date <= date_trunc('quarter',input_current_date) and 
-                                reporting_expected_end_date >= date_trunc('quarter',input_current_date);
- 
- -- is my begin date sometime this quarter?
- -- I'm beginning this quarter
- quarter_is_ending := (reporting_expected_end_date between date_trunc('quarter',input_current_date) and input_current_date)
-                      or 
-											coalesce(entity_deactivated_date = input_current_date,false);
- 
- quarter_is_beginning := reporting_init_date between date_trunc('quarter',input_current_date) and input_current_date;
-
- quarter_reporting_expected :=
-		case
-			
-			--(1) When I have a valid completion date AND a valid reporting required date
-			-- Then did I start reporting requirements on or before the quarter end date?
-			-- And I'm active at the beginning of the quarter
-			when entity_completion_date is NOT NULL and reporting_required_start_date IS NOT NULL
-			then greatest(reporting_init_date,reporting_required_start_date) <= input_current_date -- VALID START (I start reporting before EOQ)
-					 and (quarter_is_ending=true OR quarter_end_active_status=true)                    -- I'm closing in/affter quarter end date
-					 
-			--(2) When I have a valid completion date, but no specific reporting requirement date
-			-- Then did I start being active on or before the quarter end date?
-			-- And I'm active at the beginning of the quarter		
-			when entity_completion_date is NOT NULL and reporting_required_start_date IS NULL 
-			then reporting_init_date <= input_current_date                           -- VALID START (I started before the end of the quarter)
-					 and (quarter_is_ending = true OR quarter_end_active_status = true ) -- I'm closing in/affter quarter end date
-					 
-			--(3) When I do not have a completion date (happens when I should have a completion date but have not set one yet!)
-			-- But I am not deliberately disactivated
-			-- Then I should expect to report until I upload my completion date or I'm disactivated for some reason
-			when entity_completion_date is NULL and entity_deactivated_date is NULL
-			then input_current_date >= reporting_init_date
-			
-			--(4) If I'm deactivated then, nothing is expected.  This comes later in the case due to some observations of loans starting deactivated,
-			--which shouldn't be allowed.  So this can help to flag those errors.
-			when coalesce(entity_deactivated_date <= input_current_date,false) = true then true
-					 
-			-- (5) If I'm not activated, and I don't report any specific activity flag, then I expect to report while active
-			else input_current_date between reporting_init_date and coalesce(reporting_expected_end_date,input_current_date) -- VALID PERIOD
-		end;
-/*
-	raise notice 'input_current_date=%: 
-	               quarter_is_ending=% 
-								 quarter_end_active_status=% 
-								 reporting_expected_end_date=% 
-								 quarter_reporting_expected=% 
-								 entity_deactivated_date=%',
-								 input_current_date,
-								 quarter_is_ending,
-								 quarter_end_active_status,
-								 reporting_expected_end_date,
-								 quarter_reporting_expected,
-								 entity_deactivated_date;
-*/
-
-  --quarter is ending: reporting_expected_end_date = current_quarter_date OR entity was "deactivated" in this quarter
-	quarter_end_reporting_status := 
-		case
-		-- I've been intentionally deactivated (for better or worse, correct or not)
-    when entity_deactivated_date is not NULL
-		     AND entity_deactivated_date <= input_current_date then 'INACTIVE'
-    -- I'm not expected to close at EoQ and I am expected to be active 
-		when quarter_is_ending = false and quarter_end_active_status = true then 'ACTIVE'
-		--when quarter_is_ending = true and reporting_expected_end_date >= input_current_date then 'ACTIVE'
-		when quarter_is_ending = true and reporting_expected_end_date > input_current_date then 'ACTIVE'
-
-		-- Reporting happened, but outside expected completion timeline.  Generally reflects post-completion reporting or
-		-- other reporting anachronisms
-		--when reporting_expected_end_date < input_current_date then 'RETROACTIVE'
-
-    -- means they set the flag this quarter but prematurely: enables a flag vs returning INACTIVE 
-
-    -- means they reported data in its final reporting period (as they should, at the least to report its inactive)
-		when reporting_expected_end_date <= input_current_date then 'INACTIVE'
-
-		-- nothing reported and nothing expected: this shouldn't enter the reporting timeline at all because reporting_stop_dates
-		-- will always reflect the latest actual reporting event -- but this is useful for querying timeseries data from the application later
-		--when reporting_expected_end_date < date_trunc('quarter',input_current_date) then 'INACTIVE'
-
-		when reporting_init_date > input_current_date then 'PREACTIVE'
-
-
-		
-		-- When no entry was made; and no entry was required to be made -- but an entry might be anticipated before is required to report
-		when quarter_reporting_expected = false
-		 and input_current_date between reporting_init_date and least(input_current_date,reporting_expected_end_date)
-		 and entity_deactivated_date IS NULL then 'PREACTIVE'
-	 
-	  when quarter_reporting_expected = true then 'ACTIVE'
-		
-		else 'ERROR'
-	end as quarter_end_reporting_status;																
-
-end $BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
--- Function structure for get_rsf_pfcbl_id_reporting_status_asof_date_new
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."get_rsf_pfcbl_id_reporting_status_asof_date_new"("input_rsf_pfcbl_id" int4, "input_pfcbl_category" text, "input_current_date" date, OUT "quarter_end_reporting_status" text, OUT "quarter_reporting_expected" bool, OUT "quarter_reporting_exists" bool, OUT "reporting_init_date" date, OUT "reporting_required_start_date" date, OUT "reporting_expected_end_date" date, OUT "entity_completion_date" date);
-CREATE FUNCTION "p_rsf"."get_rsf_pfcbl_id_reporting_status_asof_date_new"(IN "input_rsf_pfcbl_id" int4, IN "input_pfcbl_category" text, IN "input_current_date" date, OUT "quarter_end_reporting_status" text, OUT "quarter_reporting_expected" bool, OUT "quarter_reporting_exists" bool, OUT "reporting_init_date" date, OUT "reporting_required_start_date" date, OUT "reporting_expected_end_date" date, OUT "entity_completion_date" date)
-  RETURNS "pg_catalog"."record" AS $BODY$
-declare entity_completion_extension_days int default 0;
-declare entity_completion_extension_from_date date default null;
-declare entity_deactivated_date date default NULL;
-declare quarter_end_active_status bool default NULL;
-declare quarter_begin_active_status bool default NULL;
-declare quarter_is_ending bool default NULL;
-declare quarter_is_beginning bool default NULL;
-declare recursive_rsf_pfcbl_ids int[] default NULL;
-begin 
-
-	input_current_date := (date_trunc('quarter',input_current_date) + interval '3 mons' - interval '1 day')::date;
-	
-	if input_pfcbl_category in ('global','program','client','borrower')
-	then
-	
-		if input_pfcbl_category = 'global'
-		then
-			select array_agg(ids.rsf_pfcbl_id)
-			into recursive_rsf_pfcbl_ids
-			from p_rsf.rsf_pfcbl_ids ids
-			where ids.pfcbl_category = 'facility';
-			
-			input_pfcbl_category := 'facility';
-			
-		elseif input_pfcbl_category = 'program'
-		then 
-			select array_agg(fam.child_rsf_pfcbl_id)
-			into recursive_rsf_pfcbl_ids
-			from p_rsf.rsf_pfcbl_id_family fam
-			where fam.parent_rsf_pfcbl_id = input_rsf_pfcbl_id
-				and fam.parent_pfcbl_category = 'program'
-				and fam.child_pfcbl_category = 'facility';
-				
-			input_pfcbl_category := 'facility';
-			
-		elseif input_pfcbl_category = 'client'
-		then
-			select array_agg(fam.parent_rsf_pfcbl_id)
-			into recursive_rsf_pfcbl_ids
-			from p_rsf.rsf_pfcbl_id_family fam
-			where fam.child_rsf_pfcbl_id = input_rsf_pfcbl_id
-				and fam.child_pfcbl_category = 'client'
-				and fam.parent_pfcbl_category = 'facility';
-								
-			input_pfcbl_category := 'facility';
-		
-		elseif input_pfcbl_category = 'borrower'
-		then 
-
-			select array_agg(fam.child_rsf_pfcbl_id)
-			into recursive_rsf_pfcbl_ids
-			from p_rsf.rsf_pfcbl_id_family fam
-			where fam.parent_rsf_pfcbl_id = input_rsf_pfcbl_id
-				and fam.parent_pfcbl_category = 'borrower'
-				and fam.child_pfcbl_category = 'loan';
-				
-			input_pfcbl_category := 'loan';
-		
-		end if;
-		
-		select		
-			(array_agg(status.quarter_end_reporting_status 
-								order by status.quarter_end_reporting_status='ACTIVE' desc,
-												 status.quarter_end_reporting_status='INACTIVE' desc,
-												 status.quarter_end_reporting_status='PREACTIVE' desc)::text[])[1],
-			bool_or(status.quarter_reporting_expected),			
-			min(status.reporting_init_date),
-			min(status.reporting_required_start_date),
-			max(status.reporting_expected_end_date),
-			max(status.entity_completion_date)
-		into
-			quarter_end_reporting_status,
-			quarter_reporting_expected,
-			reporting_init_date,
-			reporting_required_start_date,
-			reporting_expected_end_date,
-			entity_completion_date
-		from (select unnest(recursive_rsf_pfcbl_ids) as rsf_pfcbl_id) as ids
-		inner join lateral p_rsf.get_rsf_pfcbl_id_reporting_status_asof_date(input_rsf_pfcbl_id => ids.rsf_pfcbl_id,
-                                                                         input_pfcbl_category => input_pfcbl_category,
-																																				 input_current_date => input_current_date) as status on true;
-    select ids.created_in_reporting_asof_date
-		into reporting_init_date
-		from p_rsf.rsf_pfcbl_ids ids
-		where ids.rsf_pfcbl_id = input_rsf_pfcbl_id;
-		
-		select exists(select * from p_rsf.rsf_pfcbl_reporting rpr
-		              where rpr.rsf_pfcbl_id = input_rsf_pfcbl_id
-									  and rpr.reporting_asof_date = input_current_date)
-		into quarter_reporting_exists;
-		
-    if quarter_end_reporting_status IS NULL -- parent entity has no children created to determine status, so use defaults and end "tomorrow"
-		then
-			if input_current_date < reporting_init_date
-			then
-				quarter_end_reporting_status := 'PREACTIVE';
-				quarter_reporting_expected   := false;
-				reporting_required_start_date:= NULL::date;
-				reporting_expected_end_date  := reporting_init_date + interval '1 day';
-				entity_completion_date := reporting_init_date + interval '1 day';
-			else
-				quarter_end_reporting_status := 'ACTIVE';
-				quarter_reporting_expected   := false;
-				reporting_required_start_date:= NULL::date;
-				reporting_expected_end_date  := input_current_date + interval '1 day';
-				entity_completion_date := input_current_date + interval '1 day';			
-			end if;
-		end if;
-		
-    return;																																				 
-	end if;
-
-  with status_data as MATERIALIZED (
-		select distinct on (rdc.rsf_pfcbl_id,ind.indicator_sys_category)
-			rdc.rsf_pfcbl_id,
-			rdc.reporting_asof_date,
-			ind.indicator_sys_category,
-			rdc.data_value,
-			rdc.data_unit
-		from p_rsf.rsf_data_current rdc
-		inner join p_rsf.indicators ind on ind.indicator_id = rdc.indicator_id
-		where rdc.rsf_pfcbl_id = input_rsf_pfcbl_id
-			and rdc.reporting_asof_date <= input_current_date
-			and ind.indicator_sys_category in ('reporting_required_start_date',
-																				 'entity_completion_date',
-																				 'is_active',
-																				 'reporting_required_start_date',
-																				 'entity_completion_extension_time',
-																				 'entity_completion_extension_from_date')
-		order by 
-			rdc.rsf_pfcbl_id,
-			ind.indicator_sys_category,
-			rdc.reporting_asof_date desc
-	)
-	select
-		max(sd.data_value) filter(where indicator_sys_category = 'entity_completion_date')::date,		
-		max(sd.data_value) filter(where indicator_sys_category = 'reporting_required_start_date')::date,
-		
-		max(sd.data_value) filter(where indicator_sys_category = 'entity_completion_extension_from_date')::date,
-		max(sd.data_value) filter(where indicator_sys_category = 'entity_completion_extension_time')::int,
-		max(case when (sd.data_value::bool) is NULL then NULL::date
-						 when (sd.data_value::bool) = true  then NULL::date
-						 else sd.reporting_asof_date 
-				end) filter(where indicator_sys_category = 'is_active')::date
-	into
-		entity_completion_date,                 -- OUT 
-		reporting_required_start_date,          -- OUT 
-		entity_completion_extension_from_date,  -- DECLARED
-    entity_completion_extension_days,       -- DECLARED
-		entity_deactivated_date                 -- DECLARED
-		
-	from status_data sd
-	group by sd.rsf_pfcbl_id;
-	
 	select ids.created_in_reporting_asof_date
 		into reporting_init_date
 		from p_rsf.rsf_pfcbl_ids ids
@@ -4969,7 +4217,7 @@ CREATE FUNCTION "p_rsf"."global_indicators_auto_subscribed"()
 BEGIN
 
 		 
-  insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
+  insert into p_rsf.rsf_setup_indicators(rsf_pfcbl_id,
 																										indicator_id,
 																										formula_id,
 																										rsf_program_id,
@@ -5007,125 +4255,106 @@ $BODY$
 DROP FUNCTION IF EXISTS "p_rsf"."global_reporting"();
 CREATE FUNCTION "p_rsf"."global_reporting"()
   RETURNS "pg_catalog"."trigger" AS $BODY$
-DECLARE reporting_dates RECORD;
-DECLARE backfill_reporting_asof_date date default NULL;
+  DECLARE reporting_dates RECORD;
 BEGIN
 
-	
-			
-  -- GLOBAL
-	-- When any new dataset is uploaded, ensure that there is a matching GLOBAL reporting entry associated with
-	-- that reporting_asof_date.  
-	-- Also ensure that the reporting timeline is back-filled from inception in case the user has skipped datasets for any reporting periods.
-	-- This is necessary for generating reports for an associated reporting_asof_date.
-	-- More importantly, this is essential for calculations that must be (re)calculated each reporting_asof_date (like fx rates) that are independent
-	-- user reporting.
-	if (not exists(select * from p_rsf.rsf_data rd
-	               inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id
-	               where rd.rsf_pfcbl_id =0        -- check on rsf_pfcbl_ids ensures rsf_pfcbl_id = rsf_program_id = 0
-								   and rd.reporting_asof_date = NEW.reporting_asof_date
-									 and ind.indicator_sys_category = 'entity_reporting')) then
-								
-		raise notice 'global_reporting() triggered by reporting_cohort_id=% reporting_asof_date=%',
-	  new.reporting_cohort_id,
-		new.reporting_asof_date;	
-		
-		-- if a user uploaded datasets out of chronological order (ie, the skipped a reporting period) then we need to backfill
-		-- between the last-reported global reporting_asof_date and whatever the NEW.reporting_asof_date is
-		FOR reporting_dates IN
-			select distinct prd.valid_reporting_date 
-			from p_rsf.rsf_program_reporting_dates  prd
-			where prd.rsf_program_id >= 0 -- >=0 because GLOBAL program needs to have its own reporting entry; but ANY valid date for ANY other program 
-			                              -- should trigger an insert for GLOBAL too
-																		-- NOTE: that inserting into reporting_cohorts will generate a reporting entry in rsf_program_reporting_dates
-																		-- for the global program; it won't exist a-priori.  Any new dates in rsf_program_reporting_dates will be
-																		-- creased by the rsf_program_id that's triggering this trigger.
-			  and prd.valid_reporting_date <= NEW.reporting_asof_date
-				and not exists(select * from p_rsf.rsf_data rd
-				               inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id
-				               where rd.rsf_pfcbl_id = 0 -- while we're interested in all valid reporting dates, only update where global didn't report
-											   and rd.reporting_asof_date = prd.valid_reporting_date
-												 and ind.indicator_sys_category = 'entity_reporting')
-			order by prd.valid_reporting_date asc
-		LOOP
-			raise notice 'global_reporting creating new reporting_cohort entry for: %',reporting_dates.valid_reporting_date;
-										 
-			 with global_reporting as (
-					insert into p_rsf.reporting_cohorts(reporting_time,
-																							reporting_user_id,
-																							source_name,
-																							source_reference,
-																							source_note,
-																							rsf_program_id,
-																							reporting_asof_date,
-																							data_asof_date,
-																							reporting_rsf_pfcbl_id,
-																							is_reported_cohort)
-					select
-						TIMEOFDAY()::timestamptz as reporting_time,
-						(select account_id from p_rsf.view_account_info where users_name = 'RSF SYS Calculator' and is_system_account=true) as reporting_user_id,
-						'GLOBAL REPORTING' as source_name,
-						'p_rsf.global_reporting()' as source_reference,
-						'Reporting entry created by database trigger p_rsf.global_reporting()'::text as source_note,
-						ids.rsf_program_id,
-						reporting_dates.valid_reporting_date as reporting_asof_date,
-						reporting_dates.valid_reporting_date as data_asof_date, -- TODO!! if a cohort reports interrim data_asof_date, Global must too
-						--least(reporting_dates.valid_reporting_date,now()::date) as data_asof_date,
-						ids.rsf_pfcbl_id as reporting_rsf_pfcbl_id,
-						true as is_reported_cohort
-					from p_rsf.rsf_pfcbl_ids ids
-					where ids.rsf_program_id = 0
-					returning reporting_rsf_pfcbl_id,reporting_asof_date,reporting_cohort_id,reporting_user_id,source_name,rsf_program_id
-			),
-			global_data as (
-				insert into p_rsf.reporting_cohorts(parent_reporting_cohort_id,
-				                                    reporting_time,
-																						reporting_user_id,
-																						source_name,
-																						source_reference,
-																						source_note,
-																						rsf_program_id,
-																						reporting_asof_date,
-																						data_asof_date,
-																						reporting_rsf_pfcbl_id,
-																						is_reported_cohort)
-        select 
-				  gr.reporting_cohort_id,
-	        timeofday()::timestamptz,
-					gr.reporting_user_id,
-					gr.source_name,
-					'GLOBAL DATA COHORT' as source_reference,
-					NULL::text as source_note,
-					gr.rsf_program_id,
-					gr.reporting_asof_date,
-					gr.reporting_asof_date as data_asof_date,
-					gr.reporting_rsf_pfcbl_id,
-					true as is_reported_cohort																							
-        from global_reporting gr					
-			  returning reporting_rsf_pfcbl_id as rsf_pfcbl_id,reporting_asof_date,reporting_cohort_id
-			)
-			insert into p_rsf.rsf_data(rsf_pfcbl_id,
-																 reporting_asof_date,
-																 reporting_cohort_id,
-																 indicator_id,
-																 data_value,
-																 data_submitted,
-																 data_source_row_id)
-			 select 
-				gd.rsf_pfcbl_id,
-				gd.reporting_asof_date,
-				gd.reporting_cohort_id,
-				ind.indicator_id,
-				NULL::text,
-				gd.reporting_cohort_id::text,
-				gd.reporting_cohort_id::text || 'REPORTING_COHORT_ID'
-			from global_data gd, p_rsf.indicators ind
-			where ind.data_category = 'global' and ind.indicator_sys_category = 'entity_reporting';
+    FOR reporting_dates IN
+			select 
+      grd.valid_reporting_date
+      from p_rsf.rsf_pfcbl_generate_reporting_dates(0,now()::date) grd -- NEW.reporting_asof_date,
+      where not exists(select * from p_rsf.rsf_pfcbl_reporting rpr
+                       where rpr.rsf_pfcbl_id = 0
+                         and rpr.reporting_asof_date = grd.valid_reporting_date)
+      order by 
+      grd.valid_reporting_date                    
+    LOOP
+    
+       raise notice 'global_reporting creating new reporting_cohort entry for: %',reporting_dates.valid_reporting_date;
+
+       with global_import as (
+         insert into p_rsf.reporting_imports(import_rsf_pfcbl_id,
+                                             import_pfcbl_category,
+                                             import_user_id,
+                                             import_time,
+                                             import_completed,
+                                             reporting_asof_date,
+                                             template_id,
+                                             file_name,
+                                             file_data,
+                                             import_comments,
+                                             pfcbl_name)
+         select 
+         0 as rsf_pfcbl_id,
+         'global' as import_pfcbl_category,
+         (select account_id from p_rsf.view_account_info where users_name = 'RSF SYS Calculator' and is_system_account=true) as import_user_id,
+         TIMEOFDAY()::timestamptz as import_time,
+         true import_completed,
+         reporting_dates.valid_reporting_date as reporting_asof_date,
+         ri.template_id,
+         ri.file_name,
+         ''::bytea,
+         concat('Global Reporting Triggered by: ',ri.file_name,' import_id=',ri.import_id) as import_comments,
+         'GLOBAL'
+         from p_rsf.reporting_imports ri
+         where ri.import_id = NEW.import_id
+           and not exists(select * 
+                          from p_rsf.reporting_imports ri
+                          where ri.import_rsf_pfcbl_id = 0
+                            and ri.reporting_asof_date = reporting_dates.valid_reporting_date)
+         returning 
+          reporting_imports.import_id,
+          reporting_imports.import_rsf_pfcbl_id,
+          reporting_imports.reporting_asof_date,
+          reporting_imports.import_user_id
+       ),
+       global_cohort as (
+         insert into p_rsf.reporting_cohorts(import_id,
+                                             reporting_rsf_pfcbl_id,
+                                             reporting_asof_date,                                    
+                                             reporting_user_id,
+                                             reporting_time,
+                                             reporting_type,
+                                             is_reported_cohort,
+                                             is_calculated_cohort,
+                                             data_asof_date)
+         select 
+           gi.import_id,
+           gi.import_rsf_pfcbl_id as reporting_rsf_pfcbl_id,
+           gi.reporting_asof_date,
+           gi.import_user_id,
+           TIMEOFDAY()::timestamptz as reporting_time,
+           1 as reporting_type, -- 1=User import
+           true as is_reported_cohort,
+           false as is_calculated_cohort,
+           gi.reporting_asof_date as data_asof_date
+         from global_import gi
+         returning 
+         reporting_cohorts.reporting_cohort_id,
+         reporting_cohorts.reporting_rsf_pfcbl_id,
+         reporting_cohorts.reporting_asof_date,
+         reporting_cohorts.reporting_user_id
+       )
+       insert into p_rsf.rsf_data(rsf_pfcbl_id,
+                                  reporting_asof_date,
+                                  reporting_cohort_id,
+                                  indicator_id,
+                                  data_value,
+                                  data_submitted,
+                                  data_source_row_id)
+       select 
+        gd.reporting_rsf_pfcbl_id as rsf_pfcbl_id,
+        gd.reporting_asof_date,
+        gd.reporting_cohort_id,
+        ind.indicator_id,
+        NULL::text as data_value,
+        gd.reporting_cohort_id::text,
+        gd.reporting_cohort_id::text || 'REPORTING_COHORT_ID'
+      from global_cohort gd, p_rsf.indicators ind
+      where ind.data_category = 'global' and ind.indicator_sys_category = 'entity_reporting';
 		END LOOP;
-	end if;
-	
+
 	return NEW;
-	
+
 END;
 $BODY$
   LANGUAGE plpgsql VOLATILE
@@ -5305,7 +4534,7 @@ $BODY$
 DROP FUNCTION IF EXISTS "p_rsf"."initialize_global_program"("v_init_date" date);
 CREATE FUNCTION "p_rsf"."initialize_global_program"("v_init_date" date='2017-12-31'::date)
   RETURNS "pg_catalog"."void" AS $BODY$
-declare data_cohort_id int;
+declare init_cohort_id int;
 declare all_permissions int;
 begin
 
@@ -5324,13 +4553,6 @@ then
 end if;
 
 insert into p_rsf.rsf_programs(rsf_program_id) values(0) on conflict do nothing;
-insert into p_rsf.rsf_program_reporting_dates(rsf_program_id,
-                                              valid_reporting_date,
-																							reporting_sequence_rank,
-																							rsf_pfcbl_id)
-values(0,v_init_date,1,0)
-on conflict do nothing;
-
 
 select bit_or(permission_value) 
 into all_permissions
@@ -5363,149 +4585,157 @@ where vai.users_name = 'RSF SYS Admin' and is_system_account=true
 ) uinit
 on conflict 
 do nothing;
-																							
-insert into p_rsf.reporting_cohorts(reporting_cohort_id,
-																		rsf_program_id,
-																		reporting_rsf_pfcbl_id,
-																		reporting_asof_date,
-																		reporting_user_id,
-																		reporting_time,
-																		data_asof_date,
-																		source_reference,
-																		source_name,
-																		source_note)
-select 
-  0::int as reporting_cohort_id,
-	0::int as rsf_program_id,
-	0::int as reporting_rsf_pfcbl_id,
-	'2017-12-31'::date as reporting_asof_date,
-	(select account_id from p_rsf.view_account_info where users_name = 'RSF SYS Admin') as reporting_user_id,
-	TIMEOFDAY()::timestamptz as reporting_time,
-	'2017-12-31'::date as data_asof_date,
-	concat('NEW PROGRAM/GLOBAL') as source_reference,
-	'INIT'::text as source_name,
-	'Initializing GLOBAL program'::text as source_note
-on conflict do nothing;
-
-insert into p_rsf.reporting_cohorts(reporting_asof_date,
-	                                  reporting_rsf_pfcbl_id,
-																		reporting_user_id,
-																		reporting_time,
-																		data_asof_date,
-																		source_name,
-																		source_reference,
-																		source_note,
-																		rsf_program_id,
-																		parent_reporting_cohort_id,
-																		is_reported_cohort,
-																		is_calculated_cohort)
-  select 
-		rc.reporting_asof_date,
-		rc.reporting_rsf_pfcbl_id,
-		rc.reporting_user_id,
-		timeofday()::timestamptz as reporting_time,
-		rc.data_asof_date,
-		rc.source_name,
-		'GLOBAL INIT DATA REPORTING COHORT' as source_reference,
-		NULL::text as source_note,
-		rc.rsf_program_id,
-		rc.reporting_cohort_id as parent_reporting_cohort_id,
-		true as is_reported_cohort,
-		false as is_calculated_cohort
- from p_rsf.reporting_cohorts rc
- where rc.reporting_cohort_id = 0	 
- returning reporting_cohort_id 
- into data_cohort_id;
- 
-insert into p_rsf.rsf_pfcbl_ids(rsf_pfcbl_id,
-															  rsf_program_id,
-															  rsf_facility_id,
-															  rsf_client_id,
-															  rsf_borrower_id,
-															  rsf_loan_id,
-																rsf_pf_id,
-															  pfcbl_category,
-															  pfcbl_category_rank,
-															  created_by_reporting_cohort_id,
-															  created_in_reporting_asof_date)
-select 
- 0::int as rsf_pfcbl_id,
- 0::int as rsf_program_id,
- NULL::int as rsf_facility_id,
- NULL::int as rsf_client_id,
- NULL::int as rsf_borrower_id,
- NULL::int as rsf_loan_id,
- 0::int as rsf_id,
- 'global' as pfcbl_category,
- 0::int as pfcbl_category_rank,
- data_cohort_id::int as created_by_reporting_cohort_id,
- v_init_date::date as created_in_reporting_asof_date
-on conflict do nothing;
-
-insert into p_rsf.rsf_pfcbl_id_family(parent_pfcbl_category,
-                                      parent_rsf_pfcbl_id,
-																		  child_rsf_pfcbl_id,
-																		  child_pfcbl_category,
-																			parent_pfcbl_rank,
-																			child_pfcbl_rank)
-
-select 'global',0,0,'global',1,1
-on conflict do nothing;
-	
-
-insert into p_rsf.rsf_data(rsf_pfcbl_id,reporting_asof_date,reporting_cohort_id,indicator_id,data_value,data_submitted)
-select 
-dc.reporting_rsf_pfcbl_id,
-dc.reporting_asof_date,
-dc.reporting_cohort_id,
-ind.indicator_id,
-case when ind.indicator_sys_category = 'entity_reporting' then '{INIT}'
-     when ind.indicator_sys_category = 'name' then 'GLOBAL'
-		 else 'ERROR' 
-end as data_value,
-case when ind.indicator_sys_category = 'entity_reporting' then '{INIT}'
-     when ind.indicator_sys_category = 'name' then 'GLOBAL'
-		 else 'ERROR' 
-end as data_submitted
-from p_rsf.reporting_cohorts dc,p_rsf.indicators ind
-where dc.reporting_cohort_id = data_cohort_id
-  and ind.indicator_sys_category in ('entity_reporting','name')
-  and ind.data_category = 'global'
-on conflict do nothing;
-
-/*
--- in case something wasn't cleaned up properly and rsf_program=0 wasn't deleted and has remaining indicators, but is being re-called
-update p_rsf.rsf_program_indicators set is_deprecated = true where rsf_program_id = 0;
-update p_rsf.rsf_program_indicators set is_deprecated = false where rsf_program_id = 0;
 
 
-insert into p_rsf.rsf_program_indicators(indicator_id,rsf_program_id,is_deprecated,is_hidden)
-select ind.indicator_id,0 as rsf_program_id,false as is_deprecated,false as is_hidden
-from p_rsf.indicators ind
-where ind.data_category = 'global'
-on conflict do nothing;
-*/
-
-insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,
-																									 indicator_id,
-																									 calculation_asof_date)
-select distinct
-  rc.reporting_rsf_pfcbl_id,
-	ind.indicator_id,
-	rc.reporting_asof_date
-from p_rsf.reporting_cohorts rc,p_rsf.indicators ind
-where ind.is_calculated = true
-	and ind.is_system_calculated = false
-	and rc.rsf_program_id = 0
-	and ind.data_category = 'global'
-on conflict do nothing;
-
-insert into p_rsf.rsf_program_facility_check_guidance(rsf_pfcbl_id,
-                                                      indicator_check_guidance_id,
-																											rsf_program_id,
-																											rsf_facility_id,
-																											applied_by_user_id,
-																											application_time)
+-------------------
+      with global_import as (
+         insert into p_rsf.reporting_imports(import_rsf_pfcbl_id,
+                                             import_pfcbl_category,
+                                             import_user_id,
+                                             import_time,
+                                             import_completed,
+                                             reporting_asof_date,
+                                             template_id,
+                                             file_name,
+                                             file_data,
+                                             import_comments,
+                                             pfcbl_name)
+         select 
+         0 as rsf_pfcbl_id,
+         'global' as import_pfcbl_category,
+         vai.account_id as import_user_id,
+         TIMEOFDAY()::timestamptz as import_time,
+         true import_completed,
+         v_init_date as reporting_asof_date,
+         tmp.template_id, 
+         ''::text,
+         ''::bytea,
+         concat('Global Reporting Triggered by INITIALIZE') as import_comments,
+         'GLOBAL'         
+         
+         from 
+         (select account_id from p_rsf.view_account_info where users_name = 'RSF SYS Calculator' and is_system_account=true) vai,
+         (select rt.template_id from p_rsf.reporting_templates rt where rt.template_name = 'RSF-ENTITIES-TEMPLATE') tmp
+         where not exists(select * from p_rsf.reporting_imports ri
+                          where ri.import_rsf_pfcbl_id = 0
+                            and ri.template_id = tmp.template_id
+                            and ri.reporting_asof_date = v_init_date)
+         returning 
+         reporting_imports.import_id,
+         reporting_imports.import_rsf_pfcbl_id,
+         reporting_imports.reporting_asof_date,
+         reporting_imports.import_user_id
+       ),
+       global_cohort as (
+         insert into p_rsf.reporting_cohorts(import_id,
+                                             reporting_rsf_pfcbl_id,
+                                             reporting_asof_date,                                    
+                                             reporting_user_id,
+                                             reporting_time,
+                                             reporting_type,
+                                             is_reported_cohort,
+                                             is_calculated_cohort,
+                                             data_asof_date)
+         select 
+           gi.import_id,
+           gi.import_rsf_pfcbl_id as reporting_rsf_pfcbl_id,
+           gi.reporting_asof_date,
+           gi.import_user_id,
+           TIMEOFDAY()::timestamptz as reporting_time,
+           1 as reporting_type, -- 1=User import
+           true as is_reported_cohort,
+           false as is_calculated_cohort,
+           gi.reporting_asof_date as data_asof_date
+         from global_import gi
+         returning 
+         reporting_cohorts.reporting_cohort_id,
+         reporting_cohorts.reporting_rsf_pfcbl_id,
+         reporting_cohorts.reporting_asof_date,
+         reporting_cohorts.reporting_user_id
+       ),
+       global_entity as (
+       
+         insert into p_rsf.rsf_pfcbl_ids(rsf_pfcbl_id,
+                                         rsf_program_id,
+                                         rsf_facility_id,
+                                         rsf_client_id,
+                                         rsf_borrower_id,
+                                         rsf_loan_id,
+                                         pfcbl_category,
+                                         pfcbl_category_rank,
+                                         created_by_reporting_cohort_id,
+                                         created_in_reporting_asof_date)
+          select 
+           0::int as rsf_pfcbl_id,
+           0::int as rsf_program_id,
+           NULL::int as rsf_facility_id,
+           NULL::int as rsf_client_id,
+           NULL::int as rsf_borrower_id,
+           NULL::int as rsf_loan_id,
+           'global' as pfcbl_category,
+           0::int as pfcbl_category_rank,
+           gc.reporting_cohort_id as created_by_reporting_cohort_id,
+           gc.reporting_asof_date as created_in_reporting_asof_date
+           from global_cohort gc
+           returning
+            rsf_pfcbl_id,
+            created_in_reporting_asof_date,
+            created_by_reporting_cohort_id            
+       ),
+       global_reporting as (
+       
+          insert into p_rsf.rsf_data(rsf_pfcbl_id,reporting_asof_date,reporting_cohort_id,indicator_id,data_value,data_submitted)
+          select 
+            ge.rsf_pfcbl_id,
+            ge.created_in_reporting_asof_date as reporting_asof_date,
+            ge.created_by_reporting_cohort_id as reporting_cohort_id,
+            ind.indicator_id,
+            case when ind.indicator_sys_category = 'entity_reporting' then '{INIT}'
+                 when ind.indicator_sys_category = 'name' then 'GLOBAL'
+                 else 'ERROR' 
+            end as data_value,
+            case when ind.indicator_sys_category = 'entity_reporting' then '{INIT}'
+                 when ind.indicator_sys_category = 'name' then 'GLOBAL'
+                 else 'ERROR' 
+            end as data_submitted
+          from 
+          global_entity ge,
+          p_rsf.indicators ind
+          where ind.indicator_sys_category in ('entity_reporting','name') -- entity_reporting and name _together_ are required for the sys_names trigger to run
+            and ind.data_category = 'global'
+          on conflict do nothing
+          returning 
+            reporting_asof_date,
+            reporting_cohort_id
+       )
+       select distinct reporting_cohort_id
+       into init_cohort_id
+       from global_reporting;
+       
+       raise info 'init_cohort_id=%',init_cohort_id;
+         
+------------      
+		if (init_cohort_id is not null) then
+      insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,
+                                                       indicator_id,
+                                                       calculation_asof_date)
+      select 
+        0 as rsf_pfcbl_id,
+        ind.indicator_id,
+        v_init_date
+      from p_rsf.indicators ind
+      where ind.is_calculated = true
+        and ind.is_system_calculated = false
+        and ind.data_category = 'global'
+      on conflict do nothing;
+    end if;
+    
+  insert into p_rsf.rsf_program_facility_check_guidance(rsf_pfcbl_id,
+                                                        indicator_check_guidance_id,
+                                                        rsf_program_id,
+                                                        rsf_facility_id,
+                                                        applied_by_user_id,
+                                                        application_time)
 		select 
 			0 as rsf_pfcbl_id,
 			icg.indicator_check_guidance_id,
@@ -5555,84 +4785,20 @@ BEGIN
 	(select count(*) from inserted_ids),
 	(select clock_timestamp()-now());
 
-
-  if (exists(select * from inserted_ids ii where ii.pfcbl_category = 'program')) then
-	
-	   raise info 'insert_rsf_pfcbl_id_data trigger: New program created and adding default subscriptions';
-		 
-		 insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
-																											indicator_id,
-																											formula_id,
-																											rsf_program_id,
-																											rsf_facility_id,
-																											is_subscribed,
-																											is_auto_subscribed)
-    	select
-    		iids.rsf_pfcbl_id,
-    		dind.indicator_id,
-    		dind.formula_id,
-    		iids.rsf_program_id,
-    		NULL as rsf_facility_id, -- only program level auto subscribes
-    		true as is_subscribed,
-    		true as is_auto_subscribed
-    	from inserted_ids iids 
-			cross join (select ind.indicator_id,indf.formula_id
-			            from p_rsf.indicators ind
-									left join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
-																												 and indf.is_primary_default is true
-									where ind.default_subscription is true
-										and ind.data_category <> 'global') as dind
-			where iids.pfcbl_category = 'program'
-      on conflict(rsf_pfcbl_id,indicator_id)
-    	do nothing;
-	end if;
-	
-  create temp table _temp_init_data(rsf_pfcbl_id int,
-	                                  indicator_id int,
-																		reporting_asof_date date,
-																		reporting_cohort_id int,
-																		data_value text,
-																		data_unit text,
-																		data_submitted text)
-	on commit drop;
-
-	insert into _temp_init_data(rsf_pfcbl_id,
-														 indicator_id,
-														 reporting_asof_date,
-														 reporting_cohort_id,
-														 data_value,
-														 data_unit,
-														 data_submitted)	
-  -- will include sys_x_reporting entity_reporting indicator, which is_system=true
+                           
+  insert into p_rsf.rsf_data(rsf_pfcbl_id,indicator_id,reporting_asof_date,reporting_cohort_id,data_value,data_unit,data_submitted)	
 	select 
 	  iids.rsf_pfcbl_id,
 		ind.indicator_id,
 		iids.created_in_reporting_asof_date,
 		iids.created_by_reporting_cohort_id,
-		case 
-			when indicator_sys_category = 'SYSID' then iids.rsf_pfcbl_id::text 
-			else ind.default_value 
-		end as data_value,
+		iids.rsf_pfcbl_id::text as data_value,
 		ind.data_unit,
-		case 
-			when indicator_sys_category = 'SYSID' then '{CREATED}'
-			else '{DEFAULT}'
-		end as data_submitted
+    '{CREATED SYSID ' || iids.rsf_pfcbl_id::text || '}' as data_submitted
 	from inserted_ids iids 
 	inner join p_rsf.indicators ind on ind.data_category = iids.pfcbl_category
-	where ind.indicator_sys_category in ('SYSID','entity_reporting');
-	
-	alter table _temp_init_data add primary key(rsf_pfcbl_id,indicator_id,reporting_asof_date);
-	
-	-- with big inserts, it seems to hang -- perhaps massive new data inserts aren't properly analyzed?  Does a temp table make a difference...
-	analyze _temp_init_data;
-	
-	insert into p_rsf.rsf_data(rsf_pfcbl_id,indicator_id,reporting_asof_date,reporting_cohort_id,data_value,data_unit,data_submitted)	
-  select rsf_pfcbl_id,indicator_id,reporting_asof_date,reporting_cohort_id,data_value,data_unit,data_submitted from _temp_init_data;
-		 
-	raise info 'insert_rsf_pfcbl_id_data initialized reporting and sysid in %',
-	(select clock_timestamp()-msg_time);
-	msg_time := clock_timestamp();
+	where ind.indicator_sys_category = 'SYSID'
+  on conflict do nothing;	
 	
 	return NULL;
 END; $BODY$
@@ -5659,12 +4825,14 @@ BEGIN
 																										 calculation_asof_date)
 	select
 		iids.rsf_pfcbl_id,
-		pis.indicator_id,
+		sis.indicator_id,
 		iids.created_in_reporting_asof_date as calculation_asof_date
 	from inserted_ids iids 
-	inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = iids.rsf_pfcbl_id
-	where pis.is_calculated = true 
-	  and pis.is_subscribed = true	
+	inner join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = iids.rsf_pfcbl_id
+                                                             and sis.filter_matched_pfcbl_indicators is true -- because we're not joining any specific indicator
+	where sis.is_calculated = true 
+	  and sis.is_subscribed = true	
+    
 	on conflict(rsf_pfcbl_id,indicator_id,calculation_asof_date)
 	do nothing;
 
@@ -5672,109 +4840,7 @@ BEGIN
 	(select clock_timestamp()-msg_time);
 	msg_time := clock_timestamp();
 	
-	/* no need to pre-queue check evaluations on create
-	insert into p_rsf.rsf_data_check_evaluations(rsf_pfcbl_id,
-																							 indicator_id,
-																							 check_asof_date,
-																							 indicator_check_id)
-  select 
-		iids.rsf_pfcbl_id,
-		ind.indicator_id,
-		iids.created_in_reporting_asof_date as check_asof_date,
-		rpic.indicator_check_id
-	from inserted_ids iids 
-	inner join p_rsf.indicators ind on ind.data_category = iids.pfcbl_category
-  inner join p_rsf.rsf_program_indicator_checks rpic on rpic.rsf_program_id = iids.rsf_program_id
-	                                                  and rpic.indicator_id = ind.indicator_id
-  -- conflicts can arise from the rsf_data insert	as checks use sys_id value																							
-  on conflict(rsf_pfcbl_id, indicator_id, check_asof_date, indicator_check_id)
-	do nothing;
-
-	raise info 'insert_rsf_pfcbl_id_family initialized rsf_data_check_evaluations in %',
-	(select clock_timestamp()-msg_time);
-	msg_time := clock_timestamp();
-  */
-	return NULL;
-END; $BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
--- Function structure for insert_rsf_pfcbl_id_family
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."insert_rsf_pfcbl_id_family"();
-CREATE FUNCTION "p_rsf"."insert_rsf_pfcbl_id_family"()
-  RETURNS "pg_catalog"."trigger" AS $BODY$
-DECLARE msg_time timestamp not null default clock_timestamp();
-BEGIN
-
-	msg_time := clock_timestamp();
-	raise info 'insert_rsf_pfcbl_id_family trigger: % new entities created.  From insert start %',
-	(select count(*) from inserted_ids),
-	(select clock_timestamp()-now());
-
 	
-  create temp table _temp_fam(parent_pfcbl_category text,
-															parent_rsf_pfcbl_id int,
-															child_rsf_pfcbl_id int,
-															child_pfcbl_category text,
-															parent_pfcbl_rank int,
-															child_pfcbl_rank int,
-															primary key (parent_rsf_pfcbl_id,
-															             child_rsf_pfcbl_id))
-	on commit drop;
-															
-	insert into _temp_fam(parent_pfcbl_category,
-												parent_rsf_pfcbl_id,
-												child_rsf_pfcbl_id,
-												child_pfcbl_category,
-												parent_pfcbl_rank,
-												child_pfcbl_rank)  																																			
-	select 
-	  pids.parent_pfcbl_category,
-		pids.parent_rsf_pfcbl_id,
-		iids.rsf_pfcbl_id as child_rsf_pfcbl_id,
-		iids.pfcbl_category as child_pfcbl_category,
-		pids.parent_pfcbl_rank,
-		iids.pfcbl_category_rank as child_pfcbl_rank
-	from p_rsf.rsf_pfcbl_ids iids
-	inner join p_rsf.rsf_pfcbl_id_family pids on pids.child_rsf_pfcbl_id = iids.parent_rsf_pfcbl_id
-	where iids.pfcbl_category <> 'global'
-	
-	union all 
-	
-	select 
-	  iids.pfcbl_category as parent_pfcbl_category,
-		iids.rsf_pfcbl_id as parent_rsf_pfcbl_id,
-		iids.rsf_pfcbl_id as child_rsf_pfcbl_id,
-		iids.pfcbl_category as child_pfcbl_category,
-		iids.pfcbl_category_rank as parent_pfcbl_rank,
-		iids.pfcbl_category_rank as child_pfcbl_rank
-	from inserted_ids iids
-	on conflict(parent_rsf_pfcbl_id,child_rsf_pfcbl_id)
-	do nothing;
-	
-	analyze _temp_fam;
-	
-	insert into p_rsf.rsf_pfcbl_id_family(parent_pfcbl_category,
-																				parent_rsf_pfcbl_id,
-																				child_rsf_pfcbl_id,
-																				child_pfcbl_category,
-																				parent_pfcbl_rank,
-																				child_pfcbl_rank)
-  select
-		parent_pfcbl_category,
-		parent_rsf_pfcbl_id,
-		child_rsf_pfcbl_id,
-		child_pfcbl_category,
-		parent_pfcbl_rank,
-		child_pfcbl_rank																					
-	from _temp_fam	
-	on conflict do nothing;
-	
-	raise info 'insert_rsf_pfcbl_id_family inserted in %',
-	(select clock_timestamp()-msg_time);
-			
 	return NULL;
 END; $BODY$
   LANGUAGE plpgsql VOLATILE
@@ -5792,7 +4858,12 @@ BEGIN
 	msg_time := clock_timestamp();
 	raise info 'insert_rsf_pfcbl_id_lcu trigger: % new entities created.  From insert start %',
 	(select count(*) from inserted_ids),
-	(select now());
+	(select clock_timestamp()-now());
+
+
+
+
+
 
 	-- having initialized the family, now initalize the new entity's LCU unit, which is overwhelmingly inherited (ie, few loans are in defined currency)
 	insert into p_rsf.rsf_data_current_lcu(lcu_unit_data_id,
@@ -5802,6 +4873,28 @@ BEGIN
 																				 data_id_pfcbl_rank,
 																				 is_defined_lcu)
   select distinct on (iids.rsf_pfcbl_id)
+      rdc.data_id as lcu_unit_data_id,
+      iids.rsf_pfcbl_id as for_rsf_pfcbl_id,
+      iids.created_in_reporting_asof_date as reporting_asof_date,
+      rdc.data_value as data_unit_value,
+      ft.to_pfcbl_rank as data_id_pfcbl_rank,
+      false as is_defined_lcu
+    from inserted_ids iids 
+    inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = iids.rsf_pfcbl_id
+    inner join p_rsf.indicators ind on ind.data_category = ft.to_pfcbl_category
+                                   and ind.indicator_sys_category = 'entity_local_currency_unit' -- not defined, therefor is_defined_lcu is false
+    inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+                                         and rdc.indicator_id = ind.indicator_id
+    where rdc.reporting_asof_date <= iids.created_in_reporting_asof_date
+      and ft.pfcbl_hierarchy <> 'child'
+    order by
+      iids.rsf_pfcbl_id,
+      ft.to_pfcbl_rank desc,  -- ie, first facility=2, then program=1
+      rdc.reporting_asof_date desc; -- in case the LCU has changed over time, eg, country devalues or reissues (ie, Ghana Cedi vs Shilling)
+                                         
+/*                                         
+  select distinct on (iids.rsf_pfcbl_id)
+  
 	  rdc.data_id as lcu_unit_data_id,
 		iids.rsf_pfcbl_id as for_rsf_pfcbl_id,
 		iids.created_in_reporting_asof_date as reporting_asof_date,
@@ -5819,72 +4912,13 @@ BEGIN
     iids.rsf_pfcbl_id,
 		fam.parent_pfcbl_rank desc,  -- ie, first facility=2, then program=1
 		rdc.reporting_asof_date desc; -- in case the LCU has changed over time, eg, country devalues or reissues (ie, Ghana Cedi vs Shilling)
-	
+	*/
 	raise info 'insert_rsf_pfcbl_id_lcu set default entity LCU value (from existing parent) in %',
 	(select clock_timestamp()-msg_time);
 	msg_time := clock_timestamp();
 
 	return NULL;
 END; $BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
--- Function structure for insert_rsf_program_reporting_dates
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."insert_rsf_program_reporting_dates"();
-CREATE FUNCTION "p_rsf"."insert_rsf_program_reporting_dates"()
-  RETURNS "pg_catalog"."trigger" AS $BODY$
-
-BEGIN
-
---RAISE NOTICE 'TRIGGER for insert_rsf_program_reporting_dates rsf_program_id=% reporting_asof_date=%',NEW.rsf_program_id,NEW.reporting_asof_date;
-
---FOR items IN (select rsf_program_id,valid_reporting_date from p_rsf.rsf_program_reporting_dates)  LOOP
-    --RAISE NOTICE 'insert_rsf_program_reporting_dates: %, %', quote_ident(items.rsf_program_id::text), quote_ident(items.valid_reporting_date::text);
---END LOOP;
-
---raise notice 'insert_rsf_program_reporting_dates for program_id=% date=',NEW.rsf_program_id,NEW.reporting_asof_date;
-  -- p_rsf.view_rsf_program_reporting_dates will create VALID reporting dates up until NOW
-	-- Therefore, p_rsf.rsf_program_reporting_dates can and should have entries that are not necessarily tied with actual rsf_program reporting entries
-	-- This is why there is a trigger to insert missing entries, but no corresponding trigger to delete valid reporting dates.
-  if (not exists(select * from p_rsf.rsf_program_reporting_dates rprd
-	               where (rprd.rsf_program_id = NEW.rsf_program_id and rprd.valid_reporting_date = NEW.reporting_asof_date))
-		  or 
-			
-			not exists(select * from p_rsf.rsf_program_reporting_dates rprd
-	               where (rprd.rsf_program_id = 0 and rprd.valid_reporting_date = NEW.reporting_asof_date))
-		  )
-								then
-									 
-		insert into p_rsf.rsf_program_reporting_dates(rsf_program_id,valid_reporting_date,reporting_sequence_rank,rsf_pfcbl_id)
-		select 
-		vrprd.rsf_program_id,
-		vrprd.valid_reporting_date,
-		vrprd.reporting_sequence_rank,
-		vrprd.rsf_pfcbl_id
-		--from p_rsf.view_rsf_program_reporting_dates vrprd
-		from p_rsf.rsf_program_generate_reporting_dates(NEW.rsf_program_id,NEW.reporting_asof_date) vrprd
-		union 
-		
-		select
-		vrprd.rsf_program_id,
-		vrprd.valid_reporting_date,
-		vrprd.reporting_sequence_rank,
-		vrprd.rsf_pfcbl_id
-		from p_rsf.rsf_program_generate_reporting_dates(0,NEW.reporting_asof_date) vrprd
-		where NEW.rsf_program_id <> 0
-		
-		on conflict do nothing; 
---		  and not exists(select * from p_rsf.rsf_program_reporting_dates rprd
---			               where rprd.rsf_program_id = vrprd.rsf_program_id
---										   and rprd.valid_reporting_date = vrprd.valid_reporting_date);
-		
-	end if;
-	
-	return NEW;
-END; 
-$BODY$
   LANGUAGE plpgsql VOLATILE
   COST 100;
 
@@ -5948,11 +4982,13 @@ BEGIN
 
 	--If we're deleting the cohort that created a parent-level entity, then all the cohorts that created any child-level
 	--entities must also be deleted.
+  
   with dependencies as (
 		select distinct crc.reporting_cohort_id
 		from p_rsf.rsf_pfcbl_ids pids
-		inner join p_rsf.rsf_pfcbl_id_family fam on fam.parent_rsf_pfcbl_id = pids.rsf_pfcbl_id
-		inner join p_rsf.reporting_cohorts crc on crc.reporting_rsf_pfcbl_id = fam.child_rsf_pfcbl_id
+		inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = pids.rsf_pfcbl_id
+                                                     and ft.pfcbl_hierarchy <> 'parent'
+		inner join p_rsf.reporting_cohorts crc on crc.reporting_rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
 		where pids.created_by_reporting_cohort_id = OLD.reporting_cohort_id
 	)
 	delete from p_rsf.reporting_cohorts rc
@@ -5978,14 +5014,18 @@ BEGIN
 		return NULL;
 	end if;
 	
-	raise notice 'p_rsf.reporting_cohort_deleted(%) TG_OP=% and trigger_depth=%',
-  (select array_agg(reporting_cohort_id) from deleted_reporting_cohorts),TG_OP,pg_trigger_depth();					 
+	--raise notice 'p_rsf.reporting_cohort_deleted(%) TG_OP=% and trigger_depth=%',
+  --(select array_agg(reporting_cohort_id) from deleted_reporting_cohorts),TG_OP,pg_trigger_depth();					 
 
-
-	delete from p_rsf.rsf_pfcbl_reporting_template_row_ids tri
-	where tri.reporting_cohort_id = any(select drc.reporting_cohort_id from deleted_reporting_cohorts drc);
+  
+--	delete from p_rsf.rsf_pfcbl_reporting_template_row_ids tri
+--	where tri.reporting_cohort_id = any(select drc.reporting_cohort_id from deleted_reporting_cohorts drc);
 	
-	raise notice 'rsf_data_deleted deleted from rsf_pfcbl_reporting_template_row_ids: %',(clock_timestamp()-msg_time);
+	-- delete rsf_pfcbl_ids LAST to ensure reporting family trees remain valid to clear-out stale calculations and whatnot.
+	delete from p_rsf.rsf_pfcbl_ids ids
+	where ids.created_by_reporting_cohort_id = any(select drc.reporting_cohort_id from deleted_reporting_cohorts drc);
+	
+	raise notice 'rsf_data_deleted rsf_pfcbl_ids created by this cohort %',(clock_timestamp()-msg_time);
 	msg_time:= clock_timestamp();
 	
 	delete from p_rsf.rsf_data rd
@@ -5994,21 +5034,16 @@ BEGIN
 	raise notice 'rsf_data_deleted rsf_data! %',(clock_timestamp()-msg_time);
 	msg_time:= clock_timestamp();
 
-	-- delete rsf_pfcbl_ids LAST to ensure reporting family trees remain valid to clear-out stale calculations and whatnot.
-	delete from p_rsf.rsf_pfcbl_ids ids
-	where ids.created_by_reporting_cohort_id = any(select drc.reporting_cohort_id from deleted_reporting_cohorts drc);
 	
-	raise notice 'rsf_data_deleted rsf_pfcbl_ids created by this cohort %',(clock_timestamp()-msg_time);
-	msg_time:= clock_timestamp();
 
 
-delete from p_rsf.rsf_data_calculation_evaluations dce
-where not exists(select * from p_rsf.rsf_pfcbl_ids ids 
-                 where ids.rsf_pfcbl_id = dce.rsf_pfcbl_id);
-								 
-delete from p_rsf.rsf_data_check_evaluations dce
-where not exists(select * from p_rsf.rsf_pfcbl_ids ids 
-                 where ids.rsf_pfcbl_id = dce.rsf_pfcbl_id);
+	delete from p_rsf.rsf_data_calculation_evaluations dce
+	where not exists(select * from p_rsf.rsf_pfcbl_ids ids 
+									 where ids.rsf_pfcbl_id = dce.rsf_pfcbl_id);
+									 
+	delete from p_rsf.rsf_data_check_evaluations dce
+	where not exists(select * from p_rsf.rsf_pfcbl_ids ids 
+									 where ids.rsf_pfcbl_id = dce.rsf_pfcbl_id);
 	--raise exception 'testing reporting cohort deleted failed';
 	return NULL;
 END; $BODY$
@@ -6087,6 +5122,85 @@ $BODY$
   COST 100;
 
 -- ----------------------------
+-- Function structure for rsf_data_calculation_evaluation_allowed
+-- ----------------------------
+DROP FUNCTION IF EXISTS "p_rsf"."rsf_data_calculation_evaluation_allowed"();
+CREATE FUNCTION "p_rsf"."rsf_data_calculation_evaluation_allowed"()
+  RETURNS "pg_catalog"."trigger" AS $BODY$
+BEGIN 
+ if (select ids.pfcbl_category from p_rsf.rsf_pfcbl_ids ids where ids.rsf_pfcbl_id = NEW.rsf_pfcbl_id) 
+    is distinct from
+    (select ind.data_category from p_rsf.indicators ind where ind.indicator_id = new.indicator_id)
+ then
+  raise exception 'Calculation category mistmatch for % to calculate %',
+  (select sn.sys_name from p_rsf.view_rsf_pfcbl_id_current_sys_names sn where sn.rsf_pfcbl_id = NEW.rsf_pfcbl_id),
+  (select ind.indicator_name from p_rsf.indicators ind where ind.indicator_id = NEW.indicator_id);
+  return NULL;  
+ end if;
+ 
+ --select * from p_rsf.rsf_data_calculation_evaluations;
+ --return NEW;
+ 
+ if (not exists(select * from p_rsf.view_rsf_setup_indicator_subscriptions sis
+                where sis.rsf_pfcbl_id = NEW.rsf_pfcbl_id
+                  and sis.indicator_id = NEW.indicator_id
+                  and sis.is_subscribed is true))
+ then
+  raise exception 'TESTING: Attempt to calculate unsubscribed indicator for: rsf_pfcbl_id=% indicator_id=% asof=%',
+  NEW.rsf_pfcbl_id,NEW.indicator_id,NEW.calculation_asof_date;
+ 
+ end if;
+ 
+ /*
+ if (NEW.indicator_id = 157648
+     and
+     (select sn.rsf_pfcbl_id from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
+      where sn.sys_name = 'program:SMALL LOAN GUARANTEE PROGRAM (41038) > facility:SLGP RSF SOGESOL (42221)') = NEW.rsf_pfcbl_id)
+      
+-- if (NEW.indicator_id in (157388,157648) and NEW.calculation_asof_date <= '2018-09-30')
+ then
+  raise exception 'TESTING: What is causing this to recalculate its history? rsf_pfcbl_id=% indicator_id=% asof=%',
+  NEW.rsf_pfcbl_id,NEW.indicator_id,NEW.calculation_asof_date;
+ end if;
+ */
+ return NEW;
+ 
+END; $BODY$
+  LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+  COST 100;
+
+-- ----------------------------
+-- Function structure for rsf_data_calculation_evaluation_validation
+-- ----------------------------
+DROP FUNCTION IF EXISTS "p_rsf"."rsf_data_calculation_evaluation_validation"();
+CREATE FUNCTION "p_rsf"."rsf_data_calculation_evaluation_validation"()
+  RETURNS "pg_catalog"."trigger" AS $BODY$
+BEGIN 
+
+ insert into p_rsf.rsf_data_calculation_validations(rsf_pfcbl_id,
+                                                               indicator_id,
+                                                               calculation_asof_date,
+                                                               data_id)
+ select 
+  rdc.rsf_pfcbl_id,
+  rdc.indicator_id,
+  rdc.reporting_asof_date,
+  rdc.data_id
+ from p_rsf.rsf_data_current rdc
+ where rdc.rsf_pfcbl_id = OLD.rsf_pfcbl_id
+   and rdc.indicator_id = OLD.indicator_id
+   and rdc.reporting_asof_date <= OLD.calculation_asof_date
+ order by rdc.reporting_asof_date desc 
+ limit 1
+ on conflict do nothing;
+                                                                   
+ return OLD;
+ 
+END; $BODY$
+  LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+  COST 100;
+
+-- ----------------------------
 -- Function structure for rsf_data_checks_deleted_archive
 -- ----------------------------
 DROP FUNCTION IF EXISTS "p_rsf"."rsf_data_checks_deleted_archive"();
@@ -6125,7 +5239,7 @@ BEGIN
 	cae.evaluation_id as archive_id,
 	now() as archive_time,
 	cae.archive_sys_name as sys_name,
-	cae.rsf_pfcbl_id,
+	ids.rsf_pfcbl_id,
 	cae.indicator_id,
 	cae.indicator_check_id,
 	cae.check_formula_id,
@@ -6142,10 +5256,16 @@ BEGIN
 	from deleted as cae
 	inner join p_rsf.view_account_info vai on vai.account_id = cae.check_status_user_id
 	left join p_rsf.indicator_check_guidance icg on icg.indicator_check_guidance_id = cae.indicator_check_guidance_id
+  left join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = cae.rsf_pfcbl_id -- in case the entity is being deleted, insert a NULL
 	where cae.archive_sys_name is NOT NULL -- 
 	  and cae.data_value_unit is NOT NULL  -- Is archivable
 		and cae.check_status_comment is distinct from icg.guidance
 	  and vai.is_system_account = false     -- Wasn't somehow set by system (such as by applying a guidance)
+    and (cae.check_formula_id is NULL  -- system/reporting check
+         or
+         exists(select * from p_rsf.indicator_check_formulas icf 
+                where icf.check_formula_id = cae.check_formula_id))
+          
 	on conflict do nothing;
 	
 	
@@ -6325,18 +5445,16 @@ msg_time := clock_timestamp();
 	elseif TG_OP = 'DELETE'
 	then
 	  if exists(select * 
-		          from (select 
-							      ids.rsf_pfcbl_id,
-										ids.created_in_reporting_asof_date as first_reporting_asof_date
-										from p_rsf.rsf_pfcbl_ids ids
-										where ids.rsf_pfcbl_id = any(select mlcu.for_rsf_pfcbl_id from modified_lcu mlcu)
-										  and ids.rsf_pfcbl_id <> 0
-											and exists(select * from p_rsf.reporting_cohorts rc
-											           where rc.reporting_cohort_id = ids.created_by_reporting_cohort_id)										
+		          from (select distinct
+							      rpr.rsf_pfcbl_id,
+										rpr.reporting_asof_date
+										from p_rsf.rsf_pfcbl_reporting rpr
+										where rpr.rsf_pfcbl_id = any(select mlcu.for_rsf_pfcbl_id from modified_lcu mlcu)
+										  and rpr.rsf_pfcbl_id <> 0
 										) as reporting
 							 where not exists(select * from p_rsf.rsf_data_current_lcu lcu
 															 where lcu.for_rsf_pfcbl_id = reporting.rsf_pfcbl_id
-															   and lcu.reporting_asof_date = reporting.first_reporting_asof_date))
+															   and lcu.reporting_asof_date <= reporting.reporting_asof_date))
 	  then		
 			raise exception 'Delete from rsf_data_current_lcu resulted in entity not having a defined local currency as of its created_in_reporting_asof_date';
 		end if;
@@ -6377,7 +5495,7 @@ msg_time := clock_timestamp();
 																	 from_unit_value,
 																	 to_data_id,
 																	 to_unit_value)
-		select 
+		select distinct on (to_lcu.for_rsf_pfcbl_id)
 			to_lcu.for_rsf_pfcbl_id,
 			to_lcu.reporting_asof_date,
 			from_lcu.lcu_unit_data_id,
@@ -6386,7 +5504,9 @@ msg_time := clock_timestamp();
 			to_lcu.data_unit_value
 		from modified_lcu to_lcu
 		inner join removed_lcu from_lcu on from_lcu.for_rsf_pfcbl_id = to_lcu.for_rsf_pfcbl_id
-		                               and from_lcu.reporting_asof_date = to_lcu.reporting_asof_date;
+		                               and from_lcu.reporting_asof_date = to_lcu.reporting_asof_date
+    order by to_lcu.for_rsf_pfcbl_id,
+             to_lcu.reporting_asof_date asc;
 	else
 		raise exception 'Unmanaged TG_OP=%',TG_OP;
 	end if;
@@ -6394,6 +5514,14 @@ msg_time := clock_timestamp();
 	raise info 'rsf_data_current_lcu_modified _temp_modified_lcu=% and modified_lcu size=% in %',
 	(select count(*) from _temp_modified_lcu),(select count(*) from modified_lcu),(select clock_timestamp()-msg_time);
 	
+  /*
+  	raise info 'TESTING contents of _temp_modified_lcu: %',		
+	(select left(json_agg(row_to_json(js))::text,900)
+	 from (	 
+	 select * from _temp_modified_lcu	 
+	 --select * from p_rsf.view_rsf_pfcbl_currency_units_asof_date where for_rsf_pfcbl_id = 108839 
+	 ) as js);
+   */
   msg_time := clock_timestamp();
 
 	--alter table _temp_modified_lcu add primary key(for_rsf_pfcbl_id,reporting_asof_date);
@@ -6489,27 +5617,32 @@ msg_time := clock_timestamp();
 
   -- recalculate all currency calculations or those with a currency parameter
 	-- that are affected by the deletion of a lcu data point
+  with quasi_currencies as (
+    select ind.indicator_id from p_rsf.indicators ind
+    where ind.data_type = 'currency'
+    or exists(select *
+				      from p_rsf.indicator_formula_parameters ifp
+					  	where ifp.indicator_id = ind.indicator_id
+						   and ifp.parameter_data_type = 'currency')
+  )
 	insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,
 	                                                   indicator_id,
 																										 calculation_asof_date)
 	select 
-		pis.rsf_pfcbl_id,
-		pis.indicator_id,
+		rpr.rsf_pfcbl_id,
+		sis.indicator_id,
 		rpr.reporting_asof_date
 	from p_rsf.rsf_pfcbl_reporting rpr
-	inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = rpr.rsf_pfcbl_id
-	inner join p_rsf.indicators ind on ind.indicator_id = pis.indicator_id
+	inner join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = rpr.rsf_pfcbl_id
+                                                             and sis.filter_matched_pfcbl_indicators is true
+	--inner join p_rsf.indicators ind on ind.indicator_id = sis.indicator_id
   where exists(select * from _temp_modified_lcu lcu
 	             where lcu.for_rsf_pfcbl_id = rpr.rsf_pfcbl_id
-							   and rpr.reporting_asof_date >= lcu.reporting_asof_date)								 
-	  and pis.formula_id is not null
-		and pis.is_subscribed = true
-		and (ind.data_type = 'currency'
-		     or 
-				 exists(select *
-					      from p_rsf.indicator_formula_parameters ifp
-								where ifp.indicator_id = ind.indicator_id
-								  and ifp.parameter_data_type = 'currency'))
+							   and rpr.reporting_asof_date >= lcu.reporting_asof_date)
+    and sis.indicator_id = any(select qc.indicator_id from quasi_currencies qc)
+	  and sis.formula_id is not null
+		and sis.is_subscribed is true
+    
   on conflict 
 	do nothing;
 	
@@ -6566,18 +5699,20 @@ BEGIN
   then
 	  
 		select 
-			coalesce(pis.is_calculated,false),
+			coalesce(sis.is_calculated,false),
 			coalesce(ind.is_periodic_or_flow_reporting,false) OR coalesce(ind.indicator_sys_category = 'entity_reporting',false),
 			coalesce(indf.formula_fx_date,'none') 
 			into
 			is_calculated,
 			is_periodic,
 			formula_fx_date
-		from p_rsf.view_rsf_pfcbl_indicator_subscriptions pis
-		inner join p_rsf.indicators ind on ind.indicator_id = pis.indicator_id
-		left join p_rsf.indicator_formulas indf on indf.formula_id = pis.formula_id
-		where pis.rsf_pfcbl_id = NEW.rsf_pfcbl_id
-		  and pis.indicator_id = NEW.indicator_id;
+		from p_rsf.view_rsf_setup_indicator_subscriptions sis 
+    -- important to return either/both subscribed, unsubscribed -- although should at least be auto-subscribed if we are at this point
+    -- due to auto-subscriptions set in previous trigger
+		inner join p_rsf.indicators ind on ind.indicator_id = sis.indicator_id
+		left join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
+		where sis.rsf_pfcbl_id = NEW.rsf_pfcbl_id
+		  and sis.indicator_id = NEW.indicator_id;
 		
 		-- if it's periodic data, allow user data whenever it's reported (data_value_is_meaningfully_different will filter based on ACTIVE status)
 		-- but if it's calculated, only allow if onder if its parameters actually triggered the calculation -- including an fx pseudo parameter
@@ -6641,13 +5776,13 @@ BEGIN
 		  and rdc.indicator_id = NEW.indicator_id
 			and rdc.reporting_asof_date = NEW.reporting_asof_date;
 			
-		raise info 'Redundant insertion omitted and reverted for rsf_pfcbl_id=% indicator_id=% asof=% for % %',
+		/*raise info 'Redundant insertion omitted and reverted for rsf_pfcbl_id=% indicator_id=% asof=% for % %',
 		NEW.rsf_pfcbl_id,
 		NEW.indicator_id,
 		NEW.reporting_asof_date,
 		NEW.data_value,
 		NEW.data_unit;
-		
+		*/
 		return NULL;
 	else
 		return NEW;
@@ -6704,20 +5839,21 @@ BEGIN
 	trim(max(regexp_replace(cd.data_value,'^(.*)#[[:digit:]]+$','\1','g')) filter (where ind.indicator_sys_category = 'id')) as "id",
 	max(cd.data_value) filter (where ind.indicator_sys_category = 'rank_id') as rank_id,
 	--max(cd.data_value) filter (where ind.indicator_sys_category = 'name') as "name",
-  trim(max(regexp_replace(regexp_replace(cd.data_value,'[^A-Za-z0-9[:space:]''&.-]',' ','g'),'[[:space:]]{2,}',' ','g')) filter (where ind.indicator_sys_category = 'name')) as "name",
+  trim((max(regexp_replace(regexp_replace(cd.data_value,'[^A-Za-z0-9[:space:]''&.-]',' ','g'),'[[:space:]]{2,}',' ','g')) filter (where ind.indicator_sys_category = 'name'))) as "name",
 	max(cd.data_value) filter (where ind.indicator_sys_category = 'nickname') as "nickname",
   ids.pfcbl_category,
   
   -- if no ID data has been submitted, then the pfcbl_name must be null, else unique index conflicts can arise from concat(ids.pfcbl_category...
-  case when max(cd.data_value) filter (where ind.indicator_sys_category = 'rank_id') is NULL
+  case when max(cd.data_value) filter (where ind.indicator_sys_category = 'rank_id' AND ind.data_category = 'loan') is NULL
         and max(cd.data_value) filter (where ind.indicator_sys_category = 'id') is NULL
         and max(cd.data_value) filter (where ind.indicator_sys_category = 'name') is NULL
         then concat(ids.pfcbl_category || ':SYSID',updated.rsf_pfcbl_id) -- this moots having a sys name since rsf_pfcbl_id is a sequence. On the other hand, this should get promptly overwritten
                                                                          -- and only exist briefly for a newly created entity
        else 
   concat(ids.pfcbl_category || ':',
-         coalesce('RANK' || max(cd.data_value) filter (where ind.indicator_sys_category = 'rank_id'),
-                            trim(max(regexp_replace(regexp_replace(cd.data_value,'[^A-Za-z0-9[:space:]''&.-]',' ','g'),'[[:space:]]{2,}',' ','g')) filter (where ind.indicator_sys_category = 'name'))),
+         coalesce('RANK' || max(cd.data_value) filter (where ind.indicator_sys_category = 'rank_id' AND ind.data_category = 'loan'),
+                            trim(max(regexp_replace(regexp_replace(cd.data_value,'[^A-Za-z0-9[:space:]''&.-]',' ','g'),'[[:space:]]{2,}',' ','g')) 
+                            filter (where ind.indicator_sys_category = 'name'))),
 				 ' (' || trim(max(regexp_replace(cd.data_value,'^(.*)#[[:digit:]]+$','\1','g')) filter (where ind.indicator_sys_category = 'id') || ')')) 
   end as pfcbl_name
   
@@ -6784,114 +5920,6 @@ BEGIN
 END;
 $BODY$
   LANGUAGE plpgsql VOLATILE SECURITY DEFINER
-  COST 100;
-
--- ----------------------------
--- Function structure for rsf_data_current_names_and_ids_sys_name
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."rsf_data_current_names_and_ids_sys_name"();
-CREATE FUNCTION "p_rsf"."rsf_data_current_names_and_ids_sys_name"()
-  RETURNS "pg_catalog"."trigger" AS $BODY$
-declare v_rsf_pfcbl_id int;
-declare v_reporting_asof_date date;
-BEGIN
-  
-  raise exception 'DEPRECATED';
-  if (TG_OP='UPDATE') 
-     AND
-     (NEW.pfcbl_name is NOT DISTINCT FROM OLD.pfcbl_name)
-  then
-    return NULL;
-  end if;
-  
-  
-  if (TG_OP='DELETE')
-  THEN
-    v_rsf_pfcbl_id := OLD.rsf_pfcbl_id;
-    v_reporting_asof_date := OLD.reporting_asof_date;
-    
-  ELSE
-    
-    v_rsf_pfcbl_id := NEW.rsf_pfcbl_id;
-    v_reporting_asof_date := NEW.reporting_asof_date;
-    
-  END IF;
-
-  -- when I, as a parent, update my historic name sometime in the future 
-  -- and my child entities have therefore set system names according to the obsolete/changed name,
-  -- then update current/future child entries to benefit from the new name change
-  -- this CTE is way, way, way, faster than the commented-out one below... someone it doesn't use indexes that query?
-  
-  
-  
-  with snames as (
-    select distinct on (tsn.rsf_pfcbl_id,tsn.sys_name)
-                    -- distinct because updated p_rsf.view_rsf_pfcbl_id_timeline_sys_names as to use UNION ALL instead of UNION and 
-                    -- that view can generate duplicates in extremely rare (but observed) circumstances when entities update their names over time and generate
-                    -- noise in the process.  Trying to filter out that noise within the view takes too much overhead, especially as it is so rare.
-      tsn.rsf_pfcbl_id,
-      tsn.reporting_asof_date,
-      tsn.sys_name
-    from p_rsf.rsf_pfcbl_id_family fam
-    inner join p_rsf.view_rsf_pfcbl_id_timeline_sys_names tsn on tsn.rsf_pfcbl_id = fam.child_rsf_pfcbl_id -- v_rsf_pfcbl_id is the PARENT entity who changed its name, so get the children sys_names
-    where fam.parent_rsf_pfcbl_id = v_rsf_pfcbl_id
-      and tsn.reporting_asof_date >= v_reporting_asof_date
-    order by tsn.rsf_pfcbl_id,tsn.sys_name,tsn.reporting_asof_date asc 
-    -- first appearance of date/name combo is the one of record (ie, if an entity set its name; changes it name; and reverts its name in 3 different timelines--which has been observed),
-    -- then the original set date/name is retained and nothing new updated or set in the 3rd timeline.  This because sys_names are fundamentally used to look-up the rsf_pfcbl_id using the
-    -- sys_name value, so knowing its value in a subsequent timeline is not meaningful since the same unique sys_name can still identify the older timeline entry.
-                               
-  )  
-  update p_rsf.rsf_data_current_names_and_ids nids
-  set sys_name = case when nids.pfcbl_name is NULL then NULL
-                      else snames.sys_name end
-  from snames
-  where nids.rsf_pfcbl_id = snames.rsf_pfcbl_id
-    and nids.reporting_asof_date = snames.reporting_asof_date
-    and nids.sys_name is distinct from snames.sys_name;
-    --and (nids.id is not null and nids.name is not null and nids.rank_id is not null and nids.nickname is not null);
-/*
-  with snames as  (
-    select distinct -- distinct because updated p_rsf.view_rsf_pfcbl_id_timeline_sys_names as to use UNION ALL instead of UNION and 
-                    -- that view can generate duplicates in extremely rare (but observed) circumstances when entities update their names over time and generate
-                    -- noise in the process.  Trying to filter out that noise within the view takes too much overhead, especially as it is so rare.
-      tsn.rsf_pfcbl_id,
-      tsn.reporting_asof_date,
-      tsn.sys_name
-    from p_rsf.rsf_pfcbl_id_family fam
-    inner join p_rsf.view_rsf_pfcbl_id_timeline_sys_names tsn on tsn.rsf_pfcbl_id = fam.child_rsf_pfcbl_id -- v_rsf_pfcbl_id is the PARENT entity who changed its name, so get the children sys_names
-    where fam.parent_rsf_pfcbl_id = v_rsf_pfcbl_id
-      and tsn.reporting_asof_date >= v_reporting_asof_date
-  )  
-  update p_rsf.rsf_data_current_names_and_ids nids
-  set sys_name = snames.sys_name
-  from snames
-  where nids.rsf_pfcbl_id = snames.rsf_pfcbl_id
-    and nids.reporting_asof_date = snames.reporting_asof_date
-    and nids.sys_name is distinct from snames.sys_name
-    and not exists(select * from  p_rsf.rsf_data_current_names_and_ids cnids
-                   where cnids.sys_name = snames.sys_name
-                     and cnids.reporting_asof_date <= snames.reporting_asof_date);
-  */
-  
-  /*
-  update p_rsf.rsf_data_current_names_and_ids nids
-  set sys_name = tsn.sys_name
-  from p_rsf.rsf_pfcbl_id_family fam
-  inner join p_rsf.view_rsf_pfcbl_id_timeline_sys_names tsn on tsn.rsf_pfcbl_id = fam.child_rsf_pfcbl_id                                                           
-  where fam.parent_rsf_pfcbl_id = v_rsf_pfcbl_id
-    and nids.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
-    and nids.reporting_asof_date = tsn.reporting_asof_date
-    and nids.reporting_asof_date >= v_reporting_asof_date
-    and nids.sys_name is distinct from tsn.sys_name
-    and not exists(select * from  p_rsf.rsf_data_current_names_and_ids cnids
-                   where cnids.sys_name = tsn.sys_name
-                     and cnids.reporting_asof_date = tsn.reporting_asof_date);
-  */ 
-  RETURN NULL;
-END;
-$BODY$
-  LANGUAGE plpgsql VOLATILE
   COST 100;
 
 -- ----------------------------
@@ -7072,6 +6100,30 @@ BEGIN
 			 ulcu.rsf_pfcbl_id as for_rsf_pfcbl_id,
 			 ulcu.reporting_asof_date,
 			 rdc.data_value as data_unit_value,
+			 ft.to_pfcbl_rank as data_id_pfcbl_rank,
+			 false as is_defined_lcu 		 
+		 from unreverted_lcu ulcu
+     inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = ulcu.rsf_pfcbl_id
+                                                      and ft.pfcbl_hierarchy <> 'child'
+		 inner join p_rsf.indicators ind on ind.data_category = ft.to_pfcbl_category
+		 inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+																					and rdc.indicator_id = ind.indicator_id
+																					and rdc.reporting_asof_date = ulcu.reporting_asof_date
+		 where ind.indicator_sys_category = 'entity_local_currency_unit'
+       
+		   and rdc.data_value is not null
+		 order by
+			ulcu.rsf_pfcbl_id,
+			ulcu.reporting_asof_date,
+			ft.to_pfcbl_rank desc
+                                            
+                                            
+        /*                                    
+		 select distinct on (ulcu.rsf_pfcbl_id,ulcu.reporting_asof_date)
+			 rdc.data_id,
+			 ulcu.rsf_pfcbl_id as for_rsf_pfcbl_id,
+			 ulcu.reporting_asof_date,
+			 rdc.data_value as data_unit_value,
 			 fam.parent_pfcbl_rank as data_id_pfcbl_rank,
 			 false as is_defined_lcu 		 
 		 from unreverted_lcu ulcu
@@ -7086,6 +6138,7 @@ BEGIN
 			ulcu.rsf_pfcbl_id,
 			ulcu.reporting_asof_date,
 			fam.parent_pfcbl_rank desc
+      */
 		on conflict(for_rsf_pfcbl_id,reporting_asof_date) -- if a conflict we know we want to update because defined units always take presidence and
 																											-- will always be equal to the entity's own rank
 		do update
@@ -7230,6 +6283,7 @@ BEGIN
 		
 	-- delete indicators this program has auto-subscribed through via reporting uploads
 	-- for which those auto-subscribed indicators no longer exist as those reports are deleted.
+  /* this functionality is now tied to the reporting_cohort_id foreign key
   with deleted_indicators as (
     select distinct 
     pis.subscription_rsf_pfcbl_id,
@@ -7254,23 +6308,8 @@ BEGIN
   where ds.subscription_rsf_pfcbl_id = pfi.rsf_pfcbl_id
     and ds.indicator_id = pfi.indicator_id
     and pfi.is_auto_subscribed is true;
-    
-  /*
-  
-	-- delete indicators this program has auto-subscribed through via reporting uploads
-	-- for which those auto-subscribed indicators no longer exist as those reports are deleted.
-	delete
-	from p_rsf.rsf_program_facility_indicators pfi
-	where pfi.is_auto_subscribed = true
-		and not exists(select * from p_rsf.rsf_pfcbl_id_family fam 
-									 inner join p_rsf.rsf_data rd on rd.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
-																							 and rd.indicator_id = pfi.indicator_id
-									 where fam.parent_rsf_pfcbl_id = pfi.rsf_pfcbl_id)
-    and pfi.rsf_program_id in (select distinct ids.rsf_program_id 
-		                           from deleted_rsf_data drd
-	                             inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = drd.rsf_pfcbl_id);
-	*/
-	
+  */    
+  	
 	update p_rsf.rsf_data_checks chk
 	set check_data_id_is_current = 	exists(select * from p_rsf.rsf_data_current rdc where rdc.data_id = chk.data_id)
 	from deleted_rsf_data drd
@@ -7313,6 +6352,50 @@ BEGIN
 
 		msg_time := clock_timestamp();
 		
+    
+    
+  insert into p_rsf.rsf_pfcbl_reporting(rsf_pfcbl_id,
+                                        reporting_asof_date,
+                                        created_by_data_id,
+                                        reporting_indicator_id)
+  select 
+    rids.rsf_pfcbl_id,
+    reporting.reporting_asof_date,
+    min(reporting.data_id) as created_by_data_id,
+    ind.indicator_id
+  from (
+    select 
+      rd.rsf_pfcbl_id,
+      rd.reporting_asof_date,
+      rd.data_id as data_id
+    from p_rsf.rsf_data rd 
+    inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id
+    where ind.indicator_sys_category = 'entity_reporting'
+      and exists(select * from deleted_rsf_data drd
+                 where drd.rsf_pfcbl_id = rd.rsf_pfcbl_id
+                   and drd.reporting_asof_date = rd.reporting_asof_date)
+      and not exists(select * from deleted_rsf_data drd2 where drd2.data_id <> rd.data_id)
+  ) as reporting 
+  inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = reporting.rsf_pfcbl_id
+  inner join lateral unnest(array[ids.rsf_program_id,ids.rsf_facility_id,ids.rsf_client_id,ids.rsf_borrower_id,ids.rsf_loan_id]) as reported_rsf_pfcbl_id on true
+  inner join p_rsf.rsf_pfcbl_ids rids on rids.rsf_pfcbl_id = reported_rsf_pfcbl_id
+  inner join p_rsf.indicators ind on ind.data_category = rids.pfcbl_category
+                                 and ind.indicator_sys_category = 'entity_reporting'
+  group by                                  
+    rids.rsf_pfcbl_id,
+    reporting.reporting_asof_date,
+    ind.indicator_id  
+  on conflict(rsf_pfcbl_id,reporting_asof_date) 
+  do update
+	set created_by_data_id = EXCLUDED.created_by_data_id; 
+    
+  
+  delete from p_rsf.rsf_pfcbl_reporting rpr
+  using deleted_rsf_data drd
+  where drd.data_id = rpr.created_by_data_id;
+    
+/*
+    
 		with revert_reporting as MATERIALIZED (
 			select 
 			fam.parent_rsf_pfcbl_id as rsf_pfcbl_id,
@@ -7370,8 +6453,10 @@ BEGIN
 		raise info 'rsf_data_deleted_pfcbl_reporting reverted reporting in %',
 		(select clock_timestamp()-msg_time);
 
+*/
 		msg_time := clock_timestamp();
 
+/*
 		create temp table _temp_unreporting(rsf_pfcbl_id int,
 																				reporting_asof_date date,
 																				primary key (rsf_pfcbl_id,reporting_asof_date))
@@ -7417,14 +6502,14 @@ BEGIN
 								 where tur.rsf_pfcbl_id = rpr.rsf_pfcbl_id
 									 and tur.reporting_asof_date = rpr.reporting_asof_date);		             
 	 
-	 /* too slow!!!
+	 
 	  -- using fk cascade
-		delete from p_rsf.rsf_pfcbl_reporting rpr
-		where exists(select * from deleted_rsf_data drd 
-								 where drd.data_id = rpr.created_by_data_id);
-*/
-
+		--delete from p_rsf.rsf_pfcbl_reporting rpr
+		--where exists(select * from deleted_rsf_data drd 
+		--						 where drd.data_id = rpr.created_by_data_id);
+                 
 		drop table _temp_unreporting;
+*/    
   END IF;
 	
 	return NULL;
@@ -7523,82 +6608,48 @@ BEGIN
 	
 	msg_time := clock_timestamp();
  
-  -- When an indicator is reported and it is not present in rsf_program_facility_indicators at all,
-	-- then auto_subscribe it at its program's level
-	with subs as (
-    select distinct
+  
+insert into p_rsf.rsf_setup_indicators(rsf_pfcbl_id,
+																										indicator_id,
+																										formula_id,
+																										rsf_program_id,
+																										rsf_facility_id,
+																										is_subscribed,
+																										is_auto_subscribed,
+                                                    subscription_comments,
+                                                    auto_subscribed_by_reporting_cohort_id)
+   select 
+    reported.rsf_pfcbl_id,
+    reported.indicator_id,
+    indf.formula_id,
     ids.rsf_program_id,
     ids.rsf_facility_id,
-    ird.indicator_id,
-    ird.reporting_cohort_id
-    from inserted_rsf_data ird
-    inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ird.rsf_pfcbl_id
-    where not exists(select * from p_rsf.rsf_program_facility_indicators pfi
-                     where pfi.rsf_program_id = ids.rsf_program_id
-                       and pfi.rsf_facility_id is not distinct from ids.rsf_facility_id
-                       and pfi.indicator_id = ird.indicator_id)
-  )
-  insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
-																										indicator_id,
-																										formula_id,
-																										rsf_program_id,
-																										rsf_facility_id,
-																										is_subscribed,
-																										is_auto_subscribed,
-                                                    subscription_comments)
-  select
-    coalesce(subs.rsf_facility_id,subs.rsf_program_id) as rsf_pfcbl_id,
-    subs.indicator_id,
-    indf.formula_id,
-    subs.rsf_program_id,
-    subs.rsf_facility_id,
     true as is_subscribed,
     true as is_auto_subscribed,
-    'SYSTEM: Auto subscribed indicator submitted by reporting cohort ' || subs.reporting_cohort_id as subscription_comments
-	from subs
-  inner join lateral (select p_rsf.function_rsf_program_facility_indicators_auto_subscribeable(rsf_program_id => subs.rsf_program_id,
-                                                                                               rsf_facility_id => subs.rsf_facility_id,
-                                                                                               indicator_id => subs.indicator_id,
-                                                                                               overwrite => false) as subscribable) as able on true
-	left join p_rsf.indicator_formulas indf on indf.indicator_id = subs.indicator_id
-	                                       and indf.is_primary_default = true																 					 
-	where able.subscribable = true
-	on conflict(rsf_pfcbl_id,indicator_id) -- if it's already there, subscribed or unsubscribed at this entity's level, do nothing.
-	do nothing;
-	  
-  /*                                                      
-	insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
-																										indicator_id,
-																										formula_id,
-																										rsf_program_id,
-																										rsf_facility_id,
-																										is_subscribed,
-																										is_auto_subscribed,
-                                                    subscription_comments)
-	select distinct
-	rc.reporting_rsf_pfcbl_id, -- if reporting_rsf_pfcbl_if is not Global, Program, Facility entity, then BEFORE trigger will reject.
-	ird.indicator_id,
-	indf.formula_id,
-	rc.rsf_program_id,
-	rc.rsf_facility_id,
-	true as is_subscribed,
-	true as is_auto_subscribed,
-  'SYSTEM: Auto when indicator submitted by reporting cohort ' || rc.reporting_cohort_id as subscription_comments
-	from inserted_rsf_data ird
-	inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = ird.reporting_cohort_id
-	left join p_rsf.indicator_formulas indf on indf.indicator_id = ird.indicator_id
+    'SYSTEM: Auto subscribed indicator submitted by reporting cohort ' || reported.reporting_cohort_id as subscription_comments,
+    reported.reporting_cohort_id
+  from 
+  (
+    select distinct
+      coalesce(ids.rsf_facility_id,ids.rsf_program_id) as rsf_pfcbl_id,
+      ird.indicator_id,
+      ird.reporting_cohort_id
+    from inserted_rsf_data ird
+    inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ird.rsf_pfcbl_id
+  ) reported
+  inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = reported.rsf_pfcbl_id
+  left join p_rsf.indicator_formulas indf on indf.indicator_id = reported.indicator_id
 	                                       and indf.is_primary_default = true
-  -- where it is not already subscribed at the program level
-	-- (and if this is a facility upload and it is already un/subscribed at facility level, conflict will reject it)
-																 					 
-	where not exists(select * from p_rsf.rsf_program_facility_indicators pfi
-									 where pfi.rsf_program_id = rc.rsf_program_id
-									   and pfi.rsf_facility_id is NULL
-										 and pfi.indicator_id = ird.indicator_id
-										 and pfi.is_subscribed = true)
-	on conflict(rsf_pfcbl_id,indicator_id) -- if it's already there, subscribed or unsubscribed at this entity's level, do nothing.
+  where not exists(select * from p_rsf.rsf_setup_indicators pfi 
+                   where pfi.rsf_pfcbl_id = reported.rsf_pfcbl_id 
+                     and pfi.indicator_id = reported.indicator_id)
+  on conflict(rsf_pfcbl_id,indicator_id) -- if it's already there, subscribed or unsubscribed at this entity's level, do nothing.
 	do nothing;
-	*/
+
+
+	raise info 'rsf_data_inserted_data_current: (1) completed insert into p_rsf.rsf_setup_indicators in %',
+  (select clock_timestamp()-msg_time); msg_time := clock_timestamp();
+ 
 	
 	--raise notice 'rsf_data_inserted_data_current p_rsf.rsf_data subscriptions done!';
 	
@@ -7652,17 +6703,17 @@ BEGIN
 	
 	analyze _temp_current_data;
 	
+  raise info 'rsf_data_inserted_data_current: (2) completed creating _temp_current_data and indexes in %',
+  (select clock_timestamp()-msg_time); msg_time := clock_timestamp();
+
 	perform p_rsf.function_rsf_data_current_update();
 	
 	
+  raise info 'rsf_data_inserted_data_current: (3) completed perform p_rsf.function_rsf_data_current_update(); in %',
+  (select clock_timestamp()-msg_time); msg_time := clock_timestamp();
 	--raise warning 'TESTING contents of _temp_current_data: %',		
 	--(select json_agg(row_to_json(js)) from (select * from _temp_current_data) js);
 						
-raise info 'rsf_data_inserted_data_current: upsert in %',(select clock_timestamp()-msg_time);
-msg_time := clock_timestamp();
-	--perform p_rsf.count_cohort_data_and_flags( (select array_agg(distinct reporting_cohort_id) from inserted_rsf_data));
-
-raise info 'rsf_data_inserted_data_current: disabled count data flags %',(select clock_timestamp()-msg_time);
 	
 
 	create temp table _temp_loan_issuances(rsf_pfcbl_id int,
@@ -7745,8 +6796,8 @@ raise info 'rsf_data_inserted_data_current: disabled count data flags %',(select
 						
   drop table _temp_loan_issuances;
 
-	raise info 'rsf_data_inserted_data_current: loan_issuances computed in %',(select clock_timestamp()-msg_time);
-	msg_time := clock_timestamp();
+	raise info 'rsf_data_inserted_data_current: (4) completed loan_issuances stuff in %',
+  (select clock_timestamp()-msg_time); msg_time := clock_timestamp();
 	
 	
 	update p_rsf.rsf_data_checks chk
@@ -7757,7 +6808,9 @@ raise info 'rsf_data_inserted_data_current: disabled count data flags %',(select
 		and chk.check_asof_date >= ird.reporting_asof_date;
 
 
-	
+	raise info 'rsf_data_inserted_data_current: (5) completed setting rsf_data_checks check_data_id_is_current in %',
+  (select clock_timestamp()-msg_time); msg_time := clock_timestamp();
+  
 	/*
 	raise warning 'TESTING contents of trigger_rsf_data_3_inserted_data_current entity_local_currency_unit: %',
 	(select array_agg(distinct lcu_unit_data_id || '-' || for_rsf_pfcbl_id || '-' || reporting_asof_date) from p_rsf.rsf_data_current_lcu lcu where 
@@ -7768,6 +6821,9 @@ raise info 'rsf_data_inserted_data_current: disabled count data flags %',(select
 	 not exists(select * from p_rsf.rsf_data_current rdc where rdc.data_id = tcd.data_id));
 */
 	 drop table _temp_current_data;
+
+	raise info 'rsf_data_inserted_data_current: (6) drop table and COMPLETED in %',
+  (select clock_timestamp()-msg_time); msg_time := clock_timestamp();
 	 
 	return NULL;
 		
@@ -7841,13 +6897,14 @@ BEGIN
 	end if;
 	
 	if exists(select * from inserted_rsf_data tud
-              inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = tud.reporting_cohort_id
-							inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = tud.rsf_pfcbl_id
-							where rc.rsf_program_id <> ids.rsf_program_id and rc.rsf_program_id <> 0)			
+            inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = tud.reporting_cohort_id
+						inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = tud.rsf_pfcbl_id
+						where rc.reporting_rsf_pfcbl_id <> coalesce(ids.rsf_client_id,ids.rsf_facility_id,ids.rsf_program_id)
+              and rc.reporting_type > 0)			
   then 																	 
-		raise exception 'Error in p_rsf.rsf_data_inserted_data_integrity(): rc.rsf_program_id <> ids.rsf_program_id and rc.rsf_program_id <> 0';
+		raise exception 'Error in p_rsf.rsf_data_inserted_data_integrity(): rc.reporting_rsf_pfcbl_id must report client+ data under rsf_client_id, facility data under rsf_facility_id and program data under rsf_program_id (unless cohort reporting type=0, system setup data)';
 	end if;
-
+/*
   if (exists(select * from p_rsf.reporting_cohorts rc
 						 where exists(select * from inserted_rsf_data ird
 									        where ird.reporting_cohort_id = rc.reporting_cohort_id)
@@ -7857,58 +6914,43 @@ BEGIN
 		(select array_agg(distinct ird.reporting_cohort_id) from inserted_rsf_data ird);
 	
 	end if;
-	
+*/	
 	
   -- generally only one cohort is inserted at a time.  But really we want to ensure that only one TYPE of cohort
-	-- is inserted at a time: because where is_redundancy_cohort should bypass most rsf_data_current triggers and should be
-	-- inserted one at a time.  And because is_calculated_cohort will validate calculations that are awaiting evaluation in rsf_data_calculation_evaluations
+	-- is inserted at a time: because is_calculated_cohort will validate calculations that are awaiting evaluation in rsf_data_calculation_evaluations
 	-- that we want to ensure for example that both calculated data and user reported data aren't simultaneously entered.
 	-- db_add_update_data_system will assign a reporting_cohort for first-available slot.  And tehrefore, may insert two (or more) calculated cohort IDs 
 	-- within the same statement.
   if (select count(distinct ird.reporting_cohort_id) from inserted_rsf_data ird) > 1
 	then
 	  
-		with reporting as (
-			select distinct
-				rc.rsf_program_id,
-				--rc.reporting_rsf_pfcbl_id, -- can cause conflicts with bulk uploads/recalculations
-				rc.is_reported_cohort,
-				rc.is_calculated_cohort,
-				rc.is_redundancy_cohort,
-				rc.reporting_asof_date
-			from p_rsf.reporting_cohorts rc
-			where exists(select * from inserted_rsf_data ird
-									 where ird.reporting_cohort_id = rc.reporting_cohort_id)
-    )
-		select count(*) 
-		into cohort_counts
-		from reporting;
-		
-		if (cohort_counts > 1) then 
-			-- this ensures that we can short-cut the triggers if a redundnacy cohort is reported
-			raise exception 'Error in p_rsf.rsf_data_inserted_data_integrity(): Only one reporting cohort TYPE/Program/Asof-Date can insert data at a time but received data for cohorts=%',
+    if (exists(select true
+               from p_rsf.reporting_cohorts rc
+               where exists(select * from inserted_rsf_data ird
+                            where ird.reporting_cohort_id = rc.reporting_cohort_id)
+               group by rc.reporting_type
+               having count(distinct rc.reporting_type) > 1))
+    then                
+			raise exception 'Error in p_rsf.rsf_data_inserted_data_integrity(): Only one reporting cohort TYPE can insert data at a time but received data for cohorts=%',
 			(select array_agg(distinct ird.reporting_cohort_id) from inserted_rsf_data ird);
     end if;
-		
-		if exists(select
-							ird.rsf_pfcbl_id,
-							ird.indicator_id,
-							ird.reporting_asof_date,
-							count(*) as repeats
-						 from inserted_rsf_data ird
-						 group by
-							ird.rsf_pfcbl_id,
-							ird.indicator_id,
-							ird.reporting_asof_date
-						 having count(*) > 1)
-	  then
+  end if;
+  
+  if exists(select true
+            from inserted_rsf_data ird
+            group by
+              ird.rsf_pfcbl_id,
+              ird.indicator_id,
+              ird.reporting_asof_date
+            having count(*) > 1)
+  then
+    
+    raise exception 'Error in p_rsf.rsf_data_inserted_data_integrity(): Only one rsf_pfcbl_id,indicator_id,reporting_asof_date value set can be inserted per statement, but repeats exist for cohorts=%',
+    (select array_agg(distinct ird.reporting_cohort_id) from inserted_rsf_data ird);
+  
+  end if;
 			
-			raise exception 'Error in p_rsf.rsf_data_inserted_data_integrity(): Only one rsf_pfcbl_id,indicator_id,reporting_asof_date value set can be inserted per statement, but repeats exist for cohorts=%',
-			(select array_agg(distinct ird.reporting_cohort_id) from inserted_rsf_data ird);
-		
-		end if;
-			
-	end if;
+
 	RETURN NULL;
 
 END; $BODY$
@@ -7981,17 +7023,36 @@ BEGIN
   if (not exists(select * from inserted_rsf_data))
 	then
 		return null;
-	end if;
-	
-  if (exists(select * from inserted_rsf_data ird
-	           where exists(select * from p_rsf.reporting_cohorts rc
-						              where rc.reporting_cohort_id = ird.reporting_cohort_id
-													  and rc.is_redundancy_cohort = true)))
-  then
-	  raise info 'REDUNDANCY COHORT REPORTED: SKIPPING';
-	  return NULL;
-  end if;
+	end if;	
 
+	insert into p_rsf.rsf_pfcbl_reporting(rsf_pfcbl_id,
+																				reporting_asof_date,
+																				created_by_data_id,
+																				reporting_indicator_id)
+  select 
+    rids.rsf_pfcbl_id,
+    reporting.reporting_asof_date,
+    reporting.data_id,
+    ind.indicator_id
+  from (select 
+				  ird.rsf_pfcbl_id,
+					ird.reporting_asof_date,
+					ird.data_id
+				from inserted_rsf_data ird
+				inner join p_rsf.indicators ind on ind.indicator_id = ird.indicator_id
+				where ind.indicator_sys_category = 'entity_reporting'
+				  and not exists(select * from p_rsf.rsf_pfcbl_reporting rpr
+					               where rpr.rsf_pfcbl_id = ird.rsf_pfcbl_id
+												   and rpr.reporting_asof_date = ird.reporting_asof_date)
+	) as reporting -- all entities that are reporting in this insert
+  inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = reporting.rsf_pfcbl_id
+  inner join lateral unnest(array[ids.rsf_program_id,ids.rsf_facility_id,ids.rsf_client_id,ids.rsf_borrower_id,ids.rsf_loan_id]) as reported_rsf_pfcbl_id on true
+  inner join p_rsf.rsf_pfcbl_ids rids on rids.rsf_pfcbl_id = reported_rsf_pfcbl_id
+  inner join p_rsf.indicators ind on ind.data_category = rids.pfcbl_category
+                                 and ind.indicator_sys_category = 'entity_reporting'
+  on conflict do nothing;
+  
+  /*
 	insert into p_rsf.rsf_pfcbl_reporting(rsf_pfcbl_id,
 																				reporting_asof_date,
 																				created_by_data_id,
@@ -8025,6 +7086,7 @@ BEGIN
 	 reporting.reporting_asof_date,
 	 pind.indicator_id
 	 on conflict do nothing;
+*/
 
 	 return NULL;
 END; $BODY$
@@ -8039,7 +7101,6 @@ CREATE FUNCTION "p_rsf"."rsf_data_modified_calculations"()
   RETURNS "pg_catalog"."trigger" AS $BODY$
 DECLARE msg_time timestamp not null default clock_timestamp();
 DECLARE trigger_is_calculated_cohort bool default false;
-DECLARE trigger_is_redundancy_cohort bool default false;
 BEGIN
 
   if (not exists(select * from modified_data))
@@ -8054,19 +7115,13 @@ BEGIN
   
     --limit 1 because insert/update only allows one reporting cohort per statement
     --whereas delete can delete cohorts en-mass.
-    select rc.is_calculated_cohort,rc.is_redundancy_cohort
-    into trigger_is_calculated_cohort,trigger_is_redundancy_cohort
+    select rc.is_calculated_cohort
+    into trigger_is_calculated_cohort
     from p_rsf.reporting_cohorts rc
     where rc.reporting_cohort_id = (select md.reporting_cohort_id from modified_data md limit 1);   
    
-    if trigger_is_redundancy_cohort is true
-    then     
-      return null;    
-    end if;
-     
-  end if;
-
-
+  end if;  
+ 
     
   create temp table _modified_data as
   select 
@@ -8110,15 +7165,7 @@ BEGIN
 		return null;
 	end if;
 	
-	if (TG_OP)='INSERT' AND
-	   exists(select * from modified_data md
-		        where exists(select * from p_rsf.reporting_cohorts rc
-						             where rc.reporting_cohort_id = md.reporting_cohort_id
-												   and rc.is_redundancy_cohort = true))
-  then
-	  --raise info 'REDUNDANCY COHORT REPORTED: SKIPPING';
-	  return null;
-  end if;
+	
   /*
   msg_time := clock_timestamp();
 	raise info 'rsf_data_current_%_checks(%)',
@@ -8146,34 +7193,6 @@ BEGIN
 	on conflict 
 	do nothing;
 
-/*
-  with parameter_triggers as (
-		select
-			pids.to_check_rsf_pfcbl_id,
-			pids.to_check_indicator_id,
-			mcd.reporting_asof_date,
-			pids.indicator_check_id
-		from modified_data mcd
-		inner join p_rsf.compute_check_from_parameter_rsf_pfcbl_id pids	on pids.from_parameter_rsf_pfcbl_id = mcd.rsf_pfcbl_id
-																											 and pids.from_parameter_indicator_id = mcd.indicator_id
-		where pids.is_calculation_trigger_parameter = true	-- ie, its not used for generating messages
-	)
-	insert into _check(rsf_pfcbl_id,
-										 indicator_id,
-										 check_asof_date,
-										 indicator_check_id)
-	select
-		pt.to_check_rsf_pfcbl_id,
-		pt.to_check_indicator_id,
-		pt.reporting_asof_date,
-		pt.indicator_check_id
-	from parameter_triggers pt
-	where exists(select * from p_rsf.rsf_pfcbl_reporting rpr
-	             where rpr.rsf_pfcbl_id = pt.to_check_rsf_pfcbl_id
-							   and rpr.reporting_asof_date = pt.reporting_asof_date)
-	on conflict 
-	do nothing;
-*/
 
 /*
 	raise info 'rsf_data_current_%_checks parameters triggers % in %',
@@ -8225,11 +7244,11 @@ BEGIN
 			pids.to_check_formula_id
 		from (		
 			select distinct
-				fam.parent_rsf_pfcbl_id as rsf_pfcbl_id, -- newly reported ID
+				ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id, -- newly reported ID
 				rpr.reporting_asof_date                  -- for newly reported data
 			from p_rsf.rsf_pfcbl_reporting rpr
-			inner join p_rsf.rsf_pfcbl_id_family fam on fam.child_rsf_pfcbl_id = rpr.rsf_pfcbl_id
-																							and fam.parent_pfcbl_rank < fam.child_pfcbl_rank -- parent entity (ie, not itself)
+      inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = rpr.rsf_pfcbl_id
+                                                       and ft.pfcbl_hierarchy = 'parent' -- parent entity (ie, not itself)
 			where exists(select * from modified_data mcd
 									 where mcd.data_id = rpr.created_by_data_id)
 									 
@@ -8258,62 +7277,7 @@ BEGIN
 	             where rpr.rsf_pfcbl_id = ep.to_check_rsf_pfcbl_id
 							   and rpr.reporting_asof_date = ep.reporting_asof_date)
   on conflict do nothing;
-								 
-	
-/* waaay too slow	
-  with new_reporting as (
-		select distinct 
-			rpr.rsf_pfcbl_id,
-			rpr.reporting_asof_date as check_asof_date
-		from modified_data mcd
-		inner join p_rsf.rsf_pfcbl_reporting rpr on rpr.created_by_data_id = mcd.data_id
-	),
-	parent_parameters as (
-		select distinct
-			nr.rsf_pfcbl_id,
-			cids.from_check_indicator_id,
-			nr.check_asof_date,
-			cids.indicator_check_id,
-			cids.to_parameter_rsf_pfcbl_id,
-			cids.to_parameter_indicator_id
-		from new_reporting nr
-		inner join p_rsf.check_indicator_rsf_pfcbl_ids cids on cids.from_check_rsf_pfcbl_id = nr.rsf_pfcbl_id
-		-- first time this entity is reporting in this timeline		 
-		where cids.to_parameter_pfcbl_hierarchy = 'parent'
-		  and cids.is_calculation_trigger_parameter = true
-			and not exists(select * from _check chk
-										 where chk.rsf_pfcbl_id = nr.rsf_pfcbl_id
-											 and chk.indicator_id = cids.from_check_indicator_id
-											 and chk.check_asof_date = nr.check_asof_date
-											 and chk.indicator_check_id = cids.indicator_check_id)
-   )
-	 insert into _check(rsf_pfcbl_id,
-										  indicator_id,
-										  check_asof_date,
-										  indicator_check_id)
-	 select
-		pp.rsf_pfcbl_id,
-		pp.from_check_indicator_id,
-		pp.check_asof_date,
-		pp.indicator_check_id
-   from parent_parameters pp		
-    -- and it has parameters already present in current data										 
-	 where exists(select * from p_rsf.rsf_data_current rdc
-		            where rdc.rsf_pfcbl_id = pp.to_parameter_rsf_pfcbl_id
-							    and rdc.indicator_id = pp.to_parameter_indicator_id
-								  and rdc.reporting_asof_date = pp.check_asof_date)
-   on conflict do nothing;									
-*/
-
-/*						 
-	raise info 'rsf_data_current_%_checks checks where pre-existing parameters % in %',
-	(upper(TG_OP)),
-	(select count(*) from _check),
-	(select clock_timestamp()-msg_time);
-	msg_time := clock_timestamp();
-*/
-
-
+					
 	
 	analyze _check;
 	/*
@@ -8335,11 +7299,11 @@ BEGIN
 			rpr.reporting_asof_date as check_asof_date,
 			chk.check_formula_id
 		from _check chk		
-		inner join p_rsf.rsf_pfcbl_reporting rpr on rpr.rsf_pfcbl_id = chk.rsf_pfcbl_id
-		inner join p_rsf.view_rsf_pfcbl_check_subscriptions pcs on pcs.rsf_pfcbl_id = rpr.rsf_pfcbl_id
-		                                                       and pcs.check_formula_id = chk.check_formula_id
+		inner join p_rsf.rsf_pfcbl_reporting rpr on rpr.rsf_pfcbl_id = chk.rsf_pfcbl_id                   -- if we didn't report, we don't check
+		inner join p_rsf.view_rsf_setup_check_subscriptions scs on scs.rsf_pfcbl_id = rpr.rsf_pfcbl_id
+		                                                       and scs.check_formula_id = chk.check_formula_id
 		where rpr.reporting_asof_date >= chk.check_asof_date
-		  and pcs.is_subscribed = true
+		  and scs.is_subscribed is true
 		on conflict(rsf_pfcbl_id,check_asof_date,check_formula_id)
     do nothing;
 /*
@@ -8366,10 +7330,11 @@ if  (coalesce(NEW.data_sys_flags,0) & 4) = 4
    or
 	 (coalesce(OLD.data_sys_flags,0) & 4) = 4 then
 
-	if not exists(select * from p_rsf.view_rsf_pfcbl_indicator_subscriptions pis
-	              where pis.rsf_pfcbl_id = NEW.rsf_pfcbl_id
-								  and pis.indicator_id = NEW.indicator_id
-									and pis.is_calculated = true) 
+  -- manual calculation flag is only relevant for calculated indicators
+	if not exists(select * from p_rsf.view_rsf_setup_indicator_subscriptions sis
+	              where sis.rsf_pfcbl_id = NEW.rsf_pfcbl_id
+								  and sis.indicator_id = NEW.indicator_id
+									and sis.is_calculated = true) 
 	then
 		raise exception 'Failed to set data SYS FLAGS for MANUAL CALCULATION [flag=4] because indicator is classified as non-calculated: rsf_pfcbl_id=% indicator_id=%',new.rsf_pfcbl_id,new.indicator_id;
 	end if;
@@ -8462,14 +7427,209 @@ $BODY$
   COST 100;
 
 -- ----------------------------
--- Function structure for rsf_pfcbl_indicator_recalculate
+-- Function structure for rsf_pfcbl_check_recalculate
 -- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."rsf_pfcbl_indicator_recalculate"("v_rsf_pfcbl_id" int4, "v_indicator_id" int4);
-CREATE FUNCTION "p_rsf"."rsf_pfcbl_indicator_recalculate"("v_rsf_pfcbl_id" int4, "v_indicator_id" int4)
+DROP FUNCTION IF EXISTS "p_rsf"."rsf_pfcbl_check_recalculate"("v_rsf_pfcbl_id" int4, "v_check_formula_id" int4);
+CREATE FUNCTION "p_rsf"."rsf_pfcbl_check_recalculate"("v_rsf_pfcbl_id" int4, "v_check_formula_id" int4)
   RETURNS "pg_catalog"."bool" AS $BODY$
 BEGIN
 
+if (v_rsf_pfcbl_id is null or v_check_formula_id is null) then
+  return false;
+end if;
+
+insert into p_rsf.rsf_data_check_evaluations(rsf_pfcbl_id,check_formula_id,check_asof_date)
+select 
+rdc.rsf_pfcbl_id,
+cfp.check_formula_id,
+rdc.reporting_asof_date
+from p_rsf.indicator_check_formula_parameters cfp
+inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_pfcbl_category = cfp.parameter_pfcbl_category
+                                                 and ft.to_pfcbl_category = cfp.for_pfcbl_category
+inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+                                     and rdc.indicator_id = cfp.parameter_indicator_id                                                 
+where cfp.check_formula_id = v_check_formula_id
+  and rdc.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+                             from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                             where ft.from_rsf_pfcbl_id = v_rsf_pfcbl_id::int)
+on conflict do nothing;
+     
+return true;
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+
+-- ----------------------------
+-- Function structure for rsf_pfcbl_generate_reporting_dates
+-- ----------------------------
+DROP FUNCTION IF EXISTS "p_rsf"."rsf_pfcbl_generate_reporting_dates"("v_rsf_pfcbl_id" int4, "v_until_date" date);
+CREATE FUNCTION "p_rsf"."rsf_pfcbl_generate_reporting_dates"("v_rsf_pfcbl_id" int4, "v_until_date" date=(now())::date)
+  RETURNS TABLE("rsf_pfcbl_id" int4, "valid_reporting_date" date, "reporting_sequence_rank" int4) AS $BODY$
+begin 							
+
+  return query							
+  SELECT 
+    ids.rsf_pfcbl_id,
+    (dates.valid_reporting_date - ('1 day'::interval))::date as valid_reporting_date,
+    row_number() OVER (PARTITION BY ids.rsf_pfcbl_id 
+                       ORDER BY (dates.valid_reporting_date - '1 day'::interval)::date)::int AS reporting_sequence_rank
+  FROM p_rsf.rsf_pfcbl_ids ids
+  INNER JOIN LATERAL (select * 
+                      from generate_series(
+                        date_trunc('quarter'::text,(ids.created_in_reporting_asof_date::date)::timestamp with time zone),
+                        least(ids.deactivated_in_reporting_asof_date::date,
+                              greatest(now()::date,v_until_date::date))::timestamp with time zone + '3 mons'::interval,
+                        '3 mons'::interval) as valid_reporting_date) dates on dates.valid_reporting_date >= ids.created_in_reporting_asof_date::date
+  where ids.rsf_pfcbl_id = v_rsf_pfcbl_id;
+
+end; 
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100
+  ROWS 1000;
+
+-- ----------------------------
+-- Function structure for rsf_pfcbl_indicator_recalculate
+-- ----------------------------
+DROP FUNCTION IF EXISTS "p_rsf"."rsf_pfcbl_indicator_recalculate"("v_rsf_pfcbl_id" int4, "v_formula_id" int4);
+CREATE FUNCTION "p_rsf"."rsf_pfcbl_indicator_recalculate"("v_rsf_pfcbl_id" int4, "v_formula_id" int4)
+  RETURNS "pg_catalog"."bool" AS $BODY$
+  DECLARE msg_time timestamp not null default clock_timestamp();
+BEGIN
+
+if (v_rsf_pfcbl_id is null or v_formula_id is null) then
+  return false;
+end if;
+
+/*
+if program is asked to calculate all its children with this formula, this will fail.  
+if (not exists(select * from p_rsf.view_rsf_setup_indicator_subscriptions sis
+                where sis.rsf_pfcbl_id = v_rsf_pfcbl_id
+                  and sis.formula_id = v_formula_id
+                  and sis.is_subscribed is true))
+ then
+  raise exception 'rsf_pfcbl_indicator_recalculate() re-calculate unsubscribed formula: rsf_pfcbl_id=% formula_id=%',
+  v_rsf_pfcbl_id,v_formula_id;
+ 
+ end if;
+*/
+raise notice 'rsf_pfcbl_indicator_recalculate() for rsf_pfcbl_id=% formula_id=% and trigger_depth=%',
+	v_rsf_pfcbl_id,
+	v_formula_id,
+	pg_trigger_depth();
+
+
+delete from p_rsf.rsf_data_calculation_evaluations dce
+using (
+  select 
+  ind.indicator_id,
+  ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id
+  from p_rsf.indicator_formulas indf
+  inner join p_rsf.indicators ind on ind.indicator_id = indf.indicator_id
+  inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = v_rsf_pfcbl_id
+                                                   and ft.to_pfcbl_category = ind.data_category
+  where indf.formula_id = v_formula_id
+) remove
+where remove.rsf_pfcbl_id = dce.rsf_pfcbl_id
+  and remove.indicator_id = dce.indicator_id;
+
+
+
+with calc_as_param as (
+  select ifp.formula_id,ifp.indicator_id,ifp.parameter_pfcbl_category,ifp.parameter_indicator_id
+  from p_rsf.indicator_formula_parameters ifp 
+  where ifp.formula_id = v_formula_id
+  
+  union
+  
+  -- to enforce calculation to trigger itself where reported in rsf_data_current, below
+  select ifp.formula_id,ifp.indicator_id,ifp.calculate_pfcbl_category as parameter_pfcbl_category,ifp.indicator_id as parameter_indicator_id
+  from p_rsf.indicator_formula_parameters ifp
+  where ifp.formula_id = v_formula_id
+),
+calcs as materialized (
+  select 
+    sis.rsf_pfcbl_id,
+    calc_as_param.*
+  from p_rsf.view_rsf_setup_indicator_subscriptions sis,calc_as_param
+  where sis.formula_id = v_formula_id
+    and sis.is_subscribed is true
+    and sis.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id 
+                               from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                               where ft.from_rsf_pfcbl_id = v_rsf_pfcbl_id::int
+                                 and ft.to_pfcbl_category = (select ind.data_category
+                                                             from p_rsf.indicators ind
+                                                             inner join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
+                                                             where indf.formula_id = v_formula_id))
+
+)
+insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,indicator_id,calculation_asof_date)
+select distinct
+calcs.rsf_pfcbl_id,
+calcs.indicator_id,
+rdc.reporting_asof_date 
+from calcs
+inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = calcs.rsf_pfcbl_id
+inner join lateral (select max(rpr.reporting_asof_date) as reporting_asof_date
+                    from p_rsf.rsf_pfcbl_reporting rpr
+                    where rpr.rsf_pfcbl_id = calcs.rsf_pfcbl_id) as reporting on true
+inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = calcs.rsf_pfcbl_id
+                                                 and ft.to_pfcbl_category = calcs.parameter_pfcbl_category
+inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+                                     and rdc.indicator_id = calcs.parameter_indicator_id 
+where rdc.reporting_asof_date >= ids.created_in_reporting_asof_date            
+  and rdc.reporting_asof_date <= reporting.reporting_asof_date                                     
+on conflict do nothing;                                       
+                                       
+/*
+with calc_as_param as (
+  select ifp.formula_id,ifp.indicator_id,ifp.parameter_pfcbl_category,ifp.calculate_pfcbl_category,ifp.parameter_indicator_id
+  from p_rsf.indicator_formula_parameters ifp 
+  where ifp.formula_id = v_formula_id
+  
+  union
+  
+  -- to enforce calculation to trigger itself where reported in rsf_data_current, below
+  select ifp.formula_id,ifp.indicator_id,ifp.calculate_pfcbl_category as parameter_pfcbl_category,ifp.calculate_pfcbl_category,ifp.indicator_id as parameter_indicator_id
+  from p_rsf.indicator_formula_parameters ifp
+  where ifp.formula_id = v_formula_id
+),
+subs as materialized (
+  select 
+    sis.rsf_pfcbl_id,
+    sis.indicator_id,
+    sis.formula_id
+  from p_rsf.view_rsf_setup_indicator_subscriptions sis
+  where sis.formula_id = v_formula_id
+    and sis.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+                             from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                             where ft.from_rsf_pfcbl_id = v_rsf_pfcbl_id::int)
+)
+insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,indicator_id,calculation_asof_date)
+select distinct
+rdc.rsf_pfcbl_id,
+cap.indicator_id,
+rdc.reporting_asof_date
+from subs
+inner join calc_as_param cap on cap.formula_id = subs.formula_id
+inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_pfcbl_category = cap.parameter_pfcbl_category
+                                                 and ft.to_pfcbl_category = cap.calculate_pfcbl_category
+inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+                                     and rdc.indicator_id = cap.parameter_indicator_id                                           
+on conflict do nothing;
+*/
+            /*                 
+raise notice 'rsf_pfcbl_indicator_recalculate(%) for rsf_pfcbl_id=% indicator_id=% and trigger_depth=%',
+  (select clock_timestamp()-msg_time),
+	v_rsf_pfcbl_id,
+	v_formula_id,
+	pg_trigger_depth();
+	*/
+  
+  
 -- parameters that trigger this calculation 
+/*
 with calculations as materialized (
 	select distinct
 	tip.to_calculate_rsf_pfcbl_id,
@@ -8493,9 +7653,10 @@ inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id 
 																													 and pis.formula_id = calcs.to_calculate_formula_id
 where pis.is_subscribed = true
 	and pis.is_calculated = true
-	and calcs.to_calculate_rsf_pfcbl_id = any(select fam.child_rsf_pfcbl_id
-																						from p_rsf.rsf_pfcbl_id_family fam
-																						where fam.parent_rsf_pfcbl_id = v_rsf_pfcbl_id::int)
+	and calcs.to_calculate_rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+                                            from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                                            where ft.from_rsf_pfcbl_id = v_rsf_pfcbl_id::int
+                                              and ft.pfcbl_hierarchy <> 'parent')
 	and exists(select * from p_rsf.rsf_pfcbl_reporting rpr
 						 where rpr.rsf_pfcbl_id = calcs.to_calculate_rsf_pfcbl_id
 							 and rpr.reporting_asof_date = calcs.reporting_asof_date)
@@ -8513,149 +7674,16 @@ inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id 
 where pis.is_subscribed = true
 	and pis.is_calculated = true
 	and rd.indicator_id = v_indicator_id
-	and rd.rsf_pfcbl_id = any(select fam.child_rsf_pfcbl_id
-														from p_rsf.rsf_pfcbl_id_family fam
-														where fam.parent_rsf_pfcbl_id = v_rsf_pfcbl_id::int)
+	and rd.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+                            from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                            where ft.from_rsf_pfcbl_id = v_rsf_pfcbl_id::int
+                              and ft.pfcbl_hierarchy <> 'parent')
 	and exists(select * from p_rsf.rsf_pfcbl_reporting rpr
 						 where rpr.rsf_pfcbl_id = rd.rsf_pfcbl_id
 							 and rpr.reporting_asof_date = rd.reporting_asof_date)
 on conflict do nothing;
-
+*/
 return true;
-END;
-$BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
--- Function structure for rsf_program_facility_delete_calculated_data
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."rsf_program_facility_delete_calculated_data"();
-CREATE FUNCTION "p_rsf"."rsf_program_facility_delete_calculated_data"()
-  RETURNS "pg_catalog"."trigger" AS $BODY$
-declare v_rsf_pfcbl_id int default NULL;
-declare v_indicator_id int default NULL;
-BEGIN
-  
-	if (TG_OP = 'DELETE') then
-		v_rsf_pfcbl_id := OLD.rsf_pfcbl_id;
-		v_indicator_id := OLD.indicator_id;
-	elseif (TG_OP = 'UPDATE' and NEW.is_subscribed is false and NEW.is_subscribed is distinct from OLD.is_subscribed) then
-		v_rsf_pfcbl_id := NEW.rsf_pfcbl_id;
-		v_indicator_id := NEW.indicator_id;
-	end if;
-	
-	if (v_rsf_pfcbl_id is not null and v_indicator_id is not null) then
-	
-		with deletes as materialized (
-			select rd.data_id
-			from p_rsf.rsf_pfcbl_id_family fam
-			inner join p_rsf.rsf_data rd on rd.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
-			inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
-			left join p_rsf.rsf_program_facility_indicators pfi on pfi.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
-																												 and pfi.indicator_id = rd.indicator_id
-																												 
-			where fam.parent_rsf_pfcbl_id = v_rsf_pfcbl_id
-			  and rd.indicator_id = v_indicator_id
-				and rc.is_calculated_cohort is true
-				and (coalesce(pfi.is_subscribed,false) is false)
-		)
-		delete from p_rsf.rsf_data rd
-		where rd.data_id = any(select data_id from deletes);
-	end if;
-	
-	return NULL;
-	
-END;
-$BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
--- Function structure for rsf_program_facility_subscription_allowed
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."rsf_program_facility_subscription_allowed"();
-CREATE FUNCTION "p_rsf"."rsf_program_facility_subscription_allowed"()
-  RETURNS "pg_catalog"."trigger" AS $BODY$
-declare data_category_rank int;
-declare pfcbl_category_rank int;
-BEGIN
-  
-	
-	select ids.pfcbl_category_rank
-	into pfcbl_category_rank
-	from p_rsf.rsf_pfcbl_ids ids
-	where ids.rsf_pfcbl_id = NEW.rsf_pfcbl_id;
-	
-	select rpc.pfcbl_rank
-	into data_category_rank
-	from p_rsf.rsf_pfcbl_categories rpc
-	inner join p_rsf.indicators ind on ind.data_category = rpc.pfcbl_category
-	where ind.indicator_id = NEW.indicator_id;
-
-	if (pfcbl_category_rank = 0 and data_category_rank = 0) OR  -- only Global can subscribe to global indicators (and none else)
-	   (pfcbl_category_rank = 1 and data_category_rank >= 1) OR -- Program can subscribe to program, facility+ indicators
-		 (pfcbl_category_rank = 2 and data_category_rank >= 2)    -- Facility can subscribe to facility+ indicators
-	then 
-		return NEW;
-	else
-    
-    if (data_category_rank = 0 
-        and new.rsf_pfcbl_id <> 0 
-        and exists(select * 
-                   from p_rsf.rsf_program_facility_indicators pfi
-                   where pfi.rsf_pfcbl_id = 0
-                     and pfi.indicator_id = NEW.indicator_id
-                     and pfi.is_subscribed = true))
-    then
-
-      return NULL;
-      
-    elseif (data_category_rank = 0 and new.rsf_pfcbl_id <> 0)
-    then
-      raise warning 'Attempt to subscribe to Global indicator by non-Global entity for required indicator missing from Global subscriptions #%',
-      NEW.indicator_id;
-      
-      -- Let it pass as global indicators should always ben available!
-      return NEW;
-    else 
-      raise exception 'Only Global, Program and Facility entities can set indicator subscriptions.  Failed subscription for % and indicator=% because pfcbl_category_rank=% and data_category_rank %',
-      (select sys_name from p_rsf.view_current_entity_names_and_ids where rsf_pfcbl_id = NEW.rsf_pfcbl_id),NEW.indicator_id,pfcbl_category_rank,data_category_rank;
-      
-      return NULL;
-    end if;
-    
-    
-    
-    
-	end if;
-	
-END;
-$BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
--- Function structure for rsf_program_facility_subscription_recalculations
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."rsf_program_facility_subscription_recalculations"();
-CREATE FUNCTION "p_rsf"."rsf_program_facility_subscription_recalculations"()
-  RETURNS "pg_catalog"."trigger" AS $BODY$
-BEGIN
-
-  -- Ie, don't re-run calculations if someone is updating a sort order prefernece or making a comment.
-  if (TG_OP='INSERT') OR
-	   ((TG_OP='UPDATE')
-		 	 AND
-			((NEW.is_subscribed is distinct from OLD.is_subscribed)
-			  OR
-			 (NEW.formula_id is distinct from OLD.formula_id))
-		 ) then
-		 
-  perform p_rsf.rsf_pfcbl_indicator_recalculate(v_rsf_pfcbl_id => NEW.rsf_pfcbl_id,
-                                                v_indicator_id => NEW.indicator_id);
-  end if;
-	return NULL;
 END;
 $BODY$
   LANGUAGE plpgsql VOLATILE
@@ -8678,34 +7706,683 @@ END; $BODY$
   COST 100;
 
 -- ----------------------------
--- Function structure for rsf_program_generate_reporting_dates
+-- Function structure for rsf_setup_checks_auto_monitor_parameters
 -- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."rsf_program_generate_reporting_dates"("v_rsf_program_id" int4, "v_until_date" date);
-CREATE FUNCTION "p_rsf"."rsf_program_generate_reporting_dates"("v_rsf_program_id" int4, "v_until_date" date=(now())::date)
-  RETURNS TABLE("rsf_program_id" int4, "rsf_pfcbl_id" int4, "valid_reporting_date" date, "reporting_sequence_rank" int4) AS $BODY$
-begin 							
+DROP FUNCTION IF EXISTS "p_rsf"."rsf_setup_checks_auto_monitor_parameters"();
+CREATE FUNCTION "p_rsf"."rsf_setup_checks_auto_monitor_parameters"()
+  RETURNS "pg_catalog"."trigger" AS $BODY$
+BEGIN
 
-return query							
-SELECT 
-ids.rsf_program_id,
-ids.rsf_pfcbl_id,
-(dates.valid_reporting_date - ('1 day'::interval))::date as valid_reporting_date,
-row_number() OVER (PARTITION BY ids.rsf_program_id 
-									 ORDER BY (dates.valid_reporting_date - '1 day'::interval)::date)::int AS reporting_sequence_rank
-FROM p_rsf.rsf_pfcbl_ids ids
-INNER JOIN LATERAL (select * 
-										from generate_series(
-											date_trunc('quarter'::text,(ids.created_in_reporting_asof_date::date)::timestamp with time zone),
-											greatest(now()::date,v_until_date::date)::timestamp with time zone + '3 mons'::interval,
-											'3 mons'::interval) as valid_reporting_date) dates on dates.valid_reporting_date >= ids.created_in_reporting_asof_date::date
-where ids.rsf_program_id = v_rsf_program_id
-  and ids.pfcbl_category in ('program','global');
+  if not exists(select * from changed)
+	then 
+		return NULL;
+	end if;
+  
+  
+  raise info 'rsf_setup_checks_auto_monitor_parameters(%) depth=%',
+TG_OP,pg_trigger_depth();
 
-end; 
+return null;
+
+  with changes as (
+    select distinct on(ch.rsf_pfcbl_id,ch.check_formula_id)
+    ch.rsf_pfcbl_id,
+    ch.check_formula_id,
+    ch.auto_subscribed_by_reporting_cohort_id
+    from changed ch
+    where ch.is_subscribed is true
+    order by 
+    ch.rsf_pfcbl_id,ch.check_formula_id,
+    ch.auto_subscribed_by_reporting_cohort_id asc nulls last   
+  )     
+	insert into p_rsf.rsf_setup_indicators(rsf_pfcbl_id,
+                                          indicator_id,
+                                          formula_id,
+                                          rsf_program_id,
+                                          rsf_facility_id,
+                                          is_subscribed,
+                                          is_auto_subscribed,
+                                          subscription_comments,
+                                          auto_subscribed_by_reporting_cohort_id)
+  select 
+  x.rsf_pfcbl_id,
+  x.indicator_id,
+  x.formula_id,
+  x.rsf_program_id,
+  x.rsf_facility_id,
+  x.is_subscribed,
+  x.is_auto_subscribed,
+  x.subscription_comments,
+  x.auto_subscribed_by_reporting_cohort_id
+  from (
+  select 
+   sis.category_manager_rsf_pfcbl_id as rsf_pfcbl_id,
+   sis.indicator_id,
+   sis.formula_id, -- will be the default and/or previously unsubscrivbed formula for subscription entity
+   ids.rsf_program_id,
+   ids.rsf_facility_id,
+   true as is_subscribed,
+   true as is_auto_subscribed, 
+   'SYSTEM: Auto for check prerequisite check formula ' || 
+   array_to_string(array_agg(distinct changes.check_formula_id),',') as subscription_comments,
+   min(changes.auto_subscribed_by_reporting_cohort_id) as auto_subscribed_by_reporting_cohort_id
+  from changes
+  inner join p_rsf.indicator_check_formula_parameters cfp on cfp.check_formula_id = changes.check_formula_id
+  inner join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = changes.rsf_pfcbl_id
+                                                             and sis.indicator_id = cfp.parameter_indicator_id
+  inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = changes.rsf_pfcbl_id
+  where sis.is_subscribed is false -- already subscribed means do nothing.
+    and sis.category_manager_rsf_pfcbl_id is not null
+  group by 
+   sis.category_manager_rsf_pfcbl_id,
+   sis.indicator_id,
+   sis.formula_id, -- will be the default and/or previously unsubscrivbed formula for subscription entity
+   ids.rsf_program_id,
+   ids.rsf_facility_id
+  ) x
+  where not exists(select * from p_rsf.rsf_setup_indicators rsi
+                   where rsi.rsf_pfcbl_id = x.rsf_pfcbl_id
+                     and rsi.indicator_id = x.indicator_id
+                     and rsi.is_subscribed is true)
+  on conflict(rsf_pfcbl_id,indicator_id)
+	do update 
+  set is_subscribed = EXCLUDED.is_subscribed,
+      subscription_comments = concat(rsf_setup_indicators.subscription_comments,'\n ',EXCLUDED.subscription_comments);
+	return NULL;														 
+END;
 $BODY$
   LANGUAGE plpgsql VOLATILE
-  COST 100
-  ROWS 1000;
+  COST 100;
+
+-- ----------------------------
+-- Function structure for rsf_setup_checks_subscription_allowed
+-- ----------------------------
+DROP FUNCTION IF EXISTS "p_rsf"."rsf_setup_checks_subscription_allowed"();
+CREATE FUNCTION "p_rsf"."rsf_setup_checks_subscription_allowed"()
+  RETURNS "pg_catalog"."trigger" AS $BODY$
+declare data_category_rank int;
+declare pfcbl_category_rank int;
+BEGIN
+  
+
+	select ids.pfcbl_category_rank
+	into pfcbl_category_rank
+	from p_rsf.rsf_pfcbl_ids ids
+	where ids.rsf_pfcbl_id = NEW.rsf_pfcbl_id;
+	
+	select icf.check_pfcbl_rank
+	into data_category_rank
+	from p_rsf.indicator_check_formulas icf 
+	where icf.check_formula_id = NEW.check_formula_id;
+
+
+  if (pfcbl_category_rank > 2) 
+  then
+    raise exception 'Only Global, Program and Facility may setup check subscriptions: Global for Global Checks; Program for Program Checks; Facility for Facility+ Checks';
+  end if;
+  
+  -- ranks above 2 will be maximized to 2
+  -- so if a global (rank 0) subscribed to a loan indicator (rank 5) then 0<>2
+	if (data_category_rank is not distinct from pfcbl_category_rank) 
+     or
+     (data_category_rank >= 2 and pfcbl_category_rank = 2)
+  then
+        return NEW;
+  else 
+
+
+      if (pfcbl_category_rank = 1) 
+      then 
+        raise notice 'Only Global, Program and Facility entities can set check subscriptions.  Global to global checks.  Program to program checks.  And facility to all facility+ checks.  This program "%" is auto-subscribed "%" to all available facilities. See subscription comments',
+        (select sys_name from p_rsf.view_current_entity_names_and_ids where rsf_pfcbl_id = NEW.rsf_pfcbl_id),
+        (select check_formula_title from p_rsf.indicator_check_formulas where check_formula_id = NEW.check_formula_id);
+        
+        
+        insert into p_rsf.rsf_setup_checks(rsf_pfcbl_id,
+                                            check_formula_id,
+                                            indicator_check_id,                                                          
+                                            rsf_program_id,
+                                            rsf_facility_id,
+                                            is_subscribed,
+                                            is_auto_subscribed,
+                                            subscription_comments,
+                                            comments_user_id,
+                                            auto_subscribed_by_reporting_cohort_id)
+        select distinct
+        ids.rsf_pfcbl_id,
+        NEW.check_formula_id,
+        NEW.indicator_check_id,
+        ids.rsf_program_id,
+        ids.rsf_facility_id,
+        NEW.is_subscribed,
+        true as is_auto_subscribed,
+        concat('SYSTEM: {program > facility} subscription auto-cascade from program-level to all its facilities.','\n' || NEW.subscription_comments),
+        NEW.comments_user_id,
+        NEW.auto_subscribed_by_reporting_cohort_id
+        from p_rsf.rsf_pfcbl_ids ids 
+        where ids.rsf_program_id = NEW.rsf_pfcbl_id
+          and ids.pfcbl_category = 'facility'
+          and ids.rsf_pfcbl_id is distinct from NEW.rsf_pfcbl_id
+          and ids.rsf_pfcbl_id is not null
+          and not exists(select * from p_rsf.rsf_setup_checks pfc
+                         where pfc.rsf_pfcbl_id = ids.rsf_pfcbl_id
+                           and pfc.check_formula_id = NEW.check_formula_id);
+        
+        return NULL;
+        
+      end if;
+
+  
+      raise exception 'Only Global, Program and Facility entities can set check subscriptions.  Global to global checks.  Program to program checks.  And facility to all facility+ checks.  Failed subscription for % and check formula=% because pfcbl_category_rank=% and data_category_rank %',
+      (select sys_name from p_rsf.view_current_entity_names_and_ids where rsf_pfcbl_id = NEW.rsf_pfcbl_id),
+      NEW.check_formula_id,pfcbl_category_rank,data_category_rank;
+        return NULL;
+  end if;
+  
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+
+-- ----------------------------
+-- Function structure for rsf_setup_indicators_auto_monitor_checks
+-- ----------------------------
+DROP FUNCTION IF EXISTS "p_rsf"."rsf_setup_indicators_auto_monitor_checks"();
+CREATE FUNCTION "p_rsf"."rsf_setup_indicators_auto_monitor_checks"()
+  RETURNS "pg_catalog"."trigger" AS $BODY$
+BEGIN
+
+  if not exists(select * from changed)
+	then 
+		return NULL;
+	end if;
+	
+  
+  
+  raise info 'rsf_setup_indicators_auto_monitor_checks(%) depth=%',
+TG_OP,pg_trigger_depth();
+
+  if TG_OP <> 'DELETE' then
+
+   with changes as (
+    select distinct on(ch.rsf_pfcbl_id)
+    ch.rsf_pfcbl_id,
+    ch.auto_subscribed_by_reporting_cohort_id
+    from changed ch
+    order by 
+    ch.rsf_pfcbl_id,
+    ch.auto_subscribed_by_reporting_cohort_id asc nulls last   
+   )
+   insert into p_rsf.rsf_setup_checks(rsf_pfcbl_id,
+                                      check_formula_id,
+                                      indicator_check_id,
+                                      rsf_program_id,
+                                      rsf_facility_id,
+                                      is_subscribed,
+                                      is_auto_subscribed,
+                                      subscription_comments,
+                                      auto_subscribed_by_reporting_cohort_id)	
+      select distinct
+        changes.rsf_pfcbl_id,
+        scm.check_formula_id,
+        scm.indicator_check_id,
+        ids.rsf_program_id,
+        ids.rsf_facility_id,
+        true as is_subscribed,
+        true as is_auto_subscribed,
+        'SYSTEM: Auto-subscribed to check, triggered by monitoring all required parameters',
+        changes.auto_subscribed_by_reporting_cohort_id
+      from changes
+      inner join p_rsf.view_rsf_setup_check_monitoring scm on scm.rsf_pfcbl_id = changes.rsf_pfcbl_id
+      inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = scm.rsf_pfcbl_id     
+      where scm.is_auto_monitorable is true
+        and scm.filter_category_manager is true -- will ensure that changes.rsf_pfcbl_id only inserts global=global, etc.
+        
+      on conflict(rsf_pfcbl_id,check_formula_id)      
+      do nothing; -- in case its there and set deliberately to false	
+
+    end if;
+      
+    update p_rsf.rsf_setup_checks pfc
+    set is_subscribed = false,
+        is_auto_subscribed = true,
+        subscription_comments = concat(pfc.subscription_comments,' \nSYSTEM: Auto-unsubscribed to check, triggered by setting to not monitor a required input parameter')
+    from p_rsf.view_rsf_setup_check_monitoring scm
+    where scm.rsf_pfcbl_id = any (select distinct changed.rsf_pfcbl_id from changed)
+      and scm.is_not_monitorable is true -- has an unsubscribed parameter
+      and pfc.is_auto_subscribed is true
+      and pfc.is_subscribed is true
+      and pfc.rsf_pfcbl_id = scm.rsf_pfcbl_id
+      and pfc.check_formula_id = scm.check_formula_id;
+
+
+	return NULL;
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+
+-- ----------------------------
+-- Function structure for rsf_setup_indicators_auto_monitor_parameters
+-- ----------------------------
+DROP FUNCTION IF EXISTS "p_rsf"."rsf_setup_indicators_auto_monitor_parameters"();
+CREATE FUNCTION "p_rsf"."rsf_setup_indicators_auto_monitor_parameters"()
+  RETURNS "pg_catalog"."trigger" AS $BODY$
+BEGIN
+
+ 
+  if not exists(select * from changed)
+	then 
+		return NULL;
+	end if;
+ 
+raise info 'rsf_setup_indicators_auto_monitor_parameters(%) depth=%',
+TG_OP,pg_trigger_depth();
+
+     with changes as (
+      select distinct on(ch.rsf_pfcbl_id,ch.indicator_id)
+      ch.rsf_pfcbl_id,
+      ch.indicator_id,
+      ch.formula_id,
+      ch.auto_subscribed_by_reporting_cohort_id
+      from changed ch
+      where ch.is_subscribed is true
+      order by 
+      ch.rsf_pfcbl_id,ch.indicator_id,
+      ch.formula_id asc nulls last,
+      ch.auto_subscribed_by_reporting_cohort_id asc nulls last   
+     )
+     insert into p_rsf.rsf_setup_indicators(rsf_pfcbl_id,
+                                            indicator_id,
+                                            formula_id,
+                                            rsf_program_id,
+                                            rsf_facility_id,
+                                            is_subscribed,
+                                            is_auto_subscribed,
+                                            subscription_comments,
+                                            auto_subscribed_by_reporting_cohort_id)
+      select
+        sis.category_manager_rsf_pfcbl_id as rsf_pfcbl_id,
+        sis.indicator_id,
+        sis.formula_id,
+        ids.rsf_program_id,
+        ids.rsf_facility_id,
+        true as is_subscribed,
+        true as is_auto_subscribed,
+        'SYSTEM: Auto indicator prerequisite from calculation formula ' || changed.formula_id || 
+          '/' || (select indicator_name from p_rsf.indicators where indicators.indicator_id = ifp.parameter_indicator_id) as subscription_comments,
+        changed.auto_subscribed_by_reporting_cohort_id
+      from changed
+      inner join p_rsf.indicator_formula_parameters ifp on ifp.formula_id = changed.formula_id
+      inner join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = changed.rsf_pfcbl_id
+                                                                 and sis.indicator_id = ifp.parameter_indicator_id
+      inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = sis.rsf_pfcbl_id
+      where sis.category_manager_rsf_pfcbl_id is not null
+      on conflict(rsf_pfcbl_id,indicator_id)
+      do nothing;
+          
+  
+      
+	return NEW;
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+
+-- ----------------------------
+-- Function structure for rsf_setup_indicators_delete_calculated_data
+-- ----------------------------
+DROP FUNCTION IF EXISTS "p_rsf"."rsf_setup_indicators_delete_calculated_data"();
+CREATE FUNCTION "p_rsf"."rsf_setup_indicators_delete_calculated_data"()
+  RETURNS "pg_catalog"."trigger" AS $BODY$
+BEGIN
+    
+	if (TG_OP = 'DELETE') then
+  
+    with remove as (
+      select 
+        del.rsf_pfcbl_id,
+        del.indicator_id
+      from deleted del
+      where del.is_subscribed is true
+        and del.formula_id is not null
+    ),
+    calcs as (
+      select
+        ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id,
+        ind.indicator_id
+      from remove rem  
+      inner join p_rsf.indicators ind on ind.indicator_id = rem.indicator_id
+      inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = rem.rsf_pfcbl_id
+                                                         and ft.to_pfcbl_category = ind.data_category
+      where ft.pfcbl_hierarchy <> 'parent'		
+    )     
+    delete from p_rsf.rsf_data_calculation_evaluations dce
+    using calcs
+    where calcs.rsf_pfcbl_id = dce.rsf_pfcbl_id
+      and calcs.indicator_id = dce.indicator_id; 
+      
+    with remove as (
+      select 
+        del.rsf_pfcbl_id,
+        del.indicator_id
+      from deleted del
+      where del.is_subscribed is true
+        and del.formula_id is not null
+    ),
+    calcs as (
+      select 
+        rd.data_id
+      from remove rem
+      inner join p_rsf.indicators ind on ind.indicator_id = rem.indicator_id
+      inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = rem.rsf_pfcbl_id
+                                                       and ft.to_pfcbl_category = ind.data_category
+      inner join p_rsf.rsf_data rd on rd.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+                                  and rd.indicator_id = rem.indicator_id
+      inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
+      where rc.is_calculated_cohort is true       
+        and ft.pfcbl_hierarchy <> 'parent'		                                                                                  
+    )
+    delete from p_rsf.rsf_data rd
+    using calcs 
+    where calcs.data_id = rd.data_id;
+    
+	elseif (TG_OP = 'UPDATE') then
+  
+  
+    with remove as (
+      select 
+        ch.rsf_pfcbl_id,
+        ch.indicator_id,
+        ch.is_subscribed,
+        ch.formula_id
+      from changed ch
+        
+      except
+      
+      select 
+        del.rsf_pfcbl_id,
+        del.indicator_id,
+        del.is_subscribed,
+        del.formula_id
+      from deleted del
+    ),
+    calcs as (
+      select
+        ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id,
+        ind.indicator_id
+      from remove rem  
+      inner join p_rsf.indicators ind on ind.indicator_id = rem.indicator_id
+      inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = rem.rsf_pfcbl_id
+                                                       and ft.to_pfcbl_category = ind.data_category
+      where ft.pfcbl_hierarchy <> 'parent'		
+        and (rem.formula_id is NULL or rem.is_subscribed is false)     
+    )     
+    delete from p_rsf.rsf_data_calculation_evaluations dce
+    using calcs
+    where calcs.rsf_pfcbl_id = dce.rsf_pfcbl_id
+      and calcs.indicator_id = dce.indicator_id; 
+      
+    with remove as (
+        select 
+          ch.rsf_pfcbl_id,
+          ch.indicator_id,
+          ch.is_subscribed,
+          ch.formula_id
+        from changed ch
+          
+        except
+        
+        select 
+          del.rsf_pfcbl_id,
+          del.indicator_id,
+          del.is_subscribed,
+          del.formula_id
+        from deleted del
+      ),
+      calcs as (
+        select 
+          rd.data_id
+        from remove rem
+        inner join p_rsf.indicators ind on ind.indicator_id = rem.indicator_id
+        inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = rem.rsf_pfcbl_id
+                                                         and ft.to_pfcbl_category = ind.data_category
+        inner join p_rsf.rsf_data rd on rd.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+                                    and rd.indicator_id = rem.indicator_id
+        inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
+        where rc.is_calculated_cohort is true 
+          and ft.pfcbl_hierarchy <> 'parent'		
+          and (rem.formula_id is NULL or rem.is_subscribed is false)                                                                               
+      )
+      delete from p_rsf.rsf_data rd
+      using calcs 
+      where calcs.data_id = rd.data_id;
+  
+	end if;
+		
+	return NULL;
+	
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+
+-- ----------------------------
+-- Function structure for rsf_setup_indicators_subscription_allowed
+-- ----------------------------
+DROP FUNCTION IF EXISTS "p_rsf"."rsf_setup_indicators_subscription_allowed"();
+CREATE FUNCTION "p_rsf"."rsf_setup_indicators_subscription_allowed"()
+  RETURNS "pg_catalog"."trigger" AS $BODY$
+declare data_category_rank int;
+declare pfcbl_category_rank int;
+BEGIN
+  
+/*
+  raise info 'rsf_setup_indicators_subscription_allowed(%):depth=%: is indicator_id=% allowed for rsf_pfcbl_id=%',
+  TG_OP,pg_trigger_depth(),NEW.indicator_id,NEW.rsf_pfcbl_id;
+*/
+	select ids.pfcbl_category_rank
+	into pfcbl_category_rank
+	from p_rsf.rsf_pfcbl_ids ids
+	where ids.rsf_pfcbl_id = NEW.rsf_pfcbl_id;
+	
+	select ind.pfcbl_rank
+	into data_category_rank
+	from p_rsf.indicators ind 
+	where ind.indicator_id = NEW.indicator_id;
+
+  if (pfcbl_category_rank > 2) 
+  then
+    raise exception 'Only Global, Program and Facility may setup indicator subscriptions: Global for Global Indicators; Program for Program Indicators; Facility for Facility+ Indicators';
+  end if;
+  
+  -- ranks above 2 will be maximized to 2
+  -- so if a global (rank 0) subscribed to a loan indicator (rank 5) then 0<>2
+	if (data_category_rank is not distinct from pfcbl_category_rank) 
+     or
+     (data_category_rank >= 2 and pfcbl_category_rank = 2)
+  then
+        return NEW;
+  else 
+
+
+      if (pfcbl_category_rank = 1) 
+      then 
+        raise notice 'Only Global, Program and Facility entities can set indicator subscriptions.  Global to global indicators.  Program to program indicators.  And facility to all facility+ indicators.  This program "%" is auto-subscribed "%" to all available facilities. See subscription comments',
+        (select sys_name from p_rsf.view_current_entity_names_and_ids where rsf_pfcbl_id = NEW.rsf_pfcbl_id),
+        (select indicator_name from p_rsf.indicators where indicator_id = NEW.indicator_id);
+        
+        insert into p_rsf.rsf_setup_indicators(rsf_pfcbl_id,
+                                                          indicator_id,
+                                                          formula_id,
+                                                          rsf_program_id,
+                                                          rsf_facility_id,
+                                                          is_subscribed,
+                                                          is_auto_subscribed,
+                                                          subscription_comments,
+                                                          comments_user_id,
+                                                          options_group_id,
+                                                          formula_calculation_unit,
+                                                          auto_subscribed_by_reporting_cohort_id)
+        select distinct
+        ids.rsf_pfcbl_id,
+        NEW.indicator_id,
+        NEW.formula_id,
+        ids.rsf_program_id,
+        ids.rsf_facility_id,
+        NEW.is_subscribed,
+        true as is_auto_subscribed,
+        concat('SYSTEM: {program > facility} subscription auto-cascade from program-level to all its facilities.','\n' || NEW.subscription_comments),
+        NEW.comments_user_id,
+        NEW.options_group_id,
+        NEW.formula_calculation_unit,
+        NEW.auto_subscribed_by_reporting_cohort_id
+        from p_rsf.rsf_pfcbl_ids ids 
+        where ids.rsf_program_id = NEW.rsf_pfcbl_id
+          and ids.pfcbl_category = 'facility'
+          and ids.rsf_pfcbl_id is distinct from NEW.rsf_pfcbl_id
+          and ids.rsf_pfcbl_id is not null
+          and not exists(select * from p_rsf.rsf_setup_indicators pfi
+                         where pfi.rsf_pfcbl_id = ids.rsf_pfcbl_id
+                           and pfi.indicator_id = NEW.indicator_id);
+        
+        return NULL;
+        
+      end if;
+
+  
+      raise exception 'Only Global, Program and Facility entities can set indicator subscriptions.  Global to global indicators.  Program to program indicators.  And facility to all facility+ indicators.  Failed subscription for % and indicator=% because pfcbl_category_rank=% and data_category_rank %',
+      (select sys_name from p_rsf.view_current_entity_names_and_ids where rsf_pfcbl_id = NEW.rsf_pfcbl_id),NEW.indicator_id,pfcbl_category_rank,data_category_rank;
+        return NULL;
+  end if;
+  
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+
+-- ----------------------------
+-- Function structure for rsf_setup_indicators_subscription_recalculations
+-- ----------------------------
+DROP FUNCTION IF EXISTS "p_rsf"."rsf_setup_indicators_subscription_recalculations"();
+CREATE FUNCTION "p_rsf"."rsf_setup_indicators_subscription_recalculations"()
+  RETURNS "pg_catalog"."trigger" AS $BODY$
+BEGIN
+
+  
+  if not exists(select * from changed)
+	then 
+		return NULL;
+	end if;
+                  
+raise notice 'rsf_setup_indicators_subscription_recalculations(%) and trigger_depth=%',
+  TG_OP,
+	pg_trigger_depth();
+	
+  
+  if TG_OP = 'INSERT' then
+    perform * from (
+      select 
+      p_rsf.rsf_pfcbl_indicator_recalculate(v_rsf_pfcbl_id => ch.rsf_pfcbl_id,
+                                            v_formula_id => ch.formula_id) as recalc
+      from (
+        select distinct
+          changed.rsf_pfcbl_id,
+          changed.formula_id
+        from changed
+        where changed.formula_id is not null
+          and changed.is_subscribed is true
+      ) as ch
+    );
+  
+  elseif TG_OP = 'UPDATE' then
+
+      perform * from (
+      select 
+        p_rsf.rsf_pfcbl_indicator_recalculate(v_rsf_pfcbl_id => ch.rsf_pfcbl_id,
+                                              v_formula_id => ch.formula_id) as calc
+      from (
+       select distinct
+        changed.rsf_pfcbl_id,
+        changed.formula_id,
+        changed.formula_calculation_unit
+        from changed
+        where changed.formula_id is not null
+          and changed.is_subscribed is true
+        
+        except
+        
+        select 
+        previous.rsf_pfcbl_id,
+        previous.formula_id,
+        previous.formula_calculation_unit
+        from previous     
+     ) as ch);
+
+  end if;
+
+	return NULL;
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
+
+-- ----------------------------
+-- Function structure for rsf_setup_indicators_validate_calculation_unit
+-- ----------------------------
+DROP FUNCTION IF EXISTS "p_rsf"."rsf_setup_indicators_validate_calculation_unit"();
+CREATE FUNCTION "p_rsf"."rsf_setup_indicators_validate_calculation_unit"()
+  RETURNS "pg_catalog"."trigger" AS $BODY$
+BEGIN
+
+  if (NEW.formula_calculation_unit is NULL) 
+  then
+    return NEW; -- always okay to have no custom calculation unit
+  else
+  
+    if NEW.formula_id is NULL
+    then
+      -- if there is no formula, then there cannot be an overwrite. 
+      raise info 'Removing calculation formula unit % because formula_id has been removed for %',
+      (NEW.formula_calculation_unit),
+      (select ind.indicator_name from p_rsf.indicators ind where ind.indicator_id = NEW.indicator_id);
+      
+      NEW.formula_calculation_unit := NULL;
+      
+      return NEW;
+    elseif exists(select * from p_rsf.indicator_formulas indf
+                  where indf.formula_id = NEW.formula_id
+                    and indf.formula_fx_date = 'nofx')
+    then 
+      raise exception 'Calculation formula unit cannot be set because Calculation FX Date is set to "Parameter Currency (NO FX)"';                            
+                            
+    elseif exists(select * from p_rsf.indicator_formulas indf
+                  inner join p_rsf.indicators ind on ind.indicator_id = indf.indicator_id
+                  where indf.formula_id = NEW.formula_id
+                    and ind.data_type = 'currency'
+                    and ind.data_unit = 'LCU')
+    then
+      -- okay: I have an LCU currency
+      return NEW;
+      
+    elseif exists(select * from p_rsf.indicator_formulas indf
+                  inner join p_rsf.indicators ind on ind.indicator_id = any(indf.formula_indicator_ids)
+                   where indf.formula_id = NEW.formula_id
+                     and ind.data_type = 'currency')
+    then                     
+      -- okay: formula has a currency as its input and so we can enforce those units are converted before calculation.
+      return NEW;
+    else 
+      raise exception 'Calculation formula unit (1) Must be a valid 3-letter currency, eg USA, EUR, JPY (2) Can only be set for LCU currency indicators; or (3) Formulas with currency parameters';
+    
+    end if; 
+    
+    return NEW;
+  end if;
+END;
+$BODY$
+  LANGUAGE plpgsql VOLATILE
+  COST 100;
 
 -- ----------------------------
 -- Function structure for set_calculation_formula_parameters
@@ -8770,58 +8447,20 @@ BEGIN
 		                                          and rpc_g.pfcbl_rank < rpc_f.pfcbl_rank -- it's only meaningful to group at a parent level
 		where ind.indicator_id = NEW.indicator_id;
 		 
-
-/* this is a mess!  Now an after update STATEMENT trigger updates EVERYTHING without worry about which specifically are in the formula_indicator_id_requirements
-    -- will trigger trigger_set_indicator_formula_ids on all the related indicators to ensure they are appropriately updated, too
-		update p_rsf.indicator_formulas indf
-		set modification_time = now()
-		where (indf.formula_indicator_ids || indf.formula_indicator_id_requirements) && array[NEW.indicator_id]
-  		--and indf.formula_id <> NEW.formula_id: only this formula was updated, so other formulas that use the same indicator shouldn't care
-			and indf.indicator_id <> NEW.indicator_id
-			and indf.modification_time < NEW.modification_time; -- with own indicator_id allowed in formula_sort caused recursion, denied here;
-*/
     ------------------------------------------------------------------------------------------------
 		refresh materialized view p_rsf.compute_calculation_to_parameter_categories;
 		------------------------------------------------------------------------------------------------
     
-		FOR subscriptions IN 
-		SELECT pfi.rsf_pfcbl_id FROM p_rsf.rsf_program_facility_indicators pfi 
-		where pfi.formula_id = NEW.formula_id	
-		  and pfi.is_subscribed = true
-		LOOP
-			perform p_rsf.rsf_pfcbl_indicator_recalculate(v_rsf_pfcbl_id => subscriptions.rsf_pfcbl_id,
-																										v_indicator_id => NEW.indicator_id);
-		END LOOP;
+   
+  perform (
+    select pfi.rsf_pfcbl_id,pfi.formula_id,recalc
+    from p_rsf.rsf_setup_indicators pfi
+    inner join lateral p_rsf.rsf_pfcbl_indicator_recalculate(v_rsf_pfcbl_id => pfi.rsf_pfcbl_id,
+                                                             v_formula_id => pfi.formula_id) as recalc on true
+    where pfi.indicator_id = NEW.indicator_id
+      and pfi.formula_id is not null
+      and pfi.is_subscribed is true);
 
-
-/*
-		with calculations as materialized (
-			select distinct
-				tip.to_calculate_rsf_pfcbl_id,
-				tip.to_calculate_indicator_id,
-				tip.to_calculate_formula_id,
-				tip.reporting_asof_date
-			from p_rsf.compute_calculation_triggered_by_parameter tip
-			where tip.to_calculate_formula_id = NEW.formula_id
-			  and tip.to_calculate_indicator_id = NEW.indicator_id
-		)
-		insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,
-																										   indicator_id,
-																										   calculation_asof_date)
-		select 
-			calcs.to_calculate_rsf_pfcbl_id,
-			calcs.to_calculate_indicator_id,
-			calcs.reporting_asof_date
-		from calculations calcs
-		inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = calcs.to_calculate_rsf_pfcbl_id
-																													     and pis.indicator_id = calcs.to_calculate_indicator_id
-																															 and pis.formula_id = calcs.to_calculate_formula_id
-    where pis.is_subscribed = true		  
-			and exists(select * from p_rsf.rsf_pfcbl_reporting rpr
-								 where rpr.rsf_pfcbl_id = calcs.to_calculate_rsf_pfcbl_id
-									 and rpr.reporting_asof_date = calcs.reporting_asof_date)									 
-		on conflict do nothing;
-*/		
 	RETURN NEW;
 END;
 $BODY$
@@ -8908,31 +8547,75 @@ BEGIN
 		from p_rsf.compute_check_grouping ccg
 		where icf.check_formula_id = ccg.check_formula_id
 			and icf.check_formula_id = NEW.check_formula_id;	
+      
+      
+    /*****/
+    with reporting as (
+      select 
+        ids.rsf_pfcbl_id,
+        max(rc.reporting_cohort_id) as auto_subscribed_by_reporting_cohort_id
+      from p_rsf.rsf_pfcbl_ids ids
+      inner join p_rsf.reporting_cohorts rc on rc.reporting_rsf_pfcbl_id = ids.rsf_pfcbl_id
+      where rc.is_reported_cohort is true
+        and ids.pfcbl_category_rank = (select least(2,icf.check_pfcbl_rank)
+                                       from p_rsf.indicator_check_formulas icf
+                                       where icf.check_formula_id = NEW.check_formula_id)
+      group by ids.rsf_pfcbl_id
+   )
+   insert into p_rsf.rsf_setup_checks(rsf_pfcbl_id,
+                                      check_formula_id,
+                                      indicator_check_id,
+                                      rsf_program_id,
+                                      rsf_facility_id,
+                                      is_subscribed,
+                                      is_auto_subscribed,
+                                      subscription_comments,
+                                      auto_subscribed_by_reporting_cohort_id)	
+      select distinct
+        reporting.rsf_pfcbl_id,
+        scm.check_formula_id,
+        scm.indicator_check_id,
+        ids.rsf_program_id,
+        ids.rsf_facility_id,
+        true as is_subscribed,
+        true as is_auto_subscribed,
+        'SYSTEM: Auto-subscribed to check, triggered by monitoring all required parameters',
+        reporting.auto_subscribed_by_reporting_cohort_id
+      from reporting
+      inner join p_rsf.view_rsf_setup_check_monitoring scm on scm.rsf_pfcbl_id = reporting.rsf_pfcbl_id
+      inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = scm.rsf_pfcbl_id     
+      where scm.check_formula_id = NEW.check_formula_id
+        and scm.is_auto_monitorable is true
+        and scm.filter_category_manager is true -- will ensure that changes.rsf_pfcbl_id only inserts global=global, etc.
+        
+      on conflict(rsf_pfcbl_id,check_formula_id)      
+      do nothing; -- in case its there and set deliberately to false	
+     
+    update p_rsf.rsf_setup_checks pfc
+    set is_subscribed = false,
+        is_auto_subscribed = true,
+        subscription_comments = concat(pfc.subscription_comments,' \nSYSTEM: Auto-unsubscribed to check, triggered by setting to not monitor a required input parameter')
+    from p_rsf.view_rsf_setup_check_monitoring scm
+    where scm.check_formula_id = NEW.check_formula_id
+      and scm.is_not_monitorable is true -- has an unsubscribed parameter
+      and pfc.is_auto_subscribed is true
+      and pfc.is_subscribed is true
+      and pfc.rsf_pfcbl_id = scm.rsf_pfcbl_id
+      and pfc.check_formula_id = scm.check_formula_id;
+    
+    /*****/
+    
+    
+    
 		
-		
-		with checks as materialized (
-			select distinct
-				tip.to_check_rsf_pfcbl_id,
-				tip.to_check_formula_id,
-				tip.reporting_asof_date
-			from p_rsf.compute_check_triggered_by_parameter tip
-			where tip.to_check_formula_id = NEW.check_formula_id
-		)
-		insert into p_rsf.rsf_data_check_evaluations(rsf_pfcbl_id,check_asof_date,check_formula_id)
-		select 
-			chk.to_check_rsf_pfcbl_id,
-			chk.reporting_asof_date,
-			chk.to_check_formula_id
-		from checks chk
-		inner join p_rsf.view_rsf_pfcbl_check_subscriptions pcs on pcs.rsf_pfcbl_id = chk.to_check_rsf_pfcbl_id
-		                                                       and pcs.check_formula_id = chk.to_check_formula_id
-    where pcs.is_subscribed = true
-		  and exists(select * from p_rsf.rsf_pfcbl_reporting rpr
-								 where rpr.rsf_pfcbl_id = chk.to_check_rsf_pfcbl_id
-									 and rpr.reporting_asof_date = chk.reporting_asof_date)
-		on conflict do nothing;
-		
-	
+    perform * from (
+		 select pfc.rsf_pfcbl_id,pfc.check_formula_id,recalc
+      from p_rsf.rsf_setup_checks pfc
+      inner join lateral p_rsf.rsf_pfcbl_check_recalculate(v_rsf_pfcbl_id => pfc.rsf_pfcbl_id,
+                                                           v_check_formula_id => pfc.check_formula_id) as recalc on true
+      where pfc.check_formula_id = NEW.check_formula_id
+        and pfc.is_subscribed is true);
+       
 			-- not filtering on is calculation trigger because we want new messages if messages have changed
 		
 	RETURN NEW;
@@ -9220,10 +8903,9 @@ BEGIN
 				
 			--end if;
 
-			select pfcbl_rank
+			select ind.pfcbl_rank
 			into v_formula_own_rank
-			from p_rsf.indicators ind
-			inner join p_rsf.rsf_pfcbl_categories rpc on rpc.pfcbl_category = ind.data_category
+			from p_rsf.indicators ind			
 			where ind.indicator_id = NEW.indicator_id;
 
 			-- Jan 2024: No!  I want to retain self-references within its parameter_ids because trigger will invalidate itself without a parameter to trigger 
@@ -9530,302 +9212,6 @@ CREATE FUNCTION "p_rsf"."strict_word_similarity_op"(text, text)
   COST 1;
 
 -- ----------------------------
--- Function structure for trigger_rsf_program_facility_auto_subscriptions
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."trigger_rsf_program_facility_auto_subscriptions"();
-CREATE FUNCTION "p_rsf"."trigger_rsf_program_facility_auto_subscriptions"()
-  RETURNS "pg_catalog"."trigger" AS $BODY$
-BEGIN
-
-  if not exists(select * from changed)
-	then 
-		return NULL;
-	end if;
-	
-	/*																	
-  insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
-																										indicator_id,
-																										formula_id,
-																										rsf_program_id,
-																										rsf_facility_id,
-																										is_subscribed,
-																										is_auto_subscribed)
-	select
-		fcs.rsf_pfcbl_id,
-		fcs.indicator_id,
-		fcs.formula_id,
-		fcs.rsf_program_id,
-		NULL as rsf_facility_id, -- only program level auto subscribes
-		true as is_subscribed,
-		true as is_auto_subscribed
-	from p_rsf.view_rsf_program_facility_calculation_subscribable fcs
-	where fcs.rsf_program_id = any(select distinct rsf_program_id from changed)
-	  and fcs.rsf_facility_id is NULL
-    and fcs.is_primary_default is true 
-	  and fcs.is_subscribable is true 
-		and fcs.is_auto_subscribable is true		
-  on conflict(rsf_pfcbl_id,indicator_id)
-	do nothing; -- in case its there already (already auto-subscribed or manually subscribed to other formula or unsubscribed manually)
-	*/
-								 
-  insert into p_rsf.rsf_program_facility_checks(rsf_pfcbl_id,
-																								check_formula_id,
-																								indicator_check_id,
-																								rsf_program_id,
-																								rsf_facility_id,
-																								is_subscribed,
-																								is_auto_subscribed,
-                                                subscription_comments)
-	select
-		fcs.rsf_pfcbl_id,
-		fcs.check_formula_id,
-		fcs.indicator_check_id,
-		fcs.rsf_program_id,
-		NULL as rsf_facility_id,
-		true as is_subscribed,
-		true as is_auto_subscribed,
-     'SYSTEM: Program-level auto-subscribe' as subscription_comments
-	from p_rsf.view_rsf_program_facility_check_subscribable fcs
-	where fcs.rsf_pfcbl_id = any(select distinct rsf_pfcbl_id from changed)
-	  and fcs.rsf_facility_id is NULL
-	  and fcs.is_subscribable = true
-    and fcs.auto_subscribe = true
-  on conflict(rsf_pfcbl_id,check_formula_id)
-	do nothing; -- in case its there and set deliberately to false	
-
-
- insert into p_rsf.rsf_program_facility_checks(rsf_pfcbl_id,
-																								check_formula_id,
-																								indicator_check_id,
-																								rsf_program_id,
-																								rsf_facility_id,
-																								is_subscribed,
-																								is_auto_subscribed,
-                                                subscription_comments)
-	select
-		fcs.rsf_pfcbl_id,
-		fcs.check_formula_id,
-		fcs.indicator_check_id,
-		fcs.rsf_program_id,
-		fcs.rsf_facility_id,
-		true as is_subscribed,
-		true as is_auto_subscribed,
-     'SYSTEM: Facility-level auto-subscribe' as subscription_comments
-	from p_rsf.view_rsf_program_facility_check_subscribable fcs
-	where fcs.rsf_pfcbl_id = any(select distinct rsf_pfcbl_id from changed)
-	  and fcs.rsf_facility_id is NOT NULL
-	  and fcs.is_subscribable = true
-    and fcs.auto_subscribe = true
-  on conflict(rsf_pfcbl_id,check_formula_id)
-	do nothing; -- in case its there and set deliberately to false	
-  
-	delete from p_rsf.rsf_program_facility_indicators pfc
-	using p_rsf.view_rsf_program_facility_calculation_subscribable fcs --CALCULATION SUBSCRIBABLE
-	where pfc.is_auto_subscribed = true
-		and pfc.rsf_pfcbl_id = fcs.rsf_pfcbl_id
-		and pfc.formula_id IS NOT NULL
-		and pfc.formula_id = fcs.formula_id
-	  and fcs.is_subscribable = false
-		and fcs.rsf_pfcbl_id = any(select distinct rsf_pfcbl_id from changed);
-
-	delete from p_rsf.rsf_program_facility_checks pfc
-	using p_rsf.view_rsf_program_facility_check_subscribable fcs --CHECK SUBSCRIBABLE
-	where pfc.is_auto_subscribed = true
-	  and fcs.rsf_pfcbl_id = pfc.rsf_pfcbl_id
-		and fcs.check_formula_id = pfc.check_formula_id
-		and (fcs.is_subscribable = false or fcs.auto_subscribe = false)
-		and fcs.rsf_pfcbl_id = any(select distinct rsf_pfcbl_id from changed);
-
-	return NULL;
-END;
-$BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
--- Function structure for trigger_rsf_program_facility_check_prerequisite_subscriptions
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."trigger_rsf_program_facility_check_prerequisite_subscriptions"();
-CREATE FUNCTION "p_rsf"."trigger_rsf_program_facility_check_prerequisite_subscriptions"()
-  RETURNS "pg_catalog"."trigger" AS $BODY$
-BEGIN
-
-
-	insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
-																										indicator_id,
-																										formula_id,
-																										rsf_program_id,
-																										rsf_facility_id,
-																										is_subscribed,
-																										is_auto_subscribed,
-                                                    subscription_comments)
-																										
-																										
-  select 
-		NEW.rsf_pfcbl_id,
-		ind.indicator_id,
-		indf.formula_id,
-		NEW.rsf_program_id,
-		NEW.rsf_facility_id,
-		true as is_subscribed,
-		true as is_auto_subscribed,
-    'SYSTEM: Auto for check prerequisite formula ' || new.check_formula_id as subscription_comments
-	from p_rsf.indicators ind
-  inner join lateral (select p_rsf.function_rsf_program_facility_indicators_auto_subscribeable(rsf_program_id => NEW.rsf_program_id,
-                                                                                               rsf_facility_id => NEW.rsf_facility_id,
-                                                                                               indicator_id => ind.indicator_id,
-                                                                                               overwrite => true) as subscribable) as able on true
-	left join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
-						                             and indf.is_primary_default = true
-	where ind.indicator_id = any(select unnest(check_formula_indicator_ids)
-															 from p_rsf.indicator_check_formulas 
-															 where check_formula_id = NEW.check_formula_id)
-    and NEW.is_subscribed is true
-    and able.subscribable is true
-/*                                                                          
-    and NOT exists(select * 
-                   from p_rsf.rsf_pfcbl_ids ids
-                   inner join p_rsf.rsf_program_facility_indicators pfi on pfi.rsf_program_id = ids.rsf_program_id
-                   where ids.rsf_pfcbl_id = NEW.rsf_pfcbl_id
-                     and pfi.indicator_id = ind.indicator_id
-                     and pfi.is_subscribed is true -- unlike indicator auto-subscribe, which will not auto-subscribe to formulas
-                     and (pfi.rsf_facility_id is NULL 
-                          or
-                          pfi.rsf_facility_id is not distinct from ids.rsf_facility_id))
-    
-		and not exists(select * from p_rsf.rsf_program_facility_indicators pfi
-		               where pfi.rsf_pfcbl_id = NEW.rsf_pfcbl_id
-									   and pfi.indicator_id = ind.indicator_id
-										 )										 
-*/                     
-  on conflict(rsf_pfcbl_id,indicator_id)
-	do update 
-  set is_subscribed = EXCLUDED.is_subscribed,
-      subscription_comments = concat(rsf_program_facility_indicators.subscription_comments,'\n ',EXCLUDED.subscription_comments);
-	
-	return NEW;														 
-END;
-$BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
--- Function structure for trigger_rsf_program_facility_indicator_prerequisite_subscriptio
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."trigger_rsf_program_facility_indicator_prerequisite_subscriptio"();
-CREATE FUNCTION "p_rsf"."trigger_rsf_program_facility_indicator_prerequisite_subscriptio"()
-  RETURNS "pg_catalog"."trigger" AS $BODY$
-BEGIN
-
- if ((TG_OP='INSERT') AND NEW.is_subscribed is true) 
-    OR
-	  ((TG_OP='UPDATE') AND (NEW.is_subscribed is true AND NEW.is_subscribed is distinct from OLD.is_subscribed)) 
-  then	 
-     
-  --raise exception 'TESTING trigger_rsf_program_facility_indicator_prerequisite_subscriptions';
-  insert into p_rsf.rsf_program_facility_indicators(rsf_pfcbl_id,
-																										indicator_id,
-																										formula_id,
-																										rsf_program_id,
-																										rsf_facility_id,
-																										is_subscribed,
-																										is_auto_subscribed,
-                                                    subscription_comments)
-																										
-																										
-  select 
-		NEW.rsf_pfcbl_id,
-		params.parameter_id,
-		indf.formula_id,
-		NEW.rsf_program_id,
-		NEW.rsf_facility_id,
-		true as is_subscribed,
-		true as is_auto_subscribed,
-    'SYSTEM: Auto indicator prerequisite from formula ' || new.formula_id || 
-    '/' || (select indicator_name from p_rsf.indicators where indicators.indicator_id = params.indicator_id) as subscription_comments
-	from 
-	(select 
-   indf.indicator_id,
-   unnest(formula_indicator_id_requirements) as parameter_id -- because it will end-up being recursive anyway for all requirements, but this way, comments show trigger.
-   --unnest(formula_indicator_ids) as indicator_id
-	 from p_rsf.indicator_formulas indf
-	 where indf.formula_id = NEW.formula_id
-	) params
-  inner join lateral (select p_rsf.function_rsf_program_facility_indicators_auto_subscribeable(rsf_program_id => NEW.rsf_program_id,
-                                                                                             rsf_facility_id => NEW.rsf_facility_id,
-                                                                                             indicator_id => params.parameter_id,
-                                                                                             overwrite => false) as subscribable) as able on true
-	left join p_rsf.indicator_formulas indf on indf.indicator_id = params.parameter_id
-																				 and indf.is_primary_default = true
-  where NEW.is_subscribed is true
-    and able.subscribable is true
-
-    --No, this doesn't work because a parameter could be subscribed at program-level when a prerequ
-	  --and not exists(select * from p_rsf.rsf_program_facility_indicators pfi
-		 --              where pfi.rsf_pfcbl_id = NEW.rsf_pfcbl_id
-				--					   and pfi.indicator_id = params.parameter_id
-										 -- and pfi.is_subscribed is true: no, if they've set not to subscribe intentionally, then we don't want to auto-subscribe!
-                     -- exist just needs to see if it's there.
-       --            )										 
-  on conflict(rsf_pfcbl_id,indicator_id)
-	do update 
-  set is_subscribed = EXCLUDED.is_subscribed,
-      subscription_comments = concat(rsf_program_facility_indicators.subscription_comments,'\n ',EXCLUDED.subscription_comments);
-
-end if;
-
-	return NEW;
-END;
-$BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
--- Function structure for trigger_rsf_program_facility_indicator_validate_unit
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."trigger_rsf_program_facility_indicator_validate_unit"();
-CREATE FUNCTION "p_rsf"."trigger_rsf_program_facility_indicator_validate_unit"()
-  RETURNS "pg_catalog"."trigger" AS $BODY$
-BEGIN
-
-  if (NEW.formula_calculation_unit is NULL) 
-  then
-    return NEW; -- always okay to have no custom calculation unit
-  else
-  
-    if NEW.formula_id is NULL
-    then
-      -- if there is no formula, then there cannot be an overwrite. 
-      raise info 'Removing calculation formula unit % because formula_id has been removed for %',
-      (NEW.formula_calculation_unit),
-      (select ind.indicator_name from p_rsf.indicators ind where ind.indicator_id = NEW.indicator_id);
-      
-      NEW.formula_calculation_unit := NULL;
-      
-      return NEW;
-      
-    elseif exists(select * from p_rsf.indicator_formulas indf
-                  inner join p_rsf.indicators ind on ind.indicator_id = indf.indicator_id
-                  where indf.formula_id = NEW.formula_id
-                    and ind.data_type = 'currency'
-                    and ind.data_unit = 'LCU')
-    then
-      -- okay
-      return NEW;
-      
-    else 
-      raise exception 'Calculation formula unit (1) Must be a valid 3-letter currency, eg USA, EUR, JPY (2) Can only be set for LCU currency indicators';
-    
-    end if; 
-    
-    return NEW;
-  end if;
-END;
-$BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
 -- Function structure for validate_global_indicator_subscriptions
 -- ----------------------------
 DROP FUNCTION IF EXISTS "p_rsf"."validate_global_indicator_subscriptions"();
@@ -9848,34 +9234,6 @@ BEGIN
 	end if;
 	
 	return NEW;
-END;
-$BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-
--- ----------------------------
--- Function structure for validate_pending_calculations
--- ----------------------------
-DROP FUNCTION IF EXISTS "p_rsf"."validate_pending_calculations"();
-CREATE FUNCTION "p_rsf"."validate_pending_calculations"()
-  RETURNS "pg_catalog"."trigger" AS $BODY$
-DECLARE ind_id int;
-BEGIN
-	
-	if (TG_OP in ('new','update'))
-	then
-		ind_id := NEW.indicator_id;
-	else 
-		ind_id := OLD.indicator_id;
-	end if;	
-	
-	delete from p_rsf.rsf_data_calculation_evaluations dce
-	where not exists(select * from p_rsf.view_rsf_pfcbl_indicator_subscriptions pis
-									 where pis.rsf_pfcbl_id = dce.rsf_pfcbl_id
-										 and pis.indicator_id = ind_id
-										 and pis.is_calculated = true);
-													 
-	RETURN NULL;
 END;
 $BODY$
   LANGUAGE plpgsql VOLATILE
@@ -9971,46 +9329,6 @@ CREATE VIEW "p_rsf"."util_reporting_cohort_times_by_entity" AS  SELECT rsf_progr
   ORDER BY sys_name;
 
 -- ----------------------------
--- View structure for compute_check_to_parameter_rsf_pfcbl_ids
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."compute_check_to_parameter_rsf_pfcbl_ids";
-CREATE VIEW "p_rsf"."compute_check_to_parameter_rsf_pfcbl_ids" AS  SELECT ids.rsf_pfcbl_id AS from_check_rsf_pfcbl_id,
-    cfp.check_formula_id AS from_check_formula_id,
-    cfp.indicator_check_id,
-    cfp.parameter_pfcbl_category AS to_parameter_pfcbl_category,
-    pids.parameter_rsf_pfcbl_id AS to_parameter_rsf_pfcbl_id,
-    pids.created_in_reporting_asof_date AS parameter_rsf_pfcbl_id_created_date
-   FROM p_rsf.rsf_pfcbl_ids ids
-     JOIN p_rsf.compute_check_to_parameter_categories cfp ON cfp.for_pfcbl_category = ids.pfcbl_category::text
-     JOIN LATERAL ( SELECT ids.rsf_pfcbl_id AS parameter_rsf_pfcbl_id,
-            ids.created_in_reporting_asof_date
-          WHERE cfp.parameter_pfcbl_hierarchy = 'self'::text
-        UNION ALL
-         SELECT zids.rsf_pfcbl_id AS parameter_rsf_pfcbl_id,
-            zids.created_in_reporting_asof_date
-           FROM p_rsf.rsf_pfcbl_ids zids
-          WHERE zids.rsf_pfcbl_id = 0 AND cfp.parameter_pfcbl_hierarchy = 'parent'::text AND cfp.parameter_pfcbl_category = 'global'::text
-        UNION ALL
-         SELECT fam.parent_rsf_pfcbl_id AS parameter_rsf_pfcbl_id,
-            zids.created_in_reporting_asof_date
-           FROM p_rsf.rsf_pfcbl_id_family fam
-             JOIN p_rsf.rsf_pfcbl_ids zids ON zids.rsf_pfcbl_id = fam.parent_rsf_pfcbl_id
-          WHERE cfp.parameter_pfcbl_hierarchy = 'parent'::text AND cfp.parameter_pfcbl_category <> 'global'::text AND fam.child_rsf_pfcbl_id = ids.rsf_pfcbl_id AND fam.parent_pfcbl_category::text = cfp.parameter_pfcbl_category
-        UNION ALL
-         SELECT fam.child_rsf_pfcbl_id AS parameter_rsf_pfcbl_id,
-            zids.created_in_reporting_asof_date
-           FROM p_rsf.rsf_pfcbl_id_family fam
-             JOIN p_rsf.rsf_pfcbl_ids zids ON zids.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
-          WHERE cfp.parameter_pfcbl_hierarchy = 'child'::text AND fam.parent_rsf_pfcbl_id = ids.rsf_pfcbl_id AND fam.child_pfcbl_category::text = cfp.parameter_pfcbl_category
-        UNION ALL
-         SELECT children.child_rsf_pfcbl_id,
-            zids.created_in_reporting_asof_date
-           FROM p_rsf.rsf_pfcbl_id_family parents
-             JOIN p_rsf.rsf_pfcbl_id_family children ON children.parent_rsf_pfcbl_id = parents.parent_rsf_pfcbl_id AND children.child_pfcbl_category::text = cfp.parameter_pfcbl_category
-             JOIN p_rsf.rsf_pfcbl_ids zids ON zids.rsf_pfcbl_id = children.child_rsf_pfcbl_id
-          WHERE parents.child_rsf_pfcbl_id = ids.rsf_pfcbl_id AND parents.parent_pfcbl_category::text = cfp.parent_pfcbl_category AND cfp.parameter_pfcbl_hierarchy = 'relative'::text) pids ON true;
-
--- ----------------------------
 -- View structure for view_indicator_labels
 -- ----------------------------
 DROP VIEW IF EXISTS "p_rsf"."view_indicator_labels";
@@ -10040,28 +9358,6 @@ UNION ALL
     ind.indicator_name AS label,
     NULL::boolean AS is_primary
    FROM p_rsf.indicators ind;
-
--- ----------------------------
--- View structure for view_rsf_program_facility_check_subscriptions
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_program_facility_check_subscriptions";
-CREATE VIEW "p_rsf"."view_rsf_program_facility_check_subscriptions" AS  SELECT DISTINCT ON (ids.rsf_pfcbl_id, pfc.check_formula_id) ids.rsf_pfcbl_id,
-    pfc.check_formula_id,
-    pfc.indicator_check_id,
-    ids.rsf_program_id,
-    ids.rsf_facility_id,
-    pfc.is_subscribed,
-    fam.parent_pfcbl_category AS pfcbl_subscription_category,
-    pfc.is_auto_subscribed,
-    pfc.subscription_comments,
-    pfc.comments_user_id,
-    fam.parent_pfcbl_rank < fam.child_pfcbl_rank AS is_inherited,
-    fam.parent_pfcbl_category AS pfcbl_category_setting
-   FROM p_rsf.rsf_pfcbl_ids ids
-     JOIN p_rsf.rsf_pfcbl_id_family fam ON fam.child_rsf_pfcbl_id = ids.rsf_pfcbl_id
-     JOIN p_rsf.rsf_program_facility_checks pfc ON pfc.rsf_pfcbl_id = fam.parent_rsf_pfcbl_id
-  WHERE ids.pfcbl_category_rank <= 2
-  ORDER BY ids.rsf_pfcbl_id, pfc.check_formula_id, fam.parent_pfcbl_rank DESC;
 
 -- ----------------------------
 -- View structure for view_rsf_data_checks_archive_eligible
@@ -10131,129 +9427,67 @@ UNION ALL
      JOIN p_rsf.indicator_options_group_keys ogk ON ogk.options_group_id = iog.options_group_id;
 
 -- ----------------------------
--- View structure for computation_reporting_parameters
+-- View structure for view_rsf_program_facility_template_header_actions
 -- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."computation_reporting_parameters";
-CREATE VIEW "p_rsf"."computation_reporting_parameters" AS  SELECT rsf_pfcbl_id,
-    indicator_id,
-    reporting_asof_date
-   FROM ( SELECT rdc.rsf_pfcbl_id,
-            rdc.indicator_id,
-            rdc.reporting_asof_date
-           FROM p_rsf.rsf_data_current rdc
-             JOIN p_rsf.indicators ind ON ind.indicator_id = rdc.indicator_id
-          WHERE ind.indicator_sys_category::text IS DISTINCT FROM 'entity_reporting'::text
-        UNION ALL
-         SELECT rpr.rsf_pfcbl_id,
-            rpr.reporting_indicator_id,
-            rpr.reporting_asof_date
-           FROM p_rsf.rsf_pfcbl_reporting rpr) rep;
+DROP VIEW IF EXISTS "p_rsf"."view_rsf_program_facility_template_header_actions";
+CREATE VIEW "p_rsf"."view_rsf_program_facility_template_header_actions" AS  SELECT headers.rsf_pfcbl_id,
+    headers.template_id,
+    fth_a.header_id,
+    fth_a."SYSNAME",
+    fth_a.template_name,
+    fth_a.template_header_sheet_name AS template_header_section_name,
+    fth_a.template_header,
+    fth_a.action,
+    fth_a.comment,
+    fth_a.map_indicator_id,
+    fth_a.indicator_name,
+    fth_a.map_formula_id,
+    fth_a.calculation_formula,
+    fth_a.map_check_formula_id,
+    fth_a.check_formula,
+    headers.action_level
+   FROM ( SELECT DISTINCT ON (ft.from_rsf_pfcbl_id, fth.template_id, fth.template_header_full_normalized) ft.from_rsf_pfcbl_id AS rsf_pfcbl_id,
+            ft.to_family_rsf_pfcbl_id,
+            fth.template_id,
+            fth.template_header_full_normalized,
+            ft.to_pfcbl_category AS action_level
+           FROM p_rsf.view_rsf_pfcbl_id_family_tree ft
+             JOIN p_rsf.rsf_program_facility_template_headers fth ON fth.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+          WHERE (ft.from_pfcbl_category::text = ANY (ARRAY['global'::character varying, 'program'::character varying, 'facility'::character varying]::text[])) AND ft.to_pfcbl_rank <= ft.from_pfcbl_rank
+          ORDER BY ft.from_rsf_pfcbl_id, fth.template_id, fth.template_header_full_normalized, ft.to_pfcbl_rank DESC) headers
+     JOIN p_rsf.view_rsf_program_facility_template_headers fth_a ON fth_a.rsf_pfcbl_id = headers.to_family_rsf_pfcbl_id AND fth_a.template_id = headers.template_id AND fth_a.template_header_full_normalized = headers.template_header_full_normalized;
 
 -- ----------------------------
--- View structure for view_rsf_program_facility_indicator_subscriptions
+-- View structure for view_rsf_setup_programs_indicators
 -- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_program_facility_indicator_subscriptions";
-CREATE VIEW "p_rsf"."view_rsf_program_facility_indicator_subscriptions" AS  SELECT DISTINCT ON (subscriptions.rsf_pfcbl_id, subscriptions.indicator_id) subscriptions.rsf_pfcbl_id,
-    subscriptions.indicator_id,
-    ind.is_calculated = true AND ind.is_system_calculated = false OR subscriptions.formula_id IS NOT NULL OR (EXISTS ( SELECT indf.indicator_id,
-            indf.formula,
-            indf.formula_sort,
-            indf.overwrite,
-            indf.formula_indicator_ids,
-            indf.formula_indicator_id_requirements,
-            indf.formula_indicator_id_dependents,
-            indf.formula_calculation_rank,
-            indf.formula_grouping_pfcbl_rank,
-            indf.formula_pfcbl_rank_range,
-            indf."dep-formula_calculated_by_indicator_id",
-            indf.perform_calculation_by_row,
-            indf.modification_time,
-            indf.formula_fx_date,
-            indf.computation_group,
-            indf.computation_priority_rank,
-            indf.formula_unit_set_by_indicator_id,
-            indf.formula_id,
-            indf.formula_title,
-            indf.is_primary_default,
-            indf.formula_notes,
-            indf.modified_by_user_id
-           FROM p_rsf.indicator_formulas indf
-          WHERE indf.indicator_id = ind.indicator_id)) AS is_calculated,
-    subscriptions.formula_id,
-    subscriptions.rank_id,
-    subscriptions.is_subscribed,
-    subscriptions.is_unsubscribed,
-    ind.pfcbl_rank AS data_category_rank,
+DROP VIEW IF EXISTS "p_rsf"."view_rsf_setup_programs_indicators";
+CREATE VIEW "p_rsf"."view_rsf_setup_programs_indicators" AS  SELECT ids.rsf_program_id,
+    ids.rsf_facility_id,
+    ids.rsf_pfcbl_id,
+    ind.indicator_id,
+    sn.sys_name,
     ind.indicator_name,
-    ind.data_type,
-    ind.data_category,
-    ind.is_system,
-    subscriptions.is_auto_subscribed,
-    ind.default_subscription,
-    subscriptions.sort_preference::smallint AS sort_preference,
-    subscriptions.subscription_comments,
-    subscriptions.is_inherited,
-    subscriptions.comments_user_id,
-    subscriptions.pfcbl_category_setting::character varying AS pfcbl_category_setting,
-    subscriptions.inherit_rank <= ind.pfcbl_rank AS setting_allowed,
-    ind.data_unit,
-    subscriptions.settings_options_group_id,
-    subscriptions.formula_calculation_unit
-   FROM ( SELECT true AS default_sub,
-            ids.rsf_pfcbl_id,
-            ind_1.indicator_id,
-            indf.formula_id,
-            0 AS rank_id,
-                CASE
-                    WHEN ids.rsf_pfcbl_id = 0 AND ind_1.data_category::text = 'global'::text THEN true
-                    ELSE false
-                END AS is_subscribed,
-            false AS is_unsubscribed,
-            ind_1.default_subscription AS is_auto_subscribed,
-            ind_1.pfcbl_rank AS inherit_rank,
-            ind_1.sort_preference,
-            NULL::text AS subscription_comments,
-            NULL::text AS comments_user_id,
-            true AS is_inherited,
-            'global'::text AS pfcbl_category_setting,
-            ind_1.indicator_options_group_id AS settings_options_group_id,
-            NULL::text AS formula_calculation_unit
-           FROM p_rsf.rsf_pfcbl_ids ids
-             JOIN p_rsf.indicators ind_1 ON ind_1.pfcbl_rank >= ids.pfcbl_category_rank
-             LEFT JOIN p_rsf.indicator_formulas indf ON indf.indicator_id = ind_1.indicator_id AND indf.is_primary_default = true
-          WHERE (ids.pfcbl_category::text = ANY (ARRAY['global'::character varying, 'program'::character varying, 'facility'::character varying]::text[])) AND (ids.pfcbl_category_rank >= 1 OR ind_1.pfcbl_rank = 0)
-        UNION ALL
-         SELECT false AS default_sub,
-            ids.rsf_pfcbl_id,
-            rpi.indicator_id,
-            rpi.formula_id,
-                CASE
-                    WHEN rpi.rsf_pfcbl_id = 0 THEN 0
-                    WHEN rpi.rsf_pfcbl_id = ids.rsf_program_id THEN 1
-                    WHEN rpi.rsf_pfcbl_id = ids.rsf_facility_id THEN 2
-                    ELSE 3
-                END AS rank_id,
-            rpi.is_subscribed,
-            rpi.is_subscribed IS FALSE AND rpi.is_auto_subscribed IS FALSE AS is_unsubscribed,
-            rpi.is_auto_subscribed,
-            ids.pfcbl_category_rank AS inherit_rank,
-            COALESCE(rpi.sort_preference::integer, 0) AS sort_preference,
-            rpi.subscription_comments,
-            rpi.comments_user_id,
-            rpi.rsf_pfcbl_id IS DISTINCT FROM ids.rsf_pfcbl_id AS is_inherited,
-                CASE
-                    WHEN rpi.rsf_pfcbl_id = 0 THEN 'global'::text
-                    WHEN rpi.rsf_pfcbl_id = ids.rsf_program_id THEN 'program'::text
-                    WHEN rpi.rsf_pfcbl_id = ids.rsf_facility_id THEN 'facility'::text
-                    ELSE 'error'::text
-                END AS pfcbl_category_setting,
-            rpi.options_group_id AS settings_options_group_id,
-            rpi.formula_calculation_unit
-           FROM p_rsf.rsf_pfcbl_ids ids
-             JOIN p_rsf.rsf_program_facility_indicators rpi ON rpi.rsf_pfcbl_id = ANY (ARRAY[0, ids.rsf_program_id, ids.rsf_facility_id])
-          WHERE ids.pfcbl_category::text = ANY (ARRAY['global'::character varying, 'program'::character varying, 'facility'::character varying]::text[])) subscriptions
-     JOIN p_rsf.indicators ind ON ind.indicator_id = subscriptions.indicator_id
-  ORDER BY subscriptions.rsf_pfcbl_id, subscriptions.indicator_id, (subscriptions.default_sub IS FALSE) DESC, subscriptions.rank_id DESC, ind.indicator_name;
+    pfi.is_subscribed AS monitored,
+    pfi.formula_id,
+    indf.formula_title,
+    pfi.is_auto_subscribed,
+    pfi.sort_preference,
+    pfi.subscription_comments,
+    pfi.comments_user_id,
+    ids.pfcbl_category_rank,
+    pfi.options_group_id,
+    pfi.formula_calculation_unit
+   FROM p_rsf.rsf_pfcbl_ids ids
+     JOIN p_rsf.rsf_setup_indicators pfi ON pfi.rsf_pfcbl_id = ids.rsf_pfcbl_id
+     JOIN p_rsf.indicators ind ON ind.indicator_id = pfi.indicator_id
+     JOIN LATERAL ( SELECT nai.sys_name
+           FROM p_rsf.rsf_data_current_names_and_ids nai
+          WHERE nai.rsf_pfcbl_id = ids.rsf_pfcbl_id
+          ORDER BY nai.reporting_asof_date
+         LIMIT 1) sn ON true
+     LEFT JOIN p_rsf.indicator_formulas indf ON indf.formula_id = pfi.formula_id
+  WHERE ids.rsf_program_id <> 0 AND ind.is_system = false AND ind.data_category::text <> 'global'::text AND (ind.indicator_name::text ~ '^rsf_'::text) = false
+  ORDER BY ids.rsf_program_id, sn.sys_name, pfi.is_subscribed DESC, ind.indicator_name;
 
 -- ----------------------------
 -- View structure for compute_calculation_ranks
@@ -10302,73 +9536,176 @@ CREATE VIEW "p_rsf"."compute_calculation_ranks" AS  WITH RECURSIVE ranks AS (
   GROUP BY formula_id, data_category, data_type;
 
 -- ----------------------------
--- View structure for view_rsf_pfcbl_check_subscriptions
+-- View structure for view_rsf_setup_check_config
 -- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_pfcbl_check_subscriptions";
-CREATE VIEW "p_rsf"."view_rsf_pfcbl_check_subscriptions" AS  SELECT ids.rsf_program_id,
-    ids.rsf_facility_id,
+DROP VIEW IF EXISTS "p_rsf"."view_rsf_setup_check_config";
+CREATE VIEW "p_rsf"."view_rsf_setup_check_config" AS  SELECT ids.rsf_pfcbl_id,
     ids.pfcbl_category,
-    ids.rsf_pfcbl_id,
-    ic.check_name,
+    scc.for_indicator_id,
     ic.indicator_check_id,
-    icf.check_formula_id,
-    COALESCE(fc.is_subscribed, pc.is_subscribed, false) AS is_subscribed,
-    pc.rsf_program_id IS NOT NULL AS has_program_entry,
-    pc.is_subscribed AS is_program_subscribed,
-    fc.rsf_facility_id IS NOT NULL AS has_facility_entry,
-    fc.is_subscribed AS is_facility_subscribed
-   FROM p_rsf.rsf_pfcbl_ids ids
-     JOIN p_rsf.indicator_checks ic ON ic.check_pfcbl_category = ids.pfcbl_category::text
-     JOIN p_rsf.indicator_check_formulas icf ON icf.indicator_check_id = ic.indicator_check_id
-     LEFT JOIN p_rsf.rsf_program_facility_checks pc ON pc.rsf_program_id = ids.rsf_program_id AND pc.check_formula_id = icf.check_formula_id AND pc.rsf_facility_id IS NULL
-     LEFT JOIN p_rsf.rsf_program_facility_checks fc ON fc.rsf_program_id = ids.rsf_program_id AND fc.check_formula_id = icf.check_formula_id AND fc.rsf_facility_id = ids.rsf_facility_id;
-
--- ----------------------------
--- View structure for view_rsf_program_facility_check_subscribable
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_program_facility_check_subscribable";
-CREATE VIEW "p_rsf"."view_rsf_program_facility_check_subscribable" AS  SELECT ids.rsf_pfcbl_id,
     ids.rsf_program_id,
     ids.rsf_facility_id,
-    cfp.indicator_check_id,
-    cfp.check_formula_id,
-    bool_and(ind.is_system = true OR COALESCE(fis.is_subscribed, false)) AS is_subscribable,
-    array_agg(cfp.parameter_indicator_id ORDER BY cfp.parameter_indicator_id) FILTER (WHERE ind.is_system = false AND COALESCE(fis.is_subscribed, false) = false) AS missing_parameter_ids,
-    COALESCE(( SELECT ic.auto_subscribe
-           FROM p_rsf.indicator_checks ic
-          WHERE ic.indicator_check_id = cfp.indicator_check_id
-         LIMIT 1), false) AS auto_subscribe
+    true AS is_subscribed,
+    false AS is_unsubscribed,
+    false AS is_auto_subscribed,
+    COALESCE(scc.config_auto_resolve, ic.auto_resolve_system_check, false) AS config_auto_resolve,
+    COALESCE(scc.config_check_class, ic.check_class::text) AS config_check_class,
+        CASE
+            WHEN ic.variance_tolerance_allowed IS FALSE THEN NULL::numeric
+            ELSE COALESCE(scc.config_threshold, 0::numeric)
+        END AS config_threshold,
+    scc.config_comments,
+    scc.comments_user_id,
+    ic.check_name,
+    ind.indicator_name,
+    ids.pfcbl_category_rank = ind.pfcbl_rank AS filter_matched_pfcbl_indicators,
+    ids.pfcbl_category_rank = ind.pfcbl_rank AND ids.pfcbl_category_rank <= 2 OR ids.pfcbl_category_rank = 2 AND ind.pfcbl_rank >= 2 AS filter_category_manager,
+        CASE
+            WHEN ind.pfcbl_rank = 0 THEN 0
+            WHEN ind.pfcbl_rank = 1 THEN ids.rsf_program_id
+            ELSE ids.rsf_facility_id
+        END AS category_manager_rsf_pfcbl_id
    FROM p_rsf.rsf_pfcbl_ids ids
-     CROSS JOIN p_rsf.indicator_check_formula_parameters cfp
-     JOIN p_rsf.indicators ind ON ind.indicator_id = cfp.parameter_indicator_id
-     LEFT JOIN p_rsf.view_rsf_program_facility_indicator_subscriptions fis ON fis.rsf_pfcbl_id = ids.rsf_pfcbl_id AND fis.indicator_id = cfp.parameter_indicator_id
-  WHERE ids.pfcbl_category_rank <= 2 AND cfp.is_calculation_trigger_parameter = true AND ((ids.pfcbl_category::text = ANY (ARRAY['program'::character varying, 'facility'::character varying]::text[])) AND cfp.for_pfcbl_category <> 'global'::text OR ids.pfcbl_category::text = 'global'::text AND cfp.for_pfcbl_category = ids.pfcbl_category::text)
-  GROUP BY ids.rsf_pfcbl_id, ids.rsf_program_id, ids.rsf_facility_id, cfp.indicator_check_id, cfp.check_formula_id;
+     JOIN p_rsf.rsf_setup_checks_config scc ON scc.rsf_pfcbl_id = ids.rsf_facility_id OR scc.rsf_pfcbl_id = ids.rsf_program_id OR scc.rsf_pfcbl_id = 0
+     JOIN p_rsf.indicator_checks ic ON ic.indicator_check_id = scc.indicator_check_id
+     JOIN p_rsf.indicators ind ON ind.indicator_id = scc.for_indicator_id;
 
 -- ----------------------------
--- View structure for view_rsf_pfcbl_id_is_reporting
+-- View structure for view_rsf_setup_programs_data
 -- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_pfcbl_id_is_reporting";
-CREATE VIEW "p_rsf"."view_rsf_pfcbl_id_is_reporting" AS  SELECT ids.rsf_pfcbl_id,
+DROP VIEW IF EXISTS "p_rsf"."view_rsf_setup_programs_data";
+CREATE VIEW "p_rsf"."view_rsf_setup_programs_data" AS  SELECT dense_rank() OVER (ORDER BY ids.created_in_reporting_asof_date, ids.rsf_program_id) AS program_sequence,
+    ids.rsf_program_id,
+    ids.rsf_facility_id,
+    ids.rsf_pfcbl_id,
+    sn.sys_name,
     rpr.reporting_asof_date,
-    ids.pfcbl_category,
-    bool_or(
+    ids.created_in_reporting_asof_date = rdc.reporting_asof_date AS is_creation_asof_date,
+    rdc.data_id IS NULL AS entity_never_reported,
+    ind.data_category,
+    ind.indicator_name,
+    ind.is_calculated,
+    ind.indicator_id,
+    indf.formula_id,
         CASE
-            WHEN reporting.data_value IS NULL THEN true
-            WHEN reporting.data_value = 'TRUE'::text THEN true
-            ELSE false
-        END) AS is_reporting
+            WHEN rdc.data_id IS NULL AND ind.is_calculated THEN '{UNCALCULATED}'::text
+            WHEN rdc.data_id IS NULL THEN '{MISSING}'::text
+            WHEN rdc.data_value IS NULL AND ind.is_calculated THEN '{CALCULATED:BLANK}'::text
+            WHEN rdc.data_value IS NULL THEN '{BLANK}'::text
+            ELSE rdc.data_value
+        END AS data_value,
+        CASE
+            WHEN rdc.data_id IS NULL THEN NULL::text
+            ELSE rdc.data_unit
+        END AS data_unit,
+    rdc.data_id
    FROM p_rsf.rsf_pfcbl_ids ids
+     JOIN p_rsf.view_rsf_setup_indicator_subscriptions sis ON sis.rsf_pfcbl_id = ids.rsf_pfcbl_id
+     JOIN p_rsf.indicators ind ON ind.indicator_id = sis.indicator_id
      JOIN p_rsf.rsf_pfcbl_reporting rpr ON rpr.rsf_pfcbl_id = ids.rsf_pfcbl_id
-     JOIN p_rsf.rsf_pfcbl_id_family fam ON fam.parent_rsf_pfcbl_id = rpr.rsf_pfcbl_id
-     JOIN p_rsf.indicators ind ON ind.data_category::text = fam.child_pfcbl_category::text
-     LEFT JOIN LATERAL ( SELECT rdc.data_value
+     JOIN LATERAL ( SELECT nai.sys_name
+           FROM p_rsf.rsf_data_current_names_and_ids nai
+          WHERE nai.rsf_pfcbl_id = ids.rsf_pfcbl_id AND nai.reporting_asof_date <= rpr.reporting_asof_date
+          ORDER BY nai.reporting_asof_date DESC
+         LIMIT 1) sn ON true
+     LEFT JOIN p_rsf.rsf_data_current rdc ON rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id AND rdc.indicator_id = ind.indicator_id AND rdc.reporting_asof_date = rpr.reporting_asof_date
+     LEFT JOIN p_rsf.rsf_data rd ON rd.data_id = rdc.data_id
+     LEFT JOIN p_rsf.reporting_cohorts rc ON rc.reporting_cohort_id = rd.reporting_cohort_id
+     LEFT JOIN p_rsf.indicator_formulas indf ON indf.formula_id = sis.formula_id
+  WHERE (ids.pfcbl_category::text = ANY (ARRAY['program'::character varying::text, 'facility'::character varying::text, 'client'::character varying::text])) AND (sis.is_subscribed = true OR rd.data_id IS NOT NULL) AND sis.is_unsubscribed IS NOT TRUE AND (ids.pfcbl_category::text = 'program'::text OR (EXISTS ( SELECT rd_1.data_id,
+            rd_1.rsf_pfcbl_id,
+            rd_1.indicator_id,
+            rd_1.reporting_asof_date,
+            rd_1.reporting_cohort_id,
+            rd_1.data_value,
+            rd_1.data_unit,
+            rd_1.data_submitted,
+            rd_1.data_source_row_id,
+            rd_1.data_sys_flags,
+            rd_1.data_sys_source,
+            idind.indicator_id,
+            idind.indicator_name,
+            idind.indicator_sys_category,
+            idind.data_category,
+            idind.data_type,
+            idind.data_unit,
+            idind.default_value,
+            idind.definition,
+            idind.label_id,
+            idind.indicator_options_group_id,
+            idind.indicator_options_group_allows_blanks,
+            idind.indicator_options_group_allows_multiples,
+            idind.is_calculated,
+            idind.is_system,
+            idind.is_data_unit,
+            idind.is_system_calculated,
+            idind.is_setup,
+            idind.modification_time,
+            idind.version_number,
+            idind.is_static_nonreporting,
+            idind.default_subscription,
+            idind.is_periodic_or_flow_reporting,
+            idind.classification,
+            idind.sort_preference,
+            idind.created_by_user_id,
+            idind.modified_by_user_id,
+            idind.pfcbl_rank
+           FROM p_rsf.rsf_data rd_1
+             JOIN p_rsf.indicators idind ON idind.indicator_id = rd_1.indicator_id AND idind.indicator_sys_category::text = 'id'::text
+          WHERE rd_1.rsf_pfcbl_id = ids.rsf_pfcbl_id AND rd_1.data_value IS NOT NULL))) AND ind.is_system = false AND (ind.is_periodic_or_flow_reporting IS FALSE OR NOT rdc.reporting_asof_date IS DISTINCT FROM rpr.reporting_asof_date) AND rc.is_calculated_cohort IS FALSE AND (ind.indicator_name::text ~ '^rsf'::text) = false
+  ORDER BY (dense_rank() OVER (ORDER BY ids.created_in_reporting_asof_date, ids.rsf_program_id)), ids.pfcbl_category_rank, ids.rsf_program_id, ids.rsf_facility_id, ids.rsf_client_id, ind.indicator_name, (COALESCE(rdc.reporting_asof_date, ids.created_in_reporting_asof_date));
+
+-- ----------------------------
+-- View structure for view_reporting_cohort_file_name
+-- ----------------------------
+DROP VIEW IF EXISTS "p_rsf"."view_reporting_cohort_file_name";
+CREATE VIEW "p_rsf"."view_reporting_cohort_file_name" AS  SELECT sn.sys_name,
+    sn.pfcbl_name,
+    rc.reporting_rsf_pfcbl_id,
+    rc.reporting_asof_date,
+    rc.reporting_cohort_id,
+    rc.reporting_time,
+    rc.reporting_user_id,
+    rc."!dep-source_name" AS source_name,
+    regexp_replace(rc."!dep-source_name", '^[^[:alpha:]]+'::text, ''::text) AS file_name,
+    client.reporting_date,
+        CASE
+            WHEN COALESCE(rc.reporting_asof_date >= client.reporting_date, false) THEN dense_rank() OVER (PARTITION BY rc.reporting_rsf_pfcbl_id, (COALESCE(rc.reporting_asof_date >= client.reporting_date, false)) ORDER BY rc.reporting_asof_date)
+            ELSE 0::bigint
+        END AS reporting_rank,
+    NULLIF(
+        CASE
+            WHEN count(*) OVER (PARTITION BY rc.reporting_rsf_pfcbl_id, rc.reporting_asof_date) = 1 THEN NULL::bigint
+            ELSE dense_rank() OVER (PARTITION BY rc.reporting_rsf_pfcbl_id, rc.reporting_asof_date ORDER BY rc.reporting_time) - 1
+        END, 0) AS sequence_rank,
+    concat('#',
+        CASE
+            WHEN COALESCE(rc.reporting_asof_date >= client.reporting_date, false) THEN dense_rank() OVER (PARTITION BY rc.reporting_rsf_pfcbl_id, (COALESCE(rc.reporting_asof_date >= client.reporting_date, false)) ORDER BY rc.reporting_asof_date)
+            ELSE 0::bigint
+        END, '.'::text || NULLIF(
+        CASE
+            WHEN count(*) OVER (PARTITION BY rc.reporting_rsf_pfcbl_id, rc.reporting_asof_date) = 1 THEN NULL::bigint
+            ELSE dense_rank() OVER (PARTITION BY rc.reporting_rsf_pfcbl_id, rc.reporting_asof_date ORDER BY rc.reporting_time) - 1
+        END, 0)) AS name_prefix,
+    (concat('#',
+        CASE
+            WHEN COALESCE(rc.reporting_asof_date >= client.reporting_date, false) THEN dense_rank() OVER (PARTITION BY rc.reporting_rsf_pfcbl_id, (COALESCE(rc.reporting_asof_date >= client.reporting_date, false)) ORDER BY rc.reporting_asof_date)
+            ELSE 0::bigint
+        END, '.'::text || NULLIF(
+        CASE
+            WHEN count(*) OVER (PARTITION BY rc.reporting_rsf_pfcbl_id, rc.reporting_asof_date) = 1 THEN NULL::bigint
+            ELSE dense_rank() OVER (PARTITION BY rc.reporting_rsf_pfcbl_id, rc.reporting_asof_date ORDER BY rc.reporting_time) - 1
+        END, 0)) || ' '::text) || regexp_replace(rc."!dep-source_name", '^[^[:alpha:]]+'::text, ''::text) AS prefix_file_name
+   FROM p_rsf.reporting_cohorts rc
+     JOIN p_rsf.view_rsf_pfcbl_id_current_sys_names sn ON sn.rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
+     LEFT JOIN p_rsf.rsf_pfcbl_ids client_ids ON client_ids.rsf_facility_id = rc.reporting_rsf_pfcbl_id AND client_ids.pfcbl_category::text = 'client'::text
+     LEFT JOIN LATERAL ( SELECT min(rdc.data_value::date) AS reporting_date
            FROM p_rsf.rsf_data_current rdc
-          WHERE rdc.rsf_pfcbl_id = fam.child_rsf_pfcbl_id AND rdc.indicator_id = ind.indicator_id AND rdc.reporting_asof_date <= rpr.reporting_asof_date
-          ORDER BY rdc.reporting_asof_date DESC
-         LIMIT 1) reporting ON true
-  WHERE ind.indicator_sys_category::text = 'is_reporting'::text
-  GROUP BY ids.rsf_pfcbl_id, rpr.reporting_asof_date;
+          WHERE rdc.rsf_pfcbl_id = client_ids.rsf_pfcbl_id AND rdc.indicator_id = (( SELECT ind.indicator_id
+                   FROM p_rsf.indicators ind
+                  WHERE ind.data_category::text = 'client'::text AND ind.indicator_sys_category::text = 'reporting_required_start_date'::text))) client ON true
+  WHERE rc."!dep-parent_reporting_cohort_id" IS NULL
+  ORDER BY (rc.reporting_rsf_pfcbl_id = 0), rc.reporting_rsf_pfcbl_id, rc.reporting_asof_date, rc.reporting_time;
 
 -- ----------------------------
 -- View structure for view_rsf_pfcbl_id_family_parents
@@ -10385,119 +9722,71 @@ CREATE VIEW "p_rsf"."view_rsf_pfcbl_id_family_parents" AS  SELECT ids.rsf_pfcbl_
   WHERE fids.rsf_pfcbl_id = ANY (ARRAY[ids.rsf_loan_id, ids.rsf_borrower_id, ids.rsf_client_id, ids.rsf_facility_id, ids.rsf_program_id, 0]);
 
 -- ----------------------------
--- View structure for view_rsf_pfcbl_system_check_repeated_facilities
+-- View structure for view_rsf_setup_indicator_subscriptions
 -- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_pfcbl_system_check_repeated_facilities";
-CREATE VIEW "p_rsf"."view_rsf_pfcbl_system_check_repeated_facilities" AS  SELECT ids.rsf_pfcbl_id,
+DROP VIEW IF EXISTS "p_rsf"."view_rsf_setup_indicator_subscriptions";
+CREATE VIEW "p_rsf"."view_rsf_setup_indicator_subscriptions" AS  SELECT ids.rsf_pfcbl_id,
     ids.pfcbl_category,
-    ids.rsf_program_id,
-    ids.rsf_client_id,
-    ids.created_by_reporting_cohort_id,
-    ids.created_in_reporting_asof_date,
-    repeat_loans.loan_normalized_id
-   FROM ( SELECT p_rsf.rsf_data_id_normalized(loan_ids.data_value) AS loan_normalized_id,
-            array_agg(DISTINCT loan_ids.rsf_pfcbl_id) AS loan_rsf_pfcbl_ids
-           FROM ( SELECT array_agg(rdc.rsf_pfcbl_id) AS client_rsf_pfcbl_ids
-                   FROM p_rsf.indicators c_ind
-                     JOIN p_rsf.rsf_data_current rdc ON rdc.indicator_id = c_ind.indicator_id
-                  WHERE c_ind.indicator_sys_category::text = 'id'::text AND c_ind.data_category::text = 'client'::text
-                  GROUP BY c_ind.indicator_id, rdc.data_value
-                 HAVING count(rdc.rsf_pfcbl_id) > 1) repeat_clients
-             JOIN p_rsf.rsf_pfcbl_ids c_ids ON c_ids.rsf_pfcbl_id = ANY (repeat_clients.client_rsf_pfcbl_ids)
-             JOIN p_rsf.rsf_pfcbl_id_family fam ON fam.parent_rsf_pfcbl_id = c_ids.rsf_pfcbl_id AND fam.child_pfcbl_category::text = 'loan'::text
-             JOIN p_rsf.rsf_data_current loan_ids ON loan_ids.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
-          WHERE loan_ids.indicator_id = (( SELECT l_ind.indicator_id
-                   FROM p_rsf.indicators l_ind
-                  WHERE l_ind.indicator_sys_category::text = 'id'::text AND l_ind.data_category::text = 'loan'::text))
-          GROUP BY (p_rsf.rsf_data_id_normalized(loan_ids.data_value))
-         HAVING count(DISTINCT loan_ids.rsf_pfcbl_id) > 1 AND count(DISTINCT c_ids.rsf_client_id) > 1) repeat_loans
-     JOIN p_rsf.rsf_pfcbl_ids ids ON ids.rsf_pfcbl_id = ANY (repeat_loans.loan_rsf_pfcbl_ids);
-
--- ----------------------------
--- View structure for view_rsf_program_facility_indicator_formula_variety
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_program_facility_indicator_formula_variety";
-CREATE VIEW "p_rsf"."view_rsf_program_facility_indicator_formula_variety" AS  SELECT ind.indicator_id,
+    ids.pfcbl_category_rank AS pfcbl_rank,
     ind.indicator_name,
-    array_agg(DISTINCT formula_variety.formula_id) AS formulas,
-    array_agg(DISTINCT formula_variety.formula_id) FILTER (WHERE pfi.rsf_pfcbl_id IS NULL) AS unused_formulas,
-    array_agg(DISTINCT formula_variety.formula_id) FILTER (WHERE pfi.rsf_pfcbl_id IS NULL) IS NOT NULL AS has_unused_variety
-   FROM ( SELECT indf.indicator_id,
-            indf.formula_id
-           FROM p_rsf.indicator_formulas indf
-        UNION
-         SELECT DISTINCT pfi_1.indicator_id,
-            NULL::integer AS formula_id
-           FROM p_rsf.rsf_program_facility_indicators pfi_1
-          WHERE (EXISTS ( SELECT indf.indicator_id,
-                    indf.formula,
-                    indf.formula_sort,
-                    indf.overwrite,
-                    indf.formula_indicator_ids,
-                    indf.formula_indicator_id_requirements,
-                    indf.formula_indicator_id_dependents,
-                    indf.formula_calculation_rank,
-                    indf.formula_grouping_pfcbl_rank,
-                    indf.formula_pfcbl_rank_range,
-                    indf."dep-formula_calculated_by_indicator_id",
-                    indf.perform_calculation_by_row,
-                    indf.modification_time,
-                    indf.formula_fx_date,
-                    indf.computation_group,
-                    indf.computation_priority_rank,
-                    indf.formula_unit_set_by_indicator_id,
-                    indf.formula_id,
-                    indf.formula_title,
-                    indf.is_primary_default,
-                    indf.formula_notes,
-                    indf.modified_by_user_id
-                   FROM p_rsf.indicator_formulas indf
-                  WHERE indf.indicator_id = pfi_1.indicator_id)) AND pfi_1.formula_id IS NULL) formula_variety
-     JOIN p_rsf.indicators ind ON ind.indicator_id = formula_variety.indicator_id
-     LEFT JOIN p_rsf.rsf_program_facility_indicators pfi ON pfi.indicator_id = ind.indicator_id AND pfi.is_subscribed IS TRUE AND NOT pfi.formula_id IS DISTINCT FROM formula_variety.formula_id
-  GROUP BY ind.indicator_id, ind.indicator_name
- HAVING cardinality(array_agg(DISTINCT formula_variety.formula_id)) > 1
-  ORDER BY ind.indicator_name;
+    ind.indicator_id,
+    ind.data_category,
+    ind.pfcbl_rank AS data_category_rank,
+    ind.data_type,
+    ind.default_value,
+    ind.data_unit AS default_unit,
+    ind.indicator_sys_category,
+    ind.is_system AS is_system_indicator,
+    indf.formula_id,
+        CASE
+            WHEN pfi.formula_calculation_unit IS NOT NULL THEN pfi.formula_calculation_unit
+            WHEN indf.formula_id IS NOT NULL THEN ind.data_unit::text
+            ELSE NULL::text
+        END AS formula_calculation_unit,
+    indf.formula_calculation_rank,
+    indf.formula_id IS NOT NULL AS is_calculated,
+    COALESCE(pfi.is_subscribed, false) AS is_subscribed,
+    COALESCE(pfi.is_subscribed IS FALSE, false) AS is_unsubscribed,
+    COALESCE(pfi.is_auto_subscribed, false) AS is_auto_subscribed,
+    ids.pfcbl_category_rank = ind.pfcbl_rank AS filter_matched_pfcbl_indicators,
+    ids.pfcbl_category_rank = ind.pfcbl_rank AND ids.pfcbl_category_rank <= 2 OR ids.pfcbl_category_rank = 2 AND ind.pfcbl_rank >= 2 AS filter_category_manager,
+    pfi.subscription_comments,
+    pfi.comments_user_id,
+        CASE
+            WHEN ind.pfcbl_rank = 0 THEN 0
+            WHEN ind.pfcbl_rank = 1 THEN ids.rsf_program_id
+            ELSE ids.rsf_facility_id
+        END AS category_manager_rsf_pfcbl_id,
+    ids.created_in_reporting_asof_date,
+    ids.deactivated_in_reporting_asof_date
+   FROM p_rsf.rsf_pfcbl_ids ids
+     CROSS JOIN p_rsf.indicators ind
+     LEFT JOIN p_rsf.rsf_setup_indicators pfi ON (pfi.rsf_pfcbl_id = ids.rsf_facility_id OR pfi.rsf_pfcbl_id = ids.rsf_program_id OR pfi.rsf_pfcbl_id = 0) AND pfi.indicator_id = ind.indicator_id
+     LEFT JOIN p_rsf.indicator_formulas indf ON indf.indicator_id = ind.indicator_id AND (pfi.indicator_id IS NULL AND indf.is_primary_default IS TRUE OR NOT pfi.formula_id IS DISTINCT FROM indf.formula_id);
 
 -- ----------------------------
--- View structure for view_current_entity_names_and_ids_old
+-- View structure for compute_check_grouping
 -- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_current_entity_names_and_ids_old";
-CREATE VIEW "p_rsf"."view_current_entity_names_and_ids_old" AS  SELECT ids.rsf_program_id,
-    ids.rsf_pfcbl_id,
-    ids.created_in_reporting_asof_date,
-    ids.pfcbl_category,
+DROP VIEW IF EXISTS "p_rsf"."compute_check_grouping";
+CREATE VIEW "p_rsf"."compute_check_grouping" AS  SELECT check_formula_id,
+    indicator_check_id,
+    array_to_string(array_agg(DISTINCT computation_code ORDER BY computation_code), '-'::text) AS computation_code,
+    bit_or(
         CASE
-            WHEN ids.pfcbl_category::text = 'global'::text THEN ids.rsf_program_id
-            WHEN ids.pfcbl_category::text = 'program'::text THEN ids.rsf_program_id
-            WHEN ids.pfcbl_category::text = 'facility'::text THEN ids.rsf_facility_id
-            WHEN ids.pfcbl_category::text = 'client'::text THEN ids.rsf_client_id
-            WHEN ids.pfcbl_category::text = 'borrower'::text THEN ids.rsf_borrower_id
-            WHEN ids.pfcbl_category::text = 'loan'::text THEN ids.rsf_loan_id
-            ELSE NULL::integer
-        END AS rsf_id,
-    max(rdt.data_value) FILTER (WHERE ind.indicator_sys_category::text = 'name'::text) AS name,
-    max(rdt.data_value) FILTER (WHERE ind.indicator_sys_category::text = 'nickname'::text) AS nickname,
-    max(rdt.data_value) FILTER (WHERE ind.indicator_sys_category::text = 'id'::text) AS id,
-    max(rdt.data_value) FILTER (WHERE ind.indicator_sys_category::text = 'rank_id'::text) AS rank_id,
-    COALESCE(max(rdt.data_value) FILTER (WHERE ind.indicator_sys_category::text = 'nickname'::text), max(rdt.data_value) FILTER (WHERE ind.indicator_sys_category::text = 'name'::text), 'RANK'::text || max(rdt.data_value) FILTER (WHERE ind.indicator_sys_category::text = 'rank_id'::text), ((('SYSID'::text || ids.rsf_pfcbl_id) || ': MISSING '::text) || upper(ids.pfcbl_category::text)) || ' NAME'::text) AS rsf_name,
-    concat(COALESCE(max(rdt.data_value) FILTER (WHERE ind.indicator_sys_category::text = 'nickname'::text), max(rdt.data_value) FILTER (WHERE ind.indicator_sys_category::text = 'name'::text), 'RANK'::text || max(rdt.data_value) FILTER (WHERE ind.indicator_sys_category::text = 'rank_id'::text), 'MISSING NAME'::text), ' (', COALESCE('#'::text || max(regexp_replace(rdt.data_value, '^(.*)#[[:digit:]]+$'::text, '\1'::text, 'g'::text)) FILTER (WHERE ind.indicator_sys_category::text = 'id'::text), 'SYSID'::text || ids.rsf_pfcbl_id), ')') AS rsf_full_name
-   FROM p_rsf.rsf_pfcbl_ids ids
-     LEFT JOIN p_rsf.indicators ind ON ind.data_category::text = ids.pfcbl_category::text AND (ind.indicator_sys_category::text = ANY (ARRAY['name'::character varying::text, 'nickname'::character varying::text, 'id'::character varying::text, 'rank_id'::character varying::text]))
-     LEFT JOIN LATERAL ( SELECT rdc.data_value
-           FROM p_rsf.rsf_data_current rdc
-          WHERE rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id AND rdc.indicator_id = ind.indicator_id
-          ORDER BY rdc.reporting_asof_date DESC
-         LIMIT 1) rdt ON true
-  GROUP BY ids.rsf_program_id, ids.rsf_pfcbl_id, ids.created_in_reporting_asof_date, ids.pfcbl_category, (
-        CASE
-            WHEN ids.pfcbl_category::text = 'program'::text THEN ids.rsf_program_id
-            WHEN ids.pfcbl_category::text = 'facility'::text THEN ids.rsf_facility_id
-            WHEN ids.pfcbl_category::text = 'client'::text THEN ids.rsf_client_id
-            WHEN ids.pfcbl_category::text = 'borrower'::text THEN ids.rsf_borrower_id
-            WHEN ids.pfcbl_category::text = 'loan'::text THEN ids.rsf_loan_id
-            ELSE NULL::integer
-        END);
+            WHEN computation_code = 'L'::text THEN 2::double precision ^ 0::double precision
+            WHEN computation_code = 'B'::text THEN 2::double precision ^ 1::double precision
+            WHEN computation_code = ANY (ARRAY['C'::text, 'F'::text, 'F>C'::text, 'C>F'::text]) THEN 2::double precision ^ 2::double precision
+            WHEN computation_code = 'P'::text THEN 2::double precision ^ 2::double precision
+            WHEN computation_code = 'B>L'::text THEN (((2::double precision ^ 4::double precision)::integer | (2::double precision ^ 1::double precision)::integer) | (2::double precision ^ 0::double precision)::integer)::double precision
+            WHEN computation_code = ANY (ARRAY['C>L'::text, 'F>L'::text]) THEN (((2::double precision ^ 5::double precision)::integer | (2::double precision ^ 0::double precision)::integer) | (2::double precision ^ 2::double precision)::integer)::double precision
+            WHEN computation_code = 'P>L'::text THEN (((2::double precision ^ 6::double precision)::integer | (2::double precision ^ 0::double precision)::integer) | (2::double precision ^ 3::double precision)::integer)::double precision
+            WHEN computation_code = ANY (ARRAY['C>B'::text, 'F>B'::text]) THEN (((2::double precision ^ 7::double precision)::integer | (2::double precision ^ 2::double precision)::integer) | (2::double precision ^ 1::double precision)::integer)::double precision
+            WHEN computation_code = 'P>B'::text THEN (((2::double precision ^ 8::double precision)::integer | (2::double precision ^ 3::double precision)::integer) | (2::double precision ^ 1::double precision)::integer)::double precision
+            WHEN computation_code = ANY (ARRAY['P>C'::text, 'P>F'::text]) THEN (((2::double precision ^ 9::double precision)::integer | (2::double precision ^ 2::double precision)::integer) | (2::double precision ^ 3::double precision)::integer)::double precision
+            ELSE 0::double precision
+        END::integer) AS computation_group
+   FROM p_rsf.compute_check_to_parameter_categories ccp
+  GROUP BY check_formula_id, indicator_check_id;
 
 -- ----------------------------
 -- View structure for view_current_entity_names_and_ids
@@ -10517,38 +9806,6 @@ CREATE VIEW "p_rsf"."view_current_entity_names_and_ids" AS  SELECT DISTINCT ON (
    FROM p_rsf.rsf_pfcbl_ids ids
      LEFT JOIN p_rsf.rsf_data_current_names_and_ids nai ON nai.rsf_pfcbl_id = ids.rsf_pfcbl_id
   ORDER BY ids.rsf_pfcbl_id, nai.reporting_asof_date DESC NULLS LAST;
-
--- ----------------------------
--- View structure for view_rsf_program_facility_calculation_subscribable
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_program_facility_calculation_subscribable";
-CREATE VIEW "p_rsf"."view_rsf_program_facility_calculation_subscribable" AS  SELECT ids.rsf_pfcbl_id,
-    ids.rsf_program_id,
-    ids.rsf_facility_id,
-    ids.pfcbl_category AS subscription_pfcbl_category,
-    ifp.indicator_id,
-    ifp.formula_id,
-    indf.is_primary_default,
-    bool_and(ind.is_system IS TRUE OR COALESCE(pfis.is_unsubscribed, false) IS FALSE) AND bool_and(COALESCE(cfis.is_unsubscribed, false) IS FALSE) AS is_subscribable,
-        CASE
-            WHEN ids.pfcbl_category::text = 'facility'::text THEN false
-            WHEN ids.pfcbl_category::text = 'global'::text AND ifp.calculate_pfcbl_category = 'global'::text THEN true
-            WHEN cind.default_subscription IS FALSE THEN false
-            WHEN bool_or(COALESCE(cfis.is_subscribed, true)) IS FALSE THEN false
-            ELSE COALESCE(bool_and(ind.is_system = true OR COALESCE(pfis.is_subscribed, false)) FILTER (WHERE NOT ifp.parameter_pfcbl_rank = 0), true)
-        END AS is_auto_subscribable,
-    bool_and(ind.is_system IS TRUE OR COALESCE(pfis.is_unsubscribed, false) IS FALSE) AS is_parameter_subscribable,
-    bool_and(COALESCE(cfis.is_unsubscribed, false) IS FALSE) AS is_reported_subscribable,
-    array_agg(ifp.parameter_indicator_id ORDER BY ifp.parameter_indicator_id) FILTER (WHERE ind.is_system = false OR COALESCE(pfis.is_unsubscribed, false) IS TRUE) AS missing_parameter_ids
-   FROM p_rsf.rsf_pfcbl_ids ids
-     CROSS JOIN p_rsf.indicator_formula_parameters ifp
-     JOIN p_rsf.indicators cind ON cind.indicator_id = ifp.indicator_id
-     JOIN p_rsf.indicator_formulas indf ON indf.formula_id = ifp.formula_id
-     JOIN p_rsf.indicators ind ON ind.indicator_id = ifp.parameter_indicator_id
-     LEFT JOIN p_rsf.view_rsf_program_facility_indicator_subscriptions pfis ON pfis.rsf_pfcbl_id = ids.rsf_pfcbl_id AND pfis.indicator_id = ifp.parameter_indicator_id
-     LEFT JOIN p_rsf.view_rsf_program_facility_indicator_subscriptions cfis ON cfis.rsf_pfcbl_id = ids.rsf_pfcbl_id AND cfis.indicator_id = ifp.indicator_id
-  WHERE ids.pfcbl_category_rank <= 2 AND ((ids.pfcbl_category::text = ANY (ARRAY['program'::character varying, 'facility'::character varying]::text[])) AND ifp.calculate_pfcbl_category <> 'global'::text OR ids.pfcbl_category::text = 'global'::text AND ifp.calculate_pfcbl_category = ids.pfcbl_category::text)
-  GROUP BY ids.rsf_pfcbl_id, ids.rsf_program_id, ids.rsf_facility_id, ifp.indicator_id, cind.default_subscription, ifp.calculate_pfcbl_category, ifp.formula_id, indf.is_primary_default;
 
 -- ----------------------------
 -- View structure for util_facility_setup_indicators_not_used_as_parameters
@@ -10611,6 +9868,36 @@ CREATE VIEW "p_rsf"."util_facility_setup_indicators_not_used_as_parameters" AS  
           WHERE indf.indicator_id = ind.indicator_id)));
 
 -- ----------------------------
+-- View structure for compute_check_to_parameter_rsf_pfcbl_ids
+-- ----------------------------
+DROP VIEW IF EXISTS "p_rsf"."compute_check_to_parameter_rsf_pfcbl_ids";
+CREATE VIEW "p_rsf"."compute_check_to_parameter_rsf_pfcbl_ids" AS  SELECT ids.rsf_pfcbl_id AS from_check_rsf_pfcbl_id,
+    cfp.check_formula_id AS from_check_formula_id,
+    cfp.indicator_check_id,
+    cfp.parameter_pfcbl_category AS to_parameter_pfcbl_category,
+    ft.to_family_rsf_pfcbl_id AS to_parameter_rsf_pfcbl_id,
+    zids.created_in_reporting_asof_date AS parameter_rsf_pfcbl_id_created_date
+   FROM p_rsf.rsf_pfcbl_ids ids
+     JOIN p_rsf.compute_check_to_parameter_categories cfp ON cfp.for_pfcbl_category = ids.pfcbl_category::text
+     JOIN LATERAL ( SELECT (ARRAY[ids.rsf_program_id, ids.rsf_facility_id, ids.rsf_client_id, ids.rsf_borrower_id, ids.rsf_loan_id])[GREATEST(1, COALESCE(cfp.parent_pfcbl_rank, ids.pfcbl_category_rank)::integer)] AS from_rsf_pfcbl_id) fam ON true
+     JOIN p_rsf.view_rsf_pfcbl_id_family_tree ft ON ft.from_rsf_pfcbl_id = fam.from_rsf_pfcbl_id AND ft.to_pfcbl_category::text = cfp.parameter_pfcbl_category
+     JOIN p_rsf.rsf_pfcbl_ids zids ON zids.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id;
+
+-- ----------------------------
+-- View structure for compute_check_from_parameter_rsf_pfcbl_id
+-- ----------------------------
+DROP VIEW IF EXISTS "p_rsf"."compute_check_from_parameter_rsf_pfcbl_id";
+CREATE VIEW "p_rsf"."compute_check_from_parameter_rsf_pfcbl_id" AS  SELECT ft.from_rsf_pfcbl_id AS from_parameter_rsf_pfcbl_id,
+    cfp.parameter_indicator_id AS from_parameter_indicator_id,
+    ft.to_family_rsf_pfcbl_id AS to_check_rsf_pfcbl_id,
+    cfp.check_formula_id AS to_check_formula_id,
+    cfp.indicator_check_id,
+    cfp.is_calculation_trigger_parameter,
+    cfp.parameter_trigger_by_reporting
+   FROM p_rsf.view_rsf_pfcbl_id_family_tree ft
+     JOIN p_rsf.indicator_check_formula_parameters cfp ON cfp.parameter_pfcbl_category = ft.from_pfcbl_category::text AND cfp.for_pfcbl_category = ft.to_pfcbl_category::text;
+
+-- ----------------------------
 -- View structure for view_rsf_setup_review
 -- ----------------------------
 DROP VIEW IF EXISTS "p_rsf"."view_rsf_setup_review";
@@ -10625,12 +9912,12 @@ CREATE VIEW "p_rsf"."view_rsf_setup_review" AS  WITH priority_indicators AS (
              JOIN p_rsf.indicator_check_formulas icf ON icf.indicator_check_id = ic.indicator_check_id
           WHERE ic.check_type = ANY (ARRAY['contract_breach'::text, 'contract_criteria'::text])
         )
- SELECT DISTINCT ON ((fis.is_subscribed = false), fis.data_category_rank, (fis.formula_id IS NOT NULL), fis.indicator_name, fis.rsf_pfcbl_id) fis.rsf_pfcbl_id AS "SYSID",
-    fis.indicator_id AS "INDID",
+ SELECT DISTINCT ON ((sis.is_subscribed = false), sis.data_category_rank, (sis.formula_id IS NOT NULL), sis.indicator_name, sis.rsf_pfcbl_id) sis.rsf_pfcbl_id AS "SYSID",
+    sis.indicator_id AS "INDID",
     sn.pfcbl_name,
-    fis.indicator_name,
-    fis.data_category,
-    fis.is_subscribed,
+    sis.indicator_name,
+    sis.data_category,
+    sis.is_subscribed,
         CASE
             WHEN rdc.data_id IS NULL THEN '{MISSING}'::text
             WHEN ind.indicator_options_group_allows_blanks IS TRUE AND rdc.data_value IS NULL THEN '{NONE}'::text
@@ -10654,122 +9941,59 @@ CREATE VIEW "p_rsf"."view_rsf_setup_review" AS  WITH priority_indicators AS (
             WHEN formulas.num > 1 OR formulas.has_default IS FALSE THEN true
             ELSE NULL::boolean
         END AS review_formula_setup,
-    fis.subscription_comments,
-    vai.users_name AS comments_by,
-        CASE
-            WHEN fis.is_inherited IS TRUE THEN fis.pfcbl_category_setting
-            ELSE NULL::character varying
-        END AS inherited_from
-   FROM p_rsf.view_rsf_program_facility_indicator_subscriptions fis
-     JOIN p_rsf.indicators ind ON ind.indicator_id = fis.indicator_id
-     LEFT JOIN p_rsf.view_rsf_pfcbl_id_current_sys_names sn ON sn.rsf_pfcbl_id = fis.rsf_pfcbl_id
-     LEFT JOIN p_rsf.view_rsf_pfcbl_id_family_tree ft ON ft.from_rsf_pfcbl_id = fis.rsf_pfcbl_id AND ft.to_pfcbl_category::text = fis.data_category::text AND ft.to_pfcbl_rank <= 3
-     LEFT JOIN p_rsf.rsf_data_current rdc ON rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id AND rdc.indicator_id = fis.indicator_id
-     LEFT JOIN p_rsf.indicator_formulas indf ON indf.formula_id = fis.formula_id
-     LEFT JOIN priority_indicators pi ON pi.formula_indicator_id = fis.indicator_id
-     LEFT JOIN p_rsf.view_account_info vai ON vai.account_id = fis.comments_user_id
+    sis.subscription_comments,
+    vai.users_name AS comments_by
+   FROM p_rsf.view_rsf_setup_indicator_subscriptions sis
+     JOIN p_rsf.indicators ind ON ind.indicator_id = sis.indicator_id
+     LEFT JOIN p_rsf.view_rsf_pfcbl_id_current_sys_names sn ON sn.rsf_pfcbl_id = sis.rsf_pfcbl_id
+     LEFT JOIN p_rsf.view_rsf_pfcbl_id_family_tree ft ON ft.from_rsf_pfcbl_id = sis.rsf_pfcbl_id AND ft.to_pfcbl_category::text = sis.data_category::text AND ft.to_pfcbl_rank <= 3
+     LEFT JOIN p_rsf.rsf_data_current rdc ON rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id AND rdc.indicator_id = sis.indicator_id
+     LEFT JOIN p_rsf.indicator_formulas indf ON indf.formula_id = sis.formula_id
+     LEFT JOIN priority_indicators pi ON pi.formula_indicator_id = sis.indicator_id
+     LEFT JOIN p_rsf.view_account_info vai ON vai.account_id = sis.comments_user_id
      LEFT JOIN LATERAL ( SELECT count(form.formula_id) AS num,
             bool_or(form.is_primary_default) AS has_default
            FROM p_rsf.indicator_formulas form
-          WHERE form.indicator_id = fis.indicator_id) formulas ON true
+          WHERE form.indicator_id = sis.indicator_id) formulas ON true
      LEFT JOIN LATERAL ( SELECT count(DISTINCT form.indicator_id) AS num
            FROM p_rsf.indicator_formulas form
-          WHERE fis.formula_id IS NOT NULL AND form.indicator_id <> fis.indicator_id AND (fis.indicator_id = ANY (form.formula_indicator_id_requirements))) dependencies ON true
-  WHERE fis.is_system IS FALSE
-  ORDER BY (fis.is_subscribed = false), fis.data_category_rank, (fis.formula_id IS NOT NULL), fis.indicator_name, fis.rsf_pfcbl_id, (rdc.data_value IS NOT NULL) DESC, rdc.reporting_asof_date DESC;
-
--- ----------------------------
--- View structure for compute_check_from_parameter_rsf_pfcbl_id
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."compute_check_from_parameter_rsf_pfcbl_id";
-CREATE VIEW "p_rsf"."compute_check_from_parameter_rsf_pfcbl_id" AS  SELECT ids.rsf_pfcbl_id AS from_parameter_rsf_pfcbl_id,
-    cfp.parameter_indicator_id AS from_parameter_indicator_id,
-    pids.check_rsf_pfcbl_id AS to_check_rsf_pfcbl_id,
-    cfp.check_formula_id AS to_check_formula_id,
-    cfp.indicator_check_id,
-    cfp.is_calculation_trigger_parameter,
-    cfp.parameter_trigger_by_reporting
-   FROM p_rsf.rsf_pfcbl_ids ids
-     JOIN p_rsf.indicator_check_formula_parameters cfp ON cfp.parameter_pfcbl_category = ids.pfcbl_category::text
-     JOIN LATERAL ( SELECT ids.rsf_pfcbl_id AS check_rsf_pfcbl_id
-          WHERE cfp.parameter_pfcbl_hierarchy = 'self'::text
-        UNION ALL
-         SELECT 0 AS check_rsf_pfcbl_id
-          WHERE cfp.for_pfcbl_category = 'global'::text AND cfp.parameter_pfcbl_hierarchy <> 'self'::text
-        UNION ALL
-         SELECT gids.rsf_pfcbl_id AS calculate_rsf_pfcbl_id
-           FROM p_rsf.rsf_pfcbl_ids gids
-          WHERE ids.rsf_pfcbl_id = 0 AND gids.pfcbl_category::text = cfp.for_pfcbl_category AND cfp.for_pfcbl_category <> 'global'::text AND cfp.parameter_pfcbl_hierarchy <> 'self'::text
-        UNION ALL
-         SELECT fam.parent_rsf_pfcbl_id AS check_rsf_pfcbl_id
-           FROM p_rsf.rsf_pfcbl_id_family fam
-          WHERE cfp.parameter_pfcbl_hierarchy = 'child'::text AND fam.child_rsf_pfcbl_id = ids.rsf_pfcbl_id AND fam.parent_pfcbl_category::text = cfp.for_pfcbl_category
-        UNION ALL
-         SELECT fam.child_rsf_pfcbl_id AS check_rsf_pfcbl_id
-           FROM p_rsf.rsf_pfcbl_id_family fam
-          WHERE cfp.parameter_pfcbl_hierarchy = 'parent'::text AND fam.parent_rsf_pfcbl_id = ids.rsf_pfcbl_id AND fam.child_pfcbl_category::text = cfp.for_pfcbl_category) pids ON true;
-
--- ----------------------------
--- View structure for compute_check_triggered_by_parameter
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."compute_check_triggered_by_parameter";
-CREATE VIEW "p_rsf"."compute_check_triggered_by_parameter" AS  SELECT crp.rsf_pfcbl_id AS from_parameter_pfcbl_id,
-    pids.from_parameter_indicator_id,
-    pids.indicator_check_id,
-    crp.reporting_asof_date,
-    pids.to_check_rsf_pfcbl_id,
-    pids.to_check_formula_id,
-    pids.is_calculation_trigger_parameter
-   FROM p_rsf.computation_reporting_parameters crp
-     JOIN p_rsf.compute_check_from_parameter_rsf_pfcbl_id pids ON pids.from_parameter_rsf_pfcbl_id = crp.rsf_pfcbl_id AND pids.from_parameter_indicator_id = crp.indicator_id;
+          WHERE sis.formula_id IS NOT NULL AND form.indicator_id <> sis.indicator_id AND (sis.indicator_id = ANY (form.formula_indicator_id_requirements))) dependencies ON true
+  WHERE sis.is_system_indicator IS FALSE AND sis.filter_category_manager IS TRUE
+  ORDER BY (sis.is_subscribed = false), sis.data_category_rank, (sis.formula_id IS NOT NULL), sis.indicator_name, sis.rsf_pfcbl_id, (rdc.data_value IS NOT NULL) DESC, rdc.reporting_asof_date DESC;
 
 -- ----------------------------
 -- View structure for compute_calculation_from_parameter_rsf_pfcbl_id
 -- ----------------------------
 DROP VIEW IF EXISTS "p_rsf"."compute_calculation_from_parameter_rsf_pfcbl_id";
-CREATE VIEW "p_rsf"."compute_calculation_from_parameter_rsf_pfcbl_id" AS  SELECT ids.rsf_pfcbl_id AS from_parameter_rsf_pfcbl_id,
+CREATE VIEW "p_rsf"."compute_calculation_from_parameter_rsf_pfcbl_id" AS  SELECT ft.from_rsf_pfcbl_id AS from_parameter_rsf_pfcbl_id,
     ifp.parameter_indicator_id AS from_parameter_indicator_id,
     ifp.indicator_id AS to_calculate_indicator_id,
     ifp.formula_id AS to_calculate_formula_id,
-    pids.calculate_rsf_pfcbl_id AS to_calculate_rsf_pfcbl_id,
+    ft.to_family_rsf_pfcbl_id AS to_calculate_rsf_pfcbl_id,
     ifp.parameter_is_current,
     ifp.parameter_is_previous,
     ifp.parameter_is_all,
     ifp.parameter_is_info,
     ifp.parameter_trigger_by_reporting,
     ifp.parameter_pfcbl_hierarchy
-   FROM p_rsf.rsf_pfcbl_ids ids
-     JOIN p_rsf.indicator_formula_parameters ifp ON ifp.parameter_pfcbl_category = ids.pfcbl_category::text
-     JOIN LATERAL ( SELECT ids.rsf_pfcbl_id AS calculate_rsf_pfcbl_id
-          WHERE ifp.parameter_pfcbl_hierarchy = 'self'::text
-        UNION ALL
-         SELECT 0 AS calculate_rsf_pfcbl_id
-          WHERE ifp.calculate_pfcbl_category = 'global'::text AND ifp.parameter_pfcbl_hierarchy <> 'self'::text
-        UNION ALL
-         SELECT gids.rsf_pfcbl_id AS calculate_rsf_pfcbl_id
-           FROM p_rsf.rsf_pfcbl_ids gids
-          WHERE ids.rsf_pfcbl_id = 0 AND gids.pfcbl_category::text = ifp.calculate_pfcbl_category AND ifp.calculate_pfcbl_category <> 'global'::text AND ifp.parameter_pfcbl_hierarchy <> 'self'::text
-        UNION ALL
-         SELECT fam.parent_rsf_pfcbl_id AS calculate_rsf_pfcbl_id
-           FROM p_rsf.rsf_pfcbl_id_family fam
-          WHERE ifp.parameter_pfcbl_hierarchy = 'child'::text AND fam.child_rsf_pfcbl_id = ids.rsf_pfcbl_id AND fam.parent_pfcbl_category::text = ifp.calculate_pfcbl_category
-        UNION ALL
-         SELECT fam.child_rsf_pfcbl_id AS calculate_rsf_pfcbl_id
-           FROM p_rsf.rsf_pfcbl_id_family fam
-          WHERE ifp.parameter_pfcbl_hierarchy = 'parent'::text AND fam.parent_rsf_pfcbl_id = ids.rsf_pfcbl_id AND fam.child_pfcbl_category::text = ifp.calculate_pfcbl_category) pids ON true;
+   FROM p_rsf.view_rsf_pfcbl_id_family_tree ft
+     JOIN p_rsf.indicator_formula_parameters ifp ON ifp.parameter_pfcbl_category = ft.from_pfcbl_category::text AND ifp.calculate_pfcbl_category = ft.to_pfcbl_category::text;
 
 -- ----------------------------
--- View structure for compute_calculation_triggered_by_parameter
+-- View structure for compute_calculation_to_parameter_rsf_pfcbl_ids
 -- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."compute_calculation_triggered_by_parameter";
-CREATE VIEW "p_rsf"."compute_calculation_triggered_by_parameter" AS  SELECT crp.rsf_pfcbl_id AS from_parameter_pfcbl_id,
-    pids.from_parameter_indicator_id,
-    crp.reporting_asof_date,
-    pids.to_calculate_rsf_pfcbl_id,
-    pids.to_calculate_indicator_id,
-    pids.to_calculate_formula_id
-   FROM p_rsf.computation_reporting_parameters crp
-     JOIN p_rsf.compute_calculation_from_parameter_rsf_pfcbl_id pids ON pids.from_parameter_rsf_pfcbl_id = crp.rsf_pfcbl_id AND pids.from_parameter_indicator_id = crp.indicator_id;
+DROP VIEW IF EXISTS "p_rsf"."compute_calculation_to_parameter_rsf_pfcbl_ids";
+CREATE VIEW "p_rsf"."compute_calculation_to_parameter_rsf_pfcbl_ids" AS  SELECT ids.rsf_pfcbl_id AS from_calculate_rsf_pfcbl_id,
+    ccp.calculate_formula_id AS from_calculate_formula_id,
+    ccp.calculate_indicator_id AS from_calculate_indicator_id,
+    ft.to_family_rsf_pfcbl_id AS to_parameter_rsf_pfcbl_id,
+    ccp.parameter_pfcbl_category AS to_parameter_pfcbl_category,
+    zids.created_in_reporting_asof_date AS parameter_rsf_pfcbl_id_created_date
+   FROM p_rsf.rsf_pfcbl_ids ids
+     JOIN p_rsf.compute_calculation_to_parameter_categories ccp ON ccp.calculate_pfcbl_category = ids.pfcbl_category::text
+     JOIN LATERAL ( SELECT (ARRAY[ids.rsf_program_id, ids.rsf_facility_id, ids.rsf_client_id, ids.rsf_borrower_id, ids.rsf_loan_id])[GREATEST(1, COALESCE(ccp.parent_pfcbl_rank, ids.pfcbl_category_rank)::integer)] AS from_rsf_pfcbl_id) fam ON true
+     JOIN p_rsf.view_rsf_pfcbl_id_family_tree ft ON ft.from_rsf_pfcbl_id = fam.from_rsf_pfcbl_id AND ft.to_pfcbl_category::text = ccp.parameter_pfcbl_category
+     JOIN p_rsf.rsf_pfcbl_ids zids ON zids.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id;
 
 -- ----------------------------
 -- View structure for error_check_repeated_data_by_row
@@ -10809,70 +10033,6 @@ CREATE VIEW "p_rsf"."error_check_repeated_data_by_row" AS  WITH dups AS (
   ORDER BY dups.duplicates DESC;
 
 -- ----------------------------
--- View structure for view_rsf_pfcbl_indicator_subscriptions
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_pfcbl_indicator_subscriptions";
-CREATE VIEW "p_rsf"."view_rsf_pfcbl_indicator_subscriptions" AS  SELECT ids.rsf_pfcbl_id,
-    ids.rsf_program_id,
-    ids.rsf_facility_id,
-    ids.pfcbl_category,
-    ids.pfcbl_category_rank AS pfcbl_rank,
-    ind.indicator_name,
-    ind.indicator_id,
-    ind.data_type,
-    ind.default_value,
-    ind.data_unit AS default_unit,
-    ind.indicator_sys_category,
-        CASE
-            WHEN fi.rsf_pfcbl_id IS NOT NULL THEN fi.rsf_pfcbl_id
-            WHEN pfi.rsf_pfcbl_id IS NOT NULL THEN pfi.rsf_pfcbl_id
-            ELSE NULL::integer
-        END AS subscription_rsf_pfcbl_id,
-        CASE
-            WHEN fi.rsf_pfcbl_id IS NOT NULL THEN fi.formula_id
-            WHEN pfi.rsf_pfcbl_id IS NOT NULL THEN pfi.formula_id
-            ELSE indf.formula_id
-        END AS formula_id,
-        CASE
-            WHEN fi.rsf_pfcbl_id IS NOT NULL THEN fi.formula_calculation_unit
-            WHEN pfi.rsf_pfcbl_id IS NOT NULL THEN pfi.formula_calculation_unit
-            WHEN indf.formula_id IS NOT NULL THEN ind.data_unit::text
-            ELSE NULL::text
-        END AS formula_calculation_unit,
-        CASE
-            WHEN fi.rsf_pfcbl_id IS NOT NULL THEN 'facility'::text
-            WHEN pfi.rsf_pfcbl_id IS NOT NULL THEN 'program'::text
-            ELSE 'default'::text
-        END AS subscription_category,
-        CASE
-            WHEN fi.rsf_pfcbl_id IS NOT NULL THEN fi.formula_id IS NOT NULL
-            WHEN pfi.rsf_pfcbl_id IS NOT NULL THEN pfi.formula_id IS NOT NULL
-            WHEN indf.formula_id IS NOT NULL THEN true
-            WHEN ind.is_system_calculated IS TRUE THEN false
-            ELSE ind.is_calculated
-        END AS is_calculated,
-        CASE
-            WHEN fi.rsf_pfcbl_id IS NOT NULL THEN fi.is_subscribed
-            WHEN pfi.rsf_pfcbl_id IS NOT NULL THEN pfi.is_subscribed
-            ELSE false
-        END AS is_subscribed,
-        CASE
-            WHEN fi.rsf_pfcbl_id IS NOT NULL THEN fi.is_subscribed = false
-            WHEN pfi.rsf_pfcbl_id IS NOT NULL THEN pfi.is_subscribed = false
-            ELSE false
-        END AS is_unsubscribed,
-        CASE
-            WHEN fi.rsf_pfcbl_id IS NOT NULL THEN fi.is_auto_subscribed
-            WHEN pfi.rsf_pfcbl_id IS NOT NULL THEN pfi.is_auto_subscribed
-            ELSE false
-        END AS is_auto_subscribed
-   FROM p_rsf.rsf_pfcbl_ids ids
-     JOIN p_rsf.indicators ind ON ind.data_category::text = ids.pfcbl_category::text
-     LEFT JOIN p_rsf.indicator_formulas indf ON indf.indicator_id = ind.indicator_id AND indf.is_primary_default = true
-     LEFT JOIN p_rsf.rsf_program_facility_indicators pfi ON pfi.rsf_pfcbl_id = ids.rsf_program_id AND pfi.indicator_id = ind.indicator_id
-     LEFT JOIN p_rsf.rsf_program_facility_indicators fi ON fi.rsf_pfcbl_id = ids.rsf_facility_id AND fi.indicator_id = ind.indicator_id;
-
--- ----------------------------
 -- View structure for error_check_data_unit_misalignments
 -- ----------------------------
 DROP VIEW IF EXISTS "p_rsf"."error_check_data_unit_misalignments";
@@ -10894,102 +10054,41 @@ CREATE VIEW "p_rsf"."error_check_data_unit_misalignments" AS  SELECT sn.sys_name
   WHERE ind.data_unit IS NOT NULL AND array_to_string(regexp_match(rd.data_submitted, '[[:digit:][:space:]\.,]+([A-Z]+)$'::text), ','::text) IS NOT NULL AND ind.data_unit::text IS DISTINCT FROM array_to_string(regexp_match(rd.data_submitted, '[[:digit:][:space:]\.,]+([A-Z]+)$'::text), ','::text) AND ind.data_unit::text <> 'LCU'::text;
 
 -- ----------------------------
--- View structure for view_rsf_setup_programs_indicators
+-- View structure for view_reporting_imports_data_checks_current_active
 -- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_setup_programs_indicators";
-CREATE VIEW "p_rsf"."view_rsf_setup_programs_indicators" AS  SELECT ids.rsf_program_id,
-    ids.rsf_facility_id,
-    ids.rsf_pfcbl_id,
-    ind.indicator_id,
-    sn.sys_name,
-    ind.indicator_name,
-    pfi.is_subscribed AS monitored,
-    pfi.formula_id,
-    indf.formula_title,
-    pfi.is_auto_subscribed,
-    pfi.sort_preference,
-    pfi.subscription_comments,
-    pfi.comments_user_id,
-    ids.pfcbl_category_rank
-   FROM p_rsf.rsf_pfcbl_ids ids
-     JOIN p_rsf.rsf_program_facility_indicators pfi ON pfi.rsf_pfcbl_id = ids.rsf_pfcbl_id
-     JOIN p_rsf.indicators ind ON ind.indicator_id = pfi.indicator_id
-     JOIN LATERAL ( SELECT nai.sys_name
-           FROM p_rsf.rsf_data_current_names_and_ids nai
-          WHERE nai.rsf_pfcbl_id = ids.rsf_pfcbl_id
-          ORDER BY nai.reporting_asof_date
-         LIMIT 1) sn ON true
-     LEFT JOIN p_rsf.indicator_formulas indf ON indf.formula_id = pfi.formula_id
-  WHERE ids.rsf_program_id <> 0 AND ind.is_system = false AND ind.data_category::text <> 'global'::text AND (ind.indicator_name::text ~ '^rsf_'::text) = false
-  ORDER BY ids.rsf_program_id, sn.sys_name, pfi.is_subscribed DESC, ind.indicator_name;
+DROP VIEW IF EXISTS "p_rsf"."view_reporting_imports_data_checks_current_active";
+CREATE VIEW "p_rsf"."view_reporting_imports_data_checks_current_active" AS  SELECT ri.import_id,
+    ri.import_rsf_pfcbl_id,
+    chk.check_asof_date,
+    count(*) AS data_checks_active,
+    count(*) FILTER (WHERE ic.check_class::text = 'critical'::text) AS data_checks_critical_active,
+    count(*) FILTER (WHERE ic.check_class::text = 'error'::text) AS data_checks_error_active,
+    count(*) FILTER (WHERE ic.check_class::text = 'warning'::text) AS data_checks_warning_active,
+    count(*) FILTER (WHERE ic.check_class::text = 'info'::text) AS data_checks_info_active
+   FROM p_rsf.reporting_imports ri
+     JOIN p_rsf.reporting_cohorts rc ON rc.import_id = ri.import_id
+     JOIN p_rsf.rsf_data rd ON rd.reporting_cohort_id = rc.reporting_cohort_id
+     JOIN p_rsf.rsf_data_current rdc ON rdc.data_id = rd.data_id
+     JOIN p_rsf.rsf_data_checks chk ON chk.data_id = rd.data_id AND chk.check_status = 'active'::text
+     JOIN p_rsf.indicator_checks ic ON ic.indicator_check_id = chk.indicator_check_id
+  GROUP BY ri.import_id, ri.import_rsf_pfcbl_id, chk.check_asof_date;
 
 -- ----------------------------
--- View structure for view_rsf_setup_programs_checks
+-- View structure for view_reporting_imports_data_counts
 -- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_setup_programs_checks";
-CREATE VIEW "p_rsf"."view_rsf_setup_programs_checks" AS  SELECT ids.rsf_program_id,
-    ids.rsf_facility_id,
-    pfc.rsf_pfcbl_id,
-    icf.check_formula_id,
-    ic.indicator_check_id,
-    sn.sys_name,
-    ic.check_name,
-    ic.check_class,
-    ic.check_type,
-    icf.check_formula_title,
-    pfc.is_subscribed AS monitored,
-    pfc.is_auto_subscribed,
-    pfc.subscription_comments,
-    pfc.comments_user_id,
-    ids.pfcbl_category_rank
-   FROM p_rsf.rsf_pfcbl_ids ids
-     JOIN p_rsf.rsf_program_facility_checks pfc ON pfc.rsf_pfcbl_id = ids.rsf_pfcbl_id
-     JOIN p_rsf.indicator_check_formulas icf ON icf.check_formula_id = pfc.check_formula_id
-     JOIN p_rsf.indicator_checks ic ON ic.indicator_check_id = icf.indicator_check_id
-     JOIN p_rsf.rsf_pfcbl_categories rpc ON rpc.pfcbl_category::text = ic.check_pfcbl_category
-     JOIN LATERAL ( SELECT nai.sys_name
-           FROM p_rsf.rsf_data_current_names_and_ids nai
-          WHERE nai.rsf_pfcbl_id = ids.rsf_pfcbl_id
-          ORDER BY nai.reporting_asof_date
-         LIMIT 1) sn ON true
-  WHERE ids.rsf_program_id <> 0 AND ic.is_system = false
-  ORDER BY ids.rsf_program_id, sn.sys_name, rpc.pfcbl_rank, (
-        CASE
-            WHEN ic.check_type ~ 'contract'::text THEN 1
-            WHEN ic.check_type ~ 'business'::text THEN 2
-            WHEN ic.check_type ~ 'data'::text THEN 3
-            ELSE 4
-        END), ic.check_type, (
-        CASE
-            WHEN ic.check_class::text = 'critical'::text THEN 1
-            WHEN ic.check_class::text = 'error'::text THEN 2
-            WHEN ic.check_class::text = 'warning'::text THEN 3
-            ELSE 4
-        END), pfc.is_subscribed DESC;
-
--- ----------------------------
--- View structure for view_rsf_pfcbl_reported_data
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_pfcbl_reported_data";
-CREATE VIEW "p_rsf"."view_rsf_pfcbl_reported_data" AS  SELECT sn.sys_name,
-    rd.rsf_pfcbl_id,
-    rd.indicator_id,
-    rd.reporting_asof_date,
-    rd.data_id,
-    ind.indicator_name,
-    rpc.pfcbl_category,
-    rpc.pfcbl_rank,
-    TRIM(BOTH FROM concat(rd.data_value, ' '::text || rd.data_unit)) AS data_value,
-    NULLIF(dense_rank() OVER (PARTITION BY rd.rsf_pfcbl_id, rd.indicator_id, rd.reporting_asof_date ORDER BY (rc.is_redundancy_cohort = false) DESC, rd.data_id DESC) - 1, 0) AS redundancy_rank
-   FROM p_rsf.rsf_data rd
-     JOIN p_rsf.view_rsf_pfcbl_id_current_sys_names sn ON sn.rsf_pfcbl_id = rd.rsf_pfcbl_id
-     JOIN p_rsf.reporting_cohorts rc ON rc.reporting_cohort_id = rd.reporting_cohort_id
-     JOIN p_rsf.indicators ind ON ind.indicator_id = rd.indicator_id
-     JOIN p_rsf.rsf_pfcbl_categories rpc ON rpc.pfcbl_category::text = ind.data_category::text
-     LEFT JOIN p_rsf.view_rsf_pfcbl_indicator_subscriptions pis ON pis.rsf_pfcbl_id = rd.rsf_pfcbl_id AND pis.indicator_id = rd.indicator_id
-     LEFT JOIN p_rsf.indicator_formulas indf ON indf.formula_id = pis.formula_id
-  WHERE rc.is_reported_cohort = true AND ind.is_system = false AND (indf.formula_id IS NULL OR indf.formula_id IS NOT NULL AND indf.overwrite::text = 'deny'::text OR indf.formula_id IS NOT NULL AND indf.overwrite::text = 'missing'::text)
-  ORDER BY rd.rsf_pfcbl_id, rd.indicator_id, rd.reporting_asof_date, (NULLIF(dense_rank() OVER (PARTITION BY rd.rsf_pfcbl_id, rd.indicator_id, rd.reporting_asof_date ORDER BY (rc.is_redundancy_cohort = false) DESC, rd.data_id DESC) - 1, 0));
+DROP VIEW IF EXISTS "p_rsf"."view_reporting_imports_data_counts";
+CREATE VIEW "p_rsf"."view_reporting_imports_data_counts" AS  SELECT ri.import_id,
+    ri.reporting_asof_date,
+    ri.import_rsf_pfcbl_id,
+    count(rd.data_id) FILTER (WHERE rc.is_reported_cohort IS TRUE) AS data_count_reported,
+    count(rd.data_id) FILTER (WHERE rc.is_calculated_cohort IS TRUE) AS data_count_calculated,
+    count(rdc.data_id) FILTER (WHERE rc.is_reported_cohort IS TRUE) AS data_current_count_reported,
+    count(rdc.data_id) FILTER (WHERE rc.is_calculated_cohort IS TRUE) AS data_current_count_calculated
+   FROM p_rsf.reporting_imports ri
+     JOIN p_rsf.reporting_cohorts rc ON rc.import_id = ri.import_id
+     LEFT JOIN p_rsf.rsf_data rd ON rd.reporting_cohort_id = rc.reporting_cohort_id
+     LEFT JOIN p_rsf.rsf_data_current rdc ON rdc.data_id = rd.data_id
+  GROUP BY ri.import_id, ri.reporting_asof_date, ri.import_rsf_pfcbl_id;
 
 -- ----------------------------
 -- View structure for util_index_analyis
@@ -11013,37 +10112,6 @@ CREATE VIEW "p_rsf"."util_index_analyis" AS  SELECT idstat.relname AS table_name
   ORDER BY idstat.idx_scan DESC, (pg_relation_size(idstat.indexrelid::regclass)) DESC;
 
 -- ----------------------------
--- View structure for view_rsf_program_facility_template_header_actions
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_program_facility_template_header_actions";
-CREATE VIEW "p_rsf"."view_rsf_program_facility_template_header_actions" AS  SELECT headers.rsf_pfcbl_id,
-    headers.template_id,
-    fth_a.header_id,
-    fth_a."SYSNAME",
-    fth_a.template_name,
-    fth_a.template_header_sheet_name AS template_header_section_name,
-    fth_a.template_header,
-    fth_a.action,
-    fth_a.comment,
-    fth_a.map_indicator_id,
-    fth_a.indicator_name,
-    fth_a.map_formula_id,
-    fth_a.calculation_formula,
-    fth_a.map_check_formula_id,
-    fth_a.check_formula,
-    headers.action_level
-   FROM ( SELECT DISTINCT ON (ft.from_rsf_pfcbl_id, fth.template_id, fth.template_header_full_normalized) ft.from_rsf_pfcbl_id AS rsf_pfcbl_id,
-            ft.to_family_rsf_pfcbl_id,
-            fth.template_id,
-            fth.template_header_full_normalized,
-            ft.to_pfcbl_category AS action_level
-           FROM p_rsf.view_rsf_pfcbl_id_family_tree ft
-             JOIN p_rsf.rsf_program_facility_template_headers fth ON fth.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-          WHERE (ft.from_pfcbl_category::text = ANY (ARRAY['global'::character varying::text, 'program'::character varying::text, 'facility'::character varying::text])) AND ft.to_pfcbl_rank <= ft.from_pfcbl_rank
-          ORDER BY ft.from_rsf_pfcbl_id, fth.template_id, fth.template_header_full_normalized, ft.to_pfcbl_rank DESC) headers
-     JOIN p_rsf.view_rsf_program_facility_template_headers fth_a ON fth_a.rsf_pfcbl_id = headers.to_family_rsf_pfcbl_id AND fth_a.template_id = headers.template_id AND fth_a.template_header_full_normalized = headers.template_header_full_normalized;
-
--- ----------------------------
 -- View structure for util_reporting_cohort_info_log_times
 -- ----------------------------
 DROP VIEW IF EXISTS "p_rsf"."util_reporting_cohort_info_log_times";
@@ -11058,186 +10126,6 @@ CREATE VIEW "p_rsf"."util_reporting_cohort_info_log_times" AS  SELECT reporting_
      LEFT JOIN LATERAL ( SELECT (regexp_match(log.log, 'Done!\s?@?(\d+\.?\d*).+'::text))[1]::numeric AS st) stimes ON true
      LEFT JOIN LATERAL ( SELECT (regexp_match(log.log, 'running total @(\d+\.?\d*)'::text))[1]::numeric AS tt) ttimes ON true
   WHERE log.log IS NOT NULL;
-
--- ----------------------------
--- View structure for view_rsf_program_data_timeseries_current
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_program_data_timeseries_current";
-CREATE VIEW "p_rsf"."view_rsf_program_data_timeseries_current" AS  SELECT prd.rsf_program_id,
-    ids.pfcbl_category,
-    ids.rsf_pfcbl_id,
-    ind.indicator_id,
-    ind.indicator_name,
-    prd.valid_reporting_date AS reporting_current_date,
-    cd.data_id,
-    cd.data_value,
-    cd.data_unit,
-    cd.reporting_asof_date
-   FROM p_rsf.rsf_pfcbl_ids ids
-     JOIN p_rsf.indicators ind ON ind.data_category::text = ids.pfcbl_category::text
-     JOIN p_rsf.rsf_program_reporting_dates prd ON prd.rsf_program_id = ids.rsf_program_id
-     JOIN LATERAL p_rsf.get_rsf_data_current(input_rsf_pfcbl_id => ids.rsf_pfcbl_id, input_indicator_id => ind.indicator_id, input_current_date => prd.valid_reporting_date) cd(data_id, reporting_asof_date, data_value, data_unit, data_unit_data_id) ON true
-  WHERE ids.created_in_reporting_asof_date >= prd.valid_reporting_date;
-
--- ----------------------------
--- View structure for compute_calculation_to_parameter_rsf_pfcbl_ids
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."compute_calculation_to_parameter_rsf_pfcbl_ids";
-CREATE VIEW "p_rsf"."compute_calculation_to_parameter_rsf_pfcbl_ids" AS  SELECT ids.rsf_pfcbl_id AS from_calculate_rsf_pfcbl_id,
-    ccp.calculate_formula_id AS from_calculate_formula_id,
-    ccp.calculate_indicator_id AS from_calculate_indicator_id,
-    pids.parameter_rsf_pfcbl_id AS to_parameter_rsf_pfcbl_id,
-    pids.parameter_pfcbl_category AS to_parameter_pfcbl_category,
-    pids.created_in_reporting_asof_date AS parameter_rsf_pfcbl_id_created_date
-   FROM p_rsf.rsf_pfcbl_ids ids
-     JOIN p_rsf.compute_calculation_to_parameter_categories ccp ON ccp.calculate_pfcbl_category = ids.pfcbl_category::text
-     JOIN LATERAL ( SELECT ids.rsf_pfcbl_id AS parameter_rsf_pfcbl_id,
-            ids.pfcbl_category AS parameter_pfcbl_category,
-            ids.created_in_reporting_asof_date
-          WHERE ccp.parameter_pfcbl_hierarchy = 'self'::text
-        UNION ALL
-         SELECT zids.rsf_pfcbl_id AS parameter_rsf_pfcbl_id,
-            zids.pfcbl_category AS parameter_pfcbl_category,
-            zids.created_in_reporting_asof_date
-           FROM p_rsf.rsf_pfcbl_ids zids
-          WHERE zids.rsf_pfcbl_id = 0 AND ccp.parameter_pfcbl_hierarchy = 'parent'::text AND ccp.parameter_pfcbl_category = 'global'::text
-        UNION ALL
-         SELECT fam.parent_rsf_pfcbl_id AS parameter_rsf_pfcbl_id,
-            fam.parent_pfcbl_category AS parameter_pfcbl_category,
-            zids.created_in_reporting_asof_date
-           FROM p_rsf.rsf_pfcbl_id_family fam
-             JOIN p_rsf.rsf_pfcbl_ids zids ON zids.rsf_pfcbl_id = fam.parent_rsf_pfcbl_id
-          WHERE ccp.parameter_pfcbl_hierarchy = 'parent'::text AND ccp.parameter_pfcbl_category <> 'global'::text AND fam.child_rsf_pfcbl_id = ids.rsf_pfcbl_id AND fam.parent_pfcbl_category::text = ccp.parameter_pfcbl_category
-        UNION ALL
-         SELECT fam.child_rsf_pfcbl_id AS parameter_rsf_pfcbl_id,
-            fam.child_pfcbl_category AS parameter_pfcbl_category,
-            zids.created_in_reporting_asof_date
-           FROM p_rsf.rsf_pfcbl_id_family fam
-             JOIN p_rsf.rsf_pfcbl_ids zids ON zids.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
-          WHERE ccp.parameter_pfcbl_hierarchy = 'child'::text AND fam.parent_rsf_pfcbl_id = ids.rsf_pfcbl_id AND fam.child_pfcbl_category::text = ccp.parameter_pfcbl_category
-        UNION ALL
-         SELECT children.child_rsf_pfcbl_id,
-            children.child_pfcbl_category AS parameter_pfcbl_category,
-            zids.created_in_reporting_asof_date
-           FROM p_rsf.rsf_pfcbl_id_family parents
-             JOIN p_rsf.rsf_pfcbl_id_family children ON children.parent_rsf_pfcbl_id = parents.parent_rsf_pfcbl_id AND children.child_pfcbl_category::text = ccp.parameter_pfcbl_category
-             JOIN p_rsf.rsf_pfcbl_ids zids ON zids.rsf_pfcbl_id = children.child_rsf_pfcbl_id
-          WHERE parents.child_rsf_pfcbl_id = ids.rsf_pfcbl_id AND parents.parent_pfcbl_category::text = ccp.parent_pfcbl_category AND ccp.parameter_pfcbl_hierarchy = 'relative'::text) pids ON true;
-
--- ----------------------------
--- View structure for view_account_info
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_account_info";
-CREATE VIEW "p_rsf"."view_account_info" AS  SELECT account_id,
-    users_name,
-    login_email AS users_login,
-    is_system_account
-   FROM p_rsf.dblink_account_info() dblink_account_info(account_id, users_name, login_email, is_system_account);
-
--- ----------------------------
--- View structure for view_rsf_setup_programs_data
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_setup_programs_data";
-CREATE VIEW "p_rsf"."view_rsf_setup_programs_data" AS  SELECT dense_rank() OVER (ORDER BY ids.created_in_reporting_asof_date, ids.rsf_program_id) AS program_sequence,
-    ids.rsf_program_id,
-    ids.rsf_facility_id,
-    ids.rsf_pfcbl_id,
-    sn.sys_name,
-    rc.source_name,
-    setup_dates.reporting_asof_date,
-    ids.created_in_reporting_asof_date = rdc.reporting_asof_date AS is_creation_asof_date,
-    rdc.data_id IS NULL AS entity_never_reported,
-    ind.data_category,
-    ind.indicator_name,
-    ind.is_calculated,
-    ind.indicator_id,
-    indf.formula_id,
-        CASE
-            WHEN rdc.data_id IS NULL AND ind.is_calculated THEN '{UNCALCULATED}'::text
-            WHEN rdc.data_id IS NULL THEN '{MISSING}'::text
-            WHEN rdc.data_value IS NULL AND ind.is_calculated THEN '{CALCULATED:BLANK}'::text
-            WHEN rdc.data_value IS NULL THEN '{BLANK}'::text
-            ELSE rdc.data_value
-        END AS data_value,
-        CASE
-            WHEN rdc.data_id IS NULL THEN NULL::text
-            ELSE rdc.data_unit
-        END AS data_unit,
-    rt.template_name,
-    rdc.data_id
-   FROM p_rsf.rsf_pfcbl_ids ids
-     JOIN p_rsf.view_rsf_pfcbl_indicator_subscriptions pis ON pis.rsf_pfcbl_id = ids.rsf_pfcbl_id
-     JOIN p_rsf.indicators ind ON ind.indicator_id = pis.indicator_id
-     JOIN ( SELECT ids_1.rsf_pfcbl_id,
-            ids_1.created_in_reporting_asof_date AS reporting_asof_date
-           FROM p_rsf.rsf_pfcbl_ids ids_1
-        UNION
-         SELECT rd_1.rsf_pfcbl_id,
-            rc_1.reporting_asof_date
-           FROM p_rsf.rsf_data rd_1
-             JOIN p_rsf.indicators ind_1 ON ind_1.indicator_id = rd_1.indicator_id
-             JOIN p_rsf.reporting_cohorts rc_1 ON rc_1.reporting_cohort_id = rd_1.reporting_cohort_id
-             JOIN p_rsf.reporting_templates rt_1 ON rt_1.template_id = rc_1.from_reporting_template_id
-          WHERE NOT ind_1.indicator_sys_category::text IS DISTINCT FROM 'entity_amendment_date'::text OR rt_1.is_setup_template = true) setup_dates ON setup_dates.rsf_pfcbl_id = ids.rsf_pfcbl_id
-     JOIN LATERAL ( SELECT nai.sys_name
-           FROM p_rsf.rsf_data_current_names_and_ids nai
-          WHERE nai.rsf_pfcbl_id = ids.rsf_pfcbl_id AND nai.reporting_asof_date <= setup_dates.reporting_asof_date
-          ORDER BY nai.reporting_asof_date DESC
-         LIMIT 1) sn ON true
-     LEFT JOIN p_rsf.rsf_data_current rdc ON rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id AND rdc.indicator_id = ind.indicator_id AND rdc.reporting_asof_date = setup_dates.reporting_asof_date
-     LEFT JOIN p_rsf.rsf_data rd ON rd.data_id = rdc.data_id
-     LEFT JOIN p_rsf.reporting_cohorts rc ON rc.reporting_cohort_id = rd.reporting_cohort_id
-     LEFT JOIN p_rsf.reporting_templates rt ON rt.template_id = rc.from_reporting_template_id
-     LEFT JOIN p_rsf.indicator_formulas indf ON indf.formula_id = pis.formula_id
-  WHERE (ids.pfcbl_category::text = ANY (ARRAY['program'::character varying::text, 'facility'::character varying::text, 'client'::character varying::text])) AND (pis.is_subscribed = true OR rd.data_id IS NOT NULL) AND pis.is_unsubscribed IS NOT TRUE AND (ids.pfcbl_category::text = 'program'::text OR (EXISTS ( SELECT rd_1.data_id,
-            rd_1.rsf_pfcbl_id,
-            rd_1.indicator_id,
-            rd_1.reporting_asof_date,
-            rd_1.reporting_cohort_id,
-            rd_1.data_value,
-            rd_1.data_unit,
-            rd_1.data_submitted,
-            rd_1.data_source_row_id,
-            rd_1.data_sys_flags,
-            idind.indicator_id,
-            idind.indicator_name,
-            idind.indicator_sys_category,
-            idind.data_category,
-            idind.data_type,
-            idind.data_unit,
-            idind.default_value,
-            idind.definition,
-            idind.label_id,
-            idind.indicator_options_group_id,
-            idind.indicator_options_group_allows_blanks,
-            idind.indicator_options_group_allows_multiples,
-            idind.is_calculated,
-            idind.is_system,
-            idind.is_data_unit,
-            idind.is_system_calculated,
-            idind.is_setup,
-            idind.modification_time,
-            idind.version_number,
-            idind.is_static_nonreporting,
-            idind.default_subscription,
-            idind.is_periodic_or_flow_reporting,
-            idind.classification,
-            idind.sort_preference,
-            idind.created_by_user_id,
-            idind.modified_by_user_id,
-            idind.pfcbl_rank
-           FROM p_rsf.rsf_data rd_1
-             JOIN p_rsf.indicators idind ON idind.indicator_id = rd_1.indicator_id AND idind.indicator_sys_category::text = 'id'::text
-          WHERE rd_1.rsf_pfcbl_id = ids.rsf_pfcbl_id AND rd_1.data_value IS NOT NULL))) AND
-        CASE
-            WHEN rdc.data_id IS NULL THEN setup_dates.reporting_asof_date = ids.created_in_reporting_asof_date
-            ELSE rdc.data_id IS NOT NULL
-        END AND ind.is_system = false AND
-        CASE
-            WHEN ind.is_calculated = true THEN rdc.data_value IS NOT NULL
-            ELSE true
-        END AND (ind.indicator_name::text <> ALL (ARRAY['client_quarterly_report_delivery_date'::character varying, 'facility_billing_adjustments_for_mistakes_in_previous_quarters'::character varying, 'facility_risk_sharing_fee_billing_amount_adjustments_for_mistakes_in_previous_quarters'::character varying, 'facility_parameter_max_loan_maturity_date_TO_BE_DELETED_DUPLICATE'::character varying]::text[])) AND (ind.indicator_name::text ~ '^rsf'::text) = false
-  ORDER BY (dense_rank() OVER (ORDER BY ids.created_in_reporting_asof_date, ids.rsf_program_id)), ids.pfcbl_category_rank, ids.rsf_program_id, ids.rsf_facility_id, ids.rsf_client_id, ind.indicator_name, (COALESCE(rdc.reporting_asof_date, ids.created_in_reporting_asof_date));
 
 -- ----------------------------
 -- View structure for compute_calculation_grouping
@@ -11264,6 +10152,16 @@ CREATE VIEW "p_rsf"."compute_calculation_grouping" AS  SELECT calculate_formula_
   GROUP BY calculate_indicator_id, calculate_formula_id;
 
 -- ----------------------------
+-- View structure for view_account_info
+-- ----------------------------
+DROP VIEW IF EXISTS "p_rsf"."view_account_info";
+CREATE VIEW "p_rsf"."view_account_info" AS  SELECT account_id,
+    users_name,
+    login_email AS users_login,
+    is_system_account
+   FROM p_rsf.dblink_account_info() dblink_account_info(account_id, users_name, login_email, is_system_account);
+
+-- ----------------------------
 -- View structure for view_rsf_setup_programs_template_actions
 -- ----------------------------
 DROP VIEW IF EXISTS "p_rsf"."view_rsf_setup_programs_template_actions";
@@ -11287,30 +10185,6 @@ CREATE VIEW "p_rsf"."view_rsf_setup_programs_template_actions" AS  SELECT ids.rs
           ORDER BY nai.reporting_asof_date
          LIMIT 1) sn ON true
   ORDER BY ids.rsf_program_id, sn.sys_name, rt.template_name, fth.template_header_sheet_name, fth.template_header, fth.template_header_encounter_index, fth.action, fth.action_mapping;
-
--- ----------------------------
--- View structure for compute_check_grouping
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."compute_check_grouping";
-CREATE VIEW "p_rsf"."compute_check_grouping" AS  SELECT check_formula_id,
-    indicator_check_id,
-    array_to_string(array_agg(DISTINCT computation_code ORDER BY computation_code), '-'::text) AS computation_code,
-    bit_or(
-        CASE
-            WHEN computation_code = 'L'::text THEN 2::double precision ^ 0::double precision
-            WHEN computation_code = 'B'::text THEN 2::double precision ^ 1::double precision
-            WHEN computation_code = ANY (ARRAY['C'::text, 'F'::text, 'F>C'::text, 'C>F'::text]) THEN 2::double precision ^ 2::double precision
-            WHEN computation_code = 'P'::text THEN 2::double precision ^ 2::double precision
-            WHEN computation_code = 'B>L'::text THEN (((2::double precision ^ 4::double precision)::integer | (2::double precision ^ 1::double precision)::integer) | (2::double precision ^ 0::double precision)::integer)::double precision
-            WHEN computation_code = ANY (ARRAY['C>L'::text, 'F>L'::text]) THEN (((2::double precision ^ 5::double precision)::integer | (2::double precision ^ 0::double precision)::integer) | (2::double precision ^ 2::double precision)::integer)::double precision
-            WHEN computation_code = 'P>L'::text THEN (((2::double precision ^ 6::double precision)::integer | (2::double precision ^ 0::double precision)::integer) | (2::double precision ^ 3::double precision)::integer)::double precision
-            WHEN computation_code = ANY (ARRAY['C>B'::text, 'F>B'::text]) THEN (((2::double precision ^ 7::double precision)::integer | (2::double precision ^ 2::double precision)::integer) | (2::double precision ^ 1::double precision)::integer)::double precision
-            WHEN computation_code = 'P>B'::text THEN (((2::double precision ^ 8::double precision)::integer | (2::double precision ^ 3::double precision)::integer) | (2::double precision ^ 1::double precision)::integer)::double precision
-            WHEN computation_code = ANY (ARRAY['P>C'::text, 'P>F'::text]) THEN (((2::double precision ^ 9::double precision)::integer | (2::double precision ^ 2::double precision)::integer) | (2::double precision ^ 3::double precision)::integer)::double precision
-            ELSE 0::double precision
-        END::integer) AS computation_group
-   FROM p_rsf.compute_check_to_parameter_categories ccp
-  GROUP BY check_formula_id, indicator_check_id;
 
 -- ----------------------------
 -- View structure for view_rsf_pfcbl_id_family_tree
@@ -11489,40 +10363,6 @@ CREATE VIEW "p_rsf"."view_rsf_program_facility_template_headers" AS  SELECT sn.r
   ORDER BY sn.rsf_pfcbl_id, fth.template_header_sheet_name, fth.template_header, fth.action;
 
 -- ----------------------------
--- View structure for util_reporting_cohort_info_process_times
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."util_reporting_cohort_info_process_times";
-CREATE VIEW "p_rsf"."util_reporting_cohort_info_process_times" AS  SELECT rc.rsf_program_id,
-    sn.sys_name,
-    rc.reporting_asof_date,
-    rc.reporting_rsf_pfcbl_id,
-    rci.reporting_cohort_id,
-    ((rci.metadata -> 'timing'::text) ->> 'parse_time'::text)::numeric AS parse_time_sec,
-    ((rci.metadata -> 'timing'::text) ->> 'process_time'::text)::numeric AS process_time_sec,
-    ((rci.metadata -> 'timing'::text) ->> 'upload_time'::text)::numeric AS upload_time_sec,
-    ((rci.metadata -> 'timing'::text) ->> 'total_time'::text)::numeric AS total_time_sec,
-    ((rci.metadata -> 'timing'::text) ->> 'backup_time'::text)::numeric AS backup_time_sec,
-    ((rci.metadata -> 'timing'::text) ->> 'calculate_time'::text)::numeric AS calculate_time_sec,
-    ((rci.metadata -> 'timing'::text) ->> 'check_time'::text)::numeric AS check_time_sec
-   FROM p_rsf.reporting_cohort_info rci
-     JOIN p_rsf.reporting_cohorts rc ON rc.reporting_cohort_id = rci.reporting_cohort_id
-     JOIN p_rsf.view_rsf_pfcbl_id_current_sys_names sn ON sn.rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
-  WHERE rc.parent_reporting_cohort_id IS NULL;
-
--- ----------------------------
--- View structure for view_rsf_program_settings
--- ----------------------------
-DROP VIEW IF EXISTS "p_rsf"."view_rsf_program_settings";
-CREATE VIEW "p_rsf"."view_rsf_program_settings" AS  SELECT rp.rsf_program_id,
-    ps.setting_name,
-    COALESCE(rps.setting_value, ps.default_value) AS setting_value,
-    ps.default_data_type,
-    ps.setting_group
-   FROM p_rsf.rsf_programs rp
-     CROSS JOIN p_rsf.program_settings ps
-     LEFT JOIN p_rsf.rsf_program_settings rps ON rps.rsf_program_id = rp.rsf_program_id AND rps.setting_name = ps.setting_name;
-
--- ----------------------------
 -- View structure for view_rsf_pfcbl_currency_units_asof_date
 -- ----------------------------
 DROP VIEW IF EXISTS "p_rsf"."view_rsf_pfcbl_currency_units_asof_date";
@@ -11534,12 +10374,13 @@ CREATE VIEW "p_rsf"."view_rsf_pfcbl_currency_units_asof_date" AS  SELECT ids.rsf
             ELSE rdc.reporting_asof_date
         END AS reporting_asof_date,
     rdc.data_value AS data_unit_value,
-    fam.parent_pfcbl_rank AS data_id_pfcbl_rank,
+    parents.pfcbl_category_rank AS data_id_pfcbl_rank,
     false AS is_defined_lcu
    FROM p_rsf.rsf_pfcbl_ids ids
-     JOIN p_rsf.rsf_pfcbl_id_family fam ON fam.child_rsf_pfcbl_id = ids.rsf_pfcbl_id
-     JOIN p_rsf.indicators ind ON ind.data_category::text = fam.parent_pfcbl_category::text AND ind.indicator_sys_category::text = 'entity_local_currency_unit'::text
-     JOIN p_rsf.rsf_data_current rdc ON rdc.rsf_pfcbl_id = fam.parent_rsf_pfcbl_id AND rdc.indicator_id = ind.indicator_id
+     JOIN LATERAL unnest(ARRAY[ids.rsf_program_id, ids.rsf_facility_id, ids.rsf_client_id, ids.rsf_borrower_id, ids.rsf_loan_id]) parent_rsf_pfcbl_id(parent_rsf_pfcbl_id) ON true
+     JOIN p_rsf.rsf_pfcbl_ids parents ON parents.rsf_pfcbl_id = parent_rsf_pfcbl_id.parent_rsf_pfcbl_id
+     JOIN p_rsf.indicators ind ON ind.data_category::text = parents.pfcbl_category::text AND ind.indicator_sys_category::text = 'entity_local_currency_unit'::text
+     JOIN p_rsf.rsf_data_current rdc ON rdc.rsf_pfcbl_id = parents.rsf_pfcbl_id AND rdc.indicator_id = ind.indicator_id
   WHERE rdc.data_value IS NOT NULL AND rdc.data_value <> 'LCU'::text AND NOT (EXISTS ( SELECT dd.data_id,
             dd.rsf_pfcbl_id,
             dd.indicator_id,
@@ -11567,9 +10408,13 @@ CREATE VIEW "p_rsf"."view_rsf_pfcbl_currency_units_asof_date" AS  SELECT ids.rsf
             ind_1.modification_time,
             ind_1.version_number,
             ind_1.is_static_nonreporting,
-            ind_1.default_subscription AS is_priority_reporting,
+            ind_1.default_subscription,
             ind_1.is_periodic_or_flow_reporting,
-            ind_1.classification
+            ind_1.classification,
+            ind_1.sort_preference,
+            ind_1.created_by_user_id,
+            ind_1.modified_by_user_id,
+            ind_1.pfcbl_rank
            FROM p_rsf.rsf_data_current dd
              JOIN p_rsf.indicators ind_1 ON ind_1.indicator_id = dd.indicator_id
           WHERE dd.rsf_pfcbl_id = ids.rsf_pfcbl_id AND dd.indicator_id = ind_1.indicator_id AND dd.reporting_asof_date <= rdc.reporting_asof_date AND ind_1.indicator_sys_category::text = 'entity_currency_unit'::text AND dd.data_value IS NOT NULL AND dd.data_value <> 'LCU'::text))
@@ -11585,6 +10430,161 @@ UNION ALL
      JOIN p_rsf.indicators ind ON ind.data_category::text = ids.pfcbl_category::text
      JOIN p_rsf.rsf_data_current rdc ON rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id AND rdc.indicator_id = ind.indicator_id
   WHERE ind.indicator_sys_category::text = 'entity_currency_unit'::text AND rdc.data_value IS NOT NULL AND rdc.data_value <> 'LCU'::text;
+
+-- ----------------------------
+-- View structure for util_reporting_cohort_info_process_times
+-- ----------------------------
+DROP VIEW IF EXISTS "p_rsf"."util_reporting_cohort_info_process_times";
+CREATE VIEW "p_rsf"."util_reporting_cohort_info_process_times" AS  SELECT rc."!dep-rsf_program_id" AS rsf_program_id,
+    sn.sys_name,
+    rc.reporting_asof_date,
+    rc.reporting_rsf_pfcbl_id,
+    rci.reporting_cohort_id,
+    ((rci.metadata -> 'timing'::text) ->> 'parse_time'::text)::numeric AS parse_time_sec,
+    ((rci.metadata -> 'timing'::text) ->> 'process_time'::text)::numeric AS process_time_sec,
+    ((rci.metadata -> 'timing'::text) ->> 'upload_time'::text)::numeric AS upload_time_sec,
+    ((rci.metadata -> 'timing'::text) ->> 'total_time'::text)::numeric AS total_time_sec,
+    ((rci.metadata -> 'timing'::text) ->> 'backup_time'::text)::numeric AS backup_time_sec,
+    ((rci.metadata -> 'timing'::text) ->> 'calculate_time'::text)::numeric AS calculate_time_sec,
+    ((rci.metadata -> 'timing'::text) ->> 'check_time'::text)::numeric AS check_time_sec
+   FROM p_rsf.reporting_cohort_info rci
+     JOIN p_rsf.reporting_cohorts rc ON rc.reporting_cohort_id = rci.reporting_cohort_id
+     JOIN p_rsf.view_rsf_pfcbl_id_current_sys_names sn ON sn.rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
+  WHERE rc."!dep-parent_reporting_cohort_id" IS NULL;
+
+-- ----------------------------
+-- View structure for view_rsf_program_settings
+-- ----------------------------
+DROP VIEW IF EXISTS "p_rsf"."view_rsf_program_settings";
+CREATE VIEW "p_rsf"."view_rsf_program_settings" AS  SELECT rp.rsf_program_id,
+    ps.setting_name,
+    COALESCE(rps.setting_value, ps.default_value) AS setting_value,
+    ps.default_data_type,
+    ps.setting_group
+   FROM p_rsf.rsf_programs rp
+     CROSS JOIN p_rsf.program_settings ps
+     LEFT JOIN p_rsf.rsf_program_settings rps ON rps.rsf_program_id = rp.rsf_program_id AND rps.setting_name = ps.setting_name;
+
+-- ----------------------------
+-- View structure for view_rsf_setup_facility_terms_missing
+-- ----------------------------
+DROP VIEW IF EXISTS "p_rsf"."view_rsf_setup_facility_terms_missing";
+CREATE VIEW "p_rsf"."view_rsf_setup_facility_terms_missing" AS  SELECT rsf_facility_id,
+    sys_name,
+    metric,
+    metric_id,
+    metric_name,
+    formula_id,
+    formula_title,
+    parameter_name,
+    parameter_id,
+    parameter_ids,
+    data_value,
+    data_unit,
+    reporting_asof_date,
+    data_id IS NULL AS is_unreported
+   FROM ( SELECT ids.rsf_facility_id,
+            sn.sys_name,
+            'indicator'::text AS metric,
+            ind.indicator_id AS metric_id,
+            ind.indicator_name AS metric_name,
+            sis.formula_id,
+            indf.formula_title,
+            indf.formula_indicator_id_requirements AS parameter_ids,
+            pind.indicator_name AS parameter_name,
+            pind.indicator_id AS parameter_id,
+            rdc.data_value,
+            rdc.data_unit,
+            rdc.reporting_asof_date,
+            rdc.data_id
+           FROM p_rsf.rsf_pfcbl_ids ids
+             JOIN p_rsf.view_rsf_pfcbl_id_current_sys_names sn ON sn.rsf_pfcbl_id = ids.rsf_pfcbl_id
+             JOIN p_rsf.view_rsf_setup_indicator_subscriptions sis ON sis.rsf_pfcbl_id = ids.rsf_pfcbl_id
+             JOIN p_rsf.indicators ind ON ind.indicator_id = sis.indicator_id
+             JOIN p_rsf.indicator_formulas indf ON indf.formula_id = sis.formula_id
+             JOIN p_rsf.indicator_formula_parameters ifp ON ifp.formula_id = sis.formula_id AND ifp.parameter_pfcbl_category = 'facility'::text
+             JOIN p_rsf.indicators pind ON pind.indicator_id = ifp.parameter_indicator_id
+             LEFT JOIN p_rsf.view_rsf_setup_indicator_subscriptions psis ON psis.rsf_pfcbl_id = ids.rsf_pfcbl_id AND psis.indicator_id = pind.indicator_id
+             LEFT JOIN p_rsf.rsf_data_current rdc ON rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id AND rdc.indicator_id = psis.indicator_id
+             LEFT JOIN p_rsf.rsf_data rd ON rd.data_id = rdc.data_id
+          WHERE ids.pfcbl_category::text = 'facility'::text AND sis.formula_id IS NOT NULL AND psis.formula_id IS NULL AND rdc.data_value IS NULL AND rd.data_submitted IS NULL AND (sis.is_subscribed IS TRUE OR sis.is_auto_subscribed IS TRUE)
+        UNION ALL
+         SELECT ids.rsf_facility_id,
+            sn.sys_name,
+            'check'::text AS metric,
+            ic.indicator_check_id AS metric_id,
+            ic.check_name AS metric_name,
+            scs.check_formula_id AS formula_id,
+            icf.check_formula_title AS formula_title,
+            icf.formula_indicator_ids AS parameter_ids,
+            pind.indicator_name AS parameter_name,
+            pind.indicator_id AS parameter_id,
+            rdc.data_value,
+            rdc.data_unit,
+            rdc.reporting_asof_date,
+            rdc.data_id
+           FROM p_rsf.rsf_pfcbl_ids ids
+             JOIN p_rsf.view_rsf_pfcbl_id_current_sys_names sn ON sn.rsf_pfcbl_id = ids.rsf_pfcbl_id
+             JOIN p_rsf.view_rsf_setup_check_subscriptions scs ON scs.rsf_pfcbl_id = ids.rsf_pfcbl_id
+             JOIN p_rsf.indicator_checks ic ON ic.indicator_check_id = scs.indicator_check_id
+             JOIN p_rsf.indicator_check_formulas icf ON icf.check_formula_id = scs.check_formula_id
+             JOIN p_rsf.indicator_check_formula_parameters cfp ON cfp.check_formula_id = scs.check_formula_id AND cfp.parameter_pfcbl_category = 'facility'::text
+             JOIN p_rsf.indicators pind ON pind.indicator_id = cfp.parameter_indicator_id
+             LEFT JOIN p_rsf.view_rsf_setup_indicator_subscriptions psis ON psis.rsf_pfcbl_id = ids.rsf_pfcbl_id AND psis.indicator_id = pind.indicator_id
+             LEFT JOIN p_rsf.rsf_data_current rdc ON rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id AND rdc.indicator_id = psis.indicator_id
+             LEFT JOIN p_rsf.rsf_data rd ON rd.data_id = rdc.data_id
+          WHERE ids.pfcbl_category::text = 'facility'::text AND psis.formula_id IS NULL AND rdc.data_value IS NULL AND rd.data_submitted IS NULL AND (scs.is_subscribed IS TRUE OR scs.is_auto_subscribed IS TRUE)) terms;
+
+-- ----------------------------
+-- View structure for view_rsf_setup_check_subscriptions
+-- ----------------------------
+DROP VIEW IF EXISTS "p_rsf"."view_rsf_setup_check_subscriptions";
+CREATE VIEW "p_rsf"."view_rsf_setup_check_subscriptions" AS  SELECT ids.rsf_pfcbl_id,
+    ids.pfcbl_category,
+    pfc.check_formula_id,
+    pfc.indicator_check_id,
+    ids.rsf_program_id,
+    ids.rsf_facility_id,
+    pfc.is_subscribed,
+    pfc.is_subscribed IS FALSE AS is_unsubscribed,
+    pfc.is_auto_subscribed,
+    icf.check_pfcbl_rank,
+    icf.check_pfcbl_category,
+    pfc.subscription_comments,
+    pfc.comments_user_id,
+    ids.pfcbl_category_rank = icf.check_pfcbl_rank AS filter_matched_pfcbl_indicators,
+    ids.pfcbl_category_rank = icf.check_pfcbl_rank AND ids.pfcbl_category_rank <= 2 OR ids.pfcbl_category_rank = 2 AND icf.check_pfcbl_rank >= 2 AS filter_category_manager,
+        CASE
+            WHEN icf.check_pfcbl_rank = 0 THEN 0
+            WHEN icf.check_pfcbl_rank = 1 THEN ids.rsf_program_id
+            ELSE ids.rsf_facility_id
+        END AS category_manager_rsf_pfcbl_id
+   FROM p_rsf.rsf_pfcbl_ids ids
+     JOIN p_rsf.rsf_setup_checks pfc ON pfc.rsf_pfcbl_id = ids.rsf_facility_id OR pfc.rsf_pfcbl_id = ids.rsf_program_id OR pfc.rsf_pfcbl_id = 0
+     JOIN p_rsf.indicator_check_formulas icf ON icf.check_formula_id = pfc.check_formula_id;
+
+-- ----------------------------
+-- View structure for view_rsf_setup_check_monitoring
+-- ----------------------------
+DROP VIEW IF EXISTS "p_rsf"."view_rsf_setup_check_monitoring";
+CREATE VIEW "p_rsf"."view_rsf_setup_check_monitoring" AS  SELECT sis.rsf_pfcbl_id,
+    sis.pfcbl_category,
+    sis.filter_matched_pfcbl_indicators,
+    cfp.indicator_check_id,
+    cfp.check_formula_id,
+    ic.check_class,
+    ic.check_type,
+    ic.check_name,
+    ic.check_pfcbl_category,
+    bool_or(sis.is_unsubscribed IS TRUE) FILTER (WHERE cfp.is_calculation_trigger_parameter IS TRUE) AS is_not_monitorable,
+    bool_and(sis.is_subscribed IS TRUE) FILTER (WHERE cfp.is_calculation_trigger_parameter IS TRUE) AS is_calculable,
+    ic.auto_subscribe IS TRUE AND bool_and(sis.is_subscribed IS TRUE) AS is_auto_monitorable,
+    array_agg(cfp.parameter_indicator_id ORDER BY cfp.parameter_indicator_id) FILTER (WHERE sis.is_subscribed IS FALSE) AS unmonitored_parameter_ids,
+    NOT sis.pfcbl_category::text IS DISTINCT FROM ic.check_pfcbl_category OR sis.pfcbl_category::text = 'facility'::text AND (ic.check_pfcbl_category = ANY (ARRAY['client'::text, 'borrower'::text, 'loan'::text])) AS filter_category_manager
+   FROM p_rsf.view_rsf_setup_indicator_subscriptions sis
+     JOIN p_rsf.indicator_check_formula_parameters cfp ON cfp.parameter_indicator_id = sis.indicator_id
+     JOIN p_rsf.indicator_checks ic ON ic.indicator_check_id = cfp.indicator_check_id
+  GROUP BY sis.rsf_pfcbl_id, sis.pfcbl_category, sis.filter_matched_pfcbl_indicators, cfp.indicator_check_id, cfp.check_formula_id, ic.check_class, ic.check_type, ic.check_name, ic.check_pfcbl_category, ic.auto_subscribe;
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -11603,14 +10603,21 @@ SELECT setval('"p_rsf"."export_templates_export_template_id_seq"', 1, true);
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
-SELECT setval('"p_rsf"."exporting_cohorts_exporting_cohort_id_seq"', 521, true);
+SELECT setval('"p_rsf"."exporting_cohorts_exporting_cohort_id_seq"', 610, true);
+
+-- ----------------------------
+-- Alter sequences owned by
+-- ----------------------------
+ALTER SEQUENCE "p_rsf"."import_templates_import_id_seq"
+OWNED BY "p_rsf"."reporting_imports"."import_id";
+SELECT setval('"p_rsf"."import_templates_import_id_seq"', 101833, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "p_rsf"."indicator_check_formulas_check_formula_id_seq"
 OWNED BY "p_rsf"."indicator_check_formulas"."check_formula_id";
-SELECT setval('"p_rsf"."indicator_check_formulas_check_formula_id_seq"', 223, true);
+SELECT setval('"p_rsf"."indicator_check_formulas_check_formula_id_seq"', 228, true);
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -11624,14 +10631,14 @@ SELECT setval('"p_rsf"."indicator_check_guidance_guidance_id_seq"', 141, true);
 -- ----------------------------
 ALTER SEQUENCE "p_rsf"."indicator_checks_check_id_seq"
 OWNED BY "p_rsf"."indicator_checks"."indicator_check_id";
-SELECT setval('"p_rsf"."indicator_checks_check_id_seq"', 47983, true);
+SELECT setval('"p_rsf"."indicator_checks_check_id_seq"', 47991, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "p_rsf"."indicator_formulas_formula_id_seq"
 OWNED BY "p_rsf"."indicator_formulas"."formula_id";
-SELECT setval('"p_rsf"."indicator_formulas_formula_id_seq"', 482, true);
+SELECT setval('"p_rsf"."indicator_formulas_formula_id_seq"', 508, true);
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -11652,14 +10659,14 @@ SELECT setval('"p_rsf"."indicator_option_groups_option_group_id_seq"', 39, true)
 -- ----------------------------
 ALTER SEQUENCE "p_rsf"."indicators_indicator_id_seq"
 OWNED BY "p_rsf"."indicators"."indicator_id";
-SELECT setval('"p_rsf"."indicators_indicator_id_seq"', 157798, true);
+SELECT setval('"p_rsf"."indicators_indicator_id_seq"', 157840, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "p_rsf"."label_ids_label_id_seq"
 OWNED BY "p_rsf"."label_ids"."label_id";
-SELECT setval('"p_rsf"."label_ids_label_id_seq"', 2635, true);
+SELECT setval('"p_rsf"."label_ids_label_id_seq"', 2680, true);
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -11680,7 +10687,7 @@ SELECT setval('"p_rsf"."reporting_templates_template_id_seq"', 12, true);
 -- ----------------------------
 ALTER SEQUENCE "p_rsf"."reports_report_id_seq"
 OWNED BY "p_rsf"."reports"."report_id";
-SELECT setval('"p_rsf"."reports_report_id_seq"', 73, true);
+SELECT setval('"p_rsf"."reports_report_id_seq"', 76, true);
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -11690,39 +10697,88 @@ SELECT setval('"p_rsf"."rsf_data_calculation_profiles_calculation_profile_id_seq
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
-SELECT setval('"p_rsf"."rsf_data_checks_evaluation_id_seq"', 3909008, true);
+SELECT setval('"p_rsf"."rsf_data_checks_evaluation_id_seq"', 4123129, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
-SELECT setval('"p_rsf"."rsf_data_cohort_sequence"', 59353, true);
+SELECT setval('"p_rsf"."rsf_data_cohort_sequence"', 103618, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
-SELECT setval('"p_rsf"."rsf_data_data_id_seq"', 21621470, true);
+SELECT setval('"p_rsf"."rsf_data_data_id_seq"', 26178702, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
-SELECT setval('"p_rsf"."rsf_pfcbl_ids_rsf_pfcbl_id_seq"', 451948, true);
+SELECT setval('"p_rsf"."rsf_pfcbl_ids_rsf_pfcbl_id_seq"', 571930, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "p_rsf"."rsf_program_facility_template_headers_header_id_seq"
 OWNED BY "p_rsf"."rsf_program_facility_template_headers"."header_id";
-SELECT setval('"p_rsf"."rsf_program_facility_template_headers_header_id_seq"', 898, true);
+SELECT setval('"p_rsf"."rsf_program_facility_template_headers_header_id_seq"', 980, true);
 
 -- ----------------------------
--- Triggers structure for table deleted_reporting_cohorts
+-- Indexes structure for table !dep-rsf_pfcbl_id_family
 -- ----------------------------
-CREATE TRIGGER "trigger_deleted_reporting_cohorts_action" AFTER INSERT ON "p_rsf"."deleted_reporting_cohorts"
-FOR EACH STATEMENT
-EXECUTE PROCEDURE "p_rsf"."deleted_reporting_cohorts_action"();
-CREATE TRIGGER "trigger_deleted_reporting_cohorts_logging" BEFORE INSERT ON "p_rsf"."deleted_reporting_cohorts"
-FOR EACH ROW
-EXECUTE PROCEDURE "p_rsf"."deleted_reporting_cohorts_logging"();
+CREATE INDEX "family_tree_children" ON "p_rsf"."!dep-rsf_pfcbl_id_family" USING btree (
+  "parent_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+) WHERE child_pfcbl_rank > parent_pfcbl_rank;
+CREATE INDEX "family_tree_parents" ON "p_rsf"."!dep-rsf_pfcbl_id_family" USING btree (
+  "child_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+) WHERE parent_pfcbl_rank <= child_pfcbl_rank;
+CREATE UNIQUE INDEX "rsf_pfcbl_id_family-global_is_unique_parent" ON "p_rsf"."!dep-rsf_pfcbl_id_family" USING btree (
+  "parent_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+) WHERE parent_pfcbl_category::text = 'global'::text;
+CREATE INDEX "rsf_pfcbl_id_family_cascade_down_idx" ON "p_rsf"."!dep-rsf_pfcbl_id_family" USING btree (
+  "parent_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
+  "child_pfcbl_category" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
+);
+COMMENT ON INDEX "p_rsf"."rsf_pfcbl_id_family_cascade_down_idx" IS 'Each parent entity (may) have many child entities';
+CREATE UNIQUE INDEX "rsf_pfcbl_id_family_cascade_up_idx" ON "p_rsf"."!dep-rsf_pfcbl_id_family" USING btree (
+  "child_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
+  "parent_pfcbl_category" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
+);
+COMMENT ON INDEX "p_rsf"."rsf_pfcbl_id_family_cascade_up_idx" IS 'Each child entity only has one parent entity';
+CREATE INDEX "rsf_pfcbl_id_family_child_pfcbl_category_idx" ON "p_rsf"."!dep-rsf_pfcbl_id_family" USING btree (
+  "child_pfcbl_category" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
+);
+CREATE INDEX "rsf_pfcbl_id_family_child_rsf_pfcbl_id_idx" ON "p_rsf"."!dep-rsf_pfcbl_id_family" USING btree (
+  "child_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+);
+CREATE INDEX "rsf_pfcbl_id_family_parent_pfcbl_category_idx" ON "p_rsf"."!dep-rsf_pfcbl_id_family" USING btree (
+  "parent_pfcbl_category" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
+);
+CREATE INDEX "rsf_pfcbl_id_family_parent_rsf_pfcbl_id_idx" ON "p_rsf"."!dep-rsf_pfcbl_id_family" USING btree (
+  "parent_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+);
+ALTER TABLE "p_rsf"."!dep-rsf_pfcbl_id_family" CLUSTER ON "rsf_pfcbl_id_family_parent_rsf_pfcbl_id_idx";
+
+-- ----------------------------
+-- Primary Key structure for table !dep-rsf_pfcbl_id_family
+-- ----------------------------
+ALTER TABLE "p_rsf"."!dep-rsf_pfcbl_id_family" ADD CONSTRAINT "rsf_pfcbl_id_family_pkey" PRIMARY KEY ("parent_rsf_pfcbl_id", "child_rsf_pfcbl_id");
+
+-- ----------------------------
+-- Cluster option for table !dep-rsf_pfcbl_id_family
+-- ----------------------------
+ALTER TABLE "p_rsf"."!dep-rsf_pfcbl_id_family" CLUSTER ON "rsf_pfcbl_id_family_parent_rsf_pfcbl_id_idx";
+
+-- ----------------------------
+-- Indexes structure for table !dep-rsf_program_reporting_dates
+-- ----------------------------
+CREATE UNIQUE INDEX "rsf_program_reporting_dates_rsf_program_id_reporting_sequen_idx" ON "p_rsf"."!dep-rsf_program_reporting_dates" USING btree (
+  "rsf_program_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
+  "reporting_sequence_rank" "pg_catalog"."int4_ops" ASC NULLS LAST
+);
+
+-- ----------------------------
+-- Primary Key structure for table !dep-rsf_program_reporting_dates
+-- ----------------------------
+ALTER TABLE "p_rsf"."!dep-rsf_program_reporting_dates" ADD CONSTRAINT "rsf_program_reporting_dates_pkey" PRIMARY KEY ("rsf_program_id", "valid_reporting_date");
 
 -- ----------------------------
 -- Primary Key structure for table export_template_reports
@@ -12031,15 +11087,12 @@ EXECUTE PROCEDURE "p_rsf"."set_indicator_formula_id_ranks"();
 CREATE TRIGGER "trigger_set_indicator_formula_id_ranks_updated" AFTER UPDATE ON "p_rsf"."indicator_formulas"
 FOR EACH STATEMENT
 EXECUTE PROCEDURE "p_rsf"."set_indicator_formula_id_ranks"();
-CREATE TRIGGER "trigger_set_indicator_formula_ids" BEFORE INSERT OR UPDATE OF "indicator_id", "modification_time", "formula_grouping_pfcbl_rank", "formula_sort", "formula" ON "p_rsf"."indicator_formulas"
+CREATE TRIGGER "trigger_set_indicator_formula_ids" BEFORE INSERT OR UPDATE OF "formula_grouping_pfcbl_rank", "indicator_id", "modification_time", "formula", "formula_sort" ON "p_rsf"."indicator_formulas"
 FOR EACH ROW
 EXECUTE PROCEDURE "p_rsf"."set_indicator_formula_ids"();
 CREATE TRIGGER "trigger_set_indicator_is_calculated" AFTER INSERT OR UPDATE OR DELETE ON "p_rsf"."indicator_formulas"
 FOR EACH ROW
 EXECUTE PROCEDURE "p_rsf"."set_indicator_is_calculated"();
-CREATE TRIGGER "trigger_validate_pending_calculations" AFTER INSERT OR UPDATE OR DELETE ON "p_rsf"."indicator_formulas"
-FOR EACH ROW
-EXECUTE PROCEDURE "p_rsf"."validate_pending_calculations"();
 
 -- ----------------------------
 -- Uniques structure for table indicator_formulas
@@ -12049,7 +11102,7 @@ ALTER TABLE "p_rsf"."indicator_formulas" ADD CONSTRAINT "indicator_formulas_form
 -- ----------------------------
 -- Checks structure for table indicator_formulas
 -- ----------------------------
-ALTER TABLE "p_rsf"."indicator_formulas" ADD CONSTRAINT "system_use_delimiters_not_allowed_in_formula_titles" CHECK (NOT formula_title ~ '[#{}]'::text);
+ALTER TABLE "p_rsf"."indicator_formulas" ADD CONSTRAINT "valid_formula_fx_date" CHECK (formula_fx_date = ANY (ARRAY['calculation'::text, 'parameter'::text, 'fx'::text, 'nofx'::text]));
 ALTER TABLE "p_rsf"."indicator_formulas" ADD CONSTRAINT "dot_all_parameters_use_timeseries_values" CHECK (
 CASE
     WHEN formula ~ '\.all'::text THEN formula ~ 'timeseries'::text
@@ -12057,10 +11110,10 @@ CASE
 END);
 ALTER TABLE "p_rsf"."indicator_formulas" ADD CONSTRAINT "disallowed_calculation_parameter_issuances" CHECK ((formula ~ '\.issuances'::text) = false);
 ALTER TABLE "p_rsf"."indicator_formulas" ADD CONSTRAINT "valid_overwrite_type" CHECK (overwrite::text = ANY (ARRAY['allow'::character varying::text, 'deny'::character varying::text, 'missing'::character varying::text, 'unchanged'::character varying::text]));
-ALTER TABLE "p_rsf"."indicator_formulas" ADD CONSTRAINT "valid_formula_fx_date" CHECK (formula_fx_date = ANY (ARRAY['calculation'::text, 'parameter'::text, 'fx'::text]));
-COMMENT ON CONSTRAINT "system_use_delimiters_not_allowed_in_formula_titles" ON "p_rsf"."indicator_formulas" IS 'template headers parse options will parse information inside curly brackets {} and within that, use # as a delimiter between data_value and data_unit, eg ''"IFC Maximum Risk Amount" US${facility_IFC_maximum_risk_amount#USD} as may be reduced from time to time in accordance with Section 2.05(b) (Costs);'' will parse the numeric value within the brackets and assign it (first) to the facility_IFC_maximum_risk_amount and after # assign constant USD to its data_value';
+ALTER TABLE "p_rsf"."indicator_formulas" ADD CONSTRAINT "system_use_delimiters_not_allowed_in_formula_titles" CHECK (NOT formula_title ~ '[#{}]'::text);
 COMMENT ON CONSTRAINT "dot_all_parameters_use_timeseries_values" ON "p_rsf"."indicator_formulas" IS 'The .all parameter will return an embedded data.table object as a list within each row: the columns of the data.table are "timeseries", "timeseries.unit", "timeseries.reporteddate", "timeseries.changed", "timeseries.updated", "timeseries.reportnumber" and it is essential therefore that anyone using a .all parameter in a formula also uses a .timeseries value, since thats where the actual data is represented (and not using it means there is a formula error)';
 COMMENT ON CONSTRAINT "disallowed_calculation_parameter_issuances" ON "p_rsf"."indicator_formulas" IS 'calculations can see all issuances and also the issuance group ID as needed for disaggregation, but are not expected to calculate values based on which issuances are within a series (or not); this is meaningful for checks';
+COMMENT ON CONSTRAINT "system_use_delimiters_not_allowed_in_formula_titles" ON "p_rsf"."indicator_formulas" IS 'template headers parse options will parse information inside curly brackets {} and within that, use # as a delimiter between data_value and data_unit, eg ''"IFC Maximum Risk Amount" US${facility_IFC_maximum_risk_amount#USD} as may be reduced from time to time in accordance with Section 2.05(b) (Costs);'' will parse the numeric value within the brackets and assign it (first) to the facility_IFC_maximum_risk_amount and after # assign constant USD to its data_value';
 
 -- ----------------------------
 -- Primary Key structure for table indicator_formulas
@@ -12144,6 +11197,9 @@ CREATE INDEX "indicators_indicator_sys_category_idx" ON "p_rsf"."indicators" USI
 CREATE UNIQUE INDEX "indicators_label_id_idx" ON "p_rsf"."indicators" USING btree (
   "label_id" "pg_catalog"."int4_ops" ASC NULLS LAST
 );
+CREATE INDEX "indicators_pfcbl_rank" ON "p_rsf"."indicators" USING btree (
+  "pfcbl_rank" "pg_catalog"."int2_ops" ASC NULLS LAST
+);
 CREATE UNIQUE INDEX "unique_fx_currency_pair_by_data_category" ON "p_rsf"."indicators" USING btree (
   "data_category" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST,
   GREATEST("substring"(data_unit::text, '^[A-Z]{3}'::text), "substring"(data_unit::text, '[A-Z]{3}$'::text)) COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST,
@@ -12211,11 +11267,6 @@ CASE
     ELSE true
 END);
 ALTER TABLE "p_rsf"."indicators" ADD CONSTRAINT "currency_has_data_unit" CHECK (data_category::text = 'currency'::text AND data_unit IS NOT NULL OR NOT data_category::text = 'currency'::text);
-ALTER TABLE "p_rsf"."indicators" ADD CONSTRAINT "currency_ratio_allowed_data_categories" CHECK (
-CASE
-    WHEN data_type::text = 'currency_ratio'::text THEN data_category::text = ANY (ARRAY['global'::character varying::text, 'program'::character varying::text, 'facility'::character varying::text])
-    ELSE true
-END);
 ALTER TABLE "p_rsf"."indicators" ADD CONSTRAINT "currency_ratio_data_type_LCU_must_be_denominator" CHECK (
 CASE
     WHEN data_type::text = 'currency_ratio'::text AND data_unit::text ~* 'LCU'::text THEN data_unit::text ~* '^[A-Z]{3}/LCU$'::text
@@ -12265,6 +11316,11 @@ CASE
     ELSE true
 END);
 ALTER TABLE "p_rsf"."indicators" ADD CONSTRAINT "indicator_names_start_with_lower_case_letters" CHECK ((indicator_name::text ~ '^[A-Z]'::text) = false);
+ALTER TABLE "p_rsf"."indicators" ADD CONSTRAINT "currency_ratio_allowed_data_categories" CHECK (
+CASE
+    WHEN data_type::text = 'currency_ratio'::text THEN data_category::text = ANY (ARRAY['global'::character varying::text, 'facility'::character varying::text])
+    ELSE true
+END);
 ALTER TABLE "p_rsf"."indicators" ADD CONSTRAINT "system_indicators_are_default_subscriable" CHECK (
 CASE
     WHEN is_system = true THEN default_subscription IS TRUE
@@ -12275,13 +11331,13 @@ COMMENT ON CONSTRAINT "check_valid_indicator_name" ON "p_rsf"."indicators" IS 'i
 COMMENT ON CONSTRAINT "check_indicator_name_includes_data_category" ON "p_rsf"."indicators" IS 'Useful for human interpretation of the indicator; but also necessary for system to resolve the indicator''s data category from the name itself.';
 COMMENT ON CONSTRAINT "check_options_group_allows_multiples_can_only_be_text" ON "p_rsf"."indicators" IS 'Multiple selections stored as &-delimited text, so options group that are numerics, etc will throw errors within the application when checking/enforcing that data is appropriately typed.  Meanwhile, fully checking all potential data being a multi-select and type introduces extreme complexity.  Text-only multiples is a fair compromise and only indicator level calculations or checks need to worry about parsing concatenated values';
 COMMENT ON CONSTRAINT "currency_has_data_unit" ON "p_rsf"."indicators" IS 'Currency must specify a currency unit (LCU if not currency specific)';
-COMMENT ON CONSTRAINT "currency_ratio_allowed_data_categories" ON "p_rsf"."indicators" IS 'Currency ratios (ie, fx rates) can only be defined at global (which is IFC official system rates); or at program or facility levels -- rate sources defined by and provided by the respective programs or facilities per contractual agreement';
 COMMENT ON CONSTRAINT "currency_ratio_data_type_LCU_must_be_denominator" ON "p_rsf"."indicators" IS 'Global program cannot define an LCU value conceptually; and technically, sys_global_fx* indicators will always lookup and define actual currencies, so disallowing LCU ensures consistency';
 COMMENT ON CONSTRAINT "currency_ratio_data_type_is_calculated" ON "p_rsf"."indicators" IS 'Currecy ratio data types must be calcualted to ensure that the currency ratio is (re)validated each reporting period.  Pegged currencies will have a fixed fx rate to the currency they are pegged to and will not change over time; whereas floating currencies will almost certainly change from quarter to quarter.  So enforcing a calculation will ensure this is checked and also that a flag will be raised if a user forgets to update an fx rate that should be updated.';
 COMMENT ON CONSTRAINT "currency_ratio_data_type_ratio_alphabetic_order_if_not_LCU" ON "p_rsf"."indicators" IS 'Currency ratios are entered in alphabetic order, unless LCU is used in the denominator';
 COMMENT ON CONSTRAINT "currency_ratio_data_type_units_format" ON "p_rsf"."indicators" IS 'Entity currency unit must define a currency unit value';
 COMMENT ON CONSTRAINT "is_data_unit_is_text" ON "p_rsf"."indicators" IS 'Data units must be text data types.';
 COMMENT ON CONSTRAINT "indicator_names_start_with_lower_case_letters" ON "p_rsf"."indicators" IS 'System dashboard uses upper case letters to identify system columns';
+COMMENT ON CONSTRAINT "currency_ratio_allowed_data_categories" ON "p_rsf"."indicators" IS 'Currency ratios (ie, fx rates) can only be defined at global (which is IFC official system rates); or at facility levels -- rate sources defined by and provided by the respective facilities per contractual agreement';
 
 -- ----------------------------
 -- Primary Key structure for table indicators
@@ -12355,21 +11411,16 @@ ALTER TABLE "p_rsf"."program_settings" ADD CONSTRAINT "program_settings_pkey" PR
 ALTER TABLE "p_rsf"."reporting_cohort_info" ADD CONSTRAINT "reporting_cohort_uploads_pkey" PRIMARY KEY ("reporting_cohort_id");
 
 -- ----------------------------
--- Primary Key structure for table reporting_cohort_template_headers
--- ----------------------------
-ALTER TABLE "p_rsf"."reporting_cohort_template_headers" ADD CONSTRAINT "reporting_cohort_template_headers_pkey" PRIMARY KEY ("reporting_cohort_id", "rsf_pfcbl_id", "indicator_id", "template_header", "template_header_position");
-
--- ----------------------------
 -- Indexes structure for table reporting_cohorts
 -- ----------------------------
 CREATE INDEX "reporting_cohorts-rsf_program_id-where-reported_idx" ON "p_rsf"."reporting_cohorts" USING btree (
-  "rsf_program_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+  "!dep-rsf_program_id" "pg_catalog"."int4_ops" ASC NULLS LAST
 ) WHERE is_reported_cohort = true;
 CREATE INDEX "reporting_cohorts_from_reporting_template_id_idx" ON "p_rsf"."reporting_cohorts" USING btree (
-  "from_reporting_template_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+  "!dep-from_reporting_template_id" "pg_catalog"."int4_ops" ASC NULLS LAST
 );
 CREATE INDEX "reporting_cohorts_parent_reporting_cohort_id_idx" ON "p_rsf"."reporting_cohorts" USING btree (
-  "parent_reporting_cohort_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+  "!dep-parent_reporting_cohort_id" "pg_catalog"."int4_ops" ASC NULLS LAST
 );
 CREATE UNIQUE INDEX "reporting_cohorts_reporting_cohort_id_reporting_asof_date_idx" ON "p_rsf"."reporting_cohorts" USING btree (
   "reporting_asof_date" "pg_catalog"."date_ops" ASC NULLS LAST,
@@ -12381,44 +11432,24 @@ CREATE UNIQUE INDEX "reporting_cohorts_reporting_cohort_id_reporting_asof_date_r
   "reporting_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
 );
 CREATE INDEX "reporting_cohorts_rsf_facility_id_idx" ON "p_rsf"."reporting_cohorts" USING btree (
-  "rsf_program_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "rsf_facility_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+  "!dep-rsf_program_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
+  "!dep-rsf_facility_id" "pg_catalog"."int4_ops" ASC NULLS LAST
 );
 CREATE INDEX "reporting_cohorts_rsf_program_id_reporting_asof_date_idx" ON "p_rsf"."reporting_cohorts" USING btree (
-  "rsf_program_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
+  "!dep-rsf_program_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
   "reporting_asof_date" "pg_catalog"."date_ops" ASC NULLS LAST
 );
 
 -- ----------------------------
 -- Triggers structure for table reporting_cohorts
 -- ----------------------------
-CREATE TRIGGER "trigger_cohort_linked_consistency_check" BEFORE INSERT ON "p_rsf"."reporting_cohorts"
-FOR EACH ROW
-EXECUTE PROCEDURE "p_rsf"."cohort_linked_consistency_check"();
 CREATE TRIGGER "trigger_global_reporting" AFTER INSERT ON "p_rsf"."reporting_cohorts"
 FOR EACH ROW
-WHEN (((new.is_reported_cohort = true) AND (new.rsf_program_id <> 0)))
+WHEN (((new.is_reported_cohort = true) AND (new.reporting_rsf_pfcbl_id <> 0)))
 EXECUTE PROCEDURE "p_rsf"."global_reporting"();
-CREATE TRIGGER "trigger_global_unreporting" AFTER DELETE ON "p_rsf"."reporting_cohorts"
-FOR EACH ROW
-WHEN (((old.is_reported_cohort = true) AND (old.rsf_program_id <> 0)))
-EXECUTE PROCEDURE "p_rsf"."global_unreporting"();
-CREATE TRIGGER "trigger_insert_rsf_facility_id" BEFORE INSERT ON "p_rsf"."reporting_cohorts"
-FOR EACH ROW
-EXECUTE PROCEDURE "p_rsf"."insert_rsf_facility_id"();
-CREATE TRIGGER "trigger_insert_rsf_program_reporting_dates" BEFORE INSERT ON "p_rsf"."reporting_cohorts"
-FOR EACH ROW
-EXECUTE PROCEDURE "p_rsf"."insert_rsf_program_reporting_dates"();
-CREATE TRIGGER "trigger_reporting_cohort_deleted" AFTER DELETE ON "p_rsf"."reporting_cohorts"
-FOR EACH ROW
-EXECUTE PROCEDURE "p_rsf"."reporting_cohort_deleted"();
 CREATE TRIGGER "trigger_reporting_cohort_group_deleted" AFTER DELETE ON "p_rsf"."reporting_cohorts"
 FOR EACH STATEMENT
 EXECUTE PROCEDURE "p_rsf"."reporting_cohort_group_deleted"();
-CREATE TRIGGER "trigger_reporting_cohorts_insert_info" AFTER INSERT ON "p_rsf"."reporting_cohorts"
-FOR EACH ROW
-WHEN ((new.is_reported_cohort = true))
-EXECUTE PROCEDURE "p_rsf"."reporting_cohorts_insert_info"();
 CREATE TRIGGER "trigger_reporting_cohorts_validate_permissions" BEFORE INSERT ON "p_rsf"."reporting_cohorts"
 FOR EACH ROW
 EXECUTE PROCEDURE "p_rsf"."reporting_cohorts_validate_permissions"();
@@ -12426,28 +11457,24 @@ EXECUTE PROCEDURE "p_rsf"."reporting_cohorts_validate_permissions"();
 -- ----------------------------
 -- Uniques structure for table reporting_cohorts
 -- ----------------------------
-ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "reporting_cohorts_reporting_cohort_id_from_reporting_templa_key" UNIQUE ("reporting_cohort_id", "from_reporting_template_id");
+ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "reporting_cohorts_reporting_cohort_id_from_reporting_templa_key" UNIQUE ("reporting_cohort_id", "!dep-from_reporting_template_id");
 ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "reporting_cohorts_reporting_cohort_id_is_reported_cohort_key" UNIQUE ("reporting_cohort_id", "is_reported_cohort");
 ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "unique_reporting_time" UNIQUE ("reporting_time");
-ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "linked_reporting_cohort_unique_has_one_link_in_time" UNIQUE ("reporting_asof_date", "linked_reporting_cohort_id", "rsf_program_id", "rsf_facility_id");
+ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "linked_reporting_cohort_unique_has_one_link_in_time" UNIQUE ("reporting_asof_date", "!dep-linked_reporting_cohort_id", "!dep-rsf_program_id", "!dep-rsf_facility_id");
 COMMENT ON CONSTRAINT "linked_reporting_cohort_unique_has_one_link_in_time" ON "p_rsf"."reporting_cohorts" IS 'Linked cohorts can only have one foreign (future or past) reporting_asof_date linked to it';
 
 -- ----------------------------
 -- Checks structure for table reporting_cohorts
 -- ----------------------------
+ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "data_asof_date_same_quarter_as_reporting_asof_date" CHECK (data_asof_date >= date_trunc('quarter'::text, reporting_asof_date::timestamp with time zone)::date AND data_asof_date <= reporting_asof_date);
 ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "linked_cohorts_do_not_have_parents" CHECK (
 CASE
-    WHEN linked_reporting_cohort_id IS NOT NULL THEN parent_reporting_cohort_id IS NULL
-    ELSE true
-END);
-ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "parent_cohorts_are_reported" CHECK (
-CASE
-    WHEN parent_reporting_cohort_id IS NULL THEN is_reported_cohort = true AND is_calculated_cohort = false AND is_redundancy_cohort = false
+    WHEN "!dep-linked_reporting_cohort_id" IS NOT NULL THEN "!dep-parent_reporting_cohort_id" IS NULL
     ELSE true
 END);
 ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "cannot_be_calculated_and_intraperiod" CHECK (
 CASE
-    WHEN is_redundancy_cohort = true THEN is_calculated_cohort = false
+    WHEN "!dep-is_redundancy_cohort" = true THEN is_calculated_cohort = false
     ELSE true
 END);
 ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "cannot_be_calculated_and_reported" CHECK (
@@ -12455,13 +11482,43 @@ CASE
     WHEN is_reported_cohort = true THEN is_calculated_cohort = false
     ELSE true
 END);
-ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "cannot_be_own_parent" CHECK (parent_reporting_cohort_id <> reporting_cohort_id);
-ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "data_asof_date_same_quarter_as_reporting_asof_date" CHECK (data_asof_date >= date_trunc('quarter'::text, reporting_asof_date::timestamp with time zone)::date AND data_asof_date <= reporting_asof_date);
+ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "cannot_be_own_parent" CHECK ("!dep-parent_reporting_cohort_id" <> reporting_cohort_id);
 
 -- ----------------------------
 -- Primary Key structure for table reporting_cohorts
 -- ----------------------------
 ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "rsf_reporting_cohorts_pkey" PRIMARY KEY ("reporting_cohort_id");
+
+-- ----------------------------
+-- Primary Key structure for table reporting_import_template_headers
+-- ----------------------------
+ALTER TABLE "p_rsf"."reporting_import_template_headers" ADD CONSTRAINT "reporting_import_template_headers_pkey" PRIMARY KEY ("import_id", "rsf_pfcbl_id", "indicator_id", "template_header", "template_header_position");
+
+-- ----------------------------
+-- Indexes structure for table reporting_imports
+-- ----------------------------
+CREATE INDEX "reporting_imports-import_rsf_pfcbl_id" ON "p_rsf"."reporting_imports" USING btree (
+  "import_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+);
+CREATE INDEX "reporting_imports-import_rsf_pfcbl_id-reporting_asof_date" ON "p_rsf"."reporting_imports" USING btree (
+  "import_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
+  "reporting_asof_date" "pg_catalog"."date_ops" ASC NULLS LAST
+);
+
+-- ----------------------------
+-- Primary Key structure for table reporting_imports
+-- ----------------------------
+ALTER TABLE "p_rsf"."reporting_imports" ADD CONSTRAINT "import_templates_pkey" PRIMARY KEY ("import_id");
+
+-- ----------------------------
+-- Triggers structure for table reporting_imports_deleted_archive
+-- ----------------------------
+CREATE TRIGGER "trigger_deleted_reporting_imports_action" AFTER INSERT ON "p_rsf"."reporting_imports_deleted_archive"
+FOR EACH STATEMENT
+EXECUTE PROCEDURE "p_rsf"."deleted_reporting_imports_action"();
+CREATE TRIGGER "trigger_deleted_reporting_imports_logging" BEFORE INSERT ON "p_rsf"."reporting_imports_deleted_archive"
+FOR EACH ROW
+EXECUTE PROCEDURE "p_rsf"."deleted_reporting_imports_logging"();
 
 -- ----------------------------
 -- Indexes structure for table reporting_templates
@@ -12590,6 +11647,16 @@ CREATE INDEX "calculation_evaluations-rsf_pfcbl_id_idx" ON "p_rsf"."rsf_data_cal
 ALTER TABLE "p_rsf"."rsf_data_calculation_evaluations" CLUSTER ON "calculation_evaluations-rsf_pfcbl_id_idx";
 
 -- ----------------------------
+-- Triggers structure for table rsf_data_calculation_evaluations
+-- ----------------------------
+CREATE TRIGGER "trigger_rsf_data_calculation_evaluation_allow" BEFORE INSERT ON "p_rsf"."rsf_data_calculation_evaluations"
+FOR EACH ROW
+EXECUTE PROCEDURE "p_rsf"."rsf_data_calculation_evaluation_allowed"();
+CREATE TRIGGER "trigger_rsf_data_calculation_evaluation_validation" BEFORE DELETE ON "p_rsf"."rsf_data_calculation_evaluations"
+FOR EACH ROW
+EXECUTE PROCEDURE "p_rsf"."rsf_data_calculation_evaluation_validation"();
+
+-- ----------------------------
 -- Primary Key structure for table rsf_data_calculation_evaluations
 -- ----------------------------
 ALTER TABLE "p_rsf"."rsf_data_calculation_evaluations" ADD CONSTRAINT "rsf_data_calculation_evaluations_pkey" PRIMARY KEY ("rsf_pfcbl_id", "indicator_id", "calculation_asof_date");
@@ -12598,6 +11665,11 @@ ALTER TABLE "p_rsf"."rsf_data_calculation_evaluations" ADD CONSTRAINT "rsf_data_
 -- Cluster option for table rsf_data_calculation_evaluations
 -- ----------------------------
 ALTER TABLE "p_rsf"."rsf_data_calculation_evaluations" CLUSTER ON "calculation_evaluations-rsf_pfcbl_id_idx";
+
+-- ----------------------------
+-- Primary Key structure for table rsf_data_calculation_validations
+-- ----------------------------
+ALTER TABLE "p_rsf"."rsf_data_calculation_validations" ADD CONSTRAINT "rsf_data_calculation_validations_pkey" PRIMARY KEY ("rsf_pfcbl_id", "indicator_id", "calculation_asof_date");
 
 -- ----------------------------
 -- Indexes structure for table rsf_data_check_evaluations
@@ -12913,59 +11985,10 @@ ALTER TABLE "p_rsf"."rsf_pfcbl_categories" ADD CONSTRAINT "rsf_pfcbl_categories_
 ALTER TABLE "p_rsf"."rsf_pfcbl_categories" ADD CONSTRAINT "rsf_pfcbl_categories_pkey" PRIMARY KEY ("pfcbl_category");
 
 -- ----------------------------
--- Indexes structure for table rsf_pfcbl_id_family
--- ----------------------------
-CREATE INDEX "family_tree_children" ON "p_rsf"."rsf_pfcbl_id_family" USING btree (
-  "parent_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-) WHERE child_pfcbl_rank > parent_pfcbl_rank;
-CREATE INDEX "family_tree_parents" ON "p_rsf"."rsf_pfcbl_id_family" USING btree (
-  "child_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-) WHERE parent_pfcbl_rank <= child_pfcbl_rank;
-CREATE UNIQUE INDEX "rsf_pfcbl_id_family-global_is_unique_parent" ON "p_rsf"."rsf_pfcbl_id_family" USING btree (
-  "parent_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-) WHERE parent_pfcbl_category::text = 'global'::text;
-CREATE INDEX "rsf_pfcbl_id_family_cascade_down_idx" ON "p_rsf"."rsf_pfcbl_id_family" USING btree (
-  "parent_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "child_pfcbl_category" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
-);
-COMMENT ON INDEX "p_rsf"."rsf_pfcbl_id_family_cascade_down_idx" IS 'Each parent entity (may) have many child entities';
-CREATE UNIQUE INDEX "rsf_pfcbl_id_family_cascade_up_idx" ON "p_rsf"."rsf_pfcbl_id_family" USING btree (
-  "child_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "parent_pfcbl_category" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
-);
-COMMENT ON INDEX "p_rsf"."rsf_pfcbl_id_family_cascade_up_idx" IS 'Each child entity only has one parent entity';
-CREATE INDEX "rsf_pfcbl_id_family_child_pfcbl_category_idx" ON "p_rsf"."rsf_pfcbl_id_family" USING btree (
-  "child_pfcbl_category" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
-);
-CREATE INDEX "rsf_pfcbl_id_family_child_rsf_pfcbl_id_idx" ON "p_rsf"."rsf_pfcbl_id_family" USING btree (
-  "child_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE INDEX "rsf_pfcbl_id_family_parent_pfcbl_category_idx" ON "p_rsf"."rsf_pfcbl_id_family" USING btree (
-  "parent_pfcbl_category" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
-);
-CREATE INDEX "rsf_pfcbl_id_family_parent_rsf_pfcbl_id_idx" ON "p_rsf"."rsf_pfcbl_id_family" USING btree (
-  "parent_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-ALTER TABLE "p_rsf"."rsf_pfcbl_id_family" CLUSTER ON "rsf_pfcbl_id_family_parent_rsf_pfcbl_id_idx";
-
--- ----------------------------
--- Primary Key structure for table rsf_pfcbl_id_family
--- ----------------------------
-ALTER TABLE "p_rsf"."rsf_pfcbl_id_family" ADD CONSTRAINT "rsf_pfcbl_id_family_pkey" PRIMARY KEY ("parent_rsf_pfcbl_id", "child_rsf_pfcbl_id");
-
--- ----------------------------
--- Cluster option for table rsf_pfcbl_id_family
--- ----------------------------
-ALTER TABLE "p_rsf"."rsf_pfcbl_id_family" CLUSTER ON "rsf_pfcbl_id_family_parent_rsf_pfcbl_id_idx";
-
--- ----------------------------
 -- Indexes structure for table rsf_pfcbl_ids
 -- ----------------------------
 CREATE INDEX "rsf_pfcbl_ids_created_by_reporting_cohort_id_idx" ON "p_rsf"."rsf_pfcbl_ids" USING btree (
   "created_by_reporting_cohort_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE INDEX "rsf_pfcbl_ids_parent_rsf_pfcbl_id_idx" ON "p_rsf"."rsf_pfcbl_ids" USING btree (
-  "parent_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
 );
 CREATE INDEX "rsf_pfcbl_ids_pfcbl_category_idx" ON "p_rsf"."rsf_pfcbl_ids" USING btree (
   "pfcbl_category" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
@@ -12995,9 +12018,6 @@ CREATE INDEX "rsf_pfcbl_ids_rsf_program_id_idx" ON "p_rsf"."rsf_pfcbl_ids" USING
 CREATE TRIGGER "trigger_delete_rsf_id" AFTER DELETE ON "p_rsf"."rsf_pfcbl_ids"
 FOR EACH STATEMENT
 EXECUTE PROCEDURE "p_rsf"."delete_rsf_id"();
-CREATE TRIGGER "trigger_insert_rsf_pfcbl_id_1_family" AFTER INSERT ON "p_rsf"."rsf_pfcbl_ids"
-FOR EACH STATEMENT
-EXECUTE PROCEDURE "p_rsf"."insert_rsf_pfcbl_id_family"();
 CREATE TRIGGER "trigger_insert_rsf_pfcbl_id_2_lcu" AFTER INSERT ON "p_rsf"."rsf_pfcbl_ids"
 FOR EACH STATEMENT
 EXECUTE PROCEDURE "p_rsf"."insert_rsf_pfcbl_id_lcu"();
@@ -13072,7 +12092,7 @@ CREATE INDEX "rsf_pfcbl_reporting_template_row_ids_parent_rsf_pfcbl_id_idx" ON "
   "parent_rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
 );
 CREATE INDEX "rsf_pfcbl_reporting_template_row_ids_reporting_cohort_id_idx" ON "p_rsf"."rsf_pfcbl_reporting_template_row_ids" USING btree (
-  "reporting_cohort_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+  "import_id" "pg_catalog"."int4_ops" ASC NULLS LAST
 );
 CREATE INDEX "rsf_pfcbl_reporting_template_row_ids_rsf_pfcbl_id_idx" ON "p_rsf"."rsf_pfcbl_reporting_template_row_ids" USING btree (
   "rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
@@ -13110,122 +12130,6 @@ EXECUTE PROCEDURE "p_rsf"."check_valid_guidance_entry"();
 ALTER TABLE "p_rsf"."rsf_program_facility_check_guidance" ADD CONSTRAINT "rsf_program_check_guidance_pkey" PRIMARY KEY ("rsf_pfcbl_id", "indicator_check_guidance_id");
 
 -- ----------------------------
--- Indexes structure for table rsf_program_facility_checks
--- ----------------------------
-CREATE INDEX "rsf_program_facility_checks_check_formula_id_idx" ON "p_rsf"."rsf_program_facility_checks" USING btree (
-  "check_formula_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE INDEX "rsf_program_facility_checks_rsf_pfcbl_id_idx" ON "p_rsf"."rsf_program_facility_checks" USING btree (
-  "rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-
--- ----------------------------
--- Triggers structure for table rsf_program_facility_checks
--- ----------------------------
-CREATE TRIGGER "trigger_rsf_program_facility_check_prerequisite_subscriptions" AFTER INSERT OR UPDATE ON "p_rsf"."rsf_program_facility_checks"
-FOR EACH ROW
-EXECUTE PROCEDURE "p_rsf"."trigger_rsf_program_facility_check_prerequisite_subscriptions"();
-
--- ----------------------------
--- Primary Key structure for table rsf_program_facility_checks
--- ----------------------------
-ALTER TABLE "p_rsf"."rsf_program_facility_checks" ADD CONSTRAINT "rsf_program_facility_checks_pkey" PRIMARY KEY ("rsf_pfcbl_id", "check_formula_id");
-
--- ----------------------------
--- Indexes structure for table rsf_program_facility_indicators
--- ----------------------------
-CREATE UNIQUE INDEX "rsf_pf_indicators_fid_formula_id" ON "p_rsf"."rsf_program_facility_indicators" USING btree (
-  "rsf_facility_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "formula_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE UNIQUE INDEX "rsf_pf_indicators_fid_indicator_id" ON "p_rsf"."rsf_program_facility_indicators" USING btree (
-  "rsf_facility_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "indicator_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE INDEX "rsf_pf_indicators_formula_id" ON "p_rsf"."rsf_program_facility_indicators" USING btree (
-  "formula_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE INDEX "rsf_pf_indicators_indicator_id" ON "p_rsf"."rsf_program_facility_indicators" USING btree (
-  "indicator_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE INDEX "rsf_pf_indicators_pid_fid" ON "p_rsf"."rsf_program_facility_indicators" USING btree (
-  "rsf_program_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "rsf_facility_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE UNIQUE INDEX "rsf_pf_indicators_pid_fid_formula_id" ON "p_rsf"."rsf_program_facility_indicators" USING btree (
-  "rsf_program_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "rsf_facility_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "formula_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE UNIQUE INDEX "rsf_pf_indicators_pid_fid_indicator_id" ON "p_rsf"."rsf_program_facility_indicators" USING btree (
-  "rsf_program_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "rsf_facility_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "indicator_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE INDEX "rsf_pf_indicators_pid_formula_id" ON "p_rsf"."rsf_program_facility_indicators" USING btree (
-  "rsf_program_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "formula_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE INDEX "rsf_pf_indicators_pid_indicator_id" ON "p_rsf"."rsf_program_facility_indicators" USING btree (
-  "rsf_program_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "indicator_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE INDEX "rsf_pf_indicators_rsf_pfcbl_id" ON "p_rsf"."rsf_program_facility_indicators" USING btree (
-  "rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE UNIQUE INDEX "rsf_pf_indicators_rsf_pfcbl_id_formula_id" ON "p_rsf"."rsf_program_facility_indicators" USING btree (
-  "rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "formula_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-CREATE UNIQUE INDEX "rsf_pf_indicators_rsf_pfcbl_id_indicator_id" ON "p_rsf"."rsf_program_facility_indicators" USING btree (
-  "rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "indicator_id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-
--- ----------------------------
--- Triggers structure for table rsf_program_facility_indicators
--- ----------------------------
-CREATE TRIGGER "trigger_rsf_program_facility_auto_subscriptions_delete" AFTER DELETE ON "p_rsf"."rsf_program_facility_indicators"
-FOR EACH STATEMENT
-EXECUTE PROCEDURE "p_rsf"."trigger_rsf_program_facility_auto_subscriptions"();
-CREATE TRIGGER "trigger_rsf_program_facility_auto_subscriptions_insert" AFTER INSERT ON "p_rsf"."rsf_program_facility_indicators"
-FOR EACH STATEMENT
-EXECUTE PROCEDURE "p_rsf"."trigger_rsf_program_facility_auto_subscriptions"();
-CREATE TRIGGER "trigger_rsf_program_facility_auto_subscriptions_update" AFTER UPDATE ON "p_rsf"."rsf_program_facility_indicators"
-FOR EACH STATEMENT
-EXECUTE PROCEDURE "p_rsf"."trigger_rsf_program_facility_auto_subscriptions"();
-CREATE TRIGGER "trigger_rsf_program_facility_delete_calculated_data" AFTER UPDATE OR DELETE ON "p_rsf"."rsf_program_facility_indicators"
-FOR EACH ROW
-EXECUTE PROCEDURE "p_rsf"."rsf_program_facility_delete_calculated_data"();
-CREATE TRIGGER "trigger_rsf_program_facility_indicator_formula_calculation_unit" BEFORE INSERT OR UPDATE ON "p_rsf"."rsf_program_facility_indicators"
-FOR EACH ROW
-EXECUTE PROCEDURE "p_rsf"."trigger_rsf_program_facility_indicator_validate_unit"();
-CREATE TRIGGER "trigger_rsf_program_facility_indicator_prerequisite_subscriptio" AFTER INSERT OR UPDATE ON "p_rsf"."rsf_program_facility_indicators"
-FOR EACH ROW
-EXECUTE PROCEDURE "p_rsf"."trigger_rsf_program_facility_indicator_prerequisite_subscriptio"();
-CREATE TRIGGER "trigger_rsf_program_facility_subscription_allowed" BEFORE INSERT ON "p_rsf"."rsf_program_facility_indicators"
-FOR EACH ROW
-EXECUTE PROCEDURE "p_rsf"."rsf_program_facility_subscription_allowed"();
-CREATE TRIGGER "trigger_rsf_program_facility_subscription_recalculations" AFTER INSERT OR UPDATE ON "p_rsf"."rsf_program_facility_indicators"
-FOR EACH ROW
-EXECUTE PROCEDURE "p_rsf"."rsf_program_facility_subscription_recalculations"();
-
--- ----------------------------
--- Uniques structure for table rsf_program_facility_indicators
--- ----------------------------
-ALTER TABLE "p_rsf"."rsf_program_facility_indicators" ADD CONSTRAINT "rsf_program_facility_indicato_rsf_program_id_rsf_facility_i_key" UNIQUE ("rsf_program_id", "rsf_facility_id", "indicator_id");
-
--- ----------------------------
--- Checks structure for table rsf_program_facility_indicators
--- ----------------------------
-ALTER TABLE "p_rsf"."rsf_program_facility_indicators" ADD CONSTRAINT "valid_calculation_units" CHECK (formula_calculation_unit IS NULL OR formula_calculation_unit ~ '[A-Z]{3}'::text);
-
--- ----------------------------
--- Primary Key structure for table rsf_program_facility_indicators
--- ----------------------------
-ALTER TABLE "p_rsf"."rsf_program_facility_indicators" ADD CONSTRAINT "rsf_program_facility_indicators_pkey" PRIMARY KEY ("rsf_pfcbl_id", "indicator_id");
-
--- ----------------------------
 -- Indexes structure for table rsf_program_facility_template_headers
 -- ----------------------------
 CREATE INDEX "rsf_program_facility_template_rsf_pfcbl_id_template_id_temp_idx" ON "p_rsf"."rsf_program_facility_template_headers" USING btree (
@@ -13255,7 +12159,6 @@ ALTER TABLE "p_rsf"."rsf_program_facility_template_headers" ADD CONSTRAINT "uniq
 -- ----------------------------
 -- Checks structure for table rsf_program_facility_template_headers
 -- ----------------------------
-ALTER TABLE "p_rsf"."rsf_program_facility_template_headers" ADD CONSTRAINT "valid_actions" CHECK (action = ANY (ARRAY['default'::text, 'ignore'::text, 'remap'::text, 'unmap'::text, 'check'::text, 'calculate'::text, 'parse'::text]));
 ALTER TABLE "p_rsf"."rsf_program_facility_template_headers" ADD CONSTRAINT "valid_mappings" CHECK (true OR
 CASE
     WHEN action = ANY (ARRAY['default'::text, 'ignore'::text, 'parse'::text]) THEN map_indicator_id IS NULL AND map_formula_id IS NULL AND map_check_formula_id IS NULL
@@ -13264,26 +12167,14 @@ CASE
     WHEN action = 'check'::text THEN map_indicator_id IS NULL AND map_formula_id IS NULL AND map_check_formula_id IS NOT NULL
     ELSE true
 END);
-COMMENT ON CONSTRAINT "valid_actions" ON "p_rsf"."rsf_program_facility_template_headers" IS 'Will allow duplicates when mappings are all NULL';
+ALTER TABLE "p_rsf"."rsf_program_facility_template_headers" ADD CONSTRAINT "valid_actions" CHECK (action = ANY (ARRAY['default'::text, 'ignore'::text, 'remap'::text, 'unmap'::text, 'check'::text, 'calculate'::text, 'parse'::text]));
 COMMENT ON CONSTRAINT "valid_mappings" ON "p_rsf"."rsf_program_facility_template_headers" IS 'Not used because UI requires drop down select and then saves selection before mapping selection can be made';
+COMMENT ON CONSTRAINT "valid_actions" ON "p_rsf"."rsf_program_facility_template_headers" IS 'Will allow duplicates when mappings are all NULL';
 
 -- ----------------------------
 -- Primary Key structure for table rsf_program_facility_template_headers
 -- ----------------------------
 ALTER TABLE "p_rsf"."rsf_program_facility_template_headers" ADD CONSTRAINT "rsf_program_facility_templates_pkey" PRIMARY KEY ("header_id");
-
--- ----------------------------
--- Indexes structure for table rsf_program_reporting_dates
--- ----------------------------
-CREATE UNIQUE INDEX "rsf_program_reporting_dates_rsf_program_id_reporting_sequen_idx" ON "p_rsf"."rsf_program_reporting_dates" USING btree (
-  "rsf_program_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "reporting_sequence_rank" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
-
--- ----------------------------
--- Primary Key structure for table rsf_program_reporting_dates
--- ----------------------------
-ALTER TABLE "p_rsf"."rsf_program_reporting_dates" ADD CONSTRAINT "rsf_program_reporting_dates_pkey" PRIMARY KEY ("rsf_program_id", "valid_reporting_date");
 
 -- ----------------------------
 -- Primary Key structure for table rsf_program_settings
@@ -13300,6 +12191,130 @@ COMMENT ON CONSTRAINT "programs_can_report_quarterly_or_monthly" ON "p_rsf"."rsf
 -- Primary Key structure for table rsf_programs
 -- ----------------------------
 ALTER TABLE "p_rsf"."rsf_programs" ADD CONSTRAINT "rsf_programs_pkey" PRIMARY KEY ("rsf_program_id");
+
+-- ----------------------------
+-- Indexes structure for table rsf_setup_checks
+-- ----------------------------
+CREATE INDEX "rsf_setup_checks-check_formula_id_idx" ON "p_rsf"."rsf_setup_checks" USING btree (
+  "check_formula_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+);
+CREATE INDEX "rsf_setup_checks-rsf_pfcbl_id_idx" ON "p_rsf"."rsf_setup_checks" USING btree (
+  "rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+);
+
+-- ----------------------------
+-- Triggers structure for table rsf_setup_checks
+-- ----------------------------
+CREATE TRIGGER "trigger_rsf_setup_checks_1_subscription_allowed" BEFORE INSERT ON "p_rsf"."rsf_setup_checks"
+FOR EACH ROW
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_checks_subscription_allowed"();
+CREATE TRIGGER "trigger_rsf_setup_checks_2_auto_monitor_parameters_insert" AFTER INSERT ON "p_rsf"."rsf_setup_checks"
+FOR EACH STATEMENT
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_checks_auto_monitor_parameters"();
+CREATE TRIGGER "trigger_rsf_setup_checks_2_auto_monitor_parameters_update" AFTER UPDATE ON "p_rsf"."rsf_setup_checks"
+FOR EACH STATEMENT
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_checks_auto_monitor_parameters"();
+
+-- ----------------------------
+-- Primary Key structure for table rsf_setup_checks
+-- ----------------------------
+ALTER TABLE "p_rsf"."rsf_setup_checks" ADD CONSTRAINT "rsf_setup_checks_pkey" PRIMARY KEY ("rsf_pfcbl_id", "check_formula_id");
+
+-- ----------------------------
+-- Indexes structure for table rsf_setup_checks_config
+-- ----------------------------
+CREATE INDEX "rsf_setup_checks_config_rsf_pfcbl_id_idx" ON "p_rsf"."rsf_setup_checks_config" USING btree (
+  "rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+);
+
+-- ----------------------------
+-- Checks structure for table rsf_setup_checks_config
+-- ----------------------------
+ALTER TABLE "p_rsf"."rsf_setup_checks_config" ADD CONSTRAINT "validate_config_check_class" CHECK (config_check_class = ANY (ARRAY['info'::text, 'warning'::text, 'error'::text, 'critical'::text]));
+
+-- ----------------------------
+-- Primary Key structure for table rsf_setup_checks_config
+-- ----------------------------
+ALTER TABLE "p_rsf"."rsf_setup_checks_config" ADD CONSTRAINT "rsf_setup_checks_config_pkey" PRIMARY KEY ("rsf_pfcbl_id", "for_indicator_id", "indicator_check_id");
+
+-- ----------------------------
+-- Indexes structure for table rsf_setup_indicators
+-- ----------------------------
+CREATE INDEX "rsf_setup_indicators-formula_id" ON "p_rsf"."rsf_setup_indicators" USING btree (
+  "formula_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+);
+CREATE INDEX "rsf_setup_indicators-indicator_id" ON "p_rsf"."rsf_setup_indicators" USING btree (
+  "indicator_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+);
+CREATE INDEX "rsf_setup_indicators-rsf_pfcbl_id" ON "p_rsf"."rsf_setup_indicators" USING btree (
+  "rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+);
+CREATE UNIQUE INDEX "rsf_setup_indicators-rsf_pfcbl_id_formula_id" ON "p_rsf"."rsf_setup_indicators" USING btree (
+  "rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
+  "formula_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+);
+CREATE UNIQUE INDEX "rsf_setup_indicators-rsf_pfcbl_id_indicator_id" ON "p_rsf"."rsf_setup_indicators" USING btree (
+  "rsf_pfcbl_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
+  "indicator_id" "pg_catalog"."int4_ops" ASC NULLS LAST
+);
+
+-- ----------------------------
+-- Triggers structure for table rsf_setup_indicators
+-- ----------------------------
+CREATE TRIGGER "trigger_rsf_setup_indicators_1_subscription_allowed" BEFORE INSERT ON "p_rsf"."rsf_setup_indicators"
+FOR EACH ROW
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_indicators_subscription_allowed"();
+CREATE TRIGGER "trigger_rsf_setup_indicators_2_subscription_calculation_unit" BEFORE INSERT OR UPDATE ON "p_rsf"."rsf_setup_indicators"
+FOR EACH ROW
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_indicators_validate_calculation_unit"();
+CREATE TRIGGER "trigger_rsf_setup_indicators_3_auto_monitor_parameters_insert" AFTER INSERT ON "p_rsf"."rsf_setup_indicators"
+FOR EACH STATEMENT
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_indicators_auto_monitor_parameters"();
+CREATE TRIGGER "trigger_rsf_setup_indicators_3_auto_monitor_parameters_update" AFTER UPDATE ON "p_rsf"."rsf_setup_indicators"
+FOR EACH STATEMENT
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_indicators_auto_monitor_parameters"();
+CREATE TRIGGER "trigger_rsf_setup_indicators_4_auto_monitor_checks_delete" AFTER DELETE ON "p_rsf"."rsf_setup_indicators"
+FOR EACH STATEMENT
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_indicators_auto_monitor_checks"();
+CREATE TRIGGER "trigger_rsf_setup_indicators_4_auto_monitor_checks_insert" AFTER INSERT ON "p_rsf"."rsf_setup_indicators"
+FOR EACH STATEMENT
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_indicators_auto_monitor_checks"();
+CREATE TRIGGER "trigger_rsf_setup_indicators_4_auto_monitor_checks_update" AFTER UPDATE ON "p_rsf"."rsf_setup_indicators"
+FOR EACH STATEMENT
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_indicators_auto_monitor_checks"();
+CREATE TRIGGER "trigger_rsf_setup_indicators_5_delete_calculated_data_delete" AFTER DELETE ON "p_rsf"."rsf_setup_indicators"
+FOR EACH STATEMENT
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_indicators_delete_calculated_data"();
+CREATE TRIGGER "trigger_rsf_setup_indicators_5_delete_calculated_data_update" AFTER UPDATE ON "p_rsf"."rsf_setup_indicators"
+FOR EACH STATEMENT
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_indicators_delete_calculated_data"();
+CREATE TRIGGER "trigger_rsf_setup_indicators_6_subscription_recalculations_inse" AFTER INSERT ON "p_rsf"."rsf_setup_indicators"
+FOR EACH STATEMENT
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_indicators_subscription_recalculations"();
+CREATE TRIGGER "trigger_rsf_setup_indicators_6_subscription_recalculations_upda" AFTER UPDATE ON "p_rsf"."rsf_setup_indicators"
+FOR EACH STATEMENT
+EXECUTE PROCEDURE "p_rsf"."rsf_setup_indicators_subscription_recalculations"();
+
+-- ----------------------------
+-- Checks structure for table rsf_setup_indicators
+-- ----------------------------
+ALTER TABLE "p_rsf"."rsf_setup_indicators" ADD CONSTRAINT "valid_calculation_units" CHECK (formula_calculation_unit IS NULL OR formula_calculation_unit ~ '[A-Z]{3}'::text);
+
+-- ----------------------------
+-- Primary Key structure for table rsf_setup_indicators
+-- ----------------------------
+ALTER TABLE "p_rsf"."rsf_setup_indicators" ADD CONSTRAINT "rsf_setup_indicators_pkey" PRIMARY KEY ("rsf_pfcbl_id", "indicator_id");
+
+-- ----------------------------
+-- Foreign Keys structure for table !dep-rsf_pfcbl_id_family
+-- ----------------------------
+ALTER TABLE "p_rsf"."!dep-rsf_pfcbl_id_family" ADD CONSTRAINT "rsf_pfcbl_id_family_child_rsf_pfcbl_id_fkey" FOREIGN KEY ("child_rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "p_rsf"."!dep-rsf_pfcbl_id_family" ADD CONSTRAINT "rsf_pfcbl_id_family_parent_rsf_pfcbl_id_fkey" FOREIGN KEY ("parent_rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE NO ACTION;
+
+-- ----------------------------
+-- Foreign Keys structure for table !dep-rsf_program_reporting_dates
+-- ----------------------------
+ALTER TABLE "p_rsf"."!dep-rsf_program_reporting_dates" ADD CONSTRAINT "rsf_program_reporting_dates_rsf_program_id_fkey" FOREIGN KEY ("rsf_program_id") REFERENCES "p_rsf"."rsf_programs" ("rsf_program_id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- ----------------------------
 -- Foreign Keys structure for table export_template_reports
@@ -13383,20 +12398,17 @@ ALTER TABLE "p_rsf"."labels" ADD CONSTRAINT "labels_label_key_fkey" FOREIGN KEY 
 ALTER TABLE "p_rsf"."reporting_cohort_info" ADD CONSTRAINT "reporting_cohort_info-reporting_cohort_id_fkey" FOREIGN KEY ("reporting_cohort_id") REFERENCES "p_rsf"."reporting_cohorts" ("reporting_cohort_id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- ----------------------------
--- Foreign Keys structure for table reporting_cohort_template_headers
--- ----------------------------
-ALTER TABLE "p_rsf"."reporting_cohort_template_headers" ADD CONSTRAINT "reporting_cohort_template_headers_indicator_id_fkey" FOREIGN KEY ("indicator_id") REFERENCES "p_rsf"."indicators" ("indicator_id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "p_rsf"."reporting_cohort_template_headers" ADD CONSTRAINT "reporting_cohort_template_headers_reporting_cohort_id_fkey" FOREIGN KEY ("reporting_cohort_id") REFERENCES "p_rsf"."reporting_cohorts" ("reporting_cohort_id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "p_rsf"."reporting_cohort_template_headers" ADD CONSTRAINT "reporting_cohort_template_headers_rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- ----------------------------
 -- Foreign Keys structure for table reporting_cohorts
 -- ----------------------------
-ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "reporting_cohorts_linked_reporting_cohort_id_fkey" FOREIGN KEY ("linked_reporting_cohort_id") REFERENCES "p_rsf"."reporting_cohorts" ("reporting_cohort_id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "reporting_cohorts_parent_reporting_cohort_id_fkey" FOREIGN KEY ("parent_reporting_cohort_id", "reporting_asof_date", "reporting_rsf_pfcbl_id") REFERENCES "p_rsf"."reporting_cohorts" ("reporting_cohort_id", "reporting_asof_date", "reporting_rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "reporting_cohorts_rsf_facility_id" FOREIGN KEY ("rsf_facility_id") REFERENCES "p_rsf"."rsf_facilities" ("rsf_facility_id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "reporting_cohorts_rsf_program_id_fkey" FOREIGN KEY ("rsf_program_id") REFERENCES "p_rsf"."rsf_programs" ("rsf_program_id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "reporting_cohorts_rsf_program_id_fkey1" FOREIGN KEY ("rsf_program_id", "reporting_asof_date") REFERENCES "p_rsf"."rsf_program_reporting_dates" ("rsf_program_id", "valid_reporting_date") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "reporting_cohorts-import_id_fkey" FOREIGN KEY ("import_id") REFERENCES "p_rsf"."reporting_imports" ("import_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "p_rsf"."reporting_cohorts" ADD CONSTRAINT "reporting_cohorts-reporting_rsf_pfcbl_id_fkey" FOREIGN KEY ("reporting_rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED;
+
+-- ----------------------------
+-- Foreign Keys structure for table reporting_import_template_headers
+-- ----------------------------
+ALTER TABLE "p_rsf"."reporting_import_template_headers" ADD CONSTRAINT "reporting_import_template_headers_indicator_id_fkey" FOREIGN KEY ("indicator_id") REFERENCES "p_rsf"."indicators" ("indicator_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "p_rsf"."reporting_import_template_headers" ADD CONSTRAINT "reporting_import_template_headers_reporting_cohort_id_fkey" FOREIGN KEY ("import_id") REFERENCES "p_rsf"."reporting_imports" ("import_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "p_rsf"."reporting_import_template_headers" ADD CONSTRAINT "reporting_import_template_headers_rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- ----------------------------
 -- Foreign Keys structure for table rsf_clients
@@ -13411,8 +12423,16 @@ ALTER TABLE "p_rsf"."rsf_data" ADD CONSTRAINT "rsf_data-reporting_cohort_id_fkey
 ALTER TABLE "p_rsf"."rsf_data" ADD CONSTRAINT "rsf_data-rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE NO ACTION ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED;
 
 -- ----------------------------
+-- Foreign Keys structure for table rsf_data_calculation_validations
+-- ----------------------------
+ALTER TABLE "p_rsf"."rsf_data_calculation_validations" ADD CONSTRAINT "rsf_data_calculation_validations_data_id_fkey" FOREIGN KEY ("data_id") REFERENCES "p_rsf"."rsf_data_current" ("data_id") ON DELETE CASCADE ON UPDATE CASCADE DEFERRABLE;
+ALTER TABLE "p_rsf"."rsf_data_calculation_validations" ADD CONSTRAINT "rsf_data_calculation_validations_indicator_id_fkey" FOREIGN KEY ("indicator_id") REFERENCES "p_rsf"."indicators" ("indicator_id") ON DELETE CASCADE ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE "p_rsf"."rsf_data_calculation_validations" ADD CONSTRAINT "rsf_data_calculation_validations_rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED;
+
+-- ----------------------------
 -- Foreign Keys structure for table rsf_data_checks
 -- ----------------------------
+ALTER TABLE "p_rsf"."rsf_data_checks" ADD CONSTRAINT "rsf_data_checks-formula_null_or_exists" FOREIGN KEY ("check_formula_id") REFERENCES "p_rsf"."indicator_check_formulas" ("check_formula_id") ON DELETE CASCADE ON UPDATE NO ACTION;
 ALTER TABLE "p_rsf"."rsf_data_checks" ADD CONSTRAINT "rsf_data_checks_consolidated_from_indicator_check_id_fkey" FOREIGN KEY ("consolidated_from_indicator_check_id") REFERENCES "p_rsf"."indicator_checks" ("indicator_check_id") ON DELETE CASCADE ON UPDATE NO ACTION;
 ALTER TABLE "p_rsf"."rsf_data_checks" ADD CONSTRAINT "rsf_data_checks_data_id_fkey" FOREIGN KEY ("data_id") REFERENCES "p_rsf"."rsf_data" ("data_id") ON DELETE CASCADE ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE "p_rsf"."rsf_data_checks" ADD CONSTRAINT "rsf_data_checks_indicator_check_guidance_id_fkey" FOREIGN KEY ("indicator_check_guidance_id") REFERENCES "p_rsf"."indicator_check_guidance" ("indicator_check_guidance_id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -13445,7 +12465,7 @@ ALTER TABLE "p_rsf"."rsf_data_current_fx" ADD CONSTRAINT "rsf_data_current_fx_rs
 -- ----------------------------
 -- Foreign Keys structure for table rsf_data_current_lcu
 -- ----------------------------
-ALTER TABLE "p_rsf"."rsf_data_current_lcu" ADD CONSTRAINT "rsf_data_current_lcu_for_rsf_pfcbl_id_fkey" FOREIGN KEY ("for_rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "p_rsf"."rsf_data_current_lcu" ADD CONSTRAINT "rsf_data_current_lcu_for_rsf_pfcbl_id_fkey" FOREIGN KEY ("for_rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE "p_rsf"."rsf_data_current_lcu" ADD CONSTRAINT "rsf_data_current_lcu_lcu_unit_data_id_fkey" FOREIGN KEY ("lcu_unit_data_id") REFERENCES "p_rsf"."rsf_data_current" ("data_id") ON DELETE NO ACTION ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED;
 COMMENT ON CONSTRAINT "rsf_data_current_lcu_lcu_unit_data_id_fkey" ON "p_rsf"."rsf_data_current_lcu" IS 'Enables historic updates to cascade into the future';
 
@@ -13462,19 +12482,17 @@ ALTER TABLE "p_rsf"."rsf_facilities" ADD CONSTRAINT "rsf_facilities_rsf_program_
 -- ----------------------------
 -- Foreign Keys structure for table rsf_loan_issuance_series
 -- ----------------------------
-ALTER TABLE "p_rsf"."rsf_loan_issuance_series" ADD CONSTRAINT "rsf_loan_issuance_series_id_value_data_id_fkey" FOREIGN KEY ("id_value_data_id") REFERENCES "p_rsf"."rsf_data_current" ("data_id") ON DELETE NO ACTION ON UPDATE NO ACTION;
-ALTER TABLE "p_rsf"."rsf_loan_issuance_series" ADD CONSTRAINT "rsf_loan_issuance_series_rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- ----------------------------
--- Foreign Keys structure for table rsf_pfcbl_id_family
--- ----------------------------
-ALTER TABLE "p_rsf"."rsf_pfcbl_id_family" ADD CONSTRAINT "rsf_pfcbl_id_family_child_rsf_pfcbl_id_fkey" FOREIGN KEY ("child_rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE NO ACTION;
-ALTER TABLE "p_rsf"."rsf_pfcbl_id_family" ADD CONSTRAINT "rsf_pfcbl_id_family_parent_rsf_pfcbl_id_fkey" FOREIGN KEY ("parent_rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "p_rsf"."rsf_loan_issuance_series" ADD CONSTRAINT "rsf_loan_issuance_series_id_value_data_id_fkey" FOREIGN KEY ("id_value_data_id") REFERENCES "p_rsf"."rsf_data_current" ("data_id") ON DELETE CASCADE ON UPDATE NO ACTION DEFERRABLE;
+ALTER TABLE "p_rsf"."rsf_loan_issuance_series" ADD CONSTRAINT "rsf_loan_issuance_series_rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE NO ACTION;
 
 -- ----------------------------
 -- Foreign Keys structure for table rsf_pfcbl_ids
 -- ----------------------------
+ALTER TABLE "p_rsf"."rsf_pfcbl_ids" ADD CONSTRAINT "rsf_pfcbl_ids-borrower_has_client" FOREIGN KEY ("rsf_client_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE RESTRICT;
+ALTER TABLE "p_rsf"."rsf_pfcbl_ids" ADD CONSTRAINT "rsf_pfcbl_ids-client_has_facility" FOREIGN KEY ("rsf_facility_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE RESTRICT;
 ALTER TABLE "p_rsf"."rsf_pfcbl_ids" ADD CONSTRAINT "rsf_pfcbl_ids-created_by_reporting_cohort_id_fkey" FOREIGN KEY ("created_by_reporting_cohort_id") REFERENCES "p_rsf"."reporting_cohorts" ("reporting_cohort_id") ON DELETE NO ACTION ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE "p_rsf"."rsf_pfcbl_ids" ADD CONSTRAINT "rsf_pfcbl_ids-facility_has_program" FOREIGN KEY ("rsf_program_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE RESTRICT;
+ALTER TABLE "p_rsf"."rsf_pfcbl_ids" ADD CONSTRAINT "rsf_pfcbl_ids-loan_has_borrower" FOREIGN KEY ("rsf_borrower_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE RESTRICT;
 ALTER TABLE "p_rsf"."rsf_pfcbl_ids" ADD CONSTRAINT "rsf_pfcbl_ids-pfcbl_category_fkey" FOREIGN KEY ("pfcbl_category", "pfcbl_category_rank") REFERENCES "p_rsf"."rsf_pfcbl_categories" ("pfcbl_category", "pfcbl_rank") ON DELETE RESTRICT ON UPDATE RESTRICT;
 ALTER TABLE "p_rsf"."rsf_pfcbl_ids" ADD CONSTRAINT "rsf_pfcbl_ids-rsf_client_id_fkey" FOREIGN KEY ("rsf_client_id") REFERENCES "p_rsf"."rsf_clients" ("rsf_client_id") ON DELETE NO ACTION ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE "p_rsf"."rsf_pfcbl_ids" ADD CONSTRAINT "rsf_pfcbl_ids-rsf_facility_id_fkey" FOREIGN KEY ("rsf_facility_id") REFERENCES "p_rsf"."rsf_facilities" ("rsf_facility_id") ON DELETE NO ACTION ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED;
@@ -13486,31 +12504,18 @@ COMMENT ON CONSTRAINT "rsf_pfcbl_ids-rsf_program_id_fkey" ON "p_rsf"."rsf_pfcbl_
 -- Foreign Keys structure for table rsf_pfcbl_reporting
 -- ----------------------------
 ALTER TABLE "p_rsf"."rsf_pfcbl_reporting" ADD CONSTRAINT "rsf_pfcbl_reporting-creatd_by_data_id_fkey" FOREIGN KEY ("created_by_data_id") REFERENCES "p_rsf"."rsf_data" ("data_id") ON DELETE NO ACTION ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED;
-ALTER TABLE "p_rsf"."rsf_pfcbl_reporting" ADD CONSTRAINT "rsf_pfcbl_reporting-rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE NO ACTION ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE "p_rsf"."rsf_pfcbl_reporting" ADD CONSTRAINT "rsf_pfcbl_reporting-rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED;
 
 -- ----------------------------
 -- Foreign Keys structure for table rsf_pfcbl_reporting_template_row_ids
 -- ----------------------------
-ALTER TABLE "p_rsf"."rsf_pfcbl_reporting_template_row_ids" ADD CONSTRAINT "rsf_pfcbl_reporting_template_row_ids_reporting_cohort_id_fkey" FOREIGN KEY ("reporting_cohort_id") REFERENCES "p_rsf"."reporting_cohorts" ("reporting_cohort_id") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "p_rsf"."rsf_pfcbl_reporting_template_row_ids" ADD CONSTRAINT "rsf_pfcbl_reporting_template_row_ids_import_id_fkey" FOREIGN KEY ("import_id") REFERENCES "p_rsf"."reporting_imports" ("import_id") ON DELETE CASCADE ON UPDATE NO ACTION;
 
 -- ----------------------------
 -- Foreign Keys structure for table rsf_program_facility_check_guidance
 -- ----------------------------
 ALTER TABLE "p_rsf"."rsf_program_facility_check_guidance" ADD CONSTRAINT "rsf_program_facility_check_gui_indicator_check_guidance_id_fkey" FOREIGN KEY ("indicator_check_guidance_id") REFERENCES "p_rsf"."indicator_check_guidance" ("indicator_check_guidance_id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "p_rsf"."rsf_program_facility_check_guidance" ADD CONSTRAINT "rsf_program_facility_check_guidance_rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- ----------------------------
--- Foreign Keys structure for table rsf_program_facility_checks
--- ----------------------------
-ALTER TABLE "p_rsf"."rsf_program_facility_checks" ADD CONSTRAINT "rsf_program_facility_checks_check_formula_id_fkey" FOREIGN KEY ("check_formula_id") REFERENCES "p_rsf"."indicator_check_formulas" ("check_formula_id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "p_rsf"."rsf_program_facility_checks" ADD CONSTRAINT "rsf_program_facility_checks_rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- ----------------------------
--- Foreign Keys structure for table rsf_program_facility_indicators
--- ----------------------------
-ALTER TABLE "p_rsf"."rsf_program_facility_indicators" ADD CONSTRAINT "rsf_program_facility_indicators_formula_id_fkey" FOREIGN KEY ("formula_id") REFERENCES "p_rsf"."indicator_formulas" ("formula_id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "p_rsf"."rsf_program_facility_indicators" ADD CONSTRAINT "rsf_program_facility_indicators_indicator_id_fkey" FOREIGN KEY ("indicator_id") REFERENCES "p_rsf"."indicators" ("indicator_id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "p_rsf"."rsf_program_facility_indicators" ADD CONSTRAINT "rsf_program_facility_indicators_rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "p_rsf"."rsf_program_facility_check_guidance" ADD CONSTRAINT "rsf_program_facility_check_guidance_rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED;
 
 -- ----------------------------
 -- Foreign Keys structure for table rsf_program_facility_template_headers
@@ -13522,12 +12527,28 @@ ALTER TABLE "p_rsf"."rsf_program_facility_template_headers" ADD CONSTRAINT "rsf_
 ALTER TABLE "p_rsf"."rsf_program_facility_template_headers" ADD CONSTRAINT "rsf_program_facility_templates_template_id_fkey" FOREIGN KEY ("template_id") REFERENCES "p_rsf"."reporting_templates" ("template_id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- ----------------------------
--- Foreign Keys structure for table rsf_program_reporting_dates
--- ----------------------------
-ALTER TABLE "p_rsf"."rsf_program_reporting_dates" ADD CONSTRAINT "rsf_program_reporting_dates_rsf_program_id_fkey" FOREIGN KEY ("rsf_program_id") REFERENCES "p_rsf"."rsf_programs" ("rsf_program_id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- ----------------------------
 -- Foreign Keys structure for table rsf_program_settings
 -- ----------------------------
 ALTER TABLE "p_rsf"."rsf_program_settings" ADD CONSTRAINT "rsf_program_settings_rsf_program_id_fkey" FOREIGN KEY ("rsf_program_id") REFERENCES "p_rsf"."rsf_programs" ("rsf_program_id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "p_rsf"."rsf_program_settings" ADD CONSTRAINT "rsf_program_settings_setting_name_fkey" FOREIGN KEY ("setting_name") REFERENCES "p_rsf"."program_settings" ("setting_name") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- ----------------------------
+-- Foreign Keys structure for table rsf_setup_checks
+-- ----------------------------
+ALTER TABLE "p_rsf"."rsf_setup_checks" ADD CONSTRAINT "rsf_setup_checks-cohort_id" FOREIGN KEY ("auto_subscribed_by_reporting_cohort_id") REFERENCES "p_rsf"."reporting_cohorts" ("reporting_cohort_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "p_rsf"."rsf_setup_checks" ADD CONSTRAINT "rsf_setup_checks_check_formula_id_fkey" FOREIGN KEY ("check_formula_id") REFERENCES "p_rsf"."indicator_check_formulas" ("check_formula_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "p_rsf"."rsf_setup_checks" ADD CONSTRAINT "rsf_setup_checks_rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- ----------------------------
+-- Foreign Keys structure for table rsf_setup_checks_config
+-- ----------------------------
+ALTER TABLE "p_rsf"."rsf_setup_checks_config" ADD CONSTRAINT "rsf_setup_checks_config-check_id_fkey" FOREIGN KEY ("indicator_check_id") REFERENCES "p_rsf"."indicator_checks" ("indicator_check_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "p_rsf"."rsf_setup_checks_config" ADD CONSTRAINT "rsf_setup_checks_config-indicator_id_fkey" FOREIGN KEY ("for_indicator_id") REFERENCES "p_rsf"."indicators" ("indicator_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "p_rsf"."rsf_setup_checks_config" ADD CONSTRAINT "rsf_setup_checks_config-rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- ----------------------------
+-- Foreign Keys structure for table rsf_setup_indicators
+-- ----------------------------
+ALTER TABLE "p_rsf"."rsf_setup_indicators" ADD CONSTRAINT "rsf_setup_indicators_formula_id_fkey" FOREIGN KEY ("formula_id") REFERENCES "p_rsf"."indicator_formulas" ("formula_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "p_rsf"."rsf_setup_indicators" ADD CONSTRAINT "rsf_setup_indicators_indicator_id_fkey" FOREIGN KEY ("indicator_id") REFERENCES "p_rsf"."indicators" ("indicator_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "p_rsf"."rsf_setup_indicators" ADD CONSTRAINT "rsf_setup_indicators_rsf_pfcbl_id_fkey" FOREIGN KEY ("rsf_pfcbl_id") REFERENCES "p_rsf"."rsf_pfcbl_ids" ("rsf_pfcbl_id") ON DELETE CASCADE ON UPDATE CASCADE;

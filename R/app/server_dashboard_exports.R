@@ -132,7 +132,7 @@ observeEvent(input$server_dashboard_exports__run_template, {
   report <-  SERVER_DASHBOARD_REPORTS_LIST()[report_id==report_ids[1],
                                              .(report_id,
                                                report_title,
-                                               for_client_sys_names,
+                                               for_facility_sys_names,
                                                for_indicator_names,
                                                for_asof_dates,
                                                report_parameters)]
@@ -195,7 +195,7 @@ observeEvent(SERVER_DASHBOARD_DATA_DISPLAY(), {
   report <-  SERVER_DASHBOARD_REPORTS_LIST()[report_id==selected_report_id,
                                              .(report_id,
                                                report_title,
-                                               for_client_sys_names,
+                                               for_facility_sys_names,
                                                for_indicator_names,
                                                for_asof_dates,
                                                report_parameters)]

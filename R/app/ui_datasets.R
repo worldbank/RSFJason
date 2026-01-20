@@ -8,7 +8,7 @@ div(style="background-color:white;padding:10px;",
   div(style="position:relative;float:right;display:inline-block;white-space:nowrap;height:34px;",
          div(style="display:inline-block",shiny::tags$label("Search Datasets")),
          
-         div(style=" display:inline-block;",selectInput(input="dataset_review_filter_client",
+         div(style=" display:inline-block;",selectInput(input="dataset_review_filter_facility",
                                                    label=NULL,
                                                    choices=NULL,
                                                    selected=NULL,

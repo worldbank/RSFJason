@@ -230,7 +230,7 @@ observeEvent(input$setup_program_create_action_button, {
         else if (what=="client") parent_rsf_pfcbl_id <- facility_rsf_pfcbl_id
         else if (what=="borrower") parent_rsf_pfcbl_id <- client_rsf_pfcbl_id
         else if (what=="loan") parent_rsf_pfcbl_id <- borrower_rsf_pfcbl_id
-        
+
         excelwb <- DBPOOL %>% export_create_entity_to_excel(parent_rsf_pfcbl_id=parent_rsf_pfcbl_id,
                                                             reporting_asof_date=reporting_asof_date,
                                                             entity_data=setup_indicators,
@@ -248,7 +248,7 @@ observeEvent(input$setup_program_create_action_button, {
           incProgress(amount=0,
                       message=paste0("Uploading data: ",dots))
         }
-        
+ 
         results <- tryCatch({
           #Template gets its own database pool
           template_parse_process_and_upload(pool=dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]])),
@@ -276,57 +276,54 @@ observeEvent(input$setup_program_create_action_button, {
         })
         
         file.remove(export_filename)
-        
+
         #this utility can only create one at a time, so select last-created by this parent
-          created_rsf_pfcbl_ids <- DBPOOL %>% dbGetQuery("select fam.child_rsf_pfcbl_id as rsf_pfcbl_id
-                                                          from p_rsf.rsf_pfcbl_id_family fam 
-                                                          inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
-                                                          where fam.parent_rsf_pfcbl_id = $1::int
-                                                          and fam.child_pfcbl_category = $2::text
-                                                          order by ids.rsf_pfcbl_id desc
-                                                          limit 1",
-                                                         params=list(parent_rsf_pfcbl_id,
-                                                                     what))
+          created_rsf_pfcbl_ids <- DBPOOL %>% dbGetQuery("
+            select ids.rsf_pfcbl_id
+            from p_rsf.reporting_cohorts rc
+            inner join p_rsf.rsf_pfcbl_ids ids on ids.created_by_reporting_cohort_id = rc.reporting_cohort_id
+            where rc.import_id = $1::int
+              and ids.pfcbl_category_rank <= 3",
+          params=list(results$import_id))
           
           created_rsf_pfcbl_ids <- unlist(created_rsf_pfcbl_ids)
-          if (!isTruthy(created_rsf_pfcbl_ids)) created_rsf_pfcbl_ids <- NA
+          #if (!isTruthy(created_rsf_pfcbl_ids)) created_rsf_pfcbl_ids <- NA
           
-          LOAD_REPORTING_COHORT(results$reporting_cohort_id)
-          if (what %in% c("facility","client")) LOAD_RSF_PFCBL_IDS(created_rsf_pfcbl_ids)
-          
-          print(paste0("NEW CREATED RSF_PFCBL_IDS: ",paste0(created_rsf_pfcbl_ids,collapse=", ")))
+          LOAD_IMPORT(results$import_id)
+          if (length(created_rsf_pfcbl_ids)>0) LOAD_RSF_PFCBL_IDS(created_rsf_pfcbl_ids)
           
           if (!any(as.character(unique(results$reporting_asof_date)) %in% as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))) {
             new_dates <- setdiff(sort(as.character(unique(results$reporting_asof_date))),as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))
             LOAD_VALID_REPORTING_DATE(new_dates)
           }
           
+          showNotification(ui=h3(paste0("New ",toupper(what)," successfully created!")))
           #browser()
           #program has its own clause
-          if (what %in% c("facility","client")) {
-            
-            updateSelectizeInput(session=session,
-                                 inputId="setup_program_create_what",
-                                 selected="")
-            
-            updateTabsetPanel(session=session,
-                              inputId="tabset_setup_program",
-                              selected = "Setup Indicators")
-            
-            modal_ui <-div(p("Setup indicators and Setup checks for this ",toupper(what)," to encode RSA definitions and requirements"),
-                           p("Colored indicators are monitored.  Grayed-out are not.  Check the box and click the cross-arrows icon button to toggle monitoring status"),
-                           p("Calculated indicators use formulas: RSAs often have different definitions. Verify the default formula or set the correct one using the calculator icon button"),
-                           p("RSA Facility Parameters (purple indicators) must setup the parameter value.  For example, if the RSA defines natural termination as 4-years after Signing Date, update the 'facility_termination_RSA_duration_MONTHS' to 48 MONTHS.  And also set the formula for the 'facility_termination_date' to be relative to SIGNING DATE (and change from the RSA default from effective date)"),
-                           p("The filters on this page have been selected for you for SETUP MODE: This allows you to double-click on the 'Value@' column, to active an editing box.  Type in the value defined in the RSA.  You can also double-click on 'Notes' column to comment on this indicator's setup"))
-            
-            showModal(ui=modalDialog(title=paste0("Setup this ",toupper(what)),
-                                     modal_ui,
-                                     size="l",
-                                     footer=actionButton(inputId="server_setup_create_setup_indicators",
-                                                         label=paste0("Setup ",toupper(what)," Now"),
-                                                         class="btn-primary")))
-            
-          }
+          # if (what %in% c("facility","client")) {
+          #   
+          #   updateSelectizeInput(session=session,
+          #                        inputId="setup_program_create_what",
+          #                        selected="")
+          #   
+          #   updateTabsetPanel(session=session,
+          #                     inputId="tabset_setup_program",
+          #                     selected = "Setup Indicators")
+          #   
+          #   modal_ui <-div(p("Setup indicators and Setup checks for this ",toupper(what)," to encode RSA definitions and requirements"),
+          #                  p("Colored indicators are monitored.  Grayed-out are not.  Check the box and click the cross-arrows icon button to toggle monitoring status"),
+          #                  p("Calculated indicators use formulas: RSAs often have different definitions. Verify the default formula or set the correct one using the calculator icon button"),
+          #                  p("RSA Facility Parameters (purple indicators) must setup the parameter value.  For example, if the RSA defines natural termination as 4-years after Signing Date, update the 'facility_termination_RSA_duration_MONTHS' to 48 MONTHS.  And also set the formula for the 'facility_termination_date' to be relative to SIGNING DATE (and change from the RSA default from effective date)"),
+          #                  p("The filters on this page have been selected for you for SETUP MODE: This allows you to double-click on the 'Value@' column, to active an editing box.  Type in the value defined in the RSA.  You can also double-click on 'Notes' column to comment on this indicator's setup"))
+          #   
+          #   showModal(ui=modalDialog(title=paste0("Setup this ",toupper(what)),
+          #                            modal_ui,
+          #                            size="l",
+          #                            footer=actionButton(inputId="server_setup_create_setup_indicators",
+          #                                                label=paste0("Setup ",toupper(what)," Now"),
+          #                                                class="btn-primary")))
+          #   
+          # }
       }
     })
   },
@@ -415,10 +412,9 @@ observeEvent(input$setup_program_create_selected_facility, {
     clients <- DBPOOL %>% dbGetQuery("select 
                                       	nids.rsf_pfcbl_id,
                                       	nids.rsf_full_name
-                                      from p_rsf.rsf_pfcbl_id_family fam
-                                      inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
-                                      where fam.parent_rsf_pfcbl_id = $1::int 
-                                      	and fam.child_pfcbl_category = 'client'
+                                      from p_rsf.rsf_pfcbl_ids
+                                      inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_client_id
+                                      where ids.rsf_pfcbl_id = $1::int 
                                       order by nids.rsf_full_name",
                                      params=list(facility_rsf_pfcbl_id))
     
@@ -454,10 +450,9 @@ observeEvent(input$setup_program_create_selected_client, {
     borrowers <- DBPOOL %>% dbGetQuery("select 
                                       	nids.rsf_pfcbl_id,
                                       	nids.rsf_full_name
-                                      from p_rsf.rsf_pfcbl_id_family fam
-                                      inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = fam.child_rsf_pfcbl_id
-                                      where fam.parent_rsf_pfcbl_id = $1::int 
-                                      	and fam.child_pfcbl_category = 'borrower'
+                                      from p_rsf.rsf_pfcbl_ids ids
+                                      inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_borrower_id
+                                      where ids.rsf_pfcbl_id = $1::int 
                                       order by nids.rsf_full_name",
                                       params=list(client_rsf_pfcbl_id))
     

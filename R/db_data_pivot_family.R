@@ -19,20 +19,21 @@ db_data_pivot_family <- function(rsf_data,
   if (!all(c("pfcbl_rank",
              "rsf_pfcbl_id",
              "current_asof_date",
-             "parent_rsf_pfcbl_id",
+             "parentest_rsf_pfcbl_id",
              "pfcbl_category",
              "indicator_name",
              "data_type") %in% names(rsf_data))) {
-    stop(paste0("Required col names: pfcbl_rank,current_asof_date,parent_rsf_pfcbl_id,pfcbl_category,sys_name,rsf_full_name,reporting_status,reporting_expected"))
+    stop(paste0("Required col names: pfcbl_rank,current_asof_date,parentest_rsf_pfcbl_id,pfcbl_category,sys_name,rsf_full_name,reporting_status,reporting_expected"))
   }
   
+ 
   #current_date.format <- match.arg(current_date.format)
   
   ranks <- sort(unique(rsf_data$pfcbl_rank))
   
   data_family <- unique(rsf_data[pfcbl_rank==ranks[1],
                                  .(current_asof_date,
-                                   SYSID=parent_rsf_pfcbl_id,
+                                   SYSID=parentest_rsf_pfcbl_id,
                                    SYSCATEGORY=pfcbl_category)])
   
   # data_family[,
@@ -42,11 +43,11 @@ db_data_pivot_family <- function(rsf_data,
   cols <- c("current_asof_date",
             "rsf_pfcbl_id",
             "pfcbl_category",
-            "parent_rsf_pfcbl_id",
+            "parentest_rsf_pfcbl_id",
             "indicator_name",
             "data_type",
             value.vars)
-  
+ # browser()
   for (r in ranks) {
     
     rdata <- rsf_data[pfcbl_rank==r,
@@ -54,13 +55,13 @@ db_data_pivot_family <- function(rsf_data,
 
     
     
-    if (!all(unique(rdata$parent_rsf_pfcbl_id) %in% data_family$SYSID)) {
-      stop("Child entity cannot find parent_rsf_pfcbl_id in data_family")
+    if (!all(unique(rdata$parentest_rsf_pfcbl_id) %in% data_family$SYSID)) {
+      stop("Child entity cannot find parentest_rsf_pfcbl_id in data_family")
     }
     
 
     wdata <- dcast.data.table(rdata,
-                              current_asof_date + rsf_pfcbl_id + parent_rsf_pfcbl_id + pfcbl_category ~ indicator_name,
+                              current_asof_date + rsf_pfcbl_id + parentest_rsf_pfcbl_id + pfcbl_category ~ indicator_name,
                               value.var=value.vars,
                               sep="!")
 
@@ -89,7 +90,7 @@ db_data_pivot_family <- function(rsf_data,
     
     data_family <- data_family[wdata,
                                on=.(current_asof_date,
-                                    SYSID=parent_rsf_pfcbl_id)]
+                                    SYSID=parentest_rsf_pfcbl_id)]
     
     data_family[!is.na(rsf_pfcbl_id),
                 `:=`(SYSID=rsf_pfcbl_id,
