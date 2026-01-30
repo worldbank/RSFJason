@@ -252,9 +252,10 @@ observeEvent(input$modal_dataset_upload_next, {
         !any(as.numeric(unlist(import_ids)) %in% as.numeric(input$dataset_review_filter_facility))) {
       
     if (any(import_ids$rsf_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,na.rm=T)) {
+        setDT(import_ids)
         updateSelectInput(session=session,
                           inputId="dataset_review_filter_facility",
-                          selected = import_ids[rsf_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,rsf_facility_id][[1]])
+                          selected = import_ids[rsf_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,rsf_pfcbl_id][[1]])
       } 
     }
   }

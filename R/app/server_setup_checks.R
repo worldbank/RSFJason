@@ -382,6 +382,7 @@ observeEvent(input$server_setup_checks__toggle_subscriptions, {
                      ui=h3("Monitoring for this indicator is controlled by the system and cannot be modified")) 
   }
   
+  REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1) #in case we unsubscribed from anything and so old checks will be removed and refreshed
   SERVER_SETUP_CHECKS_TOGGLE_SELECTED(c())  
   SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1)
  

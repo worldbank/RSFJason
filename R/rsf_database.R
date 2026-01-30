@@ -87,7 +87,15 @@ dremioConnect <- function(pool,
     }
   },
   error=function(e) {
-    warning(conditionMessage(e))
+    
+    if (grepl("Failed to authenticate",conditionMessage(e),ignore.case = T)) {
+      warning(paste0("DREMIO Failed to Authenticate Error: This is likely due to an expired Dremio Access Token for user ",login$uid," as dremio acess tokens are valid for only 1-year and must be renewed.\n",
+                     "(1) Generate a new Dremio Access Token with access to FX rates view
+                      (2) Update PostgreSQL database table: ARL.public.dremio with the new token\n",
+                     conditionMessage(e)))
+    } else {
+      warning(conditionMessage(e))
+    }
     NULL
   })
   

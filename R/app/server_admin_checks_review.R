@@ -9,7 +9,7 @@ SERVER_ADMIN_CHECKS_REVIEW.VIEW <- reactive({
   fl_filter <- as.logical(input$server_admin_checks_review__filter_flags)
   
   if (length(fac_filter)==0) fac_filter <- as.logical(NA)
-  if (length(cl_filter)==0) cl_filter <- as.numeric(NA)
+  if (length(fl_filter)==0) fl_filter <- as.numeric(NA)
   
   if (isTruthy(fac_filter)) {
     

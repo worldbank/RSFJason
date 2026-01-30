@@ -45,9 +45,12 @@ COHORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
       ri.import_rsf_pfcbl_id,
       ri.import_comments,
       accounts.account_id as reporting_user_id,
-      accounts.users_name as reporting_user_name
+      accounts.users_name as reporting_user_name,
+      rt.template_name,
+      rt.template_id
     from p_rsf.rsf_pfcbl_ids ids 
     inner join p_rsf.reporting_imports ri on ri.import_rsf_pfcbl_id = ids.rsf_pfcbl_id
+    inner join p_rsf.reporting_templates rt on rt.template_id = ri.template_id
     left join p_rsf.view_account_info accounts on accounts.account_id = ri.import_user_id
         where $1::int in (ids.rsf_program_id,
                           ids.rsf_facility_id,
@@ -304,6 +307,7 @@ SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_IMPORT_COHORT_GROUP(),
         ind.is_system as indicator_is_system,
         ind.is_calculated as indicator_is_calculated,
         ic.is_system as check_is_system,
+        ic.is_calculator_check as check_is_calculator,
         rdc.check_asof_date,
         rdc.indicator_check_id, 
         rdc.check_formula_id,
@@ -374,8 +378,8 @@ SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_IMPORT_COHORT_GROUP(),
 #Indicators-level view for cohort review panel: collapsed evaluation_ids by indicator and check
 SELECTED_COHORT_INDICATOR_FLAGS_FILTERS <- eventReactive(c(SELECTED_COHORT_FLAGS(),
                                                             input$cohort_view_flagged_data,  #ALL/RESOLVED/ACTIVE
-                                                            input$cohort_view_flag_classes,
-                                                            input$cohort_view_flag_types), #error/warning/info  
+                                                            input$cohort_view_flag_classes,  #error/warning/info  
+                                                            input$cohort_view_flag_types),   
 {
   cohort_flags <- SELECTED_COHORT_FLAGS()
   if (is.null(cohort_flags)) return (NULL)
@@ -401,6 +405,7 @@ SELECTED_COHORT_INDICATOR_FLAGS_FILTERS <- eventReactive(c(SELECTED_COHORT_FLAGS
                                               indicator_is_system,
                                               indicator_is_calculated,
                                               check_is_system,
+                                              check_is_calculator,
                                               check_rank,
                                               pfcbl_category_rank,
                                               formula_is_calculated,
@@ -429,12 +434,22 @@ SELECTED_COHORT_INDICATOR_FLAGS_FILTERS <- eventReactive(c(SELECTED_COHORT_FLAGS
   rsf_check_types <- RSF_CHECK_TYPES()
   view_flag_types <- tolower(input$cohort_view_flag_types)
   
+  if (any(view_flag_types=="nosystem")) {
+    cohort_indicator_flags <- cohort_indicator_flags[check_is_system==FALSE]
+  }
+  
+  if (any(view_flag_types=="nocalculator")) {
+    cohort_indicator_flags <- cohort_indicator_flags[check_is_calculator==FALSE]
+  }
+  
   view_flag_types <- intersect(c(rsf_check_types$type_class,unique(cohort_indicator_flags$data_category)),view_flag_types)
   
   if (length(view_flag_types) >0) {
     cohort_indicator_flags <- cohort_indicator_flags[check_type %in% rsf_check_types[type_class %in% view_flag_types,check_type] |
                                                      data_category %in% view_flag_types]
   }
+  
+  
   
   if (empty(cohort_indicator_flags)) { 
     return(NULL) 
@@ -749,6 +764,16 @@ observeEvent(SELECTED_COHORT_FLAGS(), {
       data_types <- unique(flags_data$data_category)
 
       type.choices <- c(`Any Flag Types`="")
+      
+
+      if (any(flags_data$check_is_system==TRUE,na.rm = T)) {
+        type.choices <- c(type.choices,setNames("nosystem","Hide SYS Flags <i class='fa-solid fa-cog' style='color:gray'></i>"))
+      }
+
+      if (any(flags_data$check_is_calculator==TRUE,na.rm = T)) {
+        type.choices <- c(type.choices,setNames("nocalculator","Hide Calcualtor Flags <i class='fa-solid fa-calculator' style='color:black'></i>"))
+      }
+      
       if ("contract" %in% cohort_types) type.choices <- c(type.choices,setNames("contract","Contract Compliance <i class='fa-solid fa-square' style='color:limegreen'></i>"))
       if ("business" %in% cohort_types) type.choices <- c(type.choices,setNames("business","Business Rules <i class='fa-solid fa-square' style='color:skyblue'></i>"))
       if ("data" %in% cohort_types) type.choices <- c(type.choices,setNames("data","Data Validity <i class='fa-solid fa-square' style='color:violet'></i>"))
@@ -1094,19 +1119,67 @@ observeEvent(input$cohort_action_dashboard, {
     },
     content=function(file) {
 
-      withProgress(message="Downloading file",value=0.5, {
-        
-        outpath <- DBPOOL %>% db_import_download_file(import_id=SELECTED_IMPORT_COHORT_GROUP()$import_id)
-        
-        if (!is.null(outpath)) {
-          #file.rename(from=outpath,to=file)
-          #print("Downloading file in output$datasets_review_download_source_action")
-          file.copy(from=outpath,
-                    to=file,
-                    overwrite = TRUE)
-          if (file.exists(outpath)) file.remove(outpath)
-        }        
-        incProgress(amount=1.0,message="Completed")
+      tryCatch({
+        cohort <- SELECTED_IMPORT_COHORT_GROUP()
+        withProgress(message="Downloading file",value=0.5, {
+          
+          outpath <- DBPOOL %>% db_import_download_file(import_id=SELECTED_IMPORT_COHORT_GROUP()$import_id)
+          
+          if (!is.null(outpath)) {
+            #file.rename(from=outpath,to=file)
+            #print("Downloading file in output$datasets_review_download_source_action")
+            
+            
+            file.copy(from=outpath,
+                      to=file,
+                      overwrite = TRUE)
+            
+            if (file.exists(outpath)) file.remove(outpath)
+
+            if (isTruthy(as.logical(input$datasets_review_download_source_insert_flags))) {
+              
+              if (cohort$template_name=="IFC-QR-TEMPLATE2025") {
+                
+                flag_details <- SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS(unlist(SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()$evaluation_ids))
+  
+                flag_details <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()[,.(evaluation_id=unlist(evaluation_ids,recursive=FALSE)),
+                                                           by=.(indicator_id,indicator_check_id,check_name,check_class,check_type,check_formula_id,check_formula_title)
+                                                           ][flag_details,
+                                                             on=.(evaluation_id,
+                                                                  indicator_id)]
+                 if (!empty(flag_details)) {
+                   lookup <- db_export_get_template(pool=DBPOOL,
+                                                    template_name="IFC-QR-TEMPLATE2025")
+                   
+                   wbflags <- parse_template_IFC_QR2025(pool=DBPOOL,
+                                                        template_file=file,
+                                                        template_lookup=lookup,
+                                                        rsf_indicators=db_indicators_get_labels(DBPOOL),
+                                                        return.insert_flags=flag_details,
+                                                        return.next_date=NULL,
+                                                        status_message = function(...) {},
+                                                        CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
+                   
+                   wbflags$save(file=file,overwrite=TRUE)
+                 }
+                
+                
+              } else {
+                showNotification(type="error",
+                                 ui=h3("Insert flags is unavailable for this template, version '",cohort$template_name,"'"))
+              }
+            }
+          }        
+          incProgress(amount=1.0,message="Completed")
+        })
+      },
+      error=function(e) { showNotification(type="error",
+                                           ui=h3(conditionMessage(e))); 
+        NULL
+      },
+      warning=function(w) { showNotification(type="error",
+                                             ui=h3(conditionMessage(w)));
+        NULL
       })
     }
   )

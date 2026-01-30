@@ -4,16 +4,17 @@ template_upload <- function(pool,
 {
   
   
-  {
-    
-    SYSTEM_CALCULATOR_ACCOUNT <- CALCULATIONS_ENVIRONMENT$SYSTEM_CALCULATOR_ACCOUNT
-    
-    if (is.null(template$pfcbl_data) || all(is.na(template$pfcbl_data))) stop("Missing pfcbl_data")
-
-    status_message(class="none",paste0("Uploading data for: ",template$reporting_cohort$source_reference," ...\n"))
-  } #Validating Formats
 
   {
+    {
+      
+      SYSTEM_CALCULATOR_ACCOUNT <- CALCULATIONS_ENVIRONMENT$SYSTEM_CALCULATOR_ACCOUNT
+      
+      if (is.null(template$pfcbl_data) || all(is.na(template$pfcbl_data))) stop("Missing pfcbl_data")
+      
+      status_message(class="none",paste0("Uploading data for: ",template$reporting_cohort$source_reference," ...\n"))
+    } #Validating Formats
+    
     t1<-Sys.time() 
     uploaded_data <- db_add_update_data_user(pool=pool,
                                              import_id=template$reporting_import$import_id,

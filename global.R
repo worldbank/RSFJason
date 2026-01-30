@@ -31,6 +31,7 @@ if (grepl("DEV",LOCATION)==TRUE) {
   options(shiny.error = NULL)
 }
 
+library(purrr)
 library(pdftools)
 library(lubridate)
 library(stringr)
@@ -42,6 +43,7 @@ library(shinybusy)
 library(shinyWidgets)
 library(shinycssloaders)
 library(shinyjs)
+library(bslib)
 library(DT)
 library(jsonlite)
 library(tools)

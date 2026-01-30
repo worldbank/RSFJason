@@ -21,7 +21,8 @@ RSF_CHECKS <- eventReactive(SERVER_ADMIN_CHECKS.LOAD_RSF_CHECK(), {
     ic.subgrouping,
     ic.definition,
     ic.auto_resolve_system_check,
-    ic.auto_subscribe
+    ic.auto_subscribe,
+    ic.is_calculator_check
   from p_rsf.indicator_checks ic")
 
   if (empty(checks)) return (NULL)

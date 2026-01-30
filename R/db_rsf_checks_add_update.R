@@ -10,9 +10,9 @@ db_rsf_checks_add_update <- function(pool,
   
     if (empty(data_checks)) return (NULL)
     if (anyNA(data_checks$check_asof_date)) stop("NA check_asof_date not allowed")
-    if (anyNA(data_checks$indicator_check_id)) stop("NA indicator_check_id not allowed")
+    #if (anyNA(data_checks$indicator_check_id)) stop("NA indicator_check_id not allowed")
     if (anyNA(data_checks$rsf_pfcbl_id)) stop("NA rsf_pfcbl_id not allowed")
-    if (anyNA(data_checks$for_indicator_id)) stop("NA for indicator_id not allowed: ensure user checks identify indicator_id on which to apply before upload")
+    #if (anyNA(data_checks$for_indicator_id)) stop("NA for indicator_id not allowed: ensure user checks identify indicator_id on which to apply before upload")
     #if (!empty(data_checks[is.na(indicator_id) & is.na(check_formula_id)])) stop("system checks must submit NA check_formula_id and a value for indicator_id and user checks, the inverse")
     #if (length(using_reporting_cohort_id) != 1) { stop("Only one using_reporting_cohort_id value allowed, NA by default") }
     #lobstr::obj_size(data_checks)
@@ -65,23 +65,10 @@ db_rsf_checks_add_update <- function(pool,
                                  check_asof_date,
                                  indicator_check_id,
                                  check_formula_id,
-                                 check_class,
                                  check_message,
                                  variance)]
     
-    # data_checks <- data_checks[,
-    #                            .(n=.N,
-    #                              checks_dt=list(.SD)),
-    #                            by=.(for_indicator_id,
-    #                                 check_asof_date,
-    #                                 indicator_check_id,
-    #                                 check_formula_id,
-    #                                 check_class,
-    #                                 rsf_program_id,
-    #                                 rsf_facility_id),
-    #                            .SDcols=c("rsf_pfcbl_id",
-    #                                      "check_message",
-    #                                      "variance")]
+    
   }
   
   #conn <- poolCheckout(pool)
@@ -106,7 +93,6 @@ t20 <- Sys.time()
                                                         check_status text,
                                                         check_status_comment text,
                                                         check_status_user_id text,
-                                                        
                                                         check_data_id_is_current bool)
                     on commit drop")
   
@@ -126,18 +112,50 @@ t20 <- Sys.time()
           
           dbExecute(conn,"analyze _temp_add_checks;")
           
-
+          dbExecute(conn,"
+                    delete from _temp_add_checks tac
+                    where not exists(select * from p_rsf.rsf_pfcbl_reporting rpr 
+                                     where rpr.rsf_pfcbl_id = tac.rsf_pfcbl_id 
+                                       and rpr.reporting_asof_date = tac.check_asof_date)")
+          
         }   
     if(SYS_PRINT_TIMING) debugtime("db_rsf_checks_add_update","write data in ",format(Sys.time()-t30))  
     
         {
           
           
+          dbExecute(conn,"update _temp_add_checks tac
+                          set indicator_check_id = icf.indicator_check_id
+                          from p_rsf.indicator_check_formulas icf
+                          where icf.check_formula_id = tac.check_formula_id
+                            and tac.indicator_check_id is NULL")
+          
           dbExecute(conn,"
-                    delete from _temp_add_checks tac
-                    where not exists(select * from p_rsf.rsf_pfcbl_reporting rpr 
-                                     where rpr.rsf_pfcbl_id = tac.rsf_pfcbl_id 
-                                       and rpr.reporting_asof_date = tac.check_asof_date)")
+            update _temp_add_checks tic
+            set for_indicator_id = updated.indicator_id,
+                data_id = updated.data_id
+            from _temp_add_checks tac
+            inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = tac.rsf_pfcbl_id
+            left join lateral (select 
+                                rdc.indicator_id,
+                                rdc.data_id
+                               from p_rsf.indicator_check_formula_parameters cfp 
+                               inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
+                                                                    and rdc.indicator_id = cfp.parameter_indicator_id
+                                                                    and rdc.reporting_asof_date <= tac.check_asof_date
+                               where cfp.check_formula_id = tac.check_formula_id
+                                 and cfp.parameter_pfcbl_category = ids.pfcbl_category
+                                 and cfp.is_calculation_trigger_parameter is true
+                               order by 
+                                rdc.reporting_asof_date desc,
+                                cfp.parameter_indicator_id asc,
+                                rdc.data_id desc
+                               limit 1) as updated on true
+            where tic.for_indicator_id is NULL
+              and tac.rsf_pfcbl_id = tic.rsf_pfcbl_id
+              and tac.check_formula_id = tic.check_formula_id
+              and tac.check_asof_date = tic.check_asof_date")
+          
           
           dbExecute(conn,"update _temp_add_checks tac
                           set data_id = (select rdc.data_id
@@ -147,60 +165,85 @@ t20 <- Sys.time()
                                            and rdc.reporting_asof_date <= tac.check_asof_date
                                          order by
                                            rdc.reporting_asof_date desc
-                                         limit 1)")
+                                         limit 1)
+                          where tac.data_id is null")
+          
+          dbExecute(conn,"
+            update _temp_add_checks tac
+            set for_indicator_id = updated.indicator_id,
+                data_id = updated.data_id
+            from p_rsf.rsf_pfcbl_reporting rpr
+            left join lateral (select rdc.indicator_id,rdc.data_id
+                               from p_rsf.rsf_data_current rdc 
+                               where rdc.rsf_pfcbl_id = rpr.rsf_pfcbl_id
+                                 and rdc.indicator_id = rpr.reporting_indicator_id
+                                 and rdc.reporting_asof_date <= rpr.reporting_asof_Date
+                               order by 
+                                rdc.reporting_asof_date desc,
+                                rdc.data_id desc
+                               limit 1) as updated on true
+            where rpr.rsf_pfcbl_id = tac.rsf_pfcbl_id
+              and rpr.reporting_asof_date = tac.check_asof_date
+              and tac.data_id is NULL")
           
           #if a flag is generated on an indicator/data point that the entity has NEVER reported on before,
           #then reassign it to the entity's reporting indicator for this period.
-          non_reporting_data <- dbGetQuery(conn,"select exists(select * from _temp_add_checks where data_id is NULL)::bool")
+          non_reporting_data <- dbGetQuery(conn,"select exists(select * from _temp_add_checks where data_id is NULL or for_indicator_id is null)::bool")
           if (unlist(non_reporting_data)==TRUE) {
-            dbExecute(conn,"
-                                  with reassign_checks as MATERIALIZED (
-                                    select
-                                    	tac.rsf_pfcbl_id,
-                                    	concat(c_ind.data_category,' has never reported \"',
-                                    	       c_ind.indicator_name,'\" but system checker flagged it for ',
-                                    				 c_ic.check_name,': ',
-                                    				 tac.check_message) as check_message,
-                                    	r_ind.indicator_id as reassign_indicator_id,
-                                    	r_ic.indicator_check_id as reassign_check_id,
-                                    	reporting.data_id,
-                                    	tac.for_indicator_id,
-                                    	tac.check_asof_date,
-                                    	tac.indicator_check_id
-                                    
-                                    from _temp_add_checks tac
-                                    inner join p_rsf.indicators c_ind on c_ind.indicator_id = tac.for_indicator_id
-                                    inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = tac.rsf_pfcbl_id
-                                    inner join p_rsf.indicators r_ind on r_ind.data_category = ids.pfcbl_category
-                                    inner join p_rsf.indicator_checks c_ic on c_ic.indicator_check_id = tac.indicator_check_id
-                                    inner join p_rsf.indicator_checks r_ic on r_ic.check_class = c_ic.check_class
-                                                                          and r_ic.check_name ~ 'sys_unreported_data_flag'
-                                    inner join lateral (select rdc.data_id 
-                                                        from p_rsf.rsf_data_current rdc 
-                                                        where rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                    											and rdc.indicator_id = r_ind.indicator_id
-                                    											and rdc.reporting_asof_date <= tac.check_asof_date::date
-                                    										order by rdc.reporting_asof_date desc
-                                    										limit 1) as reporting on true
-                                    where tac.data_id is NULL
-                                    	and r_ind.indicator_sys_category = 'entity_reporting'
-                                  )
-                                  update _temp_add_checks tac
-                                  set check_message = rc.check_message,
-                                      for_indicator_id = rc.reassign_indicator_id,
-                                  		indicator_check_id = rc.reassign_check_id,
-                                  		data_id = rc.data_id
-                                  from reassign_checks rc
-                                  where tac.data_id is NULL
-                                    and tac.rsf_pfcbl_id = rc.rsf_pfcbl_id
-                                  	and tac.for_indicator_id = rc.for_indicator_id
-                                  	and tac.indicator_check_id = rc.indicator_check_id
-                                  	and tac.check_asof_date = rc.check_asof_date")
-          }
+            
+            x <- dbGetQuery(conn,"select * from _temp_add_checks where data_id is NULL or for_indicator_id is null")
+            print(x)
+            stop("_temp_add_checks failed to resolve data_id to apply flag.  see logs for details.")
+            
+          #   dbExecute(conn,"
+          #                         with reassign_checks as MATERIALIZED (
+          #                           select
+          #                           	tac.rsf_pfcbl_id,
+          #                           	concat(c_ind.data_category,' has never reported \"',
+          #                           	       c_ind.indicator_name,'\" but system checker flagged it for ',
+          #                           				 c_ic.check_name,': ',
+          #                           				 tac.check_message) as check_message,
+          #                           	r_ind.indicator_id as reassign_indicator_id,
+          #                           	r_ic.indicator_check_id as reassign_check_id,
+          #                           	reporting.data_id,
+          #                           	tac.for_indicator_id,
+          #                           	tac.check_asof_date,
+          #                           	tac.indicator_check_id
+          #                           
+          #                           from _temp_add_checks tac
+          #                           inner join p_rsf.indicators c_ind on c_ind.indicator_id = tac.for_indicator_id
+          #                           inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = tac.rsf_pfcbl_id
+          #                           inner join p_rsf.indicators r_ind on r_ind.data_category = ids.pfcbl_category
+          #                           inner join p_rsf.indicator_checks c_ic on c_ic.indicator_check_id = tac.indicator_check_id
+          #                           inner join p_rsf.indicator_checks r_ic on r_ic.check_class = c_ic.check_class
+          #                                                                 and r_ic.check_name ~ 'sys_unreported_data_flag'
+          #                           inner join lateral (select rdc.data_id 
+          #                                               from p_rsf.rsf_data_current rdc 
+          #                                               where rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
+          #                           											and rdc.indicator_id = r_ind.indicator_id
+          #                           											and rdc.reporting_asof_date <= tac.check_asof_date::date
+          #                           										order by rdc.reporting_asof_date desc
+          #                           										limit 1) as reporting on true
+          #                           where tac.data_id is NULL
+          #                           	and r_ind.indicator_sys_category = 'entity_reporting'
+          #                         )
+          #                         update _temp_add_checks tac
+          #                         set check_message = rc.check_message,
+          #                             for_indicator_id = rc.reassign_indicator_id,
+          #                         		indicator_check_id = rc.reassign_check_id,
+          #                         		data_id = rc.data_id
+          #                         from reassign_checks rc
+          #                         where tac.data_id is NULL
+          #                           and tac.rsf_pfcbl_id = rc.rsf_pfcbl_id
+          #                         	and tac.for_indicator_id = rc.for_indicator_id
+          #                         	and tac.indicator_check_id = rc.indicator_check_id
+          #                         	and tac.check_asof_date = rc.check_asof_date")
+          # }
           
           
         }
     
+          #x<-dbGetQuery(conn,"select tac.*,ind.indicator_name,ind.data_category,ids.pfcbl_category from _temp_add_checks tac inner join p_rsf.indicators ind on ind.indicator_id = tac.for_indicator_id inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = tac.rsf_pfcbl_id");setDT(x)
         {
           dbExecute(conn,"
                     update _temp_add_checks tac
@@ -269,22 +312,22 @@ t20 <- Sys.time()
                           	tac.check_message,
                           	
                           	case 
-                          	  when coalesce(tac.variance,0) < coalesce(ssc.config_threshold,0) then 'resolved'
-                          	  when ssc.config_auto_resolve is not null and ssc.config_auto_resolve is true then 'resolved'
-                          	  when ssc.config_auto_resolve is not null and ssc.config_auto_resolve is false then 'active'
+                          	  when coalesce(tac.variance,0) < coalesce(scc.config_threshold,0) then 'resolved'
+                          	  when scc.config_auto_resolve is not null and scc.config_auto_resolve is true then 'resolved'
+                          	  when scc.config_auto_resolve is not null and scc.config_auto_resolve is false then 'active'
                           		when coalesce(icf.auto_resolve,ic.auto_resolve_system_check,false) is true then 'resolved'
                           		else 'active'
                           	end as check_status,
                           	
                           	case 
-                          	  when coalesce(tac.variance,0) < coalesce(ssc.config_threshold,0) then 'resolved'
-                          	  then concat('Variance ',round(100*tac.variance,2),'% below threshold ',round(100*ssc.config_threshold,2),'% Resolved [',ssc_vai.users_name,']: ',ssc.config_comments)
+                          	  when coalesce(tac.variance,0) < coalesce(scc.config_threshold,0) 
+                          	  then concat('Variance ',round(100*tac.variance,2),'% below threshold ',round(100*scc.config_threshold,2),'% Resolved [',ssc_vai.users_name,']: ',scc.config_comments)
                           	  
-                          	  when ssc.config_auto_resolve is not null and ssc.config_auto_resolve is true 
-                          	  then concat('Auto Resolved [',ssc_vai.users_name,']: ',ssc.config_comments)
+                          	  when scc.config_auto_resolve is not null and scc.config_auto_resolve is true 
+                          	  then concat('Auto Resolved [',ssc_vai.users_name,']: ',scc.config_comments)
                           	  
-                          	  when ssc.config_auto_resolve is not null and ssc.config_auto_resolve is false
-                          	  then concat('Review [',ssc_vai.users_name,']: ',ssc.config_comments)
+                          	  when scc.config_auto_resolve is not null and scc.config_auto_resolve is false
+                          	  then concat('Review [',ssc_vai.users_name,']: ',scc.config_comments)
                           	  
                           	  when coalesce(icf.auto_resolve,ic.auto_resolve_system_check,false) is true then 'Auto-resolved by SYSTEM [default]'
 
@@ -292,7 +335,7 @@ t20 <- Sys.time()
                           	end as check_status_comment,
                           	
                           	case 
-                          		when ssc.comments_user_id is not null then ssc.comments_user_id
+                          		when scc.comments_user_id is not null then scc.comments_user_id
                           		
                           		when coalesce(icf.auto_resolve,ic.auto_resolve_system_check,false) is true 
                           		then (select account_id from p_rsf.view_account_info where is_system_account = true and users_name = 'RSF SYS Calculator')
@@ -307,10 +350,10 @@ t20 <- Sys.time()
                           left join p_rsf.indicator_checks ic on ic.indicator_check_id = tac.indicator_check_id
                           left join p_rsf.indicator_check_formulas icf on icf.check_formula_id = tac.check_formula_id
                           left join p_rsf.view_rsf_setup_check_config scc on scc.rsf_pfcbl_id = rd.rsf_pfcbl_id
-                                                                         and ssc.for_indicator_id = rd.indicator_id
-                                                                         and ssc.indicator_check_id = ic.indicator_check_id
+                                                                         and scc.for_indicator_id = rd.indicator_id
+                                                                         and scc.indicator_check_id = ic.indicator_check_id
                                                                          and ic.is_system is true
-                          left join p_rsf.view_account_info ssc_vai on ssc_vai.account_id = ssc.comments_user_id")
+                          left join p_rsf.view_account_info ssc_vai on ssc_vai.account_id = scc.comments_user_id")
           
           
           #if(SYS_PRINT_TIMING)  debugtime("db_rsf_checks_add_update","staged",format(nx,big.mark = ",")," checks in ",format(Sys.time()-t1))
@@ -353,7 +396,9 @@ t20 <- Sys.time()
         }
       
       nx    
+    }
     })
+  
   if(SYS_PRINT_TIMING) debugtime("db_rsf_checks_add_update","uploading"," in ",format(Sys.time()-t20))  
   
   if(SYS_PRINT_TIMING) debugtime("db_rsf_checks_add_update","Done! uploading",nx," in ",format(Sys.time()-t10))

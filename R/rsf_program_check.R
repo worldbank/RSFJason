@@ -180,64 +180,63 @@ rsf_program_check <- function(pool,
     
     #This query identifies which indicator to flag based on most recently-updated parameter of the flag formula
     #The check formula is disassociated with which data point receives the flag.  This will flag the current value.
-    check_results_indicators <- poolWithTransaction(pool,function(conn) {
-      dbExecute(conn,"
-        create temp table _temp_checks(rsf_pfcbl_id int,
-                                       check_asof_date date,
-                                       check_formula_id int)
-        on commit drop;")
-      
-      dbAppendTable(conn,
-                    name="_temp_checks",
-                    value=check_results[flag_status==TRUE,
-                                        .(rsf_pfcbl_id,
-                                          check_asof_date,
-                                          check_formula_id)])
-      
-      dbExecute(conn,"analyze _temp_checks")
-      
-      #efficiency opportuniy to first select only those that have one parameter at for_pfcbl_category level, as no need to query latest parameter on which to apply  
-      dbGetQuery(conn,"
-        select distinct on (tc.rsf_pfcbl_id,tc.check_asof_date,tc.check_formula_id)
-        	tc.rsf_pfcbl_id,tc.check_asof_date,tc.check_formula_id,
-        	cfp.indicator_check_id,
-        	coalesce(rdc.indicator_id,
-                   rpr.reporting_indicator_id) as for_indicator_id
-        from _temp_checks tc
-        inner join p_rsf.rsf_pfcbl_reporting rpr on rpr.rsf_pfcbl_id = tc.rsf_pfcbl_id
-                                                and rpr.reporting_asof_date = tc.check_asof_date
-        inner join p_rsf.indicator_check_formula_parameters cfp on cfp.check_formula_id = tc.check_formula_id
-        inner join p_rsf.indicators ind on ind.indicator_id = cfp.parameter_indicator_id
-        inner join p_rsf.compute_check_to_parameter_rsf_pfcbl_ids pids on pids.from_check_rsf_pfcbl_id = tc.rsf_pfcbl_id
-        																														  and pids.from_check_formula_id = tc.check_formula_id
-        																															and pids.to_parameter_pfcbl_category = cfp.for_pfcbl_category -- only assign at own category
-        left join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = pids.to_parameter_rsf_pfcbl_id
-											                      and rdc.indicator_id = cfp.parameter_indicator_id
-											                      and rdc.reporting_asof_date = tc.check_asof_date	
-        order by
-        tc.rsf_pfcbl_id,tc.check_asof_date,tc.check_formula_id,
-        rdc.data_id is not null desc,
-        ind.indicator_sys_category is distinct from 'entity_reporting' desc,
-        ind.indicator_name asc")
-      
-    })
-
-    setDT(check_results_indicators)
-
-    check_results[check_results_indicators,
-                  `:=`(indicator_check_id=i.indicator_check_id,
-                       for_indicator_id=i.for_indicator_id),
-                  on=.(rsf_pfcbl_id,
-                       check_asof_date,
-                       check_formula_id)]
+#     check_results_indicators <- poolWithTransaction(pool,function(conn) {
+#       dbExecute(conn,"
+#         create temp table _temp_checks(rsf_pfcbl_id int,
+#                                        check_asof_date date,
+#                                        check_formula_id int)
+#         on commit drop;")
+#       
+#       dbAppendTable(conn,
+#                     name="_temp_checks",
+#                     value=check_results[flag_status==TRUE,
+#                                         .(rsf_pfcbl_id,
+#                                           check_asof_date,
+#                                           check_formula_id)])
+#       
+#       dbExecute(conn,"analyze _temp_checks")
+#       
+#       #efficiency opportuniy to first select only those that have one parameter at for_pfcbl_category level, as no need to query latest parameter on which to apply  
+#       dbGetQuery(conn,"
+#         select distinct on (tc.rsf_pfcbl_id,tc.check_asof_date,tc.check_formula_id)
+#         	tc.rsf_pfcbl_id,tc.check_asof_date,tc.check_formula_id,
+#         	cfp.indicator_check_id,
+#         	coalesce(rdc.indicator_id,
+#                    rpr.reporting_indicator_id) as for_indicator_id
+#         from _temp_checks tc
+#         inner join p_rsf.rsf_pfcbl_reporting rpr on rpr.rsf_pfcbl_id = tc.rsf_pfcbl_id
+#                                                 and rpr.reporting_asof_date = tc.check_asof_date
+#         inner join p_rsf.indicator_check_formula_parameters cfp on cfp.check_formula_id = tc.check_formula_id
+#         inner join p_rsf.indicators ind on ind.indicator_id = cfp.parameter_indicator_id
+#         inner join p_rsf.compute_check_to_parameter_rsf_pfcbl_ids pids on pids.from_check_rsf_pfcbl_id = tc.rsf_pfcbl_id
+#         																														  and pids.from_check_formula_id = tc.check_formula_id
+#         																															and pids.to_parameter_pfcbl_category = cfp.for_pfcbl_category -- only assign at own category
+#         left join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = pids.to_parameter_rsf_pfcbl_id
+# 											                      and rdc.indicator_id = cfp.parameter_indicator_id
+# 											                      and rdc.reporting_asof_date = tc.check_asof_date	
+#         order by
+#         tc.rsf_pfcbl_id,tc.check_asof_date,tc.check_formula_id,
+#         rdc.data_id is not null desc,
+#         ind.indicator_sys_category is distinct from 'entity_reporting' desc,
+#         ind.indicator_name asc")
+#       
+#     })
+# 
+#     setDT(check_results_indicators)
+# 
+#     check_results[check_results_indicators,
+#                   `:=`(indicator_check_id=i.indicator_check_id,
+#                        for_indicator_id=i.for_indicator_id),
+#                   on=.(rsf_pfcbl_id,
+#                        check_asof_date,
+#                        check_formula_id)]
     
     
     db_rsf_checks_add_update(pool=pool,
-                             data_checks=check_results[flag_status==TRUE &
-                                                       is.na(for_indicator_id)==FALSE,
+                             data_checks=check_results[flag_status==TRUE,
                                                        .(rsf_pfcbl_id,
-                                                         for_indicator_id,
-                                                         indicator_check_id,
+                                                         for_indicator_id=as.numeric(NA),
+                                                         indicator_check_id=as.numeric(NA),
                                                          check_formula_id,
                                                          check_asof_date,
                                                          check_message)],

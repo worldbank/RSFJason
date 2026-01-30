@@ -4,9 +4,12 @@ parse_template_IFC_QR2025 <- function(pool,
                                       template_file,
                                       template_lookup=db_export_get_template(pool=pool,template_name="IFC-QR-TEMPLATE2025"),
                                       rsf_indicators=db_indicators_get_labels(pool),
+                                      return.insert_flags=NULL,
+                                      return.next_date=NULL,
                                       status_message,
                                       CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) 
 {
+ 
   #Read file
   {
     if (!file_ext(template_file) %in% "xlsx") stop("Only .xlsx files using Excel-365 versions or later may use this template")
@@ -26,6 +29,11 @@ parse_template_IFC_QR2025 <- function(pool,
    
     nregions_table <- openxlsx2::wb_get_named_regions(excelwb)
     setDT(nregions_table)
+    
+    #If there are no hidden names the column name is not present at all
+    if (is.null(nregions_table$hidden)) {
+      nregions_table[,hidden:=""]
+    }
     nregions_table <- nregions_table[nchar(hidden)==0]
     
     snames <- openxlsx2::wb_get_sheet_names(excelwb)
@@ -77,16 +85,14 @@ parse_template_IFC_QR2025 <- function(pool,
         
         summary_formula_matrix[summary_formula_matrix==summary_sheet] <-NA
         
-        # summary_sheet <- template_excel_read_sheet(excelwb=excelwb,
-        #                                            sheetName=summarySheet)
-        # 
-        # summary_formula_matrix <- openxlsx_get_formulas(excelwb=excelwb,
-        #                                                 sheetName=summarySheet,
-        #                                                 truncate_predata_rows = TRUE)
         setDT(summary_sheet)
         summary_sheet[,original_row_num:=.I]
       
+        POSITION_current_terms <- grep("Current Terms",summary_sheet$E,ignore.case = T)
+        POSITION_current_qdd <- grep("Current QDD",summary_sheet$E,ignore.case = T)
         
+        if (length(POSITION_current_terms)==0) { POSITION_current_terms <- 5 } #Default is row 5 for Facility Errors
+        if (length(POSITION_current_qdd)==0) { POSITION_current_qdd <- 7 } #Default is row 5 for Client Errors
       }
       
       #QReport
@@ -992,6 +998,12 @@ parse_template_IFC_QR2025 <- function(pool,
       data_labels <- data_sheet[label_rows_index]
       label_cols_index <- which(!sapply(as.data.frame(is.na(data_labels)),all))
       
+      if (!(qreport_startrow == max(label_rows_index)+1)) {
+        stop(paste0("qreport_startrow defined by named region Template_QReport_StartRow equals ",
+                    qreport_startrow,
+                    " but max(labels_rows_index)+1 equals ",max(label_rows_index)+1)," and these should be equal")
+      }
+      
       data_rows <- seq(from=max(label_rows_index)+1,
                        to=nrow(data_sheet))
       
@@ -1366,6 +1378,7 @@ parse_template_IFC_QR2025 <- function(pool,
     data_formulas <- data_formulas[,
                                    ..data_cols_names]
     
+    #1:.N will be offset equal to qreport_startrow
     data_sheet[,
                reporting_template_row_group:=paste0(1:.N,"QREPORT")] #Fundamental to keep the original row number/order intact since QR template is columnar data.
     
@@ -1520,6 +1533,243 @@ parse_template_IFC_QR2025 <- function(pool,
                                   data.quarterly))
   
   template_data[,reporting_asof_date:=reporting_asof_date]
+  
+  if (!is.null(return.insert_flags)) {
+    
+    if (!all(return.insert_flags$check_asof_date==reporting_asof_date)) {
+      stop(paste0("Cannot insert flags for check_asof_date eqaul to ",
+                  paste0(unique(return.insert_flags$check_asof_date),collapse=" and "),
+                  " when template data is for ",reporting_asof_date))
+    }
+    
+    add_flag <- function(wb,sheet,flag) {
+     
+      check_class <- toupper(flag$check_class)
+      
+      pid <- wb$get_person(name=check_class)$id
+      if (!length(pid)) {
+        wb$add_person(name=check_class)
+        pid <- wb$get_person(name=check_class)$id
+      }
+      
+      has_comment <- length(wb$get_comment(sheet=sheet,dims=flag$ref)) > 0
+      has_thread <- tryCatch({ NROW(wb$get_thread(sheet=sheet,dims=flag$ref)) },error=function(e) { 0 }) > 0
+      
+      if (has_comment && !has_thread) {
+        wb$remove_comment(sheet=sheet,dims=flag$ref)
+        has_comment <- FALSE
+      }
+      
+      if (has_thread==FALSE && flag$ref_n > 1) {
+        has_thread <- TRUE
+        wb$add_thread(sheet=sheet,
+                      dims=flag$ref,
+                      person_id=wb$get_person(name="IFC Risk Sharing")$id,
+                      reply=FALSE,
+                      resolve=FALSE,
+                      comment="Multiple flags are assigned to this cell")
+        
+      }
+      
+      comment <- paste0(flag$check_name,"\n",flag$check_message,"\n\n[ID:",flag$evaluation_id,"]")
+      #comment <- "test"
+      #print(paste0(flag$ref," ",comment))
+      # #ensure XML control characters are escaped#fixed in github
+      comment <- gsub("<","&lt;",comment)
+      comment <- gsub(">","&gt;",comment)
+      commnet <- gsub("'","&apos;",comment)
+      comment <- gsub("&","&amp;",comment)
+      comment <- gsub('"',"&quot;",comment)
+      
+      wb$add_thread(sheet=sheet,
+                    dims=flag$ref,
+                    person_id=pid,
+                    reply=has_thread,
+                    resolve=ifelse(flag$check_status=="active",FALSE,TRUE),
+                    comment=comment)
+    }
+    
+    #Remove custom XML
+    if (length(excelwb$customXml) ||
+        any(grepl("customXml",excelwb$Content_Types)) || 
+        any(grepl("customXml",excelwb$workbook.xml.rels))) {
+      
+      message("Excel file has customXml that will be removed")
+      excelwb$Content_Types <- grep("customXml",excelwb$Content_Types,value=T,invert = T)
+      excelwb$workbook.xml.rels <- grep("customXml",excelwb$workbook.xml.rels,value=T,invert = T)
+      excelwb$customXml <- NULL
+    }
+    
+    #Remove Hidden Named Ranges
+    if (any(nchar( (nr<-excelwb$get_named_regions())$hidden) )) {
+      
+      message("Excel file has hidden named ranges that will be removed")
+      invisible(pmap(nr[nchar(nr$hidden)>0,c("sheet","name")],
+                     excelwb$remove_named_region))
+    }
+    
+    #Remove existing comments (Legacy comments create issues)
+    if (length(excelwb$comments)) {
+      
+      comments <- rbindlist(lapply(seq_along(excelwb$sheet_names),function(s) { x <- excelwb$get_comment(sheet=s); if (length(x)) cbind(x[,c("ref","cmmt_id")],sheet=s) }))
+      if (!empty(comments)) { invisible(pmap(comments[,.(sheet,dims=ref)],excelwb$remove_comment)) }
+      
+      for (i in seq_along(excelwb$vml_rels)) {
+        if (nchar(excelwb$vml_rels[i])==0) excelwb$vml_rels[[i]] <- NULL
+      }
+      
+    }
+    
+    #summarySheet: set above
+    #dataSheet: set above
+    
+    if (empty(excelwb$get_person(name="IFC Risk Sharing"))) { excelwb$add_person(name="IFC Risk Sharing") }
+    
+    return.insert_flags[rsf_indicators,
+                 pfcbl_category:=data_category,
+                 on=.(indicator_id)]
+    
+    flag_data <- template_data[grepl("Summary$|QReport$",reporting_template_row_group,ignore.case = T)]
+    flag_data[,sheet_name:=fcase(grepl("Summary$",reporting_template_row_group,ignore.case=T),"summary",
+                                 grepl("QReport$",reporting_template_row_group,ignore.case=T),"qreport",
+                                 default=NA)]
+    
+    flag_data[rsf_indicators,
+              indicator_id:=i.indicator_id,
+              on=.(indicator_name)]
+    
+    flag_data[,omit:=FALSE]
+    flag_data[sheet_name=="summary",
+              omit:=(.N:1)>1,
+              by=.(indicator_id)]
+    
+    flag_data <- flag_data[omit==F]
+    flag_data[,omit:=NULL]
+    
+    
+    
+    
+    #because there's only one indicator per error
+    summary <- flag_data[sheet_name=="summary"
+                         ][return.insert_flags[pfcbl_category %in% c("facility","client")],
+                           on=.(indicator_id),
+                           nomatch = NA]
+    
+    if (!empty(summary)) {
+      
+      summary[is.na(reporting_template_data_rank) & pfcbl_category=="facility",
+              reporting_template_data_rank:=POSITION_current_terms]
+      
+      summary[is.na(reporting_template_data_rank) & pfcbl_category=="client",
+              reporting_template_data_rank:=POSITION_current_qdd]
+      
+      #All data is on column E for this template
+      summary[,ref:=paste0("E",reporting_template_data_rank)]
+      summary[,ref_n:=.N,by=.(ref)]
+      summary <- summary[,.(ref,ref_n,evaluation_id,check_name,check_class,check_type,check_formula_title,check_status,check_status_comment,check_message)]
+      summary[,check_rank:=fcase(check_class=="critical",4,
+                                 check_class=="error",3,
+                                 check_class=="warning",2,
+                                 check_class=="info",1,
+                                 default=5)]
+      
+      setorder(summary,-check_rank)
+      sheet_num <- grep("Summary$",excelwb$sheet_names,ignore.case=T)
+      for (f in 1:nrow(summary)) {
+        
+        add_flag(wb=excelwb,
+                 sheet=sheet_num,
+                 flag=summary[f])
+      }
+    }
+    
+    rsf_pfcbl_ids <- dbGetQuery(pool,"
+      select
+        ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
+        max(cni.rank_id) as inclusion_rank
+      
+      from p_rsf.view_rsf_pfcbl_id_family_tree ft
+      inner join p_rsf.rsf_data_current_names_and_ids cni on cni.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+      where cni.reporting_asof_date <= $2::date
+      and ft.pfcbl_hierarchy <> 'parent'
+      and ft.to_pfcbl_category = 'loan'
+      
+      and ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+      group by ft.from_rsf_pfcbl_id",
+      params=list(paste0(return.insert_flags[pfcbl_category %in% c("borrower","loan"),unique(rsf_pfcbl_id)],collapse = ","),
+                  as.character(reporting_asof_date)))
+    
+    setDT(rsf_pfcbl_ids)
+    
+    flag_ranks <- flag_data[sheet_name=="qreport" & indicator_id == rsf_indicators[data_category=="loan" & indicator_sys_category=="rank_id",indicator_id],
+                            .(reporting_template_row_group,inclusion_rank=reporting_submitted_data_value)]
+    
+    flag_ranks <- flag_ranks[rsf_pfcbl_ids,
+                             on=.(inclusion_rank),
+                             nomatch=NULL]
+
+    if (!empty(flag_ranks[,.(n=.N),by=.(rsf_pfcbl_id)][n>1])) {
+      stop("Multiple rsf_pfcbl_ids per reporting_template_row_group")
+    }
+    
+    return.insert_flags <- return.insert_flags[flag_ranks,
+                                               on=.(rsf_pfcbl_id),
+                                               nomatch=NULL]
+    
+    return.insert_flags[!indicator_id %in% unique(flag_data$indicator_id),
+                        indicator_id:=NA]
+    
+    
+    return.insert_flags[is.na(indicator_id) & pfcbl_category=="loan",
+                        indicator_id:=rsf_indicators[data_category=="loan" & indicator_sys_category=="rank_id",indicator_id]]
+    
+    return.insert_flags[is.na(indicator_id) & pfcbl_category=="borrower",
+                        indicator_id:=rsf_indicators[data_category=="borrower" & indicator_sys_category=="id",indicator_id]]
+    
+    qreport <- flag_data[sheet_name=="qreport" &
+                         reporting_template_row_group %in% unique(return.insert_flags$reporting_template_row_group)
+                         ][return.insert_flags[pfcbl_category %in% c("loan","borrower")],
+                           on=.(reporting_template_row_group,
+                                reporting_asof_date=check_asof_date,
+                                indicator_id),
+                           nomatch=NA]
+    
+    if (!empty(qreport)) {
+      
+      
+      qreport[is.na(reporting_template_data_rank),
+              reporting_template_data_rank:="B"] #B is inclusion rank ID column
+
+      #minus 1 because start_row should be first row where data exists; and that should also be reporting_template_row_group line 1
+      qreport[,ref_row:=as.numeric(gsub("[[:alpha:]]+","",reporting_template_row_group))+qreport_startrow-1]
+      if (anyNA(qreport$ref_row)) {
+        stop(paste0("Failed to insert flags due to missing reference row for reporting_template_row_group: ",
+             paste0(qreport[is.na(ref_row),unique(reporting_template_row_group)],collapse=", ")))
+      }
+      #All data is on column E for this template
+      qreport[,ref:=paste0(reporting_template_data_rank,ref_row)]
+      qreport[,ref_n:=.N,by=.(ref)]
+      qreport <- qreport[,.(ref,ref_n,evaluation_id,check_name,check_class,check_type,check_formula_title,check_status,check_status_comment,check_message)]
+      qreport[,check_rank:=fcase(check_class=="critical",4,
+                                 check_class=="error",3,
+                                 check_class=="warning",2,
+                                 check_class=="info",1,
+                                 default=5)]
+      
+      setorder(qreport,check_rank)
+      sheet_num <- grep("QReport$",excelwb$sheet_names,ignore.case=T)
+      for (f in 1:nrow(qreport)) {
+        
+        add_flag(wb=excelwb,
+                 sheet=sheet_num,
+                 flag=qreport[f])
+      }
+    }
+    
+    
+    return (excelwb)
+  }
+  
   
   template <- list(cohort_pfcbl_id=rsf_pfcbl_id.facility,
                    reporting_asof_date=reporting_asof_date,

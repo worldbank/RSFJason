@@ -73,6 +73,11 @@ SELECTED_COHORT_SELECTED_INDICATOR_REVIEW_FLAGS <- eventReactive(c(SELECTED_COHO
  if (!selected_indicator_flag_id %in% indicator_flags$indicator_flag_id) return(NULL)
  
  indicator_flags <- SELECTED_COHORT_FLAGS()[indicator_flag_id==selected_indicator_flag_id]
+ 
+ #this should be in order of rank
+ setorder(indicator_flags,
+          rsf_pfcbl_id)
+ 
  return (indicator_flags)
 },ignoreNULL=FALSE)
 
@@ -82,6 +87,7 @@ SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS <- function(evaluation_ids) {
   cohort_flag_details <- DBPOOL %>% dbGetQuery("select 
     rdc.evaluation_id,
     rdc.rsf_pfcbl_id,
+    rdc.indicator_id,
     rdc.check_asof_date,
     rdc.check_status,
     rdc.check_status_comment,
@@ -102,7 +108,7 @@ SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS <- function(evaluation_ids) {
 showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
                                                     for_indicator_id,
                                                     indicator_check_id) {
-  #browser()
+  
   indicator <- RSF_INDICATORS()[indicator_id==for_indicator_id]
   if (!isTruthy(indicator)) return (NULL)
   
@@ -216,9 +222,7 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
                    title=HTML(paste0("Flag Config For: ",for_name)),
                    footer=div(style="display:inline-block;width:100%;",
                               div(style="display:inline-block;float:left;",
-                                  actionButton(inputId="indicator_check_edit_config__action_cancel",
-                                               label="Cancel",
-                                               class="btn-primary")),
+                                  modalButton("Cancel")),
                               div(style="display:inline-block;float:right;",
                                   actionButton(inputId="indicator_check_edit_config__action_submit",
                                                label="Save & Close",
@@ -609,7 +613,7 @@ observeEvent(input$action_indicator_flags_review, {
                               div(style="display:inline-block;float:left;",
                                   actionButton(inputId="action_indicator_flags_review_cancel",
                                                label="Cancel",
-                                               class="btn-primary btn-danger")),
+                                               class="btn-primary btn-default")),
                               div(style="display:inline-block;float:right;",
                                   actionButton(inputId="action_indicator_flags_review_save",
                                                label="Save & Exit",
@@ -1112,6 +1116,7 @@ observeEvent(input$action_indicator_flags_review_cancel, {
 output$server_datasets_review_flags_dataset <- DT::renderDataTable({
   
   evaluations <- SELECTED_COHORT_SELECTED_INDICATOR_REVIEW_FLAGS()[,.(evaluation_id,check_class,check_status,rsf_pfcbl_id)]
+  
   if (empty(evaluations)) {
     INDICATOR_FLAGS_SELECTED_EVALUATION_IDS(c())
     return (DT::datatable(data.frame(Error="This selection has no flags to display"),
@@ -1129,22 +1134,6 @@ output$server_datasets_review_flags_dataset <- DT::renderDataTable({
   
   cohort_flag_details <- SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS(evaluations$evaluation_id)
   
-  # cohort_flag_details <- DBPOOL %>% dbGetQuery("select 
-  #   rdc.evaluation_id,
-  #   rdc.rsf_pfcbl_id,
-  #   rdc.check_status,
-  #   rdc.check_status_comment,
-  #   rdc.check_message,
-  #   rdc.check_status_user_id,
-  #   vai.users_name as check_status_users_name,
-  #   nids.rsf_full_name as entity_name
-  #   from p_rsf.rsf_data_checks rdc
-  #   inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = rdc.rsf_pfcbl_id
-  #   left join p_rsf.view_account_info vai on vai.account_id = rdc.check_status_user_id
-  #   where rdc.evaluation_id = any(select unnest(string_to_array($1::text,','))::int)",
-  #   params=list(paste0(unique(evaluations$evaluation_id),collapse=",")))
-  # 
-  # setDT(cohort_flag_details)
   
   evaluations <- evaluations[cohort_flag_details,
                              on=.(evaluation_id),
@@ -1189,6 +1178,7 @@ output$server_datasets_review_flags_dataset <- DT::renderDataTable({
                                   `Reported By`=sapply(users_name,format_name_abbreviation),
                                   Revert=apply_html)]
     
+  
   } else {
     evaluations <- evaluations[,.(SYSID=rsf_pfcbl_id,
                                   NAME=entity_name,
@@ -1198,6 +1188,10 @@ output$server_datasets_review_flags_dataset <- DT::renderDataTable({
                                   User=sapply(check_status_users_name,format_name_abbreviation),
                                   Apply=apply_html)]
   }
+  
+  setorder(evaluations,
+           SYSID)
+  
   DT::datatable(evaluations,
                 rownames = FALSE,
                 fillContainer=TRUE,

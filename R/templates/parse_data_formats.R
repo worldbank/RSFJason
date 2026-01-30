@@ -14,7 +14,8 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                                                    "LCY"),
                                DATA_MAX_DECIMALS=CALCULATIONS_ENVIRONMENT$MAX_DECIMALS,
                                DATA_SIG_DIGITS=CALCULATIONS_ENVIRONMENT$SIG_DIGITS,
-                               VALID_CURRENCIES=CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES) {
+                               VALID_CURRENCIES=CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES,
+                               flag.defaults=FALSE) {
   
   # ld <<- as.data.frame(template_data)
   # ri <<- as.data.frame(rsf_indicators)
@@ -335,7 +336,7 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
       
       if (!empty(bad_matches)) {
         
-        if (!empty(bad_matches[!is.na(default_value)])) {
+        if (!empty(bad_matches[!is.na(default_value)]) && flag.defaults==TRUE) {
           
           bad_matches_flags <- bad_matches[!is.na(default_value),
                                            .(parse_id,
@@ -443,7 +444,7 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                    `:=`(data_value=default_value,
                         data_unit=default_unit)]
 
-      if (!empty(default_data)) {
+      if (!empty(default_data) && flag.defaults==TRUE) {
           
         default_data_flags <- default_data[,.(parse_id,
                                               check_name="sys_flag_data_missing_value_using_default",

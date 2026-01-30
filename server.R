@@ -24,24 +24,29 @@ server <- function(input, output, session)
     # } else if (grepl("rsf-stage",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_STAGE"]]
     # } else {  }
     
-    if (grepl("rsf-prod",session$clientData$url_pathname) && !identical(LOCATION,"Jason_PROD")) {
+    if (grepl("rsf-prod",session$clientData$url_pathname)) {
       
-      showNotification(type="error",
-                       ui=h3(paste0("rsf-prod deployment does not match location setting: ",LOCATION)))
+      if (!identical(LOCATION,"Jason_PROD")) {
+        showNotification(type="error",
+                         ui=h3(paste0("rsf-prod deployment does not match location setting: ",LOCATION)))
+        
+        stop(paste0("rsf-prod deployment does not match location setting: ",LOCATION))
+      }
+    } else if (grepl("rsf-dev",session$clientData$url_pathname)) {
       
-      stop(paste0("rsf-prod deployment does not match location setting: ",LOCATION))
-    } else if (grepl("rsf-dev",session$clientData$url_pathname) && !identical(LOCATION,"Jason_DEV")) {
-      showNotification(type="error",
-                       ui=h3(paste0("rsf-dev deployment does not match location setting: ",LOCATION)))
-      stop(paste0("rsf-dev deployment does not match location setting: ",LOCATION))
-    
-    } else if (grepl("rsf-stage",session$clientData$url_pathname) && !identical(LOCATION,"Jason_STAGE")) {
+      if (!identical(LOCATION,"Jason_DEV")) {
+        showNotification(type="error",
+                         ui=h3(paste0("rsf-dev deployment does not match location setting: ",LOCATION)))
+        stop(paste0("rsf-dev deployment does not match location setting: ",LOCATION))
+      }    
+    } else if (grepl("rsf-stage",session$clientData$url_pathname)) {
       
-      showNotification(type="error",
-                       ui=h3(paste0("rsf-stage deployment does not match location setting: ",LOCATION)))
-      
-      stop(paste0("rsf-stage deployment does not match location setting: ",LOCATION))
-    
+      if (!identical(LOCATION,"Jason_STAGE")) {
+        showNotification(type="error",
+                         ui=h3(paste0("rsf-stage deployment does not match location setting: ",LOCATION)))
+        
+        stop(paste0("rsf-stage deployment does not match location setting: ",LOCATION))
+      }
     } else if (session$clientData$url_pathname=="/") { #Local
       
       if (!identical(LOCATION,"Jason_DEV")) {
@@ -50,7 +55,7 @@ server <- function(input, output, session)
       }
     } else {
       showNotification(type="error",
-                       ui=h3("Failed to identify database LOCATION for application URL"))
+                       ui=h3("Failed to identify database LOCATION (",LOCATION,") for application URL (",session$clientData$url_pathname,")"))
       
       stop(paste0("Failed to parse url_pathname '",session$clientData$url_pathname,"' and Global.R LOCATION=",LOCATION))
     }
