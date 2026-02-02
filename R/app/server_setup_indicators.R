@@ -570,12 +570,13 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
       sis.data_unit,
       coalesce(sis.formula_calculation_unit,'') as formula_calculation_unit,
       coalesce(case when indf.formula_fx_date = 'nofx' then false
-                    when sis.data_type = 'currency' and sis.data_unit = 'LCU' then true
+                    when ind.data_type = 'currency' and ind.data_unit = 'LCU' then true
                     else exists(select * from p_rsf.indicators ind
                                 where ind.indicator_id = any(indf.formula_indicator_ids)
                                   and ind.data_type = 'currency')
       end,false) as formula_calculation_unit_allowed                         
       from p_rsf.view_rsf_setup_indicator_subscriptions sis
+      inner join p_rsf.indicators ind on ind.indicator_id = sis.indicator_id
       left join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
     where sis.rsf_pfcbl_id = $1::int
       and sis.indicator_id = $2::int",

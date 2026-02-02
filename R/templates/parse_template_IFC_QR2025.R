@@ -16,15 +16,17 @@ parse_template_IFC_QR2025 <- function(pool,
     ####
     #openxlsx has some bug where it can't read some types of workbooks with pivot tables
     #https://github.com/ycphs/openxlsx/issues/124
-    excelwb <- tryCatch({
-      openxlsx2::wb_load(template_file)
-    },
-    error = function(e) { 
-      stop(conditionMessage(e))
-    },
-    warning = function(w) { 
-      suppressWarnings(openxlsx2::wb_load(template_file))
-    })
+    
+    excelwb <- openxlsx2::wb_load(template_file)
+    # excelwb <- tryCatch({
+    #   openxlsx2::wb_load(template_file)
+    # },
+    # error = function(e) { 
+    #   stop(conditionMessage(e))
+    # },
+    # warning = function(w) { 
+    #   suppressWarnings(openxlsx2::wb_load(template_file))
+    # })
     
    
     nregions_table <- openxlsx2::wb_get_named_regions(excelwb)
@@ -342,6 +344,8 @@ parse_template_IFC_QR2025 <- function(pool,
       list_sheet[rsf_indicators,
                  indicator_sys_category:=i.indicator_sys_category,
                  on=.(indicator_name)]
+      
+      list_sheet
       
       if (any(list_sheet$indicator_sys_category=="products_eligible",na.rm=T)) {
         products <- unlist(str_split(list_sheet[indicator_sys_category=="products_eligible",
@@ -1332,7 +1336,7 @@ parse_template_IFC_QR2025 <- function(pool,
                               indicator_id=as.numeric(NA), #will be auto-assigned to reporting indicator
                               reporting_asof_date=reporting_asof_date,
                               check_name="sys_flag_indicator_ignored",
-                              check_message=paste0("Ignored \"",label,"\" on QReport Column ",original_col_num," because matched \"",matched_indicator,"\""))]
+                              check_message=paste0("Ignored \"",label,"\" on QReport Column ",original_col_num," because matched \"",matched_indicator,"\": should an alternative label be added in system indicators?"))]
           
           mismatched_labels <- mismatched_labels[,.(rsf_pfcbl_id,
                                               indicator_id,
@@ -1571,15 +1575,15 @@ parse_template_IFC_QR2025 <- function(pool,
         
       }
       
-      comment <- paste0(flag$check_name,"\n",flag$check_message,"\n\n[ID:",flag$evaluation_id,"]")
+      comment <- paste0(flag$check_message,"\n[",gsub("_"," ",flag$check_name),"]\n[ID:",flag$evaluation_id,"]")
       #comment <- "test"
       #print(paste0(flag$ref," ",comment))
       # #ensure XML control characters are escaped#fixed in github
-      comment <- gsub("<","&lt;",comment)
-      comment <- gsub(">","&gt;",comment)
-      commnet <- gsub("'","&apos;",comment)
-      comment <- gsub("&","&amp;",comment)
-      comment <- gsub('"',"&quot;",comment)
+      # comment <- gsub("<","&lt;",comment)
+      # comment <- gsub(">","&gt;",comment)
+      # commnet <- gsub("'","&apos;",comment)
+      # comment <- gsub("&","&amp;",comment)
+      # comment <- gsub('"',"&quot;",comment)
       
       wb$add_thread(sheet=sheet,
                     dims=flag$ref,

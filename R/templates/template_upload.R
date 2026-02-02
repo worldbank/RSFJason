@@ -148,9 +148,11 @@ template_upload <- function(pool,
             rd.rsf_pfcbl_id,
             ind.data_category,
             ind.indicator_id,
-            concat(ind.indicator_name,' changed to: ',
-                   coalesce(rd.data_value,'{MISSING}'),
-            			 ' from: ',coalesce(previous.data_value,'{MISSING}'),' [reported in ',previous.reporting_asof_date,']') as check_message
+            concat(ind.indicator_name,' changed [to] ',
+                   coalesce(rd.data_value || coalesce(' ' || rd.data_unit,''),'{MISSING}'),
+                   case when previous.reporting_asof_date IS NULL then ' [previously unreported]'
+                        else concat(' [previously] ',coalesce(previous.data_value || coalesce(' ' || previous.data_unit,''),'{MISSING}'),' [reported in ',previous.reporting_asof_date,']') 
+                   end) as check_message
             from p_rsf.reporting_imports ri
             inner join p_rsf.reporting_cohorts rc on rc.import_id = ri.import_id
             inner join p_rsf.rsf_data rd on rd.reporting_cohort_id = rc.reporting_cohort_id
@@ -159,6 +161,7 @@ template_upload <- function(pool,
             inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id
             left join lateral (select
                                rdc.data_value,
+                               rdc.data_unit,
             									 rdc.reporting_asof_date
             									 from p_rsf.rsf_data_current rdc
             									 where rdc.rsf_pfcbl_id = rd.rsf_pfcbl_id
