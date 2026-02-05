@@ -620,7 +620,8 @@ template_process <- function(pool,
               set is_subscribed = tc.is_subscribed,
                   is_auto_subscribed = false,
                   subscription_comments = tc.subscription_comments,
-                  comments_user_id = tc.comments_user_id
+                  comments_user_id = tc.comments_user_id,
+                  auto_subscribed_by_reporting_cohort_id = NULL
               from _temp_checks tc
               where tc.rsf_pfcbl_id = pfc.rsf_pfcbl_id
                 and tc.check_formula_id = pfc.check_formula_id

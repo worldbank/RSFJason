@@ -1,6 +1,6 @@
 module_accounts_server <- function(id,
                                    parent_session,
-                                   pool,
+                                   APPLICATIONS,
                                    application_hashid,
                                    application_account_id,
                                    USER_ACCOUNT,
@@ -67,7 +67,7 @@ module_accounts_server <- function(id,
       
       LOGIN_ATTEMPTS(0)
       
-      USER_ACCOUNT$application_permissions <- credentials$application_permissions
+      #USER_ACCOUNT$application_permissions <- credentials$application_permissions
       USER_ACCOUNT$application_session_id <- credentials$session_id
       USER_ACCOUNT$user_name <- credentials$users_name
       USER_ACCOUNT$user_account_id <- credentials$account_id
@@ -86,6 +86,50 @@ module_accounts_server <- function(id,
     
     LOGGEDIN <- reactive({ isTruthy(USER_ACCOUNT$user_account_id) && isTruthy(USER_ACCOUNT$application_session_id) })
     
+    # observeEvent(session, { 
+    #   print("Session information")
+    #   # 
+    #   # session$url_hostname [1] "datanalytics-int.worldbank.org"
+    #   #browser()
+    #   #print(reactiveValuesToList(session))
+    #   
+    #   #will be assigned by Active Directory
+    #   ad_user <- NULL
+    #   if (isTruthy(session$user) && nchar(session$user) > 1) {
+    #     
+    #     ad_user <- session$user
+    #   } 
+    #   
+    #   if (!is.null(ad_user)) {
+    #     user_account <- DBPOOL %>% dbGetQuery("
+    #     select 
+    #       vai.account_id,
+    #       vai.users_name,
+    #       vai.users_login
+    #     from p_rsf.view_account_info vai
+    #     where users_login ~ concat('^',($1::text),'@')
+    #       and exists(select * 
+    #        from users.view_account_permissions_granted apg
+    #        where apg.account_id = vai.account_id
+    #          and apg.permission_value > 0)",
+    #                                           params=list(ad_user))
+    #     
+    #     if (nrow(user_account)==1) {
+    #       USER_ACCOUNT$user_account_id <- user_account$account_id
+    #       USER_ACCOUNT$user_name <- user_account$user_name
+    #       USER_ACCOUNT$user_login <- user_account$user_login
+    #       
+    #       #USER_ACCOUNT$application_permissions <- credentials$application_permissions
+    #       USER_ACCOUNT$application_session_id <- session$token
+    #     }
+    #   }
+    #   
+    #   # if (grepl("rsf-prod",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_PROD"]]
+    #   # } else if (grepl("rsf-dev",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_DEV"]]
+    #   # } else if (grepl("rsf-stage",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_STAGE"]]
+    #   # } else {  }
+    #   
+    # },once=T,priority = 1)
     
     observeEvent(LOGGEDIN(), {
       
@@ -146,6 +190,58 @@ module_accounts_server <- function(id,
         
       }
       
+      ad_user <- NULL
+      message(paste0("Parent session: ",parent_session$user))
+      if (isTruthy(parent_session$user)) {
+        
+        ad_user <- session$user
+        
+        if (!is.null(ad_user)) {
+          
+          message(paste0("Active Directory login for: ",ad_user))
+          
+          user_account <- dbGetQuery(APPLICATIONS,"
+        select 
+          vai.account_id,
+          vai.users_name,
+          vai.login_email as user_login,
+          aas.application_permissions
+        from arlapplications.view_account_application_subscriptions aas
+        inner join arlapplications.view_account_info vai on vai.account_id = aas.account_id
+        where vai.login_email ~ concat('^',($1::text),'@')
+          and aas.application_hashid = $2
+          and aas.application_permissions>0",
+          params=list(ad_user,
+                      application_hashid))
+          
+          user_account$session_id <- parent_session$token
+          
+          print(user_account)
+          if (nrow(user_account)==1) {
+            doLogin(credentials=user_account)
+          }
+        }
+        
+      } else if (isTruthy(cookie$user_login) && isTruthy(cookie$session_id) && as.logical(input$login_rememberme) %in% TRUE) {
+        
+        result <- db_user_login(pool=APPLICATIONS,
+                                application_hashid=application_hashid,
+                                username=cookie$user_login,
+                                password=cookie$session_id)
+        if (isTruthy(result)) {
+          message("Login by remember password cookie session credentials")
+          doLogin(credentials=result)
+        } else {
+          updateTextInput(session=session,
+                          inputId = "login_password",
+                          value="")
+        }
+        
+      }
+      
+      
+      
+      
     })
     
     observeEvent(input$login_change_action, {
@@ -164,7 +260,7 @@ module_accounts_server <- function(id,
       } else {
         
         error_msg <- ""
-        account_id <- tryCatch({ account_id <- db_user_login_change_password(pool=pool,
+        account_id <- tryCatch({ account_id <- db_user_login_change_password(pool=APPLICATIONS,
                                                                              application_hashid=application_hashid,
                                                                              request_by_account_id=application_account_id,
                                                                              username=user_login,
@@ -190,7 +286,7 @@ module_accounts_server <- function(id,
         } else {
 
           
-          result <- db_user_login(pool=pool,
+          result <- db_user_login(pool=APPLICATIONS,
                                   application_hashid=application_hashid,
                                   username=user_login,
                                   password=new_password1)
@@ -211,7 +307,7 @@ module_accounts_server <- function(id,
     
       result <- NULL
 
-      result <- db_user_login(pool=pool,
+      result <- db_user_login(pool=APPLICATIONS,
                               application_hashid=application_hashid,
                               username=user_login,
                               password=password)
@@ -220,7 +316,7 @@ module_accounts_server <- function(id,
         
         
         
-        check_reset <- tryCatch({ db_user_login_reset_check(pool,
+        check_reset <- tryCatch({ db_user_login_reset_check(pool=APPLICATIONS,
                                                             application_hashid=application_hashid,
                                                             username=user_login) },
                                 error = function(e) { NULL },
@@ -235,7 +331,7 @@ module_accounts_server <- function(id,
           #has_resent_password == FALSE means reset has not been called.
           if (check_reset$has_password == FALSE || check_reset$has_reset_password == FALSE) {
             
-            reset_code <- db_user_reset_password(pool=pool,
+            reset_code <- db_user_reset_password(pool=APPLICATIONS,
                                                  application_hashid=RSF_MANAGEMENT_APPLICATION_ID,
                                                  sysadmin_id=ACCOUNT_SYS_ADMIN$account_id,
                                                  username=user_login)
@@ -249,7 +345,7 @@ module_accounts_server <- function(id,
               hideElement(id="login_failed1")
               updateTextInput(session=session,inputId="login_password",label="Temporary Password",value="")  
               
-              user_send_email(pool=pool,
+              user_send_email(pool=APPLICATIONS,
                               to=reset_code$login_email,
                               subject="RSF JASON | password reset",
                               html=email) 
@@ -313,9 +409,11 @@ module_accounts_server <- function(id,
     
     observeEvent(input$login_logout_action, { 
       
-      result <- db_user_logout(pool=pool,
+      result <- db_user_logout(pool=APPLICATIONS,
                                application_hashid=RSF_MANAGEMENT_APPLICATION_ID,
                                session_id=USER_ACCOUNT$application_session_id)
+      
+      if (!result && identical(USER_ACCOUNT$application_session_id,parent_session$token) && LOGGEDIN()) { result <- TRUE }
 
       if (result==TRUE) {
         
@@ -366,13 +464,13 @@ module_accounts_server <- function(id,
     
     observeEvent(input$reset_password_button, {
  
-      lookup <- db_user_check_email_exists(pool=pool, application_hashid=RSF_MANAGEMENT_APPLICATION_ID, email=input$user_login)
-      is_can_login <- db_user_check_permission(pool=pool, application_hashid=RSF_MANAGEMENT_APPLICATION_ID, email=input$user_login, 'CAN_LOGIN')
+      lookup <- db_user_check_email_exists(pool=APPLICATIONS, application_hashid=RSF_MANAGEMENT_APPLICATION_ID, email=input$user_login)
+      is_can_login <- db_user_check_permission(pool=APPLICATIONS, application_hashid=RSF_MANAGEMENT_APPLICATION_ID, email=input$user_login, 'CAN_LOGIN')
 
       if (nrow(lookup) == 1 && 
           nrow(is_can_login) == 1) {
         
-        reset_code <- db_user_reset_password(pool=pool,
+        reset_code <- db_user_reset_password(pool=APPLICATIONS,
                                              application_hashid=RSF_MANAGEMENT_APPLICATION_ID,
                                              sysadmin_id=ACCOUNT_SYS_ADMIN$account_id,
                                              username=input$user_login)
@@ -386,7 +484,7 @@ module_accounts_server <- function(id,
           to <- input$user_login
           subject <- "RSF JASON | Password Reset"
 #print("SENDING MAIL")          
-          user_send_email(pool = pool,
+          user_send_email(pool = APPLICATIONS,
                           to = to,
                           subject = subject,
                           html = email)

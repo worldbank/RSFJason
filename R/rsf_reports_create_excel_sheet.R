@@ -3,8 +3,8 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
                                            sheet_data_table_name="RSF_TEMPLATE_DATA",
                                            sheet_data,
                                            
-                                           program_name,
-                                           program_image="IFC-CMCO_Horizontal_RGB_TransparentBG-high.png",
+                                           header_name,
+                                           header_image="IFC-CMCO_Horizontal_RGB_TransparentBG-high.png",
                                            
                                            template_key,              #required
                                            report_key=NA,             #optional, but when included, will concatenate template-key with ':'
@@ -19,30 +19,10 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
                                            protect_full=FALSE) #protect just headers or full sheet
 {
 
-print(paste0("Generating: ",sheet_name,"; ",sheet_data_table_name))  
-  # db_params <<- as.list(environment())[which(names(as.list(environment())) %in% c("excelwb",
-  #                                                                                 "sheet_name",
-  #                                                                                 "sheet_data_table_name",
-  #                                                                                 "sheet_data",
-  #                                                                                 "program_name",
-  #                                                                                 "program_image",
-  #                                                                                 "template_key",
-  # "report_key",
-  # "data_integrity_key",
-  # "reporting_entity",
-  # "reporting_asof_date",
-  # "reporting_user",
-  # "reporting_time",
-  # "reporting_notes",
-  # "protect",
-  # "protect_full"))]
 
-  #browser()
-  # 
-  # lapply(names(db_params),function(x) { assign(x,db_params[[x]],envir = globalenv()) })
   
   START_ROW <- 10 #start row for data table
-  program_image_scaling <- 4
+  header_image_scaling <- 4
   if (length(template_key) != 1 || all(is.na(template_key))) {
     stop("A valid template key must be provided")
   }
@@ -103,7 +83,7 @@ print(paste0("Generating: ",sheet_name,"; ",sheet_data_table_name))
   header[6,c(1,2)] <- c("Notes",reporting_notes)
   header[7,c(1,2)] <- c("Time",reporting_time)
   
-  header[1,3] <- program_name
+  header[1,3] <- header_name
   
   openxlsx::writeData(excelwb,sheet=sheet,x=header,colNames=FALSE,rowNames=FALSE,startCol=1,startRow=1)
   
@@ -153,12 +133,12 @@ print(paste0("Generating: ",sheet_name,"; ",sheet_data_table_name))
                cols=3:sheet_cols,
                rows=1:2)
     
-    if (!is.na(program_image)) {
+    if (!is.na(header_image)) {
       openxlsx::insertImage(excelwb,
                              sheet=sheet,
                              startRow=1,
                              startCol=1,
-                             file=program_image,units="px",width=3060/program_image_scaling,height=777/program_image_scaling)
+                             file=header_image,units="px",width=3060/header_image_scaling,height=777/header_image_scaling)
 
       if (length(excelwb$drawings[[sheet]]) > 0) {
         #offset image from edge by approx 5px (50,000 is 5 px??)

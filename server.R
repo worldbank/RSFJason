@@ -14,10 +14,15 @@ server <- function(input, output, session)
   } else { print("DBPOOL (MAIN) FAILED TO START") }
   
   observeEvent(session, { 
-    print("Session information")
-    #print(reactiveValuesToList(session$clientData))
-    #print(session$user)
-    
+    # print("Session information")
+    # # session$url_hostname [1] "127.0.0.1"
+    # # session$url_hostname [1] "datanalytics-int.worldbank.org"
+    # #browser()
+    # #print(reactiveValuesToList(session))
+    # print("Session$user")
+    # print(session$user)
+    # print("Session$groups")
+    # print(session$groups)
     # dbserver <- NULL
     # if (grepl("rsf-prod",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_PROD"]]
     # } else if (grepl("rsf-dev",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_DEV"]]
@@ -59,6 +64,15 @@ server <- function(input, output, session)
       
       stop(paste0("Failed to parse url_pathname '",session$clientData$url_pathname,"' and Global.R LOCATION=",LOCATION))
     }
+    
+    
+    module_accounts_server(id="accounts_server",
+                           parent_session = session,
+                           APPLICATIONS=DBPOOL_APPLICATIONS,
+                           application_hashid=RSF_MANAGEMENT_APPLICATION_ID,
+                           application_account_id=ACCOUNT_SYS_ADMIN$account_id,
+                           USER_ACCOUNT=USER_ACCOUNT,
+                           cookie_name="ARL-applications")
     
   },once=T,priority = 1)
   
@@ -118,18 +132,14 @@ server <- function(input, output, session)
   STATUS_MESSAGE_PANEL <- reactiveValues(container_id="dataset_upload_log_container",panel_id="dataset_upload_log")
   USER_ACCOUNT <- reactiveValues()
   
-  module_accounts_server(id="accounts_server",
-                         parent_session = session,
-                         pool=DBPOOL_APPLICATIONS,
-                         application_hashid=RSF_MANAGEMENT_APPLICATION_ID,
-                         application_account_id=ACCOUNT_SYS_ADMIN$account_id,
-                         USER_ACCOUNT=USER_ACCOUNT,
-                         cookie_name="ARL-applications")
+  
   
   USER_ID <- eventReactive(USER_ACCOUNT$user_account_id, { USER_ACCOUNT$user_account_id },ignoreNULL = FALSE)
   USER_NAME <- eventReactive(USER_ACCOUNT$user_name, {  format_name_abbreviation(USER_ACCOUNT$user_name) },ignoreNULL=FALSE)
   LOGGEDIN <- reactive({ isTruthy(USER_ACCOUNT$user_account_id) && isTruthy(USER_ACCOUNT$application_session_id) })
   
+ 
+
   GLOBAL_CURRENCIES <- reactive({
     tryCatch({ get_fx_codes() },
              warning=function(w) { 

@@ -4,7 +4,6 @@ db_user_login <- function(pool,application_hashid,username,password) {
   if (is.null(username) || length(username) != 1) username <- NA
   if (is.null(password) || length(password) != 1) password <- NA
   
-  print(paste0("db_user_login application_hashid=",application_hashid," username=",username," password=",password))
   user_account <- dbGetQuery(pool,"
                            select
                            al.session_id,

@@ -457,7 +457,8 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
                                                       is_auto_subscribed,
                                                       subscription_comments,
                                                       comments_user_id,
-                                                      formula_calculation_unit)
+                                                      formula_calculation_unit,
+                                                      auto_subscribed_by_reporting_cohort_id)
     select
       ids.rsf_pfcbl_id,
       $3::int as indicator_id,
@@ -471,7 +472,8 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
       false as is_auto_subscribed,
       'Formula set by ' || $4::text || ' on ' || timeofday()::date as subscription_comments,
       $5::text as comments_user_id,
-      NULLIF($6::text,'NA')
+      NULLIF($6::text,'NA'),
+      NULL as auto_subscribed_by_reporting_cohort_id
     from p_rsf.rsf_pfcbl_ids ids
     where ids.rsf_pfcbl_id = $1::int
     on conflict (rsf_pfcbl_id,indicator_id)
@@ -484,7 +486,8 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
                                    then rsf_setup_indicators.subscription_comments
                                    else concat(rsf_setup_indicators.subscription_comments || '; ',EXCLUDED.subscription_comments) end,
       comments_user_id = EXCLUDED.comments_user_id,
-      formula_calculation_unit = EXCLUDED.formula_calculation_unit
+      formula_calculation_unit = EXCLUDED.formula_calculation_unit,
+      auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id
     returning formula_id;",
     params=list(selected_rsf_pfcbl_id,
                 formula_id,
@@ -567,13 +570,13 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
       sis.formula_id,
       sis.is_subscribed,
       sis.data_type,
-      sis.data_unit,
+      ind.data_unit,
       coalesce(sis.formula_calculation_unit,'') as formula_calculation_unit,
       coalesce(case when indf.formula_fx_date = 'nofx' then false
                     when ind.data_type = 'currency' and ind.data_unit = 'LCU' then true
-                    else exists(select * from p_rsf.indicators ind
-                                where ind.indicator_id = any(indf.formula_indicator_ids)
-                                  and ind.data_type = 'currency')
+                    else exists(select * from p_rsf.indicators xind
+                                where xind.indicator_id = any(indf.formula_indicator_ids)
+                                  and xind.data_type = 'currency')
       end,false) as formula_calculation_unit_allowed                         
       from p_rsf.view_rsf_setup_indicator_subscriptions sis
       inner join p_rsf.indicators ind on ind.indicator_id = sis.indicator_id
@@ -946,7 +949,8 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
                                                       is_subscribed,
                                                       is_auto_subscribed,
                                                       sort_preference,
-                                                      subscription_comments)
+                                                      subscription_comments,
+                                                      auto_subscribed_by_reporting_cohort_id)
             select 
               ids.rsf_pfcbl_id,
               ind.indicator_id,
@@ -956,7 +960,8 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
               $4::bool as is_subscribed,
               false as is_auto_subscribed,
               $5::int2 as sort_preference,
-              $6::text as subscription_comments
+              $6::text as subscription_comments,
+              NULL as auto_subscribed_by_reporting_cohort_id
             from p_rsf.rsf_pfcbl_ids ids
             cross join p_rsf.indicators ind
             left join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
@@ -969,7 +974,8 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
                 is_subscribed = EXCLUDED.is_subscribed,
                 is_auto_subscribed = EXCLUDED.is_auto_subscribed,
                 sort_preference = EXCLUDED.sort_preference,
-                subscription_comments = EXCLUDED.subscription_comments",
+                subscription_comments = EXCLUDED.subscription_comments,
+                auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id",
     params=list(monitored_indicator$rsf_pfcbl_id,
                 monitored_indicator$indicator_id,
                 monitored_indicator$formula_id,

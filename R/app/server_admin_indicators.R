@@ -118,9 +118,9 @@ SERVER_ADMIN_INDICATORS_DO_RECALCULATE <- function(rsf_pfcbl_ids=NA,
                       indicator_id))
         }
         
-        DBPOOL %>% rsf_program_calculate(rsf_program_id=pid,
-                                         rsf_indicators=RSF_INDICATORS(),
-                                         rsf_pfcbl_id.family=id,
+        DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
+                                         rsf_pfcbl_id.family=pid,
+                                         for_import_id=NA,
                                          calculate_future=TRUE,
                                          reference_asof_date=NULL,
                                          status_message=progress_status_message)

@@ -47,6 +47,7 @@ COHORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
       accounts.account_id as reporting_user_id,
       accounts.users_name as reporting_user_name,
       rt.template_name,
+      rt.file_extension,
       rt.template_id
     from p_rsf.rsf_pfcbl_ids ids 
     inner join p_rsf.reporting_imports ri on ri.import_rsf_pfcbl_id = ids.rsf_pfcbl_id

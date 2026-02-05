@@ -21,7 +21,8 @@ db_program_toggle_check_subscription <- function(pool,
                                                   rsf_program_id,
                                                   rsf_facility_id,
                                                   is_subscribed,
-                                                  is_auto_subscribed)
+                                                  is_auto_subscribed,
+                                                  auto_subscribed_by_reporting_cohort_id)
     select
       status.rsf_pfcbl_id,
       status.check_formula_id,
@@ -29,14 +30,16 @@ db_program_toggle_check_subscription <- function(pool,
       status.rsf_program_id,
       status.rsf_facility_id,
       (not status.is_subscribed) as is_subscribed,
-      false as is_auto_subscribed
+      false as is_auto_subscribed,
+      NULL as auto_subscribed_by_reporting_cohort_id
     from status
     inner join p_rsf.indicator_check_formulas icf on icf.check_formula_id = status.check_formula_id
     on conflict(rsf_pfcbl_id,check_formula_id)
     do update
     set is_subscribed = EXCLUDED.is_subscribed,
         indicator_check_id = EXCLUDED.indicator_check_id,
-        is_auto_subscribed = EXCLUDED.is_auto_subscribed
+        is_auto_subscribed = EXCLUDED.is_auto_subscribed,
+        auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id
     returning rsf_pfcbl_id,is_subscribed;",
     params=list(rsf_pfcbl_id,
                 check_formula_id))

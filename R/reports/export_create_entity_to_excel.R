@@ -75,6 +75,8 @@ export_create_entity_to_excel <- function(pool,
                                     export_name=NA)
  
   creation_names <- entity_data[indicator_sys_category=="name",data_value]
+  if (length(creation_names)==0) creation_names <- paste0("NEW ",unique(entity_data$data_category))
+  
   report_note = paste0("Creating: ",paste0(creation_names,collapse=" & "))
   
 
@@ -84,11 +86,11 @@ export_create_entity_to_excel <- function(pool,
                                             sheet_data_table_name="RSF_TEMPLATE_DATA",
                                             sheet_data=export_data,
                                             
-                                            program_name=export_cohort$program_name,
+                                            header_name=export_cohort$exporting_entity_name,
                                             
                                             template_key=TEMPLATE$template_key,
                                             report_key=export_cohort$reporting_key,
-                                            #data_integrity_key=export_cohort$data_integrity_key, 
+
                                             reporting_entity=export_cohort$exporting_entity_name,
                                             reporting_asof_date=export_cohort$exporting_asof_date,
                                             reporting_user=format_name_abbreviation(export_cohort$exporting_users_name),

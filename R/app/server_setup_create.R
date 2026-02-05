@@ -298,32 +298,7 @@ observeEvent(input$setup_program_create_action_button, {
           }
           
           showNotification(ui=h3(paste0("New ",toupper(what)," successfully created!")))
-          #browser()
-          #program has its own clause
-          # if (what %in% c("facility","client")) {
-          #   
-          #   updateSelectizeInput(session=session,
-          #                        inputId="setup_program_create_what",
-          #                        selected="")
-          #   
-          #   updateTabsetPanel(session=session,
-          #                     inputId="tabset_setup_program",
-          #                     selected = "Setup Indicators")
-          #   
-          #   modal_ui <-div(p("Setup indicators and Setup checks for this ",toupper(what)," to encode RSA definitions and requirements"),
-          #                  p("Colored indicators are monitored.  Grayed-out are not.  Check the box and click the cross-arrows icon button to toggle monitoring status"),
-          #                  p("Calculated indicators use formulas: RSAs often have different definitions. Verify the default formula or set the correct one using the calculator icon button"),
-          #                  p("RSA Facility Parameters (purple indicators) must setup the parameter value.  For example, if the RSA defines natural termination as 4-years after Signing Date, update the 'facility_termination_RSA_duration_MONTHS' to 48 MONTHS.  And also set the formula for the 'facility_termination_date' to be relative to SIGNING DATE (and change from the RSA default from effective date)"),
-          #                  p("The filters on this page have been selected for you for SETUP MODE: This allows you to double-click on the 'Value@' column, to active an editing box.  Type in the value defined in the RSA.  You can also double-click on 'Notes' column to comment on this indicator's setup"))
-          #   
-          #   showModal(ui=modalDialog(title=paste0("Setup this ",toupper(what)),
-          #                            modal_ui,
-          #                            size="l",
-          #                            footer=actionButton(inputId="server_setup_create_setup_indicators",
-          #                                                label=paste0("Setup ",toupper(what)," Now"),
-          #                                                class="btn-primary")))
-          #   
-          # }
+         
       }
     })
   },

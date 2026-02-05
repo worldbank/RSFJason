@@ -1120,7 +1120,8 @@ parse_template_RSA <- function(pool,
                                                           is_subscribed,
                                                           is_auto_subscribed,
                                                           subscription_comments,
-                                                          comments_user_id)
+                                                          comments_user_id,
+                                                          auto_subscribed_by_reporting_cohort_id)
        select
          ids.rsf_pfcbl_id,
          act.indicator_id,
@@ -1130,7 +1131,8 @@ parse_template_RSA <- function(pool,
          false as is_subscribed,
          false as is_auto_subscribed,
          act.comments as subscription_comments,
-         'SYSTEM Unsubscribed: ' || $2::text
+         'SYSTEM Unsubscribed: ' || $2::text,
+         NULL as auto_subscribed_by_reporting_cohort_id
        from p_rsf.rsf_pfcbl_ids ids
        cross join _act act
        left join p_rsf.indicator_formulas indf on indf.indicator_id = act.indicator_id
@@ -1148,7 +1150,8 @@ parse_template_RSA <- function(pool,
         is_subscribed = EXCLUDED.is_subscribed,
         is_auto_subscribed = EXCLUDED.is_auto_subscribed,
         subscription_comments = concat(rsf_setup_indicators.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
-        comments_user_id = EXCLUDED.comments_user_id
+        comments_user_id = EXCLUDED.comments_user_id,
+        auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id
        ",
                 params=list(rsf_facility_id,
                             reporting_user_id))
@@ -1172,7 +1175,8 @@ parse_template_RSA <- function(pool,
                                                       is_subscribed,
                                                       is_auto_subscribed,
                                                       subscription_comments,
-                                                      comments_user_id)
+                                                      comments_user_id,
+                                                      auto_subscribed_by_reporting_cohort_id)
        select
          ids.rsf_pfcbl_id,
          act.check_formula_id,
@@ -1182,7 +1186,8 @@ parse_template_RSA <- function(pool,
          true as is_subscribed,
          false as is_auto_subscribed,
          act.comments as subscription_comments,
-         'SYSTEM Subscribed: ' || $2::text
+         'SYSTEM Subscribed: ' || $2::text,
+         NULL as auto_subscribed_by_reporting_cohort_id
        from p_rsf.rsf_pfcbl_ids ids
        cross join _act act
        inner join p_rsf.indicator_check_formulas icf on icf.check_formula_id = act.check_formula_id
@@ -1200,7 +1205,8 @@ parse_template_RSA <- function(pool,
         is_subscribed = EXCLUDED.is_subscribed,
         is_auto_subscribed = EXCLUDED.is_auto_subscribed,
         subscription_comments = concat(rsf_setup_checks.subscription_comments || ' \n' || (now()::date)::text || ': ',EXCLUDED.subscription_comments),
-        comments_user_id = EXCLUDED.comments_user_id
+        comments_user_id = EXCLUDED.comments_user_id,
+        auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id
        ",
                 params=list(rsf_facility_id,
                             reporting_user_id))

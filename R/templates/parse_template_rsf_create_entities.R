@@ -1,7 +1,9 @@
 
 
 parse_template_rsf_create_entities <- function(pool,
-                                               template) { 
+                                               template,
+                                               rsf_indicators,
+                                               reporting_user_id) { 
   
   if (template$template_name != "RSF-ENTITIES-TEMPLATE") {
     stop(paste0("parse_template_rsf_create_entities expects template format for 'RSF-ENTITIES-TEMPLATE' but received format '",template$template_name,"'"))
@@ -24,17 +26,8 @@ parse_template_rsf_create_entities <- function(pool,
                                 value.name="data_value",
                                 value.factor = F,
                                 variable.factor = F)
-                  
-  # report_data[rsf_indicators,
-  #             indicator_id:=i.indicator_id,
-  #             on=.(indicator_name)]            
-  # 
-  # if (anyNA(report_data$indicator_id)) {
-  #   bad_indicators <- which(is.na(report_data$indicator_id))
-  #   stop(paste0("This template expects column names in Jason system names.  Failed to look-up indicators: ",
-  #               paste0(unique(report_data[bad_indicators,indicator_name]),collapse=", ")))
-  # }
-  # 
+                
+   
   # integrity_check <- rsf_reports_data_integrity_key(reporting_asof_date=report_data$reporting_asof_date,
   #                                                   rsf_pfcbl_ids=report_data$SYSID,
   #                                                   indicator_ids=report_data$indicator_id)
@@ -61,6 +54,26 @@ parse_template_rsf_create_entities <- function(pool,
   template$template_data <- report_data
   template$template_source_reference <- "SLGP Template"
   template$template_ids_method <- "pfcbl_id" #Create entities should create all specified entities under the reporting_rsf_pfcbl_id and lookup by name and ID first
+  
+  #Parent is global and all our indicators are program_
+  #Then we're trying to create a program entity and programs need to initiate their pfcbl hierarchy.
+  if (all(report_data$rsf_pfcbl_id==0,na.rm=T) && 
+      all(rsf_indicators[indicator_name %in% report_data$indicator_name,unique(data_category)]=="program",na.rm=T)) {
+    
+    new_program <- db_program_create(pool=pool,
+                                     rsf_indicators=rsf_indicators,
+                                    program_name=report_data[indicator_name=="program_name",reporting_submitted_data_value],
+                                    program_nickname=report_data[indicator_name=="program_nickname",reporting_submitted_data_value],
+                                    program_inception_date=report_data[indicator_name=="program_inception_date",reporting_submitted_data_value],
+                                    program_lcu=report_data[indicator_name=="program_base_currency_unit",reporting_submitted_data_value],
+                                    program_ifc_project_id=report_data[indicator_name=="program_ifc_project_id",reporting_submitted_data_value],
+                                    reporting_user_id=reporting_user_id,
+                                    template_id=template$template_id,
+                                    program_reporting_frequency="quarter",
+                                    source_name=template$template_source_reference)
+      
+    template$cohort_pfcbl_id <- as.numeric(new_program$reporting_rsf_pfcbl_id)
+  }
   
   return (template)
 }

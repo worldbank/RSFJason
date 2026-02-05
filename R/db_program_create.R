@@ -10,10 +10,15 @@ db_program_create <- function(pool,
                               program_reporting_frequency="quarter",
                               source_name) {
   
+  if (!length(program_name)) program_name <- NA
+  if (!length(program_nickname)) program_nickname <- "RSF Short Name"
+  if (!length(program_lcu)) program_lcu <- "USD"
+  
   #program_reporting_frequency <- match.arg(program_reporting_frequency)
   program_name <- toupper(trimws(program_name,whitespace="[ \\t\\r\\n\\v\\h\\s]"))
   program_nickname <- toupper(trimws(program_nickname,whitespace="[ \\t\\r\\n\\v\\h\\s]"))
   program_inception_date <- suppressWarnings(ymd(program_inception_date))
+  
   
   if (nchar(program_name) < 4 || nchar(program_nickname) < 4) stop("Invalid names: minimum of 4 characters required for name and nickname")
   if (is.na(program_inception_date)) stop("Unable to establish reporting_asof_date")
@@ -31,11 +36,15 @@ db_program_create <- function(pool,
                                  inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id
                                  where ind.data_category = 'program'
                                    and ind.indicator_sys_category in ('name','nickname')
-                                   and array[lower(rd.data_value)] && string_to_array($1::text,',')::text[]",
-                       params=list(paste0(c(program_name,program_nickname),collapse=",")))
+                                   and array[upper(rd.data_value)] && string_to_array($1::text,',')::text[]",
+                       params=list(paste0(toupper(c(program_name,program_nickname)),collapse=",")))
   
   if (!empty(exists)) {
-    stop(paste0("A program already exists with name or nickname: ",psate0(program_name," or ",program_nickname)))
+    message(paste0("A program already exists with name or nickname: ",paste(program_name," or ",program_nickname)))
+    if (length(unique(exists$rsf_pfcbl_id)) != 1) stop(paste0("Multiple program(s) already exists with name or nickname: ",psate0(program_name," or ",program_nickname)))
+    
+    return (list(exists=TRUE,
+                 reporting_rsf_pfcbl_id=unique(exists$rsf_pfcbl_id))) 
   }
   
   dbExecute(pool,"

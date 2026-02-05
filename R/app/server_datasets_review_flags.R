@@ -278,8 +278,9 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
   config_resolving <- as.logical(input$indicator_check_edit_config__resolving)
   
   config_threshold <- input$indicator_check_edit_config__tolerance
-  config_threshold <- as.numeric(gsub("[^[:digit:]\\.]","",config_threshold))
+  config_threshold <- suppressWarnings(as.numeric(gsub("[^[:digit:]\\.]","",config_threshold)))
   
+  if (is.na(config_threshold)) config_threshold <- 0
   #For days, variance is in "DAYS"
   if (RSF_INDICATORS()[indicator_id == ids[2],data_type] %in% c("date")) {
     config_threshold <- round(config_threshold)
@@ -309,7 +310,7 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
       coalesce($5::text,ic.check_class) as config_check_class,
       case when ic.variance_tolerance_allowed is true 
            then coalesce($6::numeric,0)
-           else NULL
+           else 0
       end as config_threshold,
       $7::text as config_comments,
       $8::text as comments_user_id
@@ -1211,97 +1212,286 @@ output$datasets_review_download_flags_action <- downloadHandler(
     
     cohort <- SELECTED_IMPORT_COHORT_GROUP()
     
-    paste0("Flags Report for ",cohort$entity_name," ",cohort$reporting_asof_date_label,".xlsx")
+    f <- cohort$source_name
+    
+    if (grepl("CHK\\d+",f)) {
+      chk <- as.numeric(gsub("^.*CHK(\\d+).*$","\\1",f,ignore.case = T))
+      if (is.na(chk)) chk <- 0
+      
+      f <- gsub("CHK(\\d+)",paste0("CHK",chk+1),f)
+    } else {
+      
+      if (grepl("v\\d",f,ignore.case = T)) {
+        f <- gsub("(v\\d+)","CHK1\\1",f)
+      } else {
+        f <- paste0(file_path_sans_ext(f)," - CHK1.",file_ext(f))
+      }
+    }
   },
   content=function(file) {
     
-    
+    cohort <- SELECTED_IMPORT_COHORT_GROUP()
     withProgress(message="Downloading file",value=0.5, {
       
-      flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()[,
-                                                           .(pfcbl_category_rank,
-                                                             check_rank,
-                                                             indicator_id,
-                                                             indicator_name,
-                                                             formula_title,
-                                                             check_name,
-                                                             check_type,
-                                                             check_class,
-                                                             check_formula_title,
-                                                             evaluation_ids)]
-      flags <- flags[,
-                     .(evaluation_id=unlist(evaluation_ids,recursive=F)),
-                     by=.(pfcbl_category_rank,
-                          check_rank,
-                          indicator_id,
-                          indicator_name,
-                          formula_title,
-                          check_name,
-                          check_type,
-                          check_class,
-                          check_formula_title)]
+      flags <- {
+        flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()[,
+                                                            .(pfcbl_category_rank,
+                                                              check_rank,
+                                                              indicator_id,
+                                                              indicator_name,
+                                                              formula_title,
+                                                              check_formula_id,
+                                                              indicator_check_id,
+                                                              check_name,
+                                                              check_type,
+                                                              check_class,
+                                                              check_formula_title,
+                                                              evaluation_ids)]
+        flags <- flags[,
+                       .(evaluation_id=unlist(evaluation_ids,recursive=F)),
+                       by=.(pfcbl_category_rank,
+                            check_rank,
+                            indicator_id,
+                            indicator_name,
+                            formula_title,
+                            check_formula_id,
+                            indicator_check_id,
+                            check_name,
+                            check_type,
+                            check_class,
+                            check_formula_title)]
+        
+        evaluations <- SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS(flags$evaluation_id)
+        
+        flags <- flags[evaluations,
+                       on=.(evaluation_id),
+                       nomatch=NULL]
+        
+        setorder(flags,
+                 pfcbl_category_rank,
+                 check_rank,
+                 entity_name,
+                 check_type,
+                 check_name)
+      }
       
-      evaluations <- SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS(flags$evaluation_id)
+      if (empty(flags)) {
+        showNotification(type="message",
+                         ui=h3("There are no displayed flags to download"))
+        return (NULL)
+      }
       
-      flags <- flags[evaluations,
-                     on=.(evaluation_id),
-                     nomatch=NULL]
+      wbflags <- NULL
       
-      setorder(flags,
-               pfcbl_category_rank,
-               check_rank,
-               entity_name,
-               check_type,
-               check_name)
+      if (cohort$file_extension=="xlsx") {
+        
+        outpath <- DBPOOL %>% db_import_download_file(import_id=SELECTED_IMPORT_COHORT_GROUP()$import_id)
+        
+        if (!is.null(outpath)) {
+          
+          file.copy(from=outpath,
+                    to=file,
+                    overwrite = TRUE)
+          
+          if (file.exists(outpath)) file.remove(outpath)
+        
+          
+          if (cohort$template_name=="IFC-QR-TEMPLATE2025") {
+            
+            lookup <- db_export_get_template(pool=DBPOOL,
+                                             template_name="IFC-QR-TEMPLATE2025")
+            
+            wbflags <- parse_template_IFC_QR2025(pool=DBPOOL,
+                                                 template_file=file,
+                                                 template_lookup=lookup,
+                                                 rsf_indicators=db_indicators_get_labels(DBPOOL),
+                                                 return.insert_flags=flags,
+                                                 return.next_date=NULL,
+                                                 status_message = function(...) {},
+                                                 CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
+            
+          } else {
+            
+            wbflags <- openxlsx2::wb_load(file=file)
+            
+            if (any(wbflags$sheet_names=="Current Flags")) {
+              wbflags$remove_worksheet(sheet="Current Flags")
+            }
+            wbflags$add_worksheet(sheet="Current Flags")
+            sorder <- which(wbflags$sheet_names=="Current Flags")
+            wbflags$set_order(c(sorder,wbflags$sheetOrder[-sorder]))
+            wbflags$add_data_table(sheet="Current Flags",
+                                   table_name="RSF_current_flags",
+                                   dims="B1",
+                                   x=flags[,
+                                           .(FLAGID=evaluation_id,
+                                             CHECK_DATE=check_asof_date,
+                                             NAME=entity_name,
+                                             type=check_type,
+                                             class=check_class,
+                                             MESSAGE=check_message,
+                                             CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
+                                                                                     check_formula_title)),
+                                             STATUS=check_status,
+                                             comment=check_status_comment,
+                                             user=check_status_users_name)])
+            wbflags$set_active_sheet(sheet="Current Flags")
+            wbflags$set_col_widths(sheet="Current Flags",
+                                   cols=c(1,2,3,4,5,6,7,8,9,10),
+                                   widths = c(10,
+                                              13, #check date 
+                                              35, #entity name
+                                              17, #check type
+                                              10, #check class
+                                              90, #check message
+                                              90, #check
+                                              10,
+                                              10,
+                                              10))
+          }
+        }
+      }
       
-      flags <- flags[,
-                     .(FLAGID=evaluation_id,
-                       #SYSID=rsf_pfcbl_id,
-                       CHECK_DATE=check_asof_date,
-                       NAME=entity_name,
-                       #indicator_name,
-                       #indicator_formula=formula_title,
-                       type=check_type,
-                       class=check_class,
-                       MESSAGE=check_message,
-                       CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
-                                                               check_formula_title)),
-                       
-                       STATUS=check_status,
-                       comment=check_status_comment,
-                       user=check_status_users_name)]
-    
-      wb <- openxlsx::createWorkbook()
-      wrap_style <- createStyle(wrapText = TRUE)
+      if (is.null(wbflags)) {
+        
+        wbflags <- openxlsx2::wb_workbook(creator="RSF Jason")
+        wbflags$add_worksheet(sheet="Current Flags")
+        wbflags$add_data_table(sheet="Current Flags",
+                               table_name="RSF_current_flags",
+                               x=flags[,
+                                       .(FLAGID=evaluation_id,
+                                         CHECK_DATE=check_asof_date,
+                                         NAME=entity_name,
+                                         type=check_type,
+                                         class=check_class,
+                                         MESSAGE=check_message,
+                                         CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
+                                                                                 check_formula_title)),
+                                         STATUS=check_status,
+                                         comment=check_status_comment,
+                                         user=check_status_users_name)])
+        
+        wbflags$set_active_sheet(sheet="Current Flags")
+        wbflags$set_col_widths(sheet="Current Flags",
+                               cols=c(1,2,3,4,5,6,7,8,9,10),
+                               widths = c(10,
+                                          13, #check date 
+                                          35, #entity name
+                                          17, #check type
+                                          10, #check class
+                                          90, #check message
+                                          90, #check
+                                          10,
+                                          10,
+                                          10))
+      }
+  
+      
+        
+      wbflags$save(file=file,
+                   overwrite=TRUE)
+      
+      incProgress(amount=1.0,message="Completed")
+    })
+  })
 
-      openxlsx::addWorksheet(wb,
-                             sheetName="FLAGS")
-      openxlsx::writeDataTable(wb=wb,
-                               sheet="FLAGS",
-                               x=flags)
-      openxlsx::setColWidths(wb,
-        sheet="FLAGS",
-        cols=c(1,2,3,4,5,6,7,8,9,10),
-        widths = c(10,
-                   13, #check date 
-                   35, #entity name
-                   17, #check type
-                   10, #check class
-                   90, #check message
-                   90, #check
-                   10,
-                   10,
-                   10))
-      
-      addStyle(wb,
-               sheet="FLAGS",
-               wrap_style,
-               rows = 1:nrow(flags),
-               cols = 6)
-      
-      openxlsx::saveWorkbook(wb=wb,
-                             file=file,
-                             overwrite=TRUE)
-      })
-  }
-)
+
+# output$datasets_review_download_flags_action <- downloadHandler(
+#   filename = function() {
+#     
+#     cohort <- SELECTED_IMPORT_COHORT_GROUP()
+#     
+#     paste0("Flags Report for ",cohort$entity_name," ",cohort$reporting_asof_date_label,".xlsx")
+#   },
+#   content=function(file) {
+#     
+#     
+#     withProgress(message="Downloading file",value=0.5, {
+#       
+#       flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()[,
+#                                                            .(pfcbl_category_rank,
+#                                                              check_rank,
+#                                                              indicator_id,
+#                                                              indicator_name,
+#                                                              formula_title,
+#                                                              check_name,
+#                                                              check_type,
+#                                                              check_class,
+#                                                              check_formula_title,
+#                                                              evaluation_ids)]
+#       flags <- flags[,
+#                      .(evaluation_id=unlist(evaluation_ids,recursive=F)),
+#                      by=.(pfcbl_category_rank,
+#                           check_rank,
+#                           indicator_id,
+#                           indicator_name,
+#                           formula_title,
+#                           check_name,
+#                           check_type,
+#                           check_class,
+#                           check_formula_title)]
+#       
+#       evaluations <- SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS(flags$evaluation_id)
+#       
+#       flags <- flags[evaluations,
+#                      on=.(evaluation_id),
+#                      nomatch=NULL]
+#       
+#       setorder(flags,
+#                pfcbl_category_rank,
+#                check_rank,
+#                entity_name,
+#                check_type,
+#                check_name)
+#       
+#       flags <- flags[,
+#                      .(FLAGID=evaluation_id,
+#                        #SYSID=rsf_pfcbl_id,
+#                        CHECK_DATE=check_asof_date,
+#                        NAME=entity_name,
+#                        #indicator_name,
+#                        #indicator_formula=formula_title,
+#                        type=check_type,
+#                        class=check_class,
+#                        MESSAGE=check_message,
+#                        CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
+#                                                                check_formula_title)),
+#                        
+#                        STATUS=check_status,
+#                        comment=check_status_comment,
+#                        user=check_status_users_name)]
+#     
+#       wb <- openxlsx::createWorkbook()
+#       wrap_style <- createStyle(wrapText = TRUE)
+# 
+#       openxlsx::addWorksheet(wb,
+#                              sheetName="FLAGS")
+#       openxlsx::writeDataTable(wb=wb,
+#                                sheet="FLAGS",
+#                                x=flags)
+#       openxlsx::setColWidths(wb,
+#         sheet="FLAGS",
+#         cols=c(1,2,3,4,5,6,7,8,9,10),
+#         widths = c(10,
+#                    13, #check date 
+#                    35, #entity name
+#                    17, #check type
+#                    10, #check class
+#                    90, #check message
+#                    90, #check
+#                    10,
+#                    10,
+#                    10))
+#       
+#       addStyle(wb,
+#                sheet="FLAGS",
+#                wrap_style,
+#                rows = 1:nrow(flags),
+#                cols = 6)
+#       
+#       openxlsx::saveWorkbook(wb=wb,
+#                              file=file,
+#                              overwrite=TRUE)
+#       })
+#   }
+# )

@@ -281,22 +281,25 @@ template_parse_file <- function(pool,
       #and have no idea what caused the failure.
       template$fail_on_incomplete_cohorts <- FALSE
 
-      #Generated through download program archive and download setup files
-      if (template$template_name=="RSF-SETUP-TEMPLATE") {
-        
-        
-        template <- parse_template_rsf_setup(pool=pool,
-                                             template=template,
-                                             template_file=template_file,
-                                             reporting_user_id=reporting_user_id,
-                                             rsf_indicators=rsf_indicators)
-      }
+      # #Generated through download program archive and download setup files
+      # if (template$template_name=="RSF-SETUP-TEMPLATE") {
+      #   
+      #   
+      #   template <- parse_template_rsf_setup(pool=pool,
+      #                                        template=template,
+      #                                        template_file=template_file,
+      #                                        reporting_user_id=reporting_user_id,
+      #                                        rsf_indicators=rsf_indicators)
+      # }
+      # 
+      # #Generated through "Create New" UI in Programs Setup when creating a new facility, etc through UI
       
-      #Generated through "Create New" UI in Programs Setup when creating a new facility, etc through UI
-      else if (template$template_name=="RSF-ENTITIES-TEMPLATE") {
+      if (template$template_name=="RSF-ENTITIES-TEMPLATE") {
         
         template <- parse_template_rsf_create_entities(pool=pool,
-                                                       template=template)
+                                                       template=template,
+                                                       rsf_indicators=rsf_indicators,
+                                                       reporting_user_id=reporting_user_id)
       }
     
       #Generated through ad-hoc updates in the Dashboard

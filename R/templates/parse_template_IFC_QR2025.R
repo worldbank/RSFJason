@@ -9,7 +9,6 @@ parse_template_IFC_QR2025 <- function(pool,
                                       status_message,
                                       CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) 
 {
- 
   #Read file
   {
     if (!file_ext(template_file) %in% "xlsx") stop("Only .xlsx files using Excel-365 versions or later may use this template")
@@ -960,9 +959,15 @@ parse_template_IFC_QR2025 <- function(pool,
   data.quarterly <- {
     
     {
-      qreport_startrow <- as.numeric(names(openxlsx2::wb_to_df(excelwb, named_region = "Template_QReport_StartRow")))
+      qreport_startrow <- names(openxlsx2::wb_to_df(excelwb,
+                                              named_region = "Template_QReport_StartRow"))
+
+#      qreport_startrow <- as.numeric(names(openxlsx2::wb_to_df(excelwb, named_region = "Template_QReport_StartRow")))
       
-      if (length(qreport_startrow)==0 || is.na(qreport_startrow)) stop("Failed to find defined name range Template_QReport_StartRow in template. Has template been modified or corrupted?")
+      if (length(qreport_startrow)==0 || 
+          suppressWarnings(is.na(as.numeric(qreport_startrow)))) stop("Failed to find defined name range Template_QReport_StartRow in template. Has template been modified or corrupted?  Ensure automatic calculations are turned ON and saved")
+      
+      qreport_startrow <- as.numeric(qreport_startrow)
       
       label_matches <- lapply(as.data.frame(t(data_sheet[1:(qreport_startrow-1)])),
                               FUN=function(x,find_sections,find_labels,match_id,match_postion) {
@@ -1547,7 +1552,7 @@ parse_template_IFC_QR2025 <- function(pool,
     }
     
     add_flag <- function(wb,sheet,flag) {
-     
+
       check_class <- toupper(flag$check_class)
       
       pid <- wb$get_person(name=check_class)$id
@@ -1604,14 +1609,25 @@ parse_template_IFC_QR2025 <- function(pool,
       excelwb$customXml <- NULL
     }
     
+
     #Remove Hidden Named Ranges
     if (any(nchar( (nr<-excelwb$get_named_regions())$hidden) )) {
       
-      message("Excel file has hidden named ranges that will be removed")
-      invisible(pmap(nr[nchar(nr$hidden)>0,c("sheet","name")],
-                     excelwb$remove_named_region))
+      for (i in 1:nrow(nr)) {
+        rng <- nr[i,]
+        hnr <- suppressWarnings(as.numeric(rng$hidden))
+        if (length(hnr) > 0 && !is.na(hnr) && hnr==1) {
+          
+          if (any(rng$sheets==excelwb$sheet_names)) {
+            message(paste0("Excel file has hidden named ranges that will be removed: ",rng$name))  
+            excelwb$remove_named_region(sheet=rng$sheets,
+                                        name=rng$name)
+          }
+        }
+      }
     }
     
+  
     #Remove existing comments (Legacy comments create issues)
     if (length(excelwb$comments)) {
       
@@ -1649,9 +1665,6 @@ parse_template_IFC_QR2025 <- function(pool,
     
     flag_data <- flag_data[omit==F]
     flag_data[,omit:=NULL]
-    
-    
-    
     
     #because there's only one indicator per error
     summary <- flag_data[sheet_name=="summary"
@@ -1716,23 +1729,23 @@ parse_template_IFC_QR2025 <- function(pool,
       stop("Multiple rsf_pfcbl_ids per reporting_template_row_group")
     }
     
-    return.insert_flags <- return.insert_flags[flag_ranks,
-                                               on=.(rsf_pfcbl_id),
-                                               nomatch=NULL]
+    qflags <- return.insert_flags[flag_ranks,
+                                   on=.(rsf_pfcbl_id),
+                                   nomatch=NULL]
     
-    return.insert_flags[!indicator_id %in% unique(flag_data$indicator_id),
+    qflags[!indicator_id %in% unique(flag_data$indicator_id),
                         indicator_id:=NA]
     
     
-    return.insert_flags[is.na(indicator_id) & pfcbl_category=="loan",
+    qflags[is.na(indicator_id) & pfcbl_category=="loan",
                         indicator_id:=rsf_indicators[data_category=="loan" & indicator_sys_category=="rank_id",indicator_id]]
     
-    return.insert_flags[is.na(indicator_id) & pfcbl_category=="borrower",
+    qflags[is.na(indicator_id) & pfcbl_category=="borrower",
                         indicator_id:=rsf_indicators[data_category=="borrower" & indicator_sys_category=="id",indicator_id]]
     
     qreport <- flag_data[sheet_name=="qreport" &
-                         reporting_template_row_group %in% unique(return.insert_flags$reporting_template_row_group)
-                         ][return.insert_flags[pfcbl_category %in% c("loan","borrower")],
+                         reporting_template_row_group %in% unique(qflags$reporting_template_row_group)
+                         ][qflags[pfcbl_category %in% c("loan","borrower")],
                            on=.(reporting_template_row_group,
                                 reporting_asof_date=check_asof_date,
                                 indicator_id),
@@ -1768,8 +1781,97 @@ parse_template_IFC_QR2025 <- function(pool,
                  sheet=sheet_num,
                  flag=qreport[f])
       }
+    } else { qreport[,ref:=NA] }
+    
+    refs <- rbindlist(list(summary[,.(ref,evaluation_id,sheet=grep("Summary$",excelwb$sheet_names,value=T,ignore.case=T))],
+                           qreport[,.(ref,evaluation_id,sheet=grep("QReport$",excelwb$sheet_names,value=T,ignore.case=T))]))
+    
+    refs[,ref_n:=.N,by=.(ref,sheet)]
+    
+    refs[,sheet:=paste0("'",sheet,"'")]
+    refs_flags <- refs[return.insert_flags,
+                            on=.(evaluation_id),
+                            nomatch=NULL]
+    
+    refs_flags[,dims:=paste0("B",5+(1:.N))]
+    
+    if (any(excelwb$sheet_names=="Current Flags")) {
+      
+      excelwb$clean_sheet("Current Flags")
+      
+      existing_tables <- excelwb$get_tables(sheet="Current Flags")$tab_name
+      if (length(existing_tables)) {
+        for (tn in existing_tables) {
+          message(paste0(tn," already exists: removing from Current Flags"))
+          excelwb$remove_tables(sheet="Current Flags",table=tn)
+        }
+      }      
+      #excelwb$remove_worksheet(sheet="Current Flags")
+    } else {
+      
+      excelwb$add_worksheet(sheet="Current Flags",
+                            zoom=80,
+                            tab_color=wb_color("red"))
     }
     
+    
+    excelwb$add_data_table(sheet="Current Flags",
+                           table_name="rsf_current_flags",
+                           col_names=TRUE,
+                           dims="B5",
+                           x=refs_flags[,
+                                       .(FLAGID=evaluation_id,           #B
+                                         CHECK_DATE=check_asof_date,     #C
+                                         NAME=entity_name,               #D
+                                         type=check_type,                #E
+                                         class=check_class,              #F 
+                                         MESSAGE=check_message,          #G  
+                                         CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
+                                                                                 check_formula_title)),
+                                         STATUS=check_status,
+                                         comment=check_status_comment,
+                                         user=check_status_users_name)])
+    
+    pwalk(refs_flags[,.(ref,dims,evaluation_id,sheet)],function(ref,dims,evaluation_id,sheet) { 
+      excelwb$add_formula(sheet="Current Flags",
+                          dims=dims,
+                          x=paste0('HYPERLINK("#',sheet,'!',ref,'", "Go to #',evaluation_id,'")'))
+      
+    })
+    
+   
+    excelwb$add_cell_style(sheet="Current Flags",
+                           dims=paste0("G6:G",length(refs_flags$dims)+5),
+                           wrap_text = TRUE) 
+    
+    excelwb$add_font(sheet="Current Flags",
+                     dims=paste0("B6:B",length(refs_flags$dims)+5),
+                     size=9,
+                     color = wb_color(hex = "#0000FF"), 
+                     underline = "single")
+    
+    
+    excelwb$set_col_widths(sheet="Current Flags",
+                           cols=1+c(1,2,3,4,5,6,7,8,9,10), #Col B is +1 offset
+                           widths = c(12,
+                                      13, #check date 
+                                      35, #entity name
+                                      17, #check type
+                                      10, #check class
+                                      90, #check message
+                                      90, #check
+                                      10,
+                                      10,
+                                      10))
+    
+   
+
+    
+    #sorder <- which(excelwb$sheet_names=="Current Flags")
+    #excelwb$set_order(c(sorder,excelwb$sheetOrder[-sorder]))
+    #excelwb$save("test.xlsx",overwrite=T)
+    excelwb$set_active_sheet("Current Flags")
+    excelwb$set_selected(sheet="Current Flags")
     
     return (excelwb)
   }

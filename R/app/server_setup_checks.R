@@ -527,7 +527,8 @@ observeEvent(input$ui_setup__checks_monitored_table_cell_edit, {
                                                   is_subscribed,
                                                   is_auto_subscribed,
                                                   subscription_comments,
-                                                  comments_user_id)
+                                                  comments_user_id,
+                                                  auto_subscribed_by_reporting_cohort_id)
             select 
               ids.rsf_pfcbl_id,
               icf.check_formula_id,
@@ -537,7 +538,8 @@ observeEvent(input$ui_setup__checks_monitored_table_cell_edit, {
               $3::bool as is_subscribed,
               false as is_auto_subscribed,
               $4::text as subscription_comments,
-              $5::text as comments_user_id
+              $5::text as comments_user_id,
+              NULL as auto_subscribed_by_reporting_cohort_id
             from p_rsf.rsf_pfcbl_ids ids,p_rsf.indicator_check_formulas icf
             where ids.rsf_pfcbl_id = $1::int
               and icf.check_formula_id = $2::int
@@ -546,7 +548,8 @@ observeEvent(input$ui_setup__checks_monitored_table_cell_edit, {
             set is_subscribed = EXCLUDED.is_subscribed,
                 is_auto_subscribed = EXCLUDED.is_auto_subscribed,
                 subscription_comments = EXCLUDED.subscription_comments,
-                comments_user_id = EXCLUDED.comments_user_id",
+                comments_user_id = EXCLUDED.comments_user_id,
+                auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id",
     params=list(monitored_check$rsf_pfcbl_id,
                 monitored_check$check_formula_id,
                 monitored_check$is_subscribed,

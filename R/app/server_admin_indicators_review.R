@@ -245,7 +245,7 @@ observeEvent(input$action_indicator_review_next, {
     facility_choices <- c("",setNames(SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,
                                       SELECTED_PROGRAM_FACILITIES_LIST()$facility_name))
     
-    if (!all(is.na(selected_client_review))) {
+    if (!all(is.na(selected_facility_review))) {
       review_facilities <- SELECTED_PROGRAM_FACILITIES_LIST()[rsf_pfcbl_id %in% selected_facility_review,
                                                         .(rsf_pfcbl_id,
                                                            facility_name)]

@@ -223,15 +223,15 @@ onStop(function() {
   error=function(e) { print(conditionMessage(e)) },
   warning=function(w) { print(conditionMessage(w)) })
   
-  tryCatch({ 
-    if (!is.null(DBPOOL_DREMIO) && any(pool::dbIsValid(DBPOOL_DREMIO)==TRUE,DBPOOL_DREMIO$valid)) {
-      print("Closing DBPOOL_DREMIO")
-      poolClose(DBPOOL_DREMIO)
-      DBPOOL_DREMIO <<- NULL
-    }
-  },
-  error=function(e) { print(conditionMessage(e)) },
-  warning=function(w) { print(conditionMessage(w)) })
+  # tryCatch({ 
+  #   if (!is.null(DBPOOL_DREMIO) && any(pool::dbIsValid(DBPOOL_DREMIO)==TRUE,DBPOOL_DREMIO$valid)) {
+  #     print("Closing DBPOOL_DREMIO")
+  #     poolClose(DBPOOL_DREMIO)
+  #     DBPOOL_DREMIO <<- NULL
+  #   }
+  # },
+  # error=function(e) { print(conditionMessage(e)) },
+  # warning=function(w) { print(conditionMessage(w)) })
   
 })
 

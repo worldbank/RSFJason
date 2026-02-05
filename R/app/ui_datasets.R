@@ -54,11 +54,7 @@ div(style="background-color:white;padding:10px;",
                                   downloadButton(outputId="datasets_review_download_source_action",
                                                  label="Download Template",
                                                  class="btn btn-success",
-                                                 icon=icon("download"))),
-                                    div(style="display:flex;flex-shrink:1;padding-top:5px;",
-                                  input_switch(id="datasets_review_download_source_insert_flags",
-                                               "Include Flags",
-                                               value=TRUE)))
+                                                 icon=icon("download"))))
                          )
                        ),
                        shinyjs::hidden(

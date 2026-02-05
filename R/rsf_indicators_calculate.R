@@ -731,7 +731,7 @@ rsf_indicators_calculate <- function(pool,
             cols=grouping_cols)
     
     calc_results <- NULL
-    #browser()
+    
     t2 <- Sys.time()
     
     calc_results <- tryCatch({

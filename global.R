@@ -22,8 +22,10 @@ LOCATIONS <- list(ARL="/credentials/credentials-remote-ARL.yaml",
                   Jason_STAGE="/credentials/credentials-rsfjson-rsfstaging.yaml")
 
 #LOCATION <- "Jason_DEV_Shafique"
-LOCATION <- "Jason_DEV"
+
 #LOCATION <- "Jason_STAGE"
+
+LOCATION <- "Jason_DEV"
 #LOCATION <- "Jason_PROD"
 
 if (grepl("DEV",LOCATION)==TRUE) {
@@ -107,6 +109,7 @@ source("./R/db_rsf_reports_list.R")
 source("./R/db_export_create.R")
 source("./R/db_export_get_template.R")
 source("./R/db_export_load_report.R")
+source("./R/rsf_setup_export_create_entity.R")
 
 source("./R/db_add_update_data_user.R")
 source("./R/db_add_update_data_system.R")
