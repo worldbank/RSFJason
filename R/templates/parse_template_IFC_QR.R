@@ -233,6 +233,65 @@ parse_template_IFC_QR <- function(pool,
   
   data.summary <- {
   
+    
+    remap_lcu <- Filter(length,
+                        lapply(summary_sheet,
+                        grep,
+                        pattern="LCU|LCY",
+                        value=T))
+
+    #The LCU "base currency" should define what the LCU value is in the Summary sheet
+    if (length(remap_lcu)) {
+      bcu <- rsf_indicators[data_category=="facility" &
+                            (grepl("ifc.*maximum.*risk",indicator_name,ignore.case=T) | indicator_sys_category=="entity_local_currency_unit")]
+      
+      if (!empty(bcu)) {
+        if (!empty(bcu[indicator_sys_category=="entity_local_currency_unit"])) {
+          bcu <- bcu[indicator_sys_category=="entity_local_currency_unit"]
+        }
+
+        label_matches <- lapply(summary_sheet[,.SD,.SDcols=c(names(remap_lcu))],
+                                FUN=function(x,find_sections,find_labels,match_id,match_postion) {
+                                  mapply(labelMatches,
+                                         find_sections=find_sections,
+                                         find_labels=find_labels,
+                                         match_id=match_id,
+                                         match_postion=match_postion,
+                                         MoreArgs=list(search_sections=rep(x="summary",times=length(x)),
+                                                       search_labels=normalizeLabel(x)),
+                                         USE.NAMES = F)
+                                  
+                                },
+                                find_sections=tolower(rsf_labels[map_indicator_id==bcu$indicator_id]$template_section_lookup),
+                                find_labels=tolower(rsf_labels[map_indicator_id==bcu$indicator_id]$template_label_lookup),
+                                match_id=rsf_labels[map_indicator_id==bcu$indicator_id]$label_header_id,
+                                match_postion=rsf_labels[map_indicator_id==bcu$indicator_id]$template_header_position)
+        
+        srows <- unique(unlist(lapply(label_matches,lapply,`[[`,"match_rows"),recursive=T))
+          
+        lcu <- unique(unlist(Filter(length,
+                      sapply(paste0("^",CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES,"$"),
+                             grep,x=unlist(summary_sheet[srows]),value=T,USE.NAMES = F))))
+        
+        if (length(lcu)==0) {
+          
+          for (n in names(remap_lcu)) {
+            print(n)
+            summary_sheet[,(n):=gsub("LCU|LCY",lcu,get(n),ignore.case=F)]
+          }
+        
+          for (n in unlist(remap_lcu)) {
+            rl <- gsub("LCU|LCY",lcu,n)
+            status_message("warning",
+                           paste0("Correcting Local Currency reference FROM [",n,"] TO [",rl,"]\n"))
+            reporting_flags <- rbindlist(list(reporting_flags,
+                                              data.table(rsf_pfcbl_id=NA,
+                                                         indicator_id=NA,
+                                                         check_name="sys_flag_data_format_auto_correction",
+                                                         check_message=paste0("Correcting Local Currency reference FROM [",n,"] TO [",rl,"]\n"))))
+          }
+      }
+    }
     #new
     {
       label_matches <- lapply(summary_sheet,
