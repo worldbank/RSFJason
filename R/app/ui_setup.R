@@ -13,26 +13,163 @@ div(style="background-color:white;padding:10px;",
                                label=textOutput(outputId="server_setup_download_setup_title",inline=T),
                                class="btn-success",
                                icon=icon("download"))),
-            div(style="padding-left:10px;",
-                downloadButton(outputId="program_download_backup",
-                               label=textOutput(outputId="server_setup_download_backup_title",inline=T),
-                               class="btn-primary",
-                               icon=icon("download"))),
+            # div(style="padding-left:10px;",
+            #     downloadButton(outputId="program_download_backup",
+            #                    label=textOutput(outputId="server_setup_download_backup_title",inline=T),
+            #                    class="btn-primary",
+            #                    icon=icon("download"))),
             )),
       tabsetPanel(id="tabset_setup_program",
                   
+################
+###TAB AGREEMENT
+################
+                  
+                  tabPanel("Setup Agreement",
+                           value="setup_agreement",
+                           class="agreement",
+                    
+                    div(style="width:90%;margin:0 auto;",
+                        tagList(lapply(c("server_setup_agreement__rsa_terms",
+                                         "server_setup_agreement__rsa_determination",
+                                         "server_setup_agreement__rsa_costs",
+                                         "server_setup_agreement__rsa_termination",
+                                         "server_setup_agreement__rsa_criteria",
+                                         "server_setup_agreement__rsa_reporting",
+                                         "server_setup_agreement__rsa_other"),
+                                       function(x) {
+                                         tags$script(HTML(paste0("$(document).on('paste', '#",
+                                         x,"', function(e) { Shiny.setInputValue('server_setup_agreement__paste_event','",
+                                         x,"',{priority:'event'}); });")))
+                                       })),              
+                        
+    #                     tags$script(HTML("$(document).on('paste', '#server_setup_agreement__rsa_terms', function(e) {
+    #     Shiny.setInputValue('server_setup_agreement__paste_event','server_setup_agreement__rsa_terms',{priority:'event'});
+    # });")),
+                    
+                    
+                    tabsetPanel(id="tabset_setup_agreement",
+                                
+                                tabPanel("Terms",
+                                         value="setup_agreement_terms",
+                                         div(style="min-height:400px;padding-top:20px;",
+                                         textAreaInput(inputId="server_setup_agreement__rsa_terms",
+                                                       label=NULL,
+                                                       resize="both",
+                                                       value="",
+                                                       width="100%",
+                                                       height="500px",
+                                                       updateOn="change", #required to capture paste events else data isn't available
+                                                       placeholder="Copy paste RSA Terms and Definitions section here.
+
+Each term should be separated by an empty line.")
+                                         )),
+                                tabPanel("Determination",
+                                         value="setup_agreement_determination",
+                                         div(style="min-height:400px;padding-top:20px;",
+                                             textAreaInput(inputId="server_setup_agreement__rsa_determination",
+                                                           label=NULL,
+                                                           resize="both",
+                                                           value="",
+                                                           width="100%",
+                                                           height="500px",
+                                                           updateOn="change", #required to capture paste events else data isn't available
+                                                           placeholder="Copy paste RSA Section 'Determination of Portfolio' here.
+
+Each term should be separated by an empty line.")
+                                         )),
+                                tabPanel("Costs",
+                                         value="setup_agreement_costs",
+                                         div(style="min-height:400px;padding-top:20px;",
+                                         textAreaInput(inputId="server_setup_agreement__rsa_costs",
+                                                       label=NULL,
+                                                       resize="both",
+                                                       value="",
+                                                       width="100%",
+                                                       height="500px",
+                                                       updateOn="change",
+                                                       placeholder="Copy paste RSA Costs (generally a sub-section under Risk Sharing); or other salient costs (like waiver fees)
+
+Each term should be separated by an empty line.")
+                                )),
+                                tabPanel("Termination",
+                                         value="setup_agreement_termination",
+                                         div(style="min-height:400px;padding-top:20px;",
+                                         textAreaInput(inputId="server_setup_agreement__rsa_termination",
+                                                       label=NULL,
+                                                       resize="both",
+                                                       value="",
+                                                       width="100%",
+                                                       height="500px",
+                                                       updateOn="change",
+                                                       placeholder="Copy paste RSA Termination text here.
+
+Each term should be separated by an empty line.")
+                                )),
+                                tabPanel("Criteria",
+                                         value="setup_agreement_criteria",
+                                         div(style="min-height:400px;padding-top:20px;",
+                                         textAreaInput(inputId="server_setup_agreement__rsa_criteria",
+                                                       label=NULL,
+                                                       resize="both",
+                                                       value="",
+                                                       width="100%",
+                                                       height="500px",
+                                                       updateOn="change",
+                                                       placeholder="Copy paste RSA Eligibility and Portfolio criteria here.  
+
+Each term should be separated by an empty line.")
+                                )),
+                                
+                                tabPanel("Reporting",
+                                         value="setup_agreement_reporting",
+                                         div(style="min-height:400px;padding-top:20px;",
+                                             textAreaInput(inputId="server_setup_agreement__rsa_reporting",
+                                                           label=NULL,
+                                                           resize="both",
+                                                           value="",
+                                                           width="100%",
+                                                           height="500px",
+                                                           updateOn="change",
+                                                           placeholder="Copy paste RSA Information to be Included in the Quarterly Report here.  
+
+Each term should be separated by an empty line.")
+                                         )),
+                                
+                                tabPanel("Other",
+                                         value="setup_agreement_other",
+                                         div(style="min-height:400px;padding-top:20px;",
+                                         textAreaInput(inputId="server_setup_agreement__rsa_other",
+                                                       label=NULL,
+                                                       resize="both",
+                                                       value="",
+                                                       width="100%",
+                                                       height="500px",
+                                                       updateOn="change",
+                                                       placeholder="Other uncategorized terms or language from the RSA may be copied here; or from PBI/Side Letter; or any other text that is defined in Jason as a recognized setup action.
+
+Each term should be separated by an empty line.")
+                                ))
+                    ),
+                    div(style="float:right",
+                        actionButton(inputId="server_setup_agreement__apply",
+                                     label="Apply RSA Setup",
+                                     icon=icon("gears"),
+                                     class="btn-primary"))
+                    ),
+                    fluidRow(column(10,div(style="display:flex;flex-direction:row;padding-top:5px;")))),
 #################
 ###TAB INDICATORS
 #################
                   tabPanel("Setup Indicators",value="setup_indicators",
                            fluidRow(column(10,
                                     div(style="display:flex;flex-direction:row;padding-top:5px;",
-                                      div(style="padding-left:20px",
-                                          selectizeInput(inputId="ui_setup__indicator_program_facilities",
-                                                     label="RSF Program Facilities",
-                                                     choices=c(),
-                                                     selected="",
-                                                     width="280px")),
+                                      # div(style="padding-left:20px",
+                                      #     selectizeInput(inputId="ui_setup__indicator_program_facilities",
+                                      #                label="RSF Program Facilities",
+                                      #                choices=c(),
+                                      #                selected="",
+                                      #                width="280px")),
                                       
                                       hidden(div(style="padding-left:20px",
                                                  id="ui_setup__indicator_setup_filter_ui",
@@ -107,13 +244,13 @@ div(style="background-color:white;padding:10px;",
   tabPanel("Setup Checks",value="setup_checks",
            fluidRow(column(10,
                            div(style="display:flex;flex-direction:row;padding-top:5px;",
-                               div(style="padding-left:20px",
-                                   selectizeInput(inputId="ui_setup__checks_program_facilities",
-                                                  label="RSF Program Facilities",
-                                                  choices=c(),
-                                                  selected="",
-                                                  width="280px")),
-                               
+                               # div(style="padding-left:20px",
+                               #     selectizeInput(inputId="ui_setup__checks_program_facilities",
+                               #                    label="RSF Program Facilities",
+                               #                    choices=c(),
+                               #                    selected="",
+                               #                    width="280px")),
+                               # 
                                div(style="padding-left:20px",
                                    selectizeInput(inputId="ui_setup__checks_monitoring_filter",
                                                   label="Monitoring Filter",
@@ -180,13 +317,13 @@ div(style="background-color:white;padding:10px;",
 tabPanel("Setup Templates",value="setup_templates",
          fluidRow(column(12,
                          div(style="display:flex;flex-direction:row;padding-top:5px;",
-                             div(style="padding-left:20px",
-                                 selectizeInput(inputId="ui_setup__templates_program_facilities",
-                                                label="RSF Program Facilities",
-                                                choices=c(),
-                                                selected="",
-                                                width="280px")),
-                             
+                             # div(style="padding-left:20px",
+                             #     selectizeInput(inputId="ui_setup__templates_program_facilities",
+                             #                    label="RSF Program Facilities",
+                             #                    choices=c(),
+                             #                    selected="",
+                             #                    width="280px")),
+                             # 
                              div(style="padding-left:20px",
                                  selectizeInput(inputId="ui_setup__template_selected",
                                                 label="Templates Listing",
@@ -253,23 +390,24 @@ tabPanel("Setup Templates",value="setup_templates",
                                                                      choices=c(""),
                                                                      width="100%",
                                                                      selected="",
-                                                                     options=list(placeholder="Select Facility...")))),
-                                           
-                                          div(style="min-width:200px;flex-grow:1;margin-left:10px;",
-                                              hidden(selectizeInput(inputId="setup_program_create_selected_client",
-                                                                     label="For Client",
-                                                                     choices=c(""),
-                                                                     width="100%",
-                                                                     selected="",
-                                                                     options=list(placeholder="Select Client...")))),
-                                           
-                                          div(style="min-width:200px;flex-grow:1;margin-left:10px;",
-                                              hidden(selectizeInput(inputId="setup_program_create_selected_borrower",
-                                                                     label="For Borrower",
-                                                                     choices=c(""),
-                                                                     width="100%",
-                                                                     selected="",
-                                                                     options=list(placeholder="Select Borrower..."))))))
+                                                                     options=list(placeholder="Select Facility..."))))
+                                          #  
+                                          # div(style="min-width:200px;flex-grow:1;margin-left:10px;",
+                                          #     hidden(selectizeInput(inputId="setup_program_create_selected_client",
+                                          #                            label="For Client",
+                                          #                            choices=c(""),
+                                          #                            width="100%",
+                                          #                            selected="",
+                                          #                            options=list(placeholder="Select Client...")))),
+                                          #  
+                                          # div(style="min-width:200px;flex-grow:1;margin-left:10px;",
+                                          #     hidden(selectizeInput(inputId="setup_program_create_selected_borrower",
+                                          #                            label="For Borrower",
+                                          #                            choices=c(""),
+                                          #                            width="100%",
+                                          #                            selected="",
+                                          #                            options=list(placeholder="Select Borrower..."))))
+                                          ))
                             ),
                             fluidRow(column(12,align="center",
                                             panel(style="width:100%;",

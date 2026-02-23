@@ -171,7 +171,7 @@ db_cohort_get_data <- function(pool,
                                       ic.check_name,
                                       ic.is_system,
                                       coalesce(scc.config_check_class,ic.check_class) as check_class,
-                                      concat(scc.config_comments || '\n',ic.definition) as definiition,
+                                      concat(scc.config_comments || '\n',ic.definition) as definition,
                                       rdc.check_status,
                                       rdc.check_status_comment,
                                       rdc.check_status_user_id,
@@ -185,6 +185,7 @@ db_cohort_get_data <- function(pool,
                                     left join p_rsf.view_rsf_setup_check_config scc on scc.rsf_pfcbl_id = rdc.rsf_pfcbl_id
                                                                                    and scc.for_indicator_id = rdc.indicator_id
                                                                                    and scc.indicator_check_id = rdc.indicator_check_id
+                                                                                   and scc.check_formula_id is not distinct from rdc.check_formula_id
                                     left join p_rsf.view_account_info vai on vai.account_id = rdc.check_status_user_id
                                    
                                     where rdc.check_asof_date = $1::date     --ensure evaluations are for the current source data date

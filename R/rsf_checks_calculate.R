@@ -34,6 +34,18 @@ rsf_checks_calculate <- function(pool,
     }
   }
   
+  check_failed <- function(rsf_pfcbl_id=NA, #will assign check fail message to the family
+                           check_asof_date, 
+                           check_formula_id,
+                           check_message) {
+
+    all_checks[[length(all_checks)+1]] <<- data.table(rsf_pfcbl_id=rsf_pfcbl_id,
+                                                      check_asof_date=check_asof_date,
+                                                      check_formula_id=check_formula_id,
+                                                      check_message=check_message,
+                                                      flag_status=NA)
+  }
+  
   all_checks <- list()
   
   #rsf_data_wide[,row_id:=1:.N]
@@ -49,6 +61,16 @@ rsf_checks_calculate <- function(pool,
     {
       #if (!is.null(check$is_system) && as.logical(paste0(check$is_system))==TRUE) next;
       parameters <- rbindlist(check$parameters_dt)
+      if (empty(parameters)) {
+        # status_message(class="error",
+        #                paste0("Check ",check$check_name,"[#",check$check_formula_id,"] has no parameters: calculation will fail: [",check$formula,"]\n"))
+        
+        check_failed(rsf_pfcbl_id=check$check_rsf_pfcbl_ids,
+                     check_asof_date=check$check_asof_date,
+                     check_formula_id=check$check_formula_id,
+                     check_message=paste0("Check ",check$check_name,"[#",check$check_formula_id,"] has no parameters: calculation will fail: [",check$formula,"]\n"))
+        next;
+      }
       parameters <-parameters[order(fcase(parameter_data_category=="global",0,
                                      parameter_data_category=="program",1,
                                      parameter_data_category=="facility",2,
@@ -72,10 +94,14 @@ rsf_checks_calculate <- function(pool,
       if (any(is.null(check_subgrouping) || is.na(check_subgrouping) || nchar(check_subgrouping)==0 || length(check_subgrouping)==0)) check_subgrouping <- NA
 
       if (!is.na(check_subgrouping) && check_grouping == "none") {
-        
-          status_message(class="error",paste0(check_name," check grouping is NONE but subgrouping is '",check_subgrouping,"'.  Grouping must be defined to enable sub-grouping. Skipping.\n"))
-          status_message(class="info","Note -- to be meaningful, 'grouping' should be defined at the same level or lower than the grouping, eg, if grouping at 'client' then subgrouping indicator should be client, borrower, or loan; but not a facility or program indicator.\n")
-        
+
+          check_failed(rsf_pfcbl_id=check$check_rsf_pfcbl_ids,
+                       check_asof_date=check$check_asof_date,
+                       check_formula_id=check$check_formula_id,
+                       check_message=paste0("Check ",check_name,"[#",check$check_formula_id,"] check grouping is NONE but subgrouping is '",
+                                            check_subgrouping,"'.  Grouping must be defined to enable sub-grouping.\n",
+                                            "'grouping' should be defined at the same level or lower than the grouping, eg, if grouping at 'client' then subgrouping indicator should be client, borrower, or loan; but not a facility or program indicator."))
+
         next;
       }      
       
@@ -94,10 +120,7 @@ rsf_checks_calculate <- function(pool,
     
     #Block start: checks
     {
-      #check_rsf_pfcbl_id <- paste0("rsf_pfcbl_id.",check$check_pfcbl_category)
-      #will be ordered
-      #check_rsf_pfcbl_id_cols <- paste0("rsf_pfcbl_id.",unique(parameters$parameter_data_category))
-      
+
       check_rsf_pfcbl_id <- paste0("rsf_",check$check_pfcbl_category,"_id")
       #will be ordered
       check_rsf_pfcbl_id_cols <- paste0("rsf_",unique(parameters$parameter_data_category),"_id")
@@ -113,7 +136,15 @@ rsf_checks_calculate <- function(pool,
                                 none=check_rsf_pfcbl_id,
                                 NA)
       
-      if (all(is.na(check_rsf_group))) stop(paste0("Failed to resolve check group using ",check_grouping))
+      if (all(is.na(check_rsf_group))) {
+        
+        check_failed(rsf_pfcbl_id=check$check_rsf_pfcbl_ids,
+                     check_asof_date=check$check_asof_date,
+                     check_formula_id=check$check_formula_id,
+                     check_message=paste0("Check ",check$check_name,"[#",check$check_formula_id,"] Failed to resolve check group using ",check_grouping))
+        next;
+
+      }
 
       check_rsf_group <- c("reporting_current_date",check_rsf_group)
       
@@ -122,13 +153,22 @@ rsf_checks_calculate <- function(pool,
                                   check_rsf_group,
                                   parameters[,parameter_column_name]))
       
-      check_data <- rsf_data_wide[,..check_data_cols]
+      if (!all(check_data_cols %in% names(rsf_data_wide))) {
+        missing_cols <- setdiff(check_data_cols,names(rsf_data_wide))
+          
+        check_failed(rsf_pfcbl_id=check$check_rsf_pfcbl_ids,
+                     check_asof_date=check$check_asof_date,
+                     check_formula_id=check$check_formula_id,
+                     check_message=paste0("Check ",check$check_name,"[#",check$check_formula_id,"] has missing parameters:\n",
+                                          paste0(missing_cols,collapse="\n"),
+                                          "\nDo these indicators exist?  Have they been deleted?"))
+        next;
+      }
       
-     
+      check_data <- rsf_data_wide[,..check_data_cols]
       
       check_data <- unique(check_data,
                            by=check_rsf_pfcbl_id_cols)
-      
       
       setorderv(check_data,
                 cols=check_rsf_pfcbl_id_cols)
@@ -140,11 +180,6 @@ rsf_checks_calculate <- function(pool,
       setnames(check_data,
                old=check_rsf_pfcbl_id,
                new="rsf_pfcbl_id")
-      
-      # setnames(check_data,
-      #          old=check_rsf_group,
-      #          new="grouping")
-      
       
       grouping_cols <- c("grouping","subgrouping")
       
@@ -180,7 +215,7 @@ rsf_checks_calculate <- function(pool,
                                                   computation_asof_date=check$check_asof_date,
                                                   fx_table=fx_table,
                                                   update_fx_table_function=update_fx_table_function, 
-                                                  add_data_flag_function=NULL, #we don't flag the flags
+                                                  add_data_flag_function=NULL, #we don't flag these flags
                                                   add_fx_conversions_function=NULL) #if fx rates change we don't redo checks
     }
 
@@ -233,36 +268,44 @@ rsf_checks_calculate <- function(pool,
         #if.missing <- CALCULATIONS_ENVIRONMENT$if.missing
         calculations <- with(calc_env, {
           
-                               check_data[,flag_status:=as.logical(NA)]
-                               if (is.na(check_subgrouping)) { 
-                                 check_data[,subgrouping:=as.character(NA)]
-                               } else {
-                                 #paste so multiple indicator column names can be used as subgroup
-                                 #will turn NA values into "NA" strings as well
-                                 subcols <- sapply(names(check_data),grepl,x=check_subgrouping)
-                                 subcols <- names(subcols)[subcols]
-                                 blanks <-lapply(check_data[,..subcols],is.na)
-                                 all_blanks <- Reduce(`&`,blanks)
-                                 any_blanks <- Reduce(`|`,blanks)
-                                 
-                                 check_data[,subgrouping:=eval(parse(text=paste0("paste0(",check_subgrouping,")")))] 
-                                 check_data[(any_blanks==TRUE & is.na(subgrouping)) |
-                                            all_blanks==TRUE,
-                                            flag_status:=FALSE]
-                                 
-                                 # check_data[any_blanks==TRUE,
-                                 #            flag_status:=FALSE]
-                                 # if (any(blanks)) {
-                                 #   check_data[,subgrouping_blank:=blanks]
-                                 #   check_data[,flag_status:=!all(subgrouping_blank),
-                                 #              by=.(grouping_col)]
-                                 #   check_data[,subgrouping_blank:=NULL]
-                                 # }
-                               }
+          #for formulas to use "CALCULATION_DATE"
+          check_data[,CALCULATION_DATE:=reporting_current_date]
+          
+         check_data[,flag_status:=as.logical(NA)]
+         if (is.na(check_subgrouping)) { 
+           check_data[,subgrouping:=as.character(NA)]
+         } else {
+           #paste so multiple indicator column names can be used as subgroup
+           #will turn NA values into "NA" strings as well
+           subcols <- sapply(names(check_data),grepl,x=check_subgrouping)
+           subcols <- names(subcols)[subcols]
+           blanks <-lapply(check_data[,..subcols],is.na)
+           all_blanks <- Reduce(`&`,blanks)
+           any_blanks <- Reduce(`|`,blanks)
+           
+           check_data[,subgrouping:=eval(parse(text=paste0("paste0(",check_subgrouping,")")))] 
+           check_data[(any_blanks==TRUE & is.na(subgrouping)) |
+                      all_blanks==TRUE,
+                      flag_status:=FALSE]
+           
+           # check_data[any_blanks==TRUE,
+           #            flag_status:=FALSE]
+           # if (any(blanks)) {
+           #   check_data[,subgrouping_blank:=blanks]
+           #   check_data[,flag_status:=!all(subgrouping_blank),
+           #              by=.(grouping_col)]
+           #   check_data[,subgrouping_blank:=NULL]
+           # }
+         }
+         grouping_cols <- c(grouping_cols,"CALCULATION_DATE")
+         
+                              setorderv(check_data,
+                                        cols=c("rsf_pfcbl_id",grouping_cols))
+                               
            
                                check_data[is.na(flag_status),
                                           flag_status := as.logical(eval(parse(text=check_expr))),
-                                          by=grouping_cols]
+                                          by=c(grouping_cols)]
                                
                                check_data[is.na(flag_status)==TRUE,
                                           flag_status:=FALSE]
@@ -270,7 +313,7 @@ rsf_checks_calculate <- function(pool,
                                ufields <- grep("^rsf_.*_id$",names(check_data),value=T)
                                
                                messages <- unique(check_data[flag_status==TRUE],
-                                                  by=c(ufields,"reporting_current_date"))
+                                                  by=c(ufields,"reporting_current_date","CALCULATION_DATE"))
                                
 
                                # check_data <- unique(check_data[,
@@ -287,103 +330,23 @@ rsf_checks_calculate <- function(pool,
                                
                                if (nrow(messages) != 0) {
                                  
-                                 # messages[,
-                                 #          `:=`(flag_status=NULL,
-                                 #               grouping=NULL,
-                                 #               subgrouping=NULL)]
-                                 # messages[,
-                                 #          flag_status:=NULL]
-                                 
-                                 #Let the message writer do what they want and evaluate it!
-                                 #In case the message is asking for ".all"
-                                 # has_lists <- sapply(messages,is.list)
-                                 # if (any(has_lists)) {
-                                 #   has_lists <- names(has_lists)[(has_lists)]
-                                 #   for(hl in has_lists) {
-                                 #     if (grepl("\\.all",hl)) {
-                                 #       set(messages,
-                                 #           i=NULL,
-                                 #           j=hl,
-                                 #           sapply(messages[[hl]],FUN=function(x) { paste0(paste(x$timeseries,x$timeseries.unit),collapse=", ") }))
-                                 #       } else {
-                                 #       set(messages,
-                                 #           i=NULL,
-                                 #           j=hl,
-                                 #           sapply(messages[[hl]],paste0,collapse=","))
-                                 #     }
-                                 #   }
-                                 # }
-                                 
-                                 #set all to characters
-                                 
-                                 
-                                 #We have some sort of grouping going on.
-                                 # if (nrow(messages) != length(unique(messages$rsf_pfcbl_id))) {
-                                 #   
-                                 #   
-                                 #   mcols <- names(messages)[-which(names(messages) %in% c("rsf_pfcbl_id"))]
-                                 #   for (col in mcols) {
-                                 #     set(messages,
-                                 #         i=NULL,
-                                 #         j=col,
-                                 #         value=as.character(messages[[col]]))
-                                 #   }
-                                 #   # messages[,sys_test.current:="test"]
-                                 #   # z<-messages[1:100]
-                                 #   # z[,sys_test.current:="grouping"]
-                                 #   # messages <- rbindlist(list(messages,z))
-                                 #   
-                                 #   messages <- melt.data.table(messages,
-                                 #                               id.vars=c("rsf_pfcbl_id"),
-                                 #                               variable.name = "parameter_name",
-                                 #                               value.name = "data_value",
-                                 #                               value.factor = F,
-                                 #                               variable.factor = F)
-                                 #   
-                                 #   messages <- unique(messages)
-                                 #   #messages[rsf_pfcbl_id==16158149]
-                                 #   
-                                 #   messages[,n:=.N,
-                                 #            by=.(rsf_pfcbl_id,
-                                 #                 parameter_name)]
-                                 #   
-                                 #   if (any(messages$n>1)) {
-                                 #     
-                                 #     messages1 <- messages[n==1,
-                                 #                           .(rsf_pfcbl_id,
-                                 #                             parameter_name,
-                                 #                             data_value)]
-                                 #     
-                                 #     messagesX <- messages[n>1,
-                                 #                           .(rsf_pfcbl_id,
-                                 #                             parameter_name,
-                                 #                             data_value)]
-                                 #     
-                                 #     messagesX <- messagesX[,
-                                 #                            .(data_value=paste(data_value,collapse=", ")),
-                                 #                            by=.(rsf_pfcbl_id,
-                                 #                                 parameter_name)]
-                                 #     messages <- rbindlist(list(messages1,
-                                 #                                messagesX))
-                                 #     
-                                 #   }
-                                 #   
-                                 #   messages <- messages[,.(rsf_pfcbl_id,
-                                 #                           parameter_name,
-                                 #                           data_value)]
-                                 #   
-                                 #   messages <- dcast.data.table(messages,
-                                 #                                formula= rsf_pfcbl_id ~ parameter_name,
-                                 #                                value.var="data_value")
-                                 #   
-                                 # }
-
-                                 
-                                 messages <- messages[,
-                                                      .(rsf_pfcbl_id,
-                                                        flag_status,
-                                                        check_message=as.character(eval((parse(text=check_expr_msg))))),
-                                                      by=grouping_cols]
+                                 #it's a grouped formula, but being being applied at the calculation level
+                                 #so don't group the flag messages... unless we're deliberately using "concatenate" function intentionally
+                                 if (all(messages$rsf_pfcbl_id %in% check_data$rsf_pfcbl_id) &&
+                                     !grepl("concatenate\\(",check_expr_msg)) {
+                                   messages <- messages[,
+                                                        .(rsf_pfcbl_id,
+                                                          flag_status,
+                                                          check_message=as.character(eval((parse(text=check_expr_msg))))),
+                                                        by=c(grouping_cols,"rsf_pfcbl_id")]
+                                   
+                                 } else {
+                                   messages <- messages[,
+                                                        .(rsf_pfcbl_id,
+                                                          flag_status,
+                                                          check_message=as.character(eval((parse(text=check_expr_msg))))),
+                                                        by=grouping_cols]
+                                 }
                                  
                                  messages <- unique(messages)
                                  messages[,
@@ -400,29 +363,7 @@ rsf_checks_calculate <- function(pool,
                                             on=.(rsf_pfcbl_id,
                                                  flag_status)]
                                } 
-                               
-                               
                               
-                               
-                               
-                               
-                               
-                               
-
-                               
-                               
-                               #there's a weird data table bug where errors aren't thrown
-                               #check_data[,#flag_status==TRUE,
-                              #         check_message := as.character(eval((parse(text=check_expr_msg)))),
-                              #         by=.(grouping_col,subgrouping_col)]
-
-                               #check_data[flag_status==FALSE,check_message:=NA]
-                               
-                               
-                               # check_data <- unique(check_data[,
-                               #                                 .(rsf_pfcbl_id,
-                               #                                   flag_status,   #keeping this for joins later in case keep failed checks is TRUE
-                               #                                   check_message)])
                                check_data
                              })
         calculations

@@ -1,7 +1,4 @@
 
-    # panel(
-    #   heading="Create and Manage Indicator Definitions, Calculations and Checks",
-    #   footer=NULL,
     div(style="background-color:white;padding:10px;",
       tabsetPanel(id="tabset_admin_system",
                   tabPanel("Indicators",
@@ -58,6 +55,20 @@
                                                                   width="450px",
                                                                   multiple=FALSE,
                                                                   options=list(placeholder="Select Check to Edit"))),
+                                               
+                                               div(style="padding-left:15px;",
+                                                   selectizeInput(inputId="server_admin_checks__filter",
+                                                                  label="Filter Checks",
+                                                                  choices=character(0),
+                                                                  selected=NULL,
+                                                                  width="200px",
+                                                                  multiple=TRUE,
+                                                                  options=list(placeholder="Set filters...",
+                                                                               render = I("{
+                                                                                             item: function(item, escape) { return '<div>' + item.label + '</div>'; },
+                                                                                             option: function(item, escape) { return '<div>' + item.label + '</div>'; }
+                                                                                           }")))),
+                                               
                                                div(style="padding-left:15px;",
                                                    textInput(inputId="server_admin_checks__search",
                                                              label="Search Checks",

@@ -79,6 +79,7 @@ SELECTED_COHORT_SELECTED_INDICATOR_REVIEW_FLAGS <- eventReactive(c(SELECTED_COHO
           rsf_pfcbl_id)
  
  return (indicator_flags)
+
 },ignoreNULL=FALSE)
 
 SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS <- function(evaluation_ids) {
@@ -105,9 +106,43 @@ SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS <- function(evaluation_ids) {
   return (cohort_flag_details)
 }
 
+SERVER_DATASETS_REVIEW_FLAGS_SETUP_CHECK <- eventReactive(c(input$indicator_check_edit_config__ids,
+                                                            input$indicator_check_edit_setup__action_submit), {
+                                                          
+  ids <- as.numeric(unlist(strsplit(input$indicator_check_edit_config__ids,split="-")))
+  
+  if (length(ids) != 4) return (NULL)
+  if (!ids[[1]] %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id ||
+      !ids[[2]] %in% RSF_INDICATORS()$indicator_id ||
+      !ids[[4]] %in% RSF_CHECK_FORMULAS()$check_formula_id) {
+    
+    return (NULL)
+  }
+  
+  subscription <- DBPOOL %>% dbGetQuery("
+    select
+      scs.category_manager_rsf_pfcbl_id as rsf_pfcbl_id,
+      scs.check_formula_id,
+      scs.is_subscribed,
+      scs.is_auto_subscribed,
+      scs.subscription_comments,
+      vai.users_name
+    from p_rsf.view_rsf_setup_check_subscriptions scs
+    left join p_rsf.view_account_info vai on vai.account_id = scs.comments_user_id
+    where scs.rsf_pfcbl_id = $1::int
+      and scs.check_formula_id = $2::int",
+    params=list(ids[[1]],
+                ids[[4]]))
+  
+  return (subscription)
+  
+
+},ignoreInit=FALSE,ignoreNULL=FALSE)
+
 showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
-                                                    for_indicator_id,
-                                                    indicator_check_id) {
+                                             for_indicator_id,
+                                             indicator_check_id,
+                                             check_formula_id) {
   
   indicator <- RSF_INDICATORS()[indicator_id==for_indicator_id]
   if (!isTruthy(indicator)) return (NULL)
@@ -120,6 +155,27 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
   
   for_name <- SELECTED_PROGRAM_FACILITIES_LIST()[rsf_pfcbl_id==for_rsf_pfcbl_id,facility_name]
   
+  if (!isTruthy(check_formula_id)) { check_formula_id <- 0 } #a non-ID that will return NULL
+  
+  #Setup is only for user-computed checks
+  setup <- DBPOOL %>% dbGetQuery("
+    select
+      scs.rsf_pfcbl_id,
+      scs.pfcbl_category,
+      scs.check_formula_id,
+      scs.is_subscribed,
+      scs.is_auto_subscribed,
+      scs.subscription_comments,
+      scs.comments_user_id,
+      vai.users_name
+    from p_rsf.view_rsf_setup_check_subscriptions scs
+    left join p_rsf.view_account_info vai on vai.account_id = scs.comments_user_id
+    where scs.rsf_pfcbl_id = $1::int
+      and scs.check_formula_id = $2::int",
+    params=list(for_rsf_pfcbl_id,
+                check_formula_id))                                 
+  
+  #Config allows both system and user checks to be customized
   config <- DBPOOL %>% dbGetQuery("
     select
       ic.check_name,
@@ -137,11 +193,13 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
     left join p_rsf.rsf_setup_checks_config scc on scc.rsf_pfcbl_id = $1::int
                                                and scc.for_indicator_id = $2::int
                                                and scc.indicator_check_id = ic.indicator_check_id
+                                               and scc.check_formula_id is not distinct from NULLIF($4::text,'0')::int
     left join p_rsf.view_account_info vai on vai.account_id = scc.comments_user_id
     where ic.indicator_check_id = $3::int",
     params=list(for_rsf_pfcbl_id,
                 for_indicator_id,
-                indicator_check_id))
+                indicator_check_id,
+                check_formula_id))
   
   setDT(config)
 
@@ -174,17 +232,47 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
     ttInput
   }  
 
+  setup_ui <- NULL
+  if (!empty(setup)) {
+    scomments <- setup$subscription_comments
+    if (!isTruthy(scomments)) scomments <- ""
+    
+    setup_ui <- tagList(
+      fluidRow(style="padding-top:10px;",
+        column(9,
+               textAreaInput(inputId="indicator_check_edit_setup__comments",
+                             label=paste0("Setup Comments",
+                                          ifelse(is.na(setup$users_name),"",
+                                                 paste0(" [",setup$users_name,"]"))),
+                             value=scomments,
+                             placeholder="Enter RSA reference or Business Rule for this check")
+        ),
+        column(3,style="padding-top:24px",
+               uiOutput(outputId="indicator_check_edit_setup__subscription_ui"))))
+  }
+    
+    
   m <- modalDialog(id="view_indicator_check_edit_config",
                    div(
-                     fluidRow(column(10,style="display:inline-block",tags$label("Configure System Flag"),
+                     fluidRow(column(12,style="display:inline-block",tags$label(paste0("Configure ",
+                                                                                       ifelse(config$is_system,"System",""),
+                                                                                       " Flag")),
                                      div(style="display:inline-block;",HTML(indicator_html),
-                                         div(style="display:inline-block;",HTML(check_html)))),
-                              column(2,
-                                     actionButton(inputId="indicator_check_edit_config__action_delete",
-                                                  label="Delete Config",
-                                                  class="btn-danger"))),
+                                         div(style="display:inline-block;",HTML(check_html))))),
+                     
+                     fluidRow(style="border-bottom:solid black 1px;padding-bottom:10px;",
+                              column(12,
+                              #hidden so modal can be launched by differerent UIs.  On save, need to verify the rsf_pfcbl_id is available to user and is a system check
+                              hidden(textInput(inputId="indicator_check_edit_config__ids",
+                                               label=NULL,
+                                               value=paste0(for_rsf_pfcbl_id,"-",
+                                                            for_indicator_id,"-",
+                                                            indicator_check_id,"-",
+                                                            check_formula_id))))),
+                     
+                     setup_ui,
+                     
                      fluidRow(style="padding-top:10px;",
-                              
                               column(3,
                                      selectizeInput(inputId="indicator_check_edit_config__resolving",
                                                     label="Default Review",
@@ -206,9 +294,10 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
                               column(3,toleranceInput),
 
                               column(3,
-                                     #hidden so modal can be launched by differerent UIs.  On save, need to verify the rsf_pfcbl_id is available to user and is a system check
-                                     hidden(textInput(inputId="indicator_check_edit_config__ids",label=NULL,value=paste0(for_rsf_pfcbl_id,"-",for_indicator_id,"-",indicator_check_id))))),
-                                     
+                                     div(style="padding-top:25px",
+                                     actionButton(inputId="indicator_check_edit_config__action_delete",
+                                                  label="Delete Config",
+                                                  class="btn-danger")))),
                    
                      fluidRow(style="padding-top:10px;",
                               column(12,
@@ -231,11 +320,105 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
   showModal(m)
 }
 
+output$indicator_check_edit_setup__subscription_ui <- renderUI({
+  
+  setup_check <- SERVER_DATASETS_REVIEW_FLAGS_SETUP_CHECK()
+
+  if (empty(setup_check)) {    
+    return (NULL)
+  }
+  
+  label <- ""
+  class <- ""
+  if (setup_check$is_subscribed==TRUE) {
+    label <- "Stop Checking Flag"
+    class <- "btn-primary btn-danger"
+  } else if (setup_check$is_subscribed==FALSE) {
+    label <- "Start Checking Flag"
+    class <- "btn-primary btn-success"
+  }
+  
+  actionButton(inputId="indicator_check_edit_setup__action_submit",
+               label=label,
+               class=class)
+})
+
+#An alternative to managing the check subscription via the SETUP interface.
+observeEvent(input$indicator_check_edit_setup__action_submit, {
+
+  setup_check <- SERVER_DATASETS_REVIEW_FLAGS_SETUP_CHECK()
+  
+  if (empty(setup_check)) {
+    
+    showNotification(type="error",
+                     ui=h3("Failed to setup check: invalid IDs or user does not have permissions"))
+    return (NULL)
+  }
+ 
+  existing_comments <- as.character(setup_check$subscription_comments)
+  new_comments <- as.character(input$indicator_check_edit_setup__comments)
+
+  if (!isTruthy(existing_comments)) { existing_comments <- "" }
+  if (!isTruthy(new_comments)) { new_comments <- "" }
+  
+  if (setup_check$is_subscribed==TRUE & (new_comments==existing_comments || nchar(new_comments) < 3)) {
+    
+    showNotification(type="error",
+                     ui=h3("Please update setup comments about why check is deactivated to turn off this check"))
+    return (NULL)
+  }
+  
+  DBPOOL %>% dbExecute("
+    insert into p_rsf.rsf_setup_checks(rsf_pfcbl_id,
+                                       check_formula_id,
+                                       indicator_check_id,
+                                       rsf_program_id,
+                                       rsf_facility_id,
+                                       is_subscribed,
+                                       is_auto_subscribed,
+                                       subscription_comments,
+                                       comments_user_id,
+                                       auto_subscribed_by_reporting_cohort_id)
+    select
+      scs.category_manager_rsf_pfcbl_id as rsf_pfcbl_id,
+      scs.check_formula_id,
+      scs.indicator_check_id,
+      scs.rsf_program_id,
+      scs.rsf_facility_id,
+      (not scs.is_subscribed) as is_subscribed,
+      false as is_auto_subscribed,
+      $3::text as subscription_comments,
+      $4::text as comments_user_id,
+      NULL as auto_subscribed_by_reporting_cohort_id
+    from p_rsf.view_rsf_setup_check_subscriptions scs
+    
+    where scs.rsf_pfcbl_id = $1::int
+      and scs.check_formula_id = $2::int
+      
+    on conflict(rsf_pfcbl_id,check_formula_id)
+    do update
+    set is_subscribed = EXCLUDED.is_subscribed,
+        indicator_check_id = EXCLUDED.indicator_check_id,
+        is_auto_subscribed = EXCLUDED.is_auto_subscribed,
+        subscription_comments = EXCLUDED.subscription_comments,
+        comments_user_id = EXCLUDED.comments_user_Id,
+        auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id",
+    params=list(setup_check$rsf_pfcbl_id,
+                setup_check$check_formula_id,
+                new_comments,
+                USER_ID()))
+  
+  updateTextAreaInput(session=session,
+                      inputId="indicator_check_edit_setup__comments",
+                      label=paste0("Setup Comments [",USER_NAME(),"]"))
+  
+})
+
 observeEvent(input$indicator_check_edit_config__action_delete, {
   
   ids <- as.numeric(unlist(strsplit(input$indicator_check_edit_config__ids,split="-")))
   
-  if (length(ids) != 3) return (NULL)
+  if (length(ids) != 4) return (NULL)
   if (!ids[[1]] %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id ||
       !ids[[2]] %in% RSF_INDICATORS()$indicator_id ||
       !ids[[3]] %in% RSF_CHECKS()$indicator_check_id) {
@@ -244,25 +427,31 @@ observeEvent(input$indicator_check_edit_config__action_delete, {
     return (NULL)
   }
   
+  check_formula_id <- as.numeric(ids[[4]])
+  if (!(check_formula_id %in% RSF_CHECK_FORMULAS()$check_formula_id)) {
+    check_formula_id <- NA
+  }
+  
   DBPOOL %>% dbExecute("delete from p_rsf.rsf_setup_checks_config scc
                         where scc.rsf_pfcbl_id = $1::int
                           and scc.for_indicator_id = $2::int
-                          and scc.indicator_check_id = $3::int",
+                          and scc.indicator_check_id = $3::int
+                          and scc.check_formula_id = (NULLIF($4::text,'NA')::int)",
                        params=list(ids[[1]],
                                    ids[[2]],
-                                   ids[[3]]))
+                                   ids[[3]],
+                                   check_formula_id))
   
   SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1)
   REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1)
   removeModal()
-  
 })
 
 observeEvent(input$indicator_check_edit_config__action_submit, {
   
   ids <- as.numeric(unlist(strsplit(input$indicator_check_edit_config__ids,split="-")))
   
-  if (length(ids) != 3) return (NULL)
+  if (length(ids) != 4) return (NULL)
   if (!ids[[1]] %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id ||
       !ids[[2]] %in% RSF_INDICATORS()$indicator_id ||
       !ids[[3]] %in% RSF_CHECKS()$indicator_check_id) {
@@ -288,11 +477,40 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
     config_threshold <- round(config_threshold / 100,2)    
   }
 
+  setup_check <- SERVER_DATASETS_REVIEW_FLAGS_SETUP_CHECK()
+  check_formula_id <- NA
+  #Expected to be empty/NULL when system check is being configured (Ie, there is no setup available for system checks)
+  if (!empty(setup_check)) {
+    existing_comments <- as.character(setup_check$subscription_comments)
+    new_comments <- as.character(input$indicator_check_edit_setup__comments)
+    check_formula_id <- setup_check$check_formula_id
+    
+    if (!isTruthy(existing_comments)) { existing_comments <- "" }
+    if (!isTruthy(new_comments)) { new_comments <- "" }
 
+    #means that the user changed the setup comments, but did not click to change monitoring the check
+    #so save the updated user comments
+    if (existing_comments != new_comments) {
+      DBPOOL %>% dbExecute("
+        update p_rsf.rsf_setup_checks rsc
+        set is_auto_subscribed = false,
+            auto_subscribed_by_reporting_cohort_id = NULL,
+            subscription_comments = NULLIF($3::text,''),
+            comments_user_id = $4::text
+        where rsc.rsf_pfcbl_id = $1::int
+          and rsc.check_formula_id = $2::int",
+        params=list(setup_check$rsf_pfcbl_id,
+                    setup_check$check_formula_id,
+                    new_comments,
+                    USER_ID()))
+    }  
+  }
+   
   DBPOOL %>% dbExecute("
     insert into p_rsf.rsf_setup_checks_config(rsf_pfcbl_id,
                                             for_indicator_id,
                                             indicator_check_id,
+                                            check_formula_id,
                                             rsf_program_id,
                                             rsf_facility_id,
                                             config_auto_resolve,
@@ -304,6 +522,7 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
       ids.rsf_pfcbl_id,
       ind.indicator_id,
       ic.indicator_check_id,
+      NULLIF($9::text,'NA')::int as check_formula_id,
       ids.rsf_program_id,
       ids.rsf_facility_id,
       coalesce($4::bool,false) as config_auto_resolve,
@@ -320,8 +539,8 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
     where ids.rsf_pfcbl_id = $1::int 
       and ind.indicator_id = $2::int
       and ic.indicator_check_id = $3::int
-      and ic.is_system is true -- can only config system checks
-    on conflict(rsf_pfcbl_id,for_indicator_id,indicator_check_id)
+      
+    on conflict(rsf_pfcbl_id,for_indicator_id,indicator_check_id,check_formula_id)
     do update
     set config_auto_resolve = EXCLUDED.config_auto_resolve,
         config_check_class = EXCLUDED.config_check_class,
@@ -335,8 +554,10 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
                 config_class,
                 config_threshold,
                 config_comments,
-                USER_ID()))
+                USER_ID(),
+                check_formula_id))
   
+  #will retroactively update active flags that are within the variance specified by the config
   if (config_resolving == TRUE || 
      (!is.na(config_threshold) && (config_threshold > 0))) {
     
@@ -383,8 +604,6 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
   SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1)
   REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1)
   removeModal()
-  
-                       
 })
 
 #Action click to review cohort indicator flag details for resolutions: raises modal panel
@@ -411,6 +630,10 @@ observeEvent(input$action_indicator_flags_review, {
                        session = shiny::getDefaultReactiveDomain())
   }
   
+  check_definition <- NULL
+  setup_definition <- NULL
+  config_definition <- NULL
+  
   check_config <- DBPOOL %>% dbGetQuery("
     select 
       concat('[',coalesce(vai.users_name,'UNKNOWN'),']: ',scc.config_comments) as config_comments
@@ -418,25 +641,63 @@ observeEvent(input$action_indicator_flags_review, {
     left join p_rsf.view_account_info vai on vai.account_id = scc.comments_user_id
     where scc.rsf_pfcbl_id = $1::int
       and scc.for_indicator_id = $2::int
-      and scc.indicator_check_id = $3::int",
+      and scc.indicator_check_id = $3::int
+      and scc.check_formula_id is not distinct from (NULLIF($4::text,'NA')::int)",
     params=list(cohort_group$import_rsf_pfcbl_id,
                 cohort_indicator_flag$indicator_id,
-                cohort_indicator_flag$indicator_check_id))
-  
-  check_definition <- DBPOOL %>% dbGetQuery("select 
-                                              ic.definition
-                                             from p_rsf.indicator_checks ic
-                                             where ic.indicator_check_id = any(select unnest(string_to_array($1::text,','))::int)",
-                                            params=list(paste0(na.omit(unique(c(cohort_indicator_flag$indicator_check_id))))))
-  
-  check_definition <- paste0(check_definition$definition,collapse=" {AND ALSO} ")
+                cohort_indicator_flag$indicator_check_id,
+                cohort_indicator_flag$check_formula_id))
   
   if (!empty(check_config)) {
-    check_config <- div(icon("edit",style="color:black"),
-                        check_config$config_comments)
+    config_definition <- div(icon("gears",style="color:black"),
+                             check_config$config_comments)
   } else {
-    check_config <- NULL
+    config_definition <- NULL
   }
+  
+  
+  check_definition <- DBPOOL %>% dbGetQuery("
+    select 
+      ic.definition
+    from p_rsf.indicator_checks ic
+    where ic.indicator_check_id = any(select unnest(string_to_array($1::text,','))::int)",
+    params=list(cohort_indicator_flag$indicator_check_id))
+  
+  check_definition <- unlist(check_definition$definition)
+  
+  if (nchar(trim(check_definition))==0) { check_definition <- NULL
+  } else {
+    check_definition <- div(icon("info",style="color:blue"),
+                            check_definition)
+  }
+  
+  #user-defined checks will have a formula_id and system checks will not
+  if (!is.na(cohort_indicator_flag$check_formula_id)) {
+    
+    setup_definition <- DBPOOL %>% dbGetQuery("
+      select 
+        coalesce(vai.users_name,'SYSTEM') as name,
+        scs.subscription_comments
+      from p_rsf.view_rsf_setup_check_subscriptions scs
+      left join p_rsf.view_account_info vai on vai.account_id = scs.comments_user_id
+      where scs.rsf_pfcbl_id = $1::int
+        and scs.check_formula_id = $2::int",
+    params=list(cohort_group$import_rsf_pfcbl_id,
+                cohort_indicator_flag$check_formula_id))
+    
+    if (!empty(setup_definition)) {
+      setup_definition <- div(icon("toggle-off",style="color:green"),
+                              paste0(setup_definition$subscription_comments," [",format_name_abbreviation(setup_definition$name),"] "))
+    } else {
+      setup_definition <- NULL
+    }
+  }
+  
+  definition <- div(check_definition,
+                    setup_definition,
+                    config_definition)
+  
+  
   check_html <-  cohort_indicator_flag$check_html
   check_formula_html <- cohort_indicator_flag$check_formula_html
   
@@ -523,14 +784,16 @@ observeEvent(input$action_indicator_flags_review, {
                                             class="btn-primary",
                                             icon=icon("flag"))
     
-    check_formula_setup_ui <- div(style="width:100px",
-                              HTML(paste("<a href='#' ",
-                                         " onclick=\"Shiny.setInputValue('action_indicator_flags__setup_check',",
-                                         as.numeric(Sys.time()),
-                                         ",{priority:'event'})\">",
-                                         "Setup Check <i class='far fa-eye'></i></a>")))
+    # check_formula_setup_ui <- div(style="width:100px",
+    #                           HTML(paste("<a href='#' ",
+    #                                      " onclick=\"Shiny.setInputValue('action_indicator_flags__setup_check',",
+    #                                      as.numeric(Sys.time()),
+    #                                      ",{priority:'event'})\">",
+    #                                      "Setup Check <i class='far fa-eye'></i></a>")))
   
-  } else {
+  }
+  
+  {
     #System checks have no formula and are not "setup" strictly speaking.
     #But being able to configure calculation overwrites is often expected
     check_formula_setup_ui <- div(style="width:100px",
@@ -574,9 +837,8 @@ observeEvent(input$action_indicator_flags_review, {
                                   )),
                          fluidRow(style="padding-top:10px;",
                                   column(12,
-                                         div(style='display:inline-block',icon("info",style="color:blue"),check_definition),
-                                         check_config)),
-
+                                         div(style='display:inline-block',
+                                             definition))),
                          
                          fluidRow(style="padding-top:10px",
                                   column(2,
@@ -638,63 +900,6 @@ observeEvent(input$server_datasets_review_flags_selected, {
 })
 
 #When clicked, navigates to the Setup page and auto-filtered for the selected check.
-observeEvent(input$action_indicator_flags__setup_check, {
-  
-  selected_indicator_flag_id <- as.numeric(input$action_indicator_flags_review)
-  if (!isTruthy(selected_indicator_flag_id)) return(NULL)
-  
-  setup_indicator_check <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()[indicator_flag_id==selected_indicator_flag_id]
-  if (empty(setup_indicator_check)) return (NULL)
-  
-  
-  
-  selected_id <- NULL
-  if (!(SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id)) {
-    selected_id <- DBPOOL %>% dbGetQuery("selected coalesce(ids.rsf_facility_id,ids.rsf_program_id) as rsf_pfcbl_id
-                                          from p_rsf.rsf_pfcbl_ids ids
-                                          where ids.rsf_pfcbl_id = $1::int",
-                                         params=list(SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id))
-    selected_id <- as.numeric(unlist(selected_id))
-    
-  } else {
-    selected_id <- SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id
-    
-  }
-  
-  updateSelectizeInput(session=session,
-                       inputId="ui_setup__checks_program_facilities",
-                       selected=selected_id)
-  
-  updateSelectizeInput(session=session,
-                       inputId="ui_setup__checks_monitoring_filter",
-                       selected="")
-  
-  updateSelectizeInput(session=session,
-                       inputId="ui_setup__checks_category_filter",
-                       selected="")
-  
-  updateSelectizeInput(session=session,
-                       inputId="ui_setup__checks_type_filter",
-                       selected="")
-  
-  updateSelectizeInput(session=session,
-                       inputId="ui_setup__checks_search_filter",
-                       selected=paste0(setup_indicator_check$check_name," ",setup_indicator_check$check_formula_title))
-  
-  if (!"tabset_setup_program" %in% input$sidebarMenu)  {
-    updateTabItems(session=session,
-                   inputId="sidebarMenu",
-                   selected="setup")
-  }
-  
-  updateTabsetPanel(session=session,
-                    inputId="tabset_setup_program",
-                    selected="setup_checks")
-  
-  removeModal()
-})
-
-#When clicked, navigates to the Setup page and auto-filtered for the selected check.
 observeEvent(input$action_indicator_flags__config_check, {
   
   selected_indicator_flag_id <- as.numeric(input$action_indicator_flags_review)
@@ -719,12 +924,10 @@ observeEvent(input$action_indicator_flags__config_check, {
     
   }
   
-  for_indicator_id <- config_indicator_flag$indicator_id
-  indicator_check_id <- config_indicator_flag$indicator_check_id
-  
   showModal_indicator_check_config(for_rsf_pfcbl_id=selected_id,
                                    for_indicator_id=config_indicator_flag$indicator_id,
-                                   indicator_check_id=config_indicator_flag$indicator_check_id)
+                                   indicator_check_id=config_indicator_flag$indicator_check_id,
+                                   check_formula_id=config_indicator_flag$check_formula_id)
     
 })
 
@@ -751,10 +954,7 @@ observeEvent(input$action_indicator_flags__setup_indicator, {
     selected_id <- SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id
     
   }
-  updateSelectizeInput(session=session,
-                       inputId="ui_setup__indicator_program_facilities",
-                       selected=selected_id)
-  
+
   updateSelectizeInput(session=session,
                        inputId="ui_setup__indicator_monitoring_filter",
                        selected="")

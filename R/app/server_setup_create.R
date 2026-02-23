@@ -25,9 +25,10 @@ observeEvent(SELECTED_PROGRAM(), {
                          choices=c("",
                                    Program="program",   #Only left-in for people to select to get an error message instead of wondering why it's not available
                                    Facility="facility",
-                                   Client="client",
-                                   Borrower="borrower",
-                                   Loan="loan"),
+                                   Client="client"
+                                   #Borrower="borrower",
+                                   #Loan="loan"
+                                   ),
                          selected="")
   }
   
@@ -54,7 +55,7 @@ observeEvent(input$setup_program_create_action_button, {
   rsf_program_id <- SELECTED_PROGRAM_ID()
   facility_rsf_pfcbl_id <- as.numeric(input$setup_program_create_selected_facility)
   client_rsf_pfcbl_id <- as.numeric(input$setup_program_create_selected_client)
-  borrower_rsf_pfcbl_id <- as.numeric(input$setup_program_create_selected_borrower)
+  #borrower_rsf_pfcbl_id <- as.numeric(input$setup_program_create_selected_borrower)
   
   reporting_frequency <- "quarter"
   if (!isTruthy(what)) return (NULL)
@@ -70,14 +71,14 @@ observeEvent(input$setup_program_create_action_button, {
     return(showNotification(type="error",
                             h3("Error: Facility must be selected to create a new Client")))
   }
-  if (what=="borrower" && (!isTruthy(rsf_program_id) || !isTruthy(facility_rsf_pfcbl_id) || !isTruthy(client_rsf_pfcbl_id))) {
-    return(showNotification(type="error",
-                            h3("Error: Client and Facility must be selected to create a new Borrower")))
-  }
-  if (what=="loan" && (!isTruthy(rsf_program_id) || !isTruthy(facility_rsf_pfcbl_id) || !isTruthy(client_rsf_pfcbl_id) || !isTruthy(borrower_rsf_pfcbl_id))) {
-    return(showNotification(type="error",
-                            h3("Error: Client, Facility and Borrower must be selected to create a new Loan")))
-  }
+  # if (what=="borrower" && (!isTruthy(rsf_program_id) || !isTruthy(facility_rsf_pfcbl_id) || !isTruthy(client_rsf_pfcbl_id))) {
+  #   return(showNotification(type="error",
+  #                           h3("Error: Client and Facility must be selected to create a new Borrower")))
+  # }
+  # if (what=="loan" && (!isTruthy(rsf_program_id) || !isTruthy(facility_rsf_pfcbl_id) || !isTruthy(client_rsf_pfcbl_id) || !isTruthy(borrower_rsf_pfcbl_id))) {
+  #   return(showNotification(type="error",
+  #                           h3("Error: Client, Facility and Borrower must be selected to create a new Loan")))
+  # }
   
   setup_indicator_ids <- grep("^setup_program_create_setup_indicator_",names(reactiveValuesToList(input)),value=T)
   setup_indicators <- lapply(setup_indicator_ids,function(x) {
@@ -228,8 +229,8 @@ observeEvent(input$setup_program_create_action_button, {
         parent_rsf_pfcbl_id <- NULL
         if (what=="facility") parent_rsf_pfcbl_id <- SELECTED_PROGRAM()$rsf_pfcbl_id
         else if (what=="client") parent_rsf_pfcbl_id <- facility_rsf_pfcbl_id
-        else if (what=="borrower") parent_rsf_pfcbl_id <- client_rsf_pfcbl_id
-        else if (what=="loan") parent_rsf_pfcbl_id <- borrower_rsf_pfcbl_id
+        #else if (what=="borrower") parent_rsf_pfcbl_id <- client_rsf_pfcbl_id
+        #else if (what=="loan") parent_rsf_pfcbl_id <- borrower_rsf_pfcbl_id
 
         excelwb <- DBPOOL %>% export_create_entity_to_excel(parent_rsf_pfcbl_id=parent_rsf_pfcbl_id,
                                                             reporting_asof_date=reporting_asof_date,
@@ -279,7 +280,10 @@ observeEvent(input$setup_program_create_action_button, {
 
         #this utility can only create one at a time, so select last-created by this parent
           created_rsf_pfcbl_ids <- DBPOOL %>% dbGetQuery("
-            select ids.rsf_pfcbl_id
+            select 
+              ids.rsf_pfcbl_id,
+              ids.rsf_program_id,
+              ids.rsf_facility_id
             from p_rsf.reporting_cohorts rc
             inner join p_rsf.rsf_pfcbl_ids ids on ids.created_by_reporting_cohort_id = rc.reporting_cohort_id
             where rc.import_id = $1::int
@@ -289,7 +293,8 @@ observeEvent(input$setup_program_create_action_button, {
           created_rsf_pfcbl_ids <- unlist(created_rsf_pfcbl_ids)
           #if (!isTruthy(created_rsf_pfcbl_ids)) created_rsf_pfcbl_ids <- NA
           
-          LOAD_IMPORT(results$import_id)
+          REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1)
+          
           if (length(created_rsf_pfcbl_ids)>0) LOAD_RSF_PFCBL_IDS(created_rsf_pfcbl_ids)
           
           if (!any(as.character(unique(results$reporting_asof_date)) %in% as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))) {
@@ -331,7 +336,7 @@ observeEvent(input$server_setup_create_setup_indicators, {
                     selected = "Setup Indicators")
   
   updateSelectizeInput(session=session,
-                       inputId="ui_setup__indicator_program_facilities",
+                       inputId="server_programs__selected_facility",
                        selected=recently_created_id)
   
   showElement(id="ui_setup__indicator_setup_filter_ui",
@@ -348,7 +353,7 @@ observeEvent(input$setup_program_create_what, {
   what <- input$setup_program_create_what
   program_id <- SELECTED_PROGRAM_ID()
   
-  if (isTruthy(program_id) && any(what==c("client","borrower","loan"))) {
+  if (isTruthy(program_id) && any(what==c("client"))) {
     
     facilities <- DBPOOL %>% dbGetQuery("select 
                                               nids.rsf_pfcbl_id,
@@ -374,7 +379,7 @@ observeEvent(input$setup_program_create_what, {
     
     hideElement(id="setup_program_create_selected_facility")
     hideElement(id="setup_program_create_selected_client")
-    hideElement(id="setup_program_create_selected_borrower")
+    #hideElement(id="setup_program_create_selected_borrower")
   }
 }, ignoreNULL = FALSE)
 
@@ -382,72 +387,76 @@ observeEvent(input$setup_program_create_selected_facility, {
   facility_rsf_pfcbl_id <- as.numeric(input$setup_program_create_selected_facility)
   what <- input$setup_program_create_what
   
-  if (isTruthy(facility_rsf_pfcbl_id) && any(what==c("borrower","loan"))) {
+  # if (isTruthy(facility_rsf_pfcbl_id) && any(what==c("borrower","loan"))) {
+  #   
+  #   clients <- DBPOOL %>% dbGetQuery("select 
+  #                                     	nids.rsf_pfcbl_id,
+  #                                     	nids.rsf_full_name
+  #                                     from p_rsf.rsf_pfcbl_ids
+  #                                     inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_client_id
+  #                                     where ids.rsf_pfcbl_id = $1::int 
+  #                                     order by nids.rsf_full_name",
+  #                                    params=list(facility_rsf_pfcbl_id))
+  #   
+  #   if (empty(clients)) clients <- setNames("","No clients exist")
+  #   else clients <- c("",setNames(clients$rsf_pfcbl_id,clients$rsf_full_name))
+  #   
+  #   updateSelectizeInput(session=session,
+  #                        inputId="setup_program_create_selected_client",
+  #                        choices=clients,
+  #                        selected="")
+  #   
+  #   showElement(id="setup_program_create_selected_client",anim = TRUE,animType="fade")
+  #   
+  # } else 
     
-    clients <- DBPOOL %>% dbGetQuery("select 
-                                      	nids.rsf_pfcbl_id,
-                                      	nids.rsf_full_name
-                                      from p_rsf.rsf_pfcbl_ids
-                                      inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_client_id
-                                      where ids.rsf_pfcbl_id = $1::int 
-                                      order by nids.rsf_full_name",
-                                     params=list(facility_rsf_pfcbl_id))
-    
-    if (empty(clients)) clients <- setNames("","No clients exist")
-    else clients <- c("",setNames(clients$rsf_pfcbl_id,clients$rsf_full_name))
-    
-    updateSelectizeInput(session=session,
-                         inputId="setup_program_create_selected_client",
-                         choices=clients,
-                         selected="")
-    
-    showElement(id="setup_program_create_selected_client",anim = TRUE,animType="fade")
-    
-  } else {
+  {
     updateSelectizeInput(session=session,
                          inputId="setup_program_create_selected_client",
                          choices=c(""),
                          selected="")
     
     hideElement(id="setup_program_create_selected_client")
-    hideElement(id="setup_program_create_selected_borrower")
+    #hideElement(id="setup_program_create_selected_borrower")
     
   }
   
 }, ignoreNULL = FALSE)
 
-observeEvent(input$setup_program_create_selected_client, {
-  client_rsf_pfcbl_id <- as.numeric(input$setup_program_create_selected_client)
-  what <- input$setup_program_create_what
-  
-  if (isTruthy(client_rsf_pfcbl_id) && any(what==c("loan"))) {
-    
-    borrowers <- DBPOOL %>% dbGetQuery("select 
-                                      	nids.rsf_pfcbl_id,
-                                      	nids.rsf_full_name
-                                      from p_rsf.rsf_pfcbl_ids ids
-                                      inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_borrower_id
-                                      where ids.rsf_pfcbl_id = $1::int 
-                                      order by nids.rsf_full_name",
-                                      params=list(client_rsf_pfcbl_id))
-    
-    if (empty(borrowers)) borrowers <- setNames("","No borrowers exist")
-    else borrowers <- c("",setNames(borrowers$rsf_pfcbl_id,borrowers$rsf_full_name))
-    
-    updateSelectizeInput(session=session,
-                         inputId="setup_program_create_selected_borrower",
-                         choices=borrowers,
-                         selected="")
-    showElement(id="setup_program_create_selected_borrower",anim = TRUE,animType="fade")
-  } else {
-    updateSelectizeInput(session=session,
-                         inputId="setup_program_create_selected_borrower",
-                         choices=c(""),
-                         selected="")
-    
-    hideElement(id="setup_program_create_selected_borrower")
-  }
-}, ignoreNULL = FALSE)
+# observeEvent(input$setup_program_create_selected_client, {
+#   client_rsf_pfcbl_id <- as.numeric(input$setup_program_create_selected_client)
+#   what <- input$setup_program_create_what
+#   
+#   # if (isTruthy(client_rsf_pfcbl_id) && any(what==c("loan"))) {
+#   #   
+#   #   borrowers <- DBPOOL %>% dbGetQuery("select 
+#   #                                     	nids.rsf_pfcbl_id,
+#   #                                     	nids.rsf_full_name
+#   #                                     from p_rsf.rsf_pfcbl_ids ids
+#   #                                     inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_borrower_id
+#   #                                     where ids.rsf_pfcbl_id = $1::int 
+#   #                                     order by nids.rsf_full_name",
+#   #                                     params=list(client_rsf_pfcbl_id))
+#   #   
+#   #   if (empty(borrowers)) borrowers <- setNames("","No borrowers exist")
+#   #   else borrowers <- c("",setNames(borrowers$rsf_pfcbl_id,borrowers$rsf_full_name))
+#   #   
+#   #   updateSelectizeInput(session=session,
+#   #                        inputId="setup_program_create_selected_borrower",
+#   #                        choices=borrowers,
+#   #                        selected="")
+#   #   showElement(id="setup_program_create_selected_borrower",anim = TRUE,animType="fade")
+#   # } else 
+#     
+#   {
+#     updateSelectizeInput(session=session,
+#                          inputId="setup_program_create_selected_borrower",
+#                          choices=c(""),
+#                          selected="")
+#     
+#     hideElement(id="setup_program_create_selected_borrower")
+#   }
+# }, ignoreNULL = FALSE)
 
 
 ##################
@@ -471,31 +480,33 @@ output$setup_program_create_what_text <- renderText({
                                                        facility_rsf_pfcbl_id))
     what_text <- paste0("Create New Client for RSF Facility ",unlist(facility_name))
     
-  } else if (what=="borrower") {
-    client_rsf_pfcbl_id <- as.numeric(input$setup_program_create_selected_client)
-    client_name <- DBPOOL %>% dbGetQuery("select rsf_full_name
-                                             from p_rsf.view_current_entity_names_and_ids nids
-                                             where nids.rsf_program_id = $1::int and nids.rsf_pfcbl_id = $2::int",
-                                         params=list(SELECTED_PROGRAM_ID(),
-                                                     client_rsf_pfcbl_id))
-    what_text <- paste0("Create New Borrower for IFC's Client ",unlist(client_name))
-    
-  } else if (what=="loan") {
-    borrower_rsf_pfcbl_id <- as.numeric(input$setup_program_create_selected_borrower)
-    borrower_name <- DBPOOL %>% dbGetQuery("select rsf_full_name
-                                             from p_rsf.view_current_entity_names_and_ids nids
-                                             where nids.rsf_program_id = $1::int and nids.rsf_pfcbl_id = $2::int",
-                                           params=list(SELECTED_PROGRAM_ID(),
-                                                       borrower_rsf_pfcbl_id))
-    what_text <- paste0("Create New Loan for IFC's Client's Borrower ",unlist(borrower_name))
-    
   }
+  
+  # else if (what=="borrower") {
+  #   client_rsf_pfcbl_id <- as.numeric(input$setup_program_create_selected_client)
+  #   client_name <- DBPOOL %>% dbGetQuery("select rsf_full_name
+  #                                            from p_rsf.view_current_entity_names_and_ids nids
+  #                                            where nids.rsf_program_id = $1::int and nids.rsf_pfcbl_id = $2::int",
+  #                                        params=list(SELECTED_PROGRAM_ID(),
+  #                                                    client_rsf_pfcbl_id))
+  #   what_text <- paste0("Create New Borrower for IFC's Client ",unlist(client_name))
+  #   
+  # } else if (what=="loan") {
+  #   borrower_rsf_pfcbl_id <- as.numeric(input$setup_program_create_selected_borrower)
+  #   borrower_name <- DBPOOL %>% dbGetQuery("select rsf_full_name
+  #                                            from p_rsf.view_current_entity_names_and_ids nids
+  #                                            where nids.rsf_program_id = $1::int and nids.rsf_pfcbl_id = $2::int",
+  #                                          params=list(SELECTED_PROGRAM_ID(),
+  #                                                      borrower_rsf_pfcbl_id))
+  #   what_text <- paste0("Create New Loan for IFC's Client's Borrower ",unlist(borrower_name))
+  #   
+  # }
   return (what_text)
 })
 
 output$setup_program_create_ui <- renderUI({
   what <- input$setup_program_create_what
-  if (!isTruthy(what) || !what %in% c("program","facility","client","borrower","loan")) {
+  if (!isTruthy(what) || !what %in% c("program","facility","client")) {
     return (h3("Please select what type of new entity to create from the drop-down menu"))
   }
   

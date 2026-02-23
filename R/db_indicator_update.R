@@ -108,10 +108,9 @@ db_indicator_update <- function(pool,
        indicator_options_group_allows_multiples = NULLIF($9,'NA')::bool,
        is_periodic_or_flow_reporting = coalesce($10::bool,false),
        default_subscription = coalesce(NULLIF($11::text,'NA')::bool,true)::bool,
-       sort_preference = NULLIF($12::text,'NA')::int2,
-       modified_by_user_id = $13::text,
+       modified_by_user_id = $12::text,
        modification_time = (timeofday())::timestamptz
-    where indicator_id = $14::int
+    where indicator_id = $13::int
     ",params=list(indicator$indicator_name,
                   indicator$data_category,
                   indicator$data_type,
@@ -123,7 +122,6 @@ db_indicator_update <- function(pool,
                   indicator$options_group_allows_multiples,
                   indicator$data_frequency,
                   indicator$default_subscription,
-                  indicator$sort_preference,
                   user_id,
                   indicator$indicator_id))
   

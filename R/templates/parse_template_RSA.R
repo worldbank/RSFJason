@@ -1,6 +1,6 @@
 parse_template_RSA <- function(pool,
                                template_id,
-                               rsf_facility_id, #only makes sense at facility level to parse an RSA
+                               for_rsf_pfcbl_id, #only makes sense at facility level to parse an RSA; and at project level for programs-as-projects (Like SLGP)
                                template_file,
                                rsf_indicators=db_indicators_get_labels(pool=pool),
                                rsf_indicator_formulas=db_indicators_get_formulas(pool=pool),
@@ -10,13 +10,19 @@ parse_template_RSA <- function(pool,
 {
  
 # reporting_user_id <- SOREN_ACCOUNT
-# rsf_facility_id <- 399477
+# for_rsf_pfcbl_id <- 399477
 # template_id <- 11
 # template_file <- "C:/Users/SHeitmann/OneDrive - WBG/IFC Risk Sharing - Documents/PROJECTS/49649 - RBUA SME RSF/IFC Legal Agreements/IFC_RBUA SME RSF - RSA signed and dated version.pdf"
   
   #file.exists(template_file)
   #setups 
-  {
+  reporting_flags <- data.table(rsf_pfcbl_id=numeric(0),
+                                indicator_id=numeric(0),
+                                reporting_asof_date=as.Date(numeric(0)),
+                                check_name=character(0),
+                                check_message=character(0))
+  
+  if (tolower(file_ext(template_file))=="pdf") {
     text <- pdftools::pdf_text(template_file)
       
       #image_encoding <- strsplit(text,split="(?!\\n)[[:cntrl:]]",perl=T)
@@ -35,339 +41,300 @@ parse_template_RSA <- function(pool,
       #text <- pdftools::pdf_ocr_text(pdf=template_file)
     }
   
-    reporting_flags <- data.table(rsf_pfcbl_id=numeric(0),
-                                  indicator_id=numeric(0),
-                                  reporting_asof_date=as.Date(numeric(0)),
-                                  check_name=character(0),
-                                  check_message=character(0))
-  }
-  
-  #Create the Pages with chapters, sections and bullets
-  {
-    pages <- lapply(seq_along(text),
-                    FUN=function(p,text) {
-  #p<-77
-  #p<-55                    
-                      content <- text[[p]]
-                      
-                      if (is.na(content) || nchar(content)==0) return(NULL)
-                      
-                      content_lines <- unlist(strsplit(content,
-                                                       split="\\n"))
-                                                       #split="\\n|[^[:alnum:][:punct:][:cntrl:][:space:]]"))
-                      content_lines <- data.table(page=p,line=content_lines)
-                      content_lines[,
-                                    first_char:=sapply(line,
-                                                       FUN=regexpr,
-                                                       pattern="[[:alpha:]]")]
-                      
-                      content_lines[,bulletted:=FALSE]
-                      #zero+ sapces followed by a non-printing character -- a bullet mark
-                      content_lines[grepl("^[[:space:]]*[^[:alnum:][:punct:][:cntrl:][:space:]]",line),
-                                    bulletted:=TRUE]
-                      
-                      #zero+ sapces followed by a lower-case "o" and 1+ spaces: a cirlce bullet is read-in as an "o"
-                      content_lines[grepl("^[[:space:]]*o[[:space:]]+",line),
-                                    bulletted:=TRUE]
-                      
-                      #zero sapces followed by "(c) " enumeration
-                      #(note sub-bullets should not be intercepted), as sub-bullets are surely space-indented
-                      content_lines[grepl("^\\([a-zA-Z1-9]\\)[[:space:]]+",line),
-                                    bulletted:=TRUE]
-                      
-                      content_lines[,
-                                    prev_start:=shift(first_char,n=1,type="lag")]
-                      content_lines[,line_num:=.I]
-                      
-                      content_lines[,start:=TRUE]
-                      #content_lines[grepl("^[[:space:]]",line) & first_char==prev_start,
-                      #              start:=FALSE]
-  
-                      content_lines[!is.na(line) & nchar(line) > 0 & first_char==prev_start,
-                                    start:=FALSE]
-                      
-                      #I am indened more than the previous line and I have content
-                      #I am not the start of a new bullet
-                      #But the previous line IS the start of a new bullet
-                      content_lines[!is.na(line) & nchar(line) > 0 & first_char>prev_start & bulletted==FALSE & shift(bulletted,n=1,type="lag")==TRUE,
-                                    start:=FALSE]
-
-                      #My previous line is indented 4+ spaces
-                      #I am not indented at all and start at char 1
-                      #My previous line follows a blank row
-                      #Therefore, my previous line was a new paragraph that has been intented
-                      content_lines[!is.na(line) & nchar(line) > 0 & first_char==1 & prev_start > 4 & shift(prev_start,n=1,type="lag")==-1,
-                                    start:=FALSE]
-
-                                            
-                      content_lines[bulletted==TRUE,
-                                    start:=TRUE]
-                      
-                      content_lines[start==FALSE,
-                                    line_num:=NA]
-                      
-                      content_lines <- tidyr::fill(content_lines,line_num)
-                      content_lines <- content_lines[,
-                                    .(line=paste0(line,collapse=" ")),
-                                    by=.(page,line_num)]
-                      
-                      content_lines[,text:=sapply(line,
-                                            FUN=function(x) {
-                                              #remove non-printing characters
-                                              x<-gsub("[^[:alnum:][:punct:][:cntrl:][:space:]]"," ",x)
-                                              
-                                              #remove pseudo bullets
-                                              x<-gsub("^[[:space:]]*o[[:space:]]+"," ",x)
-                                              x<-gsub("[[:space:]]{2,}"," ",x)
-                                              trimws(x)
-                                            })]
-                      
-                      content_lines <- content_lines[!(is.na(line) | nchar(line)==0),
-                                                     .(page,text)]
-                      return (content_lines)
-  #old
-                      # {
-                      #   #line break with new line starting with 3+ spaces or tabs:
-                      #   #treat as a section/paragraph break
-                      #   content <- gsub(pattern="\\n[[:space:]\\t]{3,}",
-                      #                   replacement="\n\n",
-                      #                   x=content)
-                      #   
-                      #   #content <- gsub("[[:cntrl:]][^[:cntrl]]"," ",content)
-                      #   paragraphs <- unlist(strsplit(content,
-                      #                        split="\\n{2,}|[^[:alnum:][:punct:][:cntrl:][:space:]]"))
-                      #   
-                      #   if (any(grepl("\\n(?=[^$])",paragraphs,perl=T),na.rm=T)) {
-                      # 
-                      #     #paragraphs <- gsub("\\n(?=[^$])","\n\n",paragraphs,perl=T)
-                      # 
-                      #     paragraphs <- unlist(strsplit(paragraphs,
-                      #                                   split="\\n(?=[^$])",
-                      #                                   perl=T))
-                      # 
-                      #   }
-                      #   
-                      #   paragraphs <- lapply(paragraphs,
-                      #                        gsub,
-                      #                        pattern="\\n",
-                      #                        replacement=" ")
-                      #   
-                      #   paragraphs <- lapply(paragraphs,
-                      #                        FUN=function(x) {
-                      #                          x<-gsub("[[:space:]]{2,}"," ",x)
-                      #                          trimws(x)
-                      #                        })
-                      #   paragraphs <- unlist(paragraphs)
-                      #   
-                      #   if (length(paragraphs)==0) paragraphs <- "" #page is fully blank or rendered as image
-                      #   
-                      #   data.table(page=p,
-                      #              paragraph=seq_along(paragraphs),
-                      #              text=paragraphs)
-                      # }
-                      
-                    },text=text)
-    
-    pages <- rbindlist(pages)
-    pages[,
-          `:=`(chapter=as.character(NA),
-               chapter_title=as.character(NA),
-               section=as.character(NA),
-               section_title=as.character(NA),
-               bullet_title=as.character(NA),
-               index=.I)]
-    
-    pages[grepl("^INVESTMENT NUMBER [0-9]+$",text,ignore.case = T),
-          `:=`(chapter="COVERPAGE",
-               chapter_title=text)]
-  
-    pages[grepl("^TABLE OF CONTENTS.*$",text,ignore.case = T) & page==2,
-          `:=`(chapter="TABLE OF CONTENTS",
-               chapter_title="TABLE OF CONTENTS")]
-    
-    
-    pages[grepl("^TABLE OF CONTENTS$",text,ignore.case = T),
-          chapter:=toupper(text)]
-    
-    pages[grepl("^ARTICLE [IV]+$",text,ignore.case = T),
-          chapter:=toupper(text)]
-    
-    # pages[grepl("^ARTICLE [IV]+[[:space:][:graph:]]+$",text,ignore.case = T),
-    #       `:=`(chapter=gsub("^(ARTICLE [IV]+)[[:space:][:graph:]]+$","\\1",text),
-    #            chapter_title=gsub("^ARTICLE [IV]+([[:space:][:graph:]]+)$","\\1",text))]
-    
-    pages[grepl("^ANNEX [A-Z]+$",text,ignore.case = T),
-          chapter:=toupper(text)]
-    
-    # pages[grepl("^ARTICLE [A-Z]+[[:space:][:graph:]]+$",text,ignore.case = T),
-    #       `:=`(chapter=gsub("^(ARTICLE [A-Z]+)[[:space:][:graph:]]+$","\\1",text),
-    #            chapter_title=gsub("^ARTICLE [A-Z]+([[:space:][:graph:]]+)$","\\1",text))]
-    
-    pages[grepl("^SCHEDULE [0-9]+$",text,ignore.case = T),
-          chapter:=toupper(text)]
-
-    # pages[grepl("^SCHEDULE [0-9]+[[:space:][:graph:]]+$",text,ignore.case = T),
-    #       `:=`(chapter=gsub("^(SCHEDULE [0-9]+)[[:space:][:graph:]]+$","\\1",text),
-    #            chapter_title=gsub("^SCHEDULE [0-9]+([[:space:][:graph:]]+)$","\\1",text))]
-
+      #Create the Pages with chapters, sections and bullets
+      {
+        pages <- lapply(seq_along(text),
+                        FUN=function(p,text) {
+                          #p<-77
+                          #p<-55                    
+                          content <- text[[p]]
+                          
+                          if (is.na(content) || nchar(content)==0) return(NULL)
+                          
+                          content_lines <- unlist(strsplit(content,
+                                                           split="\\n"))
+                          #split="\\n|[^[:alnum:][:punct:][:cntrl:][:space:]]"))
+                          content_lines <- data.table(page=p,line=content_lines)
+                          content_lines[,
+                                        first_char:=sapply(line,
+                                                           FUN=regexpr,
+                                                           pattern="[[:alpha:]]")]
+                          
+                          content_lines[,bulletted:=FALSE]
+                          #zero+ sapces followed by a non-printing character -- a bullet mark
+                          content_lines[grepl("^[[:space:]]*[^[:alnum:][:punct:][:cntrl:][:space:]]",line),
+                                        bulletted:=TRUE]
+                          
+                          #zero+ sapces followed by a lower-case "o" and 1+ spaces: a cirlce bullet is read-in as an "o"
+                          content_lines[grepl("^[[:space:]]*o[[:space:]]+",line),
+                                        bulletted:=TRUE]
+                          
+                          #zero sapces followed by "(c) " enumeration
+                          #(note sub-bullets should not be intercepted), as sub-bullets are surely space-indented
+                          content_lines[grepl("^\\([a-zA-Z1-9]\\)[[:space:]]+",line),
+                                        bulletted:=TRUE]
+                          
+                          content_lines[,
+                                        prev_start:=shift(first_char,n=1,type="lag")]
+                          content_lines[,line_num:=.I]
+                          
+                          content_lines[,start:=TRUE]
+                          #content_lines[grepl("^[[:space:]]",line) & first_char==prev_start,
+                          #              start:=FALSE]
+                          
+                          content_lines[!is.na(line) & nchar(line) > 0 & first_char==prev_start,
+                                        start:=FALSE]
+                          
+                          #I am indened more than the previous line and I have content
+                          #I am not the start of a new bullet
+                          #But the previous line IS the start of a new bullet
+                          content_lines[!is.na(line) & nchar(line) > 0 & first_char>prev_start & bulletted==FALSE & shift(bulletted,n=1,type="lag")==TRUE,
+                                        start:=FALSE]
+                          
+                          #My previous line is indented 4+ spaces
+                          #I am not indented at all and start at char 1
+                          #My previous line follows a blank row
+                          #Therefore, my previous line was a new paragraph that has been intented
+                          content_lines[!is.na(line) & nchar(line) > 0 & first_char==1 & prev_start > 4 & shift(prev_start,n=1,type="lag")==-1,
+                                        start:=FALSE]
+                          
+                          
+                          content_lines[bulletted==TRUE,
+                                        start:=TRUE]
+                          
+                          content_lines[start==FALSE,
+                                        line_num:=NA]
+                          
+                          content_lines <- tidyr::fill(content_lines,line_num)
+                          content_lines <- content_lines[,
+                                                         .(line=paste0(line,collapse=" ")),
+                                                         by=.(page,line_num)]
+                          
+                          content_lines[,text:=sapply(line,
+                                                      FUN=function(x) {
+                                                        #remove non-printing characters
+                                                        x<-gsub("[^[:alnum:][:punct:][:cntrl:][:space:]]"," ",x)
+                                                        
+                                                        #remove pseudo bullets
+                                                        x<-gsub("^[[:space:]]*o[[:space:]]+"," ",x)
+                                                        x<-gsub("[[:space:]]{2,}"," ",x)
+                                                        trimws(x)
+                                                      })]
+                          
+                          content_lines <- content_lines[!(is.na(line) | nchar(line)==0),
+                                                         .(page,text)]
+                          return (content_lines)
+                          
+                        },text=text)
         
-    
-    chapter_titles <- pages[index %in% pages[!is.na(chapter) & is.na(chapter_title),index+1],.(text,index=index-1)]
-    pages[chapter_titles,
-          chapter_title:=toupper(i.text),
-          on=.(index)]
-    
-    pages <- tidyr::fill(pages,
-                         chapter,
-                         chapter_title,
-                         .direction="down")
-  
-    #Valid RSA "chapter" headers
-    #incorporate into TEMPLATE:HEADERS field
-    {
-      RSA_chapters <- unique(pages[,.(chapter,chapter_title)])
-      
-      recognized_RSA_chapters <- data.table(chapter=c('TABLE OF CONTENTS','ARTICLE I','ARTICLE II','ARTICLE III','ARTICLE IV','ARTICLE V','ARTICLE VI','ANNEX A','ANNEX B','SCHEDULE 1','SCHEDULE 2','SCHEDULE 3','SCHEDULE 4','SCHEDULE 5','SCHEDULE 6','SCHEDULE 7','SCHEDULE 8','SCHEDULE 9','SCHEDULE 10','SCHEDULE 11','SCHEDULE 12'),
-                                            chapter_title=c('TABLE OF CONTENTS',
-                                                            'DEFINITIONS AND INTERPRETATION',                     #!!
-                                                            'RISK SHARING',                                       #!!
-                                                            'REPRESENTATIONS AND WARRANTIES',
-                                                            'PARTICULAR COVENANTS',
-                                                            'TERMINATION',
-                                                            'MISCELLANEOUS',                                      #??
-                                                            'EXCLUSION LIST',
-                                                            'SANCTIONABLE PRACTICES',
-                                                            'ELIGIBILITY AND PORTFOLIO CRITERIA',                 #!!
-                                                            'FORM OF PAYMENT DEMAND',
-                                                            'FORM OF LETTER TO BENEFICIARY\'S AUDITORS',
-                                                            'FORM OF CERTIFICATE OF INCUMBENCY AND AUTHORITY',
-                                                            'FORM OF E&S PERFORMANCE REPORT',
-                                                            'INFORMATION TO BE INCLUDED IN THE QUARTERLY REPORT', #!!
-                                                            'FORM OF DEVELOPMENT IMPACT PORTFOLIO REPORT',
-                                                            'FORM OF LOCAL COUNSEL’S LEGAL OPINION',
-                                                            'FORM OF SERVICE OF PROCESS LETTER',
-                                                            'FORM OF EXTENSION REQUEST',
-                                                            'FORM OF EXTENSION CONFIRMATION',
-                                                            'E&S ACTION PLAN'))
-      
-      unrecognized <- fsetdiff(RSA_chapters[chapter!="COVERPAGE"],
-                               recognized_RSA_chapters)
-      
-      if (!empty(unrecognized)) stop("Unrecognized chapters")
-    }
-    
-    
-    #For definitions, set each definition as a "Section"
-    pages[chapter_title=="DEFINITIONS AND INTERPRETATION" & 
-          grepl('^".+"[[:space:]]+.*$',text,ignore.case = T),
-          `:=`(section=gsub('^"([^"]+)"[[:space:]]+.*$',"\\1",text),
-               section_title=gsub('^"([^"]+)"[[:space:]]+.*$',"\\1",text))]
-    
-    
-    #For eligibility, set each sub-header as section
-    pages[chapter_title=="ELIGIBILITY AND PORTFOLIO CRITERIA" & 
-            grepl("^[A-Z]{1,3}\\..*CRITERIA$",text,ignore.case = T),
-          `:=`(section=gsub("^([A-Z]{1,3})\\.[[:space:]]*[A-Z[:space:]]+CRITERIA$","\\1",text),
-               section_title=gsub("^[A-Z]{1,3}\\.[[:space:]]*([A-Z[:space:]]+CRITERIA)$","\\1",text))]
-    
-    #pages[chapter_title=="INFORMATION TO BE INCLUDED IN THE QUARTERLY REPORT"]
-    #incorporate into TEMPLATE:INFORMATION TO BE INCLUDED IN THE QUARTERLY REPORT:HEADERS field
-    #View(pages[chapter_title=="INFORMATION TO BE INCLUDED IN THE QUARTERLY REPORT",text])
-    qr_headers <- c("Basic Facility Information",
-                    "Facility information",
-                    "Facility Pricing",
-                    "Facility Timeline",
-                    "Facility Cashflow Information",
-                    "Facility Performance Information for Current Quarter",
-                    "Other")
-    
-    pages[chapter_title=="INFORMATION TO BE INCLUDED IN THE QUARTERLY REPORT" &
-          normalizeLabel(text) %in% normalizeLabel(qr_headers),
-          `:=`(section=text,
-               section_title=text)]
-    
-    #"Section 1.0.1 meaningful from ARTICLE II forward
-    #mindex1 <- pages[chapter_title=="DEFINITIONS AND INTERPRETATION",min(index)]
-    mindex2 <- pages[chapter_title=='RISK SHARING',min(index)]
-    
-    pages[is.na(section) & 
-          grepl("^Section\\s+[0-9\\.]+",text,ignore.case = T),
-          `:=`(section=gsub("^(Section\\s+[0-9]+\\.[0-9]+).*$","\\1",text,ignore.case=T),
-               section_title=gsub("^Section\\s+[0-9]+\\.[0-9]+\\.([^\\.]+).*$","\\1",text,ignore.case=T))]
-    
-    
-    
-    pages[,
-          c("section","section_title"):=tidyr::fill(.SD,section,section_title),
-          by=.(chapter_title),
-          .SDcols = c("section","section_title")]
-    
-    pages[index>=mindex2 & 
-          !is.na(section) &
-          grepl("^\\([a-z]\\)",text),
-          bullet_title:=gsub("^(\\([a-z]\\)).*$","\\1",text,ignore.case=T)]
-  
-    pages[index>=mindex2 & 
-            !is.na(section) &
-            grepl("^\\([ivx]+\\)",text),
-          bullet_title:=gsub("^(\\([ivx]+\\)).*$","\\1",text,ignore.case=T)]
-  
-    pages[chapter_title=="INFORMATION TO BE INCLUDED IN THE QUARTERLY REPORT" & !is.na(section_title),
-          bullet_title:=1:.N,
-          by=.(section_title)]
-    
-    pages[,
-          `:=`(section=trimws(section),
-               section_title=trimws(section_title),
-               bullet_title=trimws(bullet_title))]
-    
-    pages[index>=mindex2,
-          bullet_title:=tidyr::fill(.SD,bullet_title),
-          by=.(chapter_title,section_title),
-          .SDcols = c("bullet_title")]
-    
-    #page numbers
-    pages <- pages[grepl("^\\d+$",text)==FALSE]
-   
-    pages[!is.na(bullet_title),
-          bullet_rank:=1:.N,
-          by=.(chapter_title,section_title)]
-    
-    pages[bullet_rank==1,
-          bullet_type:=fcase(grepl("\\([a-h]\\)",bullet_title),"letters",
-                             grepl("\\(i+\\)",bullet_title),"numerals",
-                             grepl("\\(?\\d+\\)?\\.?",bullet_title),"numbers",
-                             default="unknown")]
-    
-    pages[!is.na(bullet_title),
-         bullet_type:=tidyr::fill(.SD,bullet_type),
-         by=.(chapter,section),
-         .SDcols = c("bullet_type")]
-    pages[,bullet_title:=gsub("[\\(\\)]","",bullet_title)]
-    
-    bullet_sequence <- function(bsequence,btype) {
-      
-      bs <- tolower(bsequence)
-      btype <- unique(btype)
-      if (length(btype) != 1) stop(paste0("Bullet type mismatch: ",paste(paste(bsequence," ",btype),collapse=", ")))
-      for (i in seq_along(bs)) {
+        pages <- rbindlist(pages)
+        pages[,
+              `:=`(chapter=as.character(NA),
+                   chapter_title=as.character(NA),
+                   section=as.character(NA),
+                   section_title=as.character(NA),
+                   bullet_title=as.character(NA),
+                   index=.I)]
         
-        if (i==1) next;
-        if (bs[i]==bs[i-1]) next;
+        pages[grepl("^INVESTMENT NUMBER [0-9]+$",text,ignore.case = T),
+              `:=`(chapter="COVERPAGE",
+                   chapter_title=text)]
         
-        if (btype=="letters" && bs[i]==letters[which(letters==bs[i-1])+1]) next;
-        if (btype=="numerals" && as.numeric(as.roman(bs[i]))== (as.numeric(as.roman(bs[i-1]))+1)) next;
-        if (btype=="numbers" && as.numeric(bs[i])==(as.numeric(bs[i-1])+1)) next;
+        pages[grepl("^TABLE OF CONTENTS.*$",text,ignore.case = T) & page==2,
+              `:=`(chapter="TABLE OF CONTENTS",
+                   chapter_title="TABLE OF CONTENTS")]
         
-        bs[i] <- bs[i-1]
+        
+        pages[grepl("^TABLE OF CONTENTS$",text,ignore.case = T),
+              chapter:=toupper(text)]
+        
+        pages[grepl("^ARTICLE [IV]+$",text,ignore.case = T),
+              chapter:=toupper(text)]
+        
+        # pages[grepl("^ARTICLE [IV]+[[:space:][:graph:]]+$",text,ignore.case = T),
+        #       `:=`(chapter=gsub("^(ARTICLE [IV]+)[[:space:][:graph:]]+$","\\1",text),
+        #            chapter_title=gsub("^ARTICLE [IV]+([[:space:][:graph:]]+)$","\\1",text))]
+        
+        pages[grepl("^ANNEX [A-Z]+$",text,ignore.case = T),
+              chapter:=toupper(text)]
+        
+        # pages[grepl("^ARTICLE [A-Z]+[[:space:][:graph:]]+$",text,ignore.case = T),
+        #       `:=`(chapter=gsub("^(ARTICLE [A-Z]+)[[:space:][:graph:]]+$","\\1",text),
+        #            chapter_title=gsub("^ARTICLE [A-Z]+([[:space:][:graph:]]+)$","\\1",text))]
+        
+        pages[grepl("^SCHEDULE [0-9]+$",text,ignore.case = T),
+              chapter:=toupper(text)]
+        
+        # pages[grepl("^SCHEDULE [0-9]+[[:space:][:graph:]]+$",text,ignore.case = T),
+        #       `:=`(chapter=gsub("^(SCHEDULE [0-9]+)[[:space:][:graph:]]+$","\\1",text),
+        #            chapter_title=gsub("^SCHEDULE [0-9]+([[:space:][:graph:]]+)$","\\1",text))]
+        
+        
+        
+        chapter_titles <- pages[index %in% pages[!is.na(chapter) & is.na(chapter_title),index+1],.(text,index=index-1)]
+        pages[chapter_titles,
+              chapter_title:=toupper(i.text),
+              on=.(index)]
+        
+        pages <- tidyr::fill(pages,
+                             chapter,
+                             chapter_title,
+                             .direction="down")
+        
+        #Valid RSA "chapter" headers
+        #incorporate into TEMPLATE:HEADERS field
+        {
+          RSA_chapters <- unique(pages[,.(chapter,chapter_title)])
+          
+          recognized_RSA_chapters <- data.table(chapter=c('TABLE OF CONTENTS','ARTICLE I','ARTICLE II','ARTICLE III','ARTICLE IV','ARTICLE V','ARTICLE VI','ANNEX A','ANNEX B','SCHEDULE 1','SCHEDULE 2','SCHEDULE 3','SCHEDULE 4','SCHEDULE 5','SCHEDULE 6','SCHEDULE 7','SCHEDULE 8','SCHEDULE 9','SCHEDULE 10','SCHEDULE 11','SCHEDULE 12'),
+                                                chapter_title=c('TABLE OF CONTENTS',
+                                                                'DEFINITIONS AND INTERPRETATION',                     #!!
+                                                                'RISK SHARING',                                       #!!
+                                                                'REPRESENTATIONS AND WARRANTIES',
+                                                                'PARTICULAR COVENANTS',
+                                                                'TERMINATION',
+                                                                'MISCELLANEOUS',                                      #??
+                                                                'EXCLUSION LIST',
+                                                                'SANCTIONABLE PRACTICES',
+                                                                'ELIGIBILITY AND PORTFOLIO CRITERIA',                 #!!
+                                                                'FORM OF PAYMENT DEMAND',
+                                                                'FORM OF LETTER TO BENEFICIARY\'S AUDITORS',
+                                                                'FORM OF CERTIFICATE OF INCUMBENCY AND AUTHORITY',
+                                                                'FORM OF E&S PERFORMANCE REPORT',
+                                                                'INFORMATION TO BE INCLUDED IN THE QUARTERLY REPORT', #!!
+                                                                'FORM OF DEVELOPMENT IMPACT PORTFOLIO REPORT',
+                                                                'FORM OF LOCAL COUNSEL’S LEGAL OPINION',
+                                                                'FORM OF SERVICE OF PROCESS LETTER',
+                                                                'FORM OF EXTENSION REQUEST',
+                                                                'FORM OF EXTENSION CONFIRMATION',
+                                                                'E&S ACTION PLAN'))
+          
+          unrecognized <- fsetdiff(RSA_chapters[chapter!="COVERPAGE"],
+                                   recognized_RSA_chapters)
+          
+          if (!empty(unrecognized)) stop("Unrecognized chapters")
+        }
+        
+        
+        #For definitions, set each definition as a "Section"
+        pages[chapter_title=="DEFINITIONS AND INTERPRETATION" & 
+                grepl('^".+"[[:space:]]+.*$',text,ignore.case = T),
+              `:=`(section=gsub('^"([^"]+)"[[:space:]]+.*$',"\\1",text),
+                   section_title=gsub('^"([^"]+)"[[:space:]]+.*$',"\\1",text))]
+        
+        
+        #For eligibility, set each sub-header as section
+        pages[chapter_title=="ELIGIBILITY AND PORTFOLIO CRITERIA" & 
+                grepl("^[A-Z]{1,3}\\..*CRITERIA$",text,ignore.case = T),
+              `:=`(section=gsub("^([A-Z]{1,3})\\.[[:space:]]*[A-Z[:space:]]+CRITERIA$","\\1",text),
+                   section_title=gsub("^[A-Z]{1,3}\\.[[:space:]]*([A-Z[:space:]]+CRITERIA)$","\\1",text))]
+        
+        #pages[chapter_title=="INFORMATION TO BE INCLUDED IN THE QUARTERLY REPORT"]
+        #incorporate into TEMPLATE:INFORMATION TO BE INCLUDED IN THE QUARTERLY REPORT:HEADERS field
+        #View(pages[chapter_title=="INFORMATION TO BE INCLUDED IN THE QUARTERLY REPORT",text])
+        qr_headers <- c("Basic Facility Information",
+                        "Facility information",
+                        "Facility Pricing",
+                        "Facility Timeline",
+                        "Facility Cashflow Information",
+                        "Facility Performance Information for Current Quarter",
+                        "Other")
+        
+        pages[chapter_title=="INFORMATION TO BE INCLUDED IN THE QUARTERLY REPORT" &
+                normalizeLabel(text) %in% normalizeLabel(qr_headers),
+              `:=`(section=text,
+                   section_title=text)]
+        
+        #"Section 1.0.1 meaningful from ARTICLE II forward
+        #mindex1 <- pages[chapter_title=="DEFINITIONS AND INTERPRETATION",min(index)]
+        mindex2 <- pages[chapter_title=='RISK SHARING',min(index)]
+        
+        pages[is.na(section) & 
+                grepl("^Section\\s+[0-9\\.]+",text,ignore.case = T),
+              `:=`(section=gsub("^(Section\\s+[0-9]+\\.[0-9]+).*$","\\1",text,ignore.case=T),
+                   section_title=gsub("^Section\\s+[0-9]+\\.[0-9]+\\.([^\\.]+).*$","\\1",text,ignore.case=T))]
+        
+        
+        
+        pages[,
+              c("section","section_title"):=tidyr::fill(.SD,section,section_title),
+              by=.(chapter_title),
+              .SDcols = c("section","section_title")]
+        
+        pages[index>=mindex2 & 
+                !is.na(section) &
+                grepl("^\\([a-z]\\)",text),
+              bullet_title:=gsub("^(\\([a-z]\\)).*$","\\1",text,ignore.case=T)]
+        
+        pages[index>=mindex2 & 
+                !is.na(section) &
+                grepl("^\\([ivx]+\\)",text),
+              bullet_title:=gsub("^(\\([ivx]+\\)).*$","\\1",text,ignore.case=T)]
+        
+        pages[chapter_title=="INFORMATION TO BE INCLUDED IN THE QUARTERLY REPORT" & !is.na(section_title),
+              bullet_title:=1:.N,
+              by=.(section_title)]
+        
+        pages[,
+              `:=`(section=trimws(section),
+                   section_title=trimws(section_title),
+                   bullet_title=trimws(bullet_title))]
+        
+        pages[index>=mindex2,
+              bullet_title:=tidyr::fill(.SD,bullet_title),
+              by=.(chapter_title,section_title),
+              .SDcols = c("bullet_title")]
+        
+        #page numbers
+        pages <- pages[grepl("^\\d+$",text)==FALSE]
+        
+        pages[!is.na(bullet_title),
+              bullet_rank:=1:.N,
+              by=.(chapter_title,section_title)]
+        
+        pages[bullet_rank==1,
+              bullet_type:=fcase(grepl("\\([a-h]\\)",bullet_title),"letters",
+                                 grepl("\\(i+\\)",bullet_title),"numerals",
+                                 grepl("\\(?\\d+\\)?\\.?",bullet_title),"numbers",
+                                 default="unknown")]
+        
+        pages[!is.na(bullet_title),
+              bullet_type:=tidyr::fill(.SD,bullet_type),
+              by=.(chapter,section),
+              .SDcols = c("bullet_type")]
+        pages[,bullet_title:=gsub("[\\(\\)]","",bullet_title)]
+        
+        bullet_sequence <- function(bsequence,btype) {
+          
+          bs <- tolower(bsequence)
+          btype <- unique(btype)
+          if (length(btype) != 1) stop(paste0("Bullet type mismatch: ",paste(paste(bsequence," ",btype),collapse=", ")))
+          for (i in seq_along(bs)) {
+            
+            if (i==1) next;
+            if (bs[i]==bs[i-1]) next;
+            
+            if (btype=="letters" && bs[i]==letters[which(letters==bs[i-1])+1]) next;
+            if (btype=="numerals" && as.numeric(as.roman(bs[i]))== (as.numeric(as.roman(bs[i-1]))+1)) next;
+            if (btype=="numbers" && as.numeric(bs[i])==(as.numeric(bs[i-1])+1)) next;
+            
+            bs[i] <- bs[i-1]
+          }
+          return (bs)
+        }
+        
+        pages[!is.na(bullet_title),
+              bullet_title:=bullet_sequence(bullet_title,bullet_type),
+              by=.(chapter,section)]
       }
-      return (bs)
-    }
-    
-    pages[!is.na(bullet_title),
-          bullet_title:=bullet_sequence(bullet_title,bullet_type),
-          by=.(chapter,section)]
-}
+  } else if (tolower(file_ext(template_file))=="txt") {
+    text <- readLines(con=template_file)
+    text <- parse_text_to_paragraphs(content_lines=text,
+                                     output="text",
+                                     paragraph.bullets = F,
+                                     paragraph.custom="^<[A-Z]+>$") #because should be coming in as auto or manually formatted: new paragraph on empty line
+    cat(text)
+  }
   
   #Create RSA
   {
@@ -491,7 +458,7 @@ parse_template_RSA <- function(pool,
     #any actions "default" will be system indicator label matches
     rsf_labels <- db_indicators_get_header_actions(pool=pool,
                                                    template_id=template_id,
-                                                   rsf_pfcbl_id=rsf_facility_id)
+                                                   rsf_pfcbl_id=for_rsf_pfcbl_id)
     # header_actions[,label_key:="SYS"]
     # header_actions[,label:=superTrim(template_header)] #for this template, use trimmed, not normalized (as parsing values are used and therefore don't normalize {} delimiter!)
   
@@ -752,7 +719,7 @@ parse_template_RSA <- function(pool,
     if (!empty(unfound_labels)) {
       
       unfound_labels[,
-                     `:=`(rsf_pfcbl_id=rsf_facility_id,
+                     `:=`(rsf_pfcbl_id=for_rsf_pfcbl_id,
                           indicator_id=as.numeric(NA), #will be auto-assigned to reporting indicator
                           reporting_asof_date=reporting_asof_date,
                           check_name="sys_flag_indicator_not_found",
@@ -787,7 +754,7 @@ parse_template_RSA <- function(pool,
     mapped_labels <- rsa[action=="remap" | action=="default"]
     if (!empty(mapped_labels)) {
       mapped_labels <- mapped_labels[,
-                                     .(rsf_pfcbl_id=rsf_facility_id,
+                                     .(rsf_pfcbl_id=for_rsf_pfcbl_id,
                                        indicator_id=map_indicator_id, #will be auto-assigned to reporting indicator
                                        reporting_asof_date=reporting_asof_date,
                                        check_name='sys_flag_template_match_actions',
@@ -800,7 +767,7 @@ parse_template_RSA <- function(pool,
     mapped_labels <- rsa[action=="calculate"]
     if (!empty(mapped_labels)) {
       mapped_labels <- mapped_labels[,
-                                     .(rsf_pfcbl_id=rsf_facility_id,
+                                     .(rsf_pfcbl_id=for_rsf_pfcbl_id,
                                        indicator_id=map_indicator_id, #will be auto-assigned to reporting indicator
                                        reporting_asof_date=reporting_asof_date,
                                        check_name='sys_flag_template_match_actions',
@@ -814,7 +781,7 @@ parse_template_RSA <- function(pool,
     if (!empty(mapped_labels)) {
       
       mapped_labels <- mapped_labels[,
-                                     .(rsf_pfcbl_id=rsf_facility_id,
+                                     .(rsf_pfcbl_id=for_rsf_pfcbl_id,
                                        indicator_id=as.numeric(NA), #will be auto-assigned to reporting indicator
                                        reporting_asof_date=reporting_asof_date,
                                        check_name='sys_flag_template_match_actions',
@@ -934,7 +901,7 @@ parse_template_RSA <- function(pool,
         if (!empty(unfound_labels)) {
           
           unfound_labels[,
-                         `:=`(rsf_pfcbl_id=rsf_facility_id,
+                         `:=`(rsf_pfcbl_id=for_rsf_pfcbl_id,
                               indicator_id=as.numeric(NA), #will be auto-assigned to reporting indicator
                               reporting_asof_date=reporting_asof_date,
                               check_name="sys_flag_indicator_not_found",
@@ -954,7 +921,7 @@ parse_template_RSA <- function(pool,
       } 
       
       parsed_labels <- parsing[,
-                               .(rsf_pfcbl_id=rsf_facility_id,
+                               .(rsf_pfcbl_id=for_rsf_pfcbl_id,
                                  indicator_id, #will be auto-assigned to reporting indicator
                                  reporting_asof_date=reporting_asof_date,
                                  check_name='sys_flag_template_match_actions',
@@ -976,7 +943,7 @@ parse_template_RSA <- function(pool,
       parsing[,
               reporting_asof_date:=reporting_asof_date]
       
-      parsing[,SYSID:=rsf_facility_id]
+      parsing[,SYSID:=for_rsf_pfcbl_id]
       
       pfcbl_category <- rsf_indicators[indicator_id %in% parsing[,indicator_id],unique(data_category)]
       if (!all(pfcbl_category %in% c("facility"))) {
@@ -1063,7 +1030,7 @@ parse_template_RSA <- function(pool,
                                                           indicator_id,
                                                           formula_id,
                                                           rsf_program_id,
-                                                          rsf_facility_id,
+                                                          for_rsf_pfcbl_id,
                                                           is_subscribed,
                                                           is_auto_subscribed,
                                                           subscription_comments,
@@ -1073,7 +1040,7 @@ parse_template_RSA <- function(pool,
          act.indicator_id,
          indf.formula_id,
          ids.rsf_program_id,
-         ids.rsf_facility_id,
+         ids.for_rsf_pfcbl_id,
          true as is_subscribed,
          false as is_auto_subscribed,
          act.comments as subscription_comments,
@@ -1098,7 +1065,7 @@ parse_template_RSA <- function(pool,
         comments_user_id = EXCLUDED.comments_user_id
            
        ",
-      params=list(rsf_facility_id,
+      params=list(for_rsf_pfcbl_id,
                   reporting_user_id))
     })
   }
@@ -1116,7 +1083,7 @@ parse_template_RSA <- function(pool,
                                                           indicator_id,
                                                           formula_id,
                                                           rsf_program_id,
-                                                          rsf_facility_id,
+                                                          for_rsf_pfcbl_id,
                                                           is_subscribed,
                                                           is_auto_subscribed,
                                                           subscription_comments,
@@ -1127,7 +1094,7 @@ parse_template_RSA <- function(pool,
          act.indicator_id,
          indf.formula_id,
          ids.rsf_program_id,
-         ids.rsf_facility_id,
+         ids.for_rsf_pfcbl_id,
          false as is_subscribed,
          false as is_auto_subscribed,
          act.comments as subscription_comments,
@@ -1153,7 +1120,7 @@ parse_template_RSA <- function(pool,
         comments_user_id = EXCLUDED.comments_user_id,
         auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id
        ",
-                params=list(rsf_facility_id,
+                params=list(for_rsf_pfcbl_id,
                             reporting_user_id))
     })
   }
@@ -1171,7 +1138,7 @@ parse_template_RSA <- function(pool,
                                                       check_formula_id,
                                                       indicator_check_id,
                                                       rsf_program_id,
-                                                      rsf_facility_id,
+                                                      for_rsf_pfcbl_id,
                                                       is_subscribed,
                                                       is_auto_subscribed,
                                                       subscription_comments,
@@ -1182,7 +1149,7 @@ parse_template_RSA <- function(pool,
          act.check_formula_id,
          icf.indicator_check_id,
          ids.rsf_program_id,
-         ids.rsf_facility_id,
+         ids.for_rsf_pfcbl_id,
          true as is_subscribed,
          false as is_auto_subscribed,
          act.comments as subscription_comments,
@@ -1208,7 +1175,7 @@ parse_template_RSA <- function(pool,
         comments_user_id = EXCLUDED.comments_user_id,
         auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id
        ",
-                params=list(rsf_facility_id,
+                params=list(for_rsf_pfcbl_id,
                             reporting_user_id))
     })
   }
@@ -1227,7 +1194,7 @@ parse_template_RSA <- function(pool,
                                                           indicator_id,
                                                           formula_id,
                                                           rsf_program_id,
-                                                          rsf_facility_id,
+                                                          for_rsf_pfcbl_id,
                                                           is_subscribed,
                                                           is_auto_subscribed,
                                                           subscription_comments,
@@ -1237,7 +1204,7 @@ parse_template_RSA <- function(pool,
          indf.indicator_id,
          act.formula_id,
          ids.rsf_program_id,
-         ids.rsf_facility_id,
+         ids.for_rsf_pfcbl_id,
          true as is_subscribed,
          false as is_auto_subscribed,
          act.comments as subscription_comments,
@@ -1261,7 +1228,7 @@ parse_template_RSA <- function(pool,
         comments_user_id = EXCLUDED.comments_user_id
            
        ",
-                params=list(rsf_facility_id,
+                params=list(for_rsf_pfcbl_id,
                             reporting_user_id))
     })
   }
@@ -1274,7 +1241,7 @@ parse_template_RSA <- function(pool,
   #Or also if an indicator exists, then ensure we're running a relevant check for it
   #However, it's useful 
   act <- header_actions[rsf_indicators[,.(indicator_name=superTrim(indicator_name),indicator_id)],
-                        .(rsf_pfcbl_id=rsf_facility_id,
+                        .(rsf_pfcbl_id=for_rsf_pfcbl_id,
                           indicator_id=i.indicator_id,
                           action,
                           map_indicator_id,
@@ -1286,7 +1253,7 @@ parse_template_RSA <- function(pool,
   status_message(class="warning","TBD to implement triggered subscriptions...is this still needed?")  
   }
   
-  template <- list(cohort_pfcbl_id=rsf_facility_id,
+  template <- list(cohort_pfcbl_id=for_rsf_pfcbl_id,
                    reporting_asof_date=reporting_asof_date,
                    template_data=template_data,
                    pfcbl_reporting_flags=reporting_flags)

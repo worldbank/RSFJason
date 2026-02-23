@@ -14,18 +14,18 @@ template_process <- function(pool,
   
   #cohorts can be created and uploaded at client, facility, program or global levels
   #but settings are at global/program and facility levels.  So get the closest one
-  rsf_facilityist_id <- { 
-    rsf_facilityist_id <- dbGetQuery(pool,"
-      select to_family_rsf_pfcbl_id as rsf_pfcbl_id
-      from p_rsf.view_rsf_pfcbl_id_family_tree ft 
-      where ft.from_rsf_pfcbl_id = $1::int 
-        and ft.to_pfcbl_rank <= ft.from_pfcbl_rank
-        and ft.to_pfcbl_rank <= 2 -- facility
-      order by ft.to_pfcbl_rank desc
-      limit 1",
-      params=list(template$reporting_import$import_rsf_pfcbl_id))
-   rsf_facilityist_id$rsf_pfcbl_id
-  }
+  # rsf_facilityist_id <- { 
+  #   rsf_facilityist_id <- dbGetQuery(pool,"
+  #     select to_family_rsf_pfcbl_id as rsf_pfcbl_id
+  #     from p_rsf.view_rsf_pfcbl_id_family_tree ft 
+  #     where ft.from_rsf_pfcbl_id = $1::int 
+  #       and ft.to_pfcbl_rank <= ft.from_pfcbl_rank
+  #       and ft.to_pfcbl_rank <= 2 -- facility
+  #     order by ft.to_pfcbl_rank desc
+  #     limit 1",
+  #     params=list(template$reporting_import$import_rsf_pfcbl_id))
+  #  rsf_facilityist_id$rsf_pfcbl_id
+  # }
   
  
   
@@ -55,6 +55,107 @@ template_process <- function(pool,
       required_categories <- unique(template_match_data[,.(pfcbl_category,
                                                            pfcbl_rank)])
 
+      # Any QR template will need to include the inclusion rank of loans it is adding or reporting on.  Since all facilities have one parent, if we are given the 
+      # inclusion rank, we can reverse lookup all parent IDs without querying each's ID number and determining if it's parent is new or not.
+      loan_inclusion_ranks <- template$template_data[indicator_id==template$rsf_indicators[indicator_sys_category=="rank_id" & 
+                                                                                           data_category=="loan",
+                                                                                           indicator_id],
+                                                     .(reporting_template_row_group,
+                                                       rank_id=suppressWarnings(as.numeric(data_value)))][!is.na(rank_id)]
+      if (!empty(loan_inclusion_ranks)) {
+        
+        #removed this:
+        #uploading the IDs takes time and most templates include all ranks, so will always need to download all before the given date 
+        # and nids.rank_id = any(select unnest(string_to_array($3::text,','))::text)",
+        pfcbl_inclusion_ranks <- dbGetQuery(pool,"
+          select distinct -- distinct necessary for loans that change their IDs over time: may have differt nids entries by reporting_asof_date, but this info is discarded; hence distinct
+            nids.rank_id,
+            ids.rsf_program_id,
+            ids.rsf_facility_id,
+            ids.rsf_client_id,
+            ids.rsf_borrower_id,
+            ids.rsf_loan_id
+          from p_rsf.view_rsf_pfcbl_id_family_tree ft
+          inner join p_rsf.rsf_data_current_names_and_ids nids on nids.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+          inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+          where ft.from_rsf_pfcbl_id = $1::int
+            and ft.to_pfcbl_category = 'loan'
+            and nids.reporting_asof_date <= $2::date",
+           
+        params=list(template$reporting_import$import_rsf_pfcbl_id,
+                    template$reporting_import$reporting_asof_date))
+        
+        setDT(pfcbl_inclusion_ranks)
+        
+        multi_ranks <- pfcbl_inclusion_ranks[,n:=.N,by=.(rank_id)][n>1]
+        if (!empty(multi_ranks)) {
+          
+          
+          multi_ranks <- dbGetQuery(pool,"
+          select 
+            nids.rank_id,
+            nids.sys_name,
+            nids.reporting_asof_date::text
+          from p_rsf.view_rsf_pfcbl_id_family_tree ft
+          inner join p_rsf.rsf_data_current_names_and_ids nids on nids.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+          inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+          where ft.from_rsf_pfcbl_id = $1::int
+            and ft.to_pfcbl_category = 'loan'
+            and nids.reporting_asof_date <= $2::date
+            and nids.rank_id = any(select unnest(string_to_array($3::text,','))::text)",
+            params=list(template$reporting_import$import_rsf_pfcbl_id,
+                        template$reporting_import$reporting_asof_date,
+                        paste0(unique(multi_ranks$rank_id),collapse=",")))
+          setorder(multi_ranks,
+                   rank_id,
+                   reporting_asof_date)
+          
+          message <- paste0(paste0("Rank #",multi_ranks$rank_id," assigned in [",multi_ranks$reporting_asof_date,"] TO: ",multi_ranks$sys_name),collapse="\n ")
+          stop(paste0("Inclusion rank ID has been assigned to multiple different loans. \n",
+          "\n",message,"\n\nThis must be corrected in historical datasets. Delete old QRs and re-uploaded corrected QRs with unique ranks per included facility"))
+        }
+        
+        pfcbl_inclusion_ranks[,n:=NULL]
+
+        pfcbl_inclusion_ranks[,rank_id:=as.numeric(rank_id)]
+        
+        pfcbl_inclusion_ranks <- loan_inclusion_ranks[pfcbl_inclusion_ranks,
+                                                     on=.(rank_id),
+                                                     nomatch=NULL]
+        
+        pfcbl_inclusion_ranks <- template_match_data[,
+                                                    .(reporting_template_row_group,pfcbl_category)
+                                                    ][pfcbl_inclusion_ranks,
+                                                      on=.(reporting_template_row_group),
+                                                      nomatch=NULL]
+        pfcbl_inclusion_ranks[,
+                             `:=`(rsf_pfcbl_id=fcase(pfcbl_category=="loan",rsf_loan_id,
+                                                     pfcbl_category=="borrower",rsf_borrower_id,
+                                                     pfcbl_category=="client",rsf_client_id,
+                                                     pfcbl_category=="facility",rsf_facility_id,
+                                                     pfcbl_categroy=="program",rsf_program_id,
+                                                     default=NA),
+                                  parent_rsf_pfcbl_id=fcase(pfcbl_category=="loan",rsf_borrower_id,
+                                                            pfcbl_category=="borrower",rsf_client_id,
+                                                            pfcbl_category=="client",rsf_facility_id,
+                                                            pfcbl_category=="facility",rsf_program_id,
+                                                            default=NA))]
+        
+        pfcbl_inclusion_ranks <- pfcbl_inclusion_ranks[,
+                                                       .(reporting_template_row_group,
+                                                        pfcbl_category,
+                                                        rsf_pfcbl_id,
+                                                        parent_rsf_pfcbl_id)]
+        
+        template_match_data[pfcbl_inclusion_ranks,
+                            `:=`(rsf_pfcbl_id=i.rsf_pfcbl_id,
+                                 parent_rsf_pfcbl_id=i.parent_rsf_pfcbl_id,
+                                 match_action="update",
+                                 matched_by="defined"),
+                            on=.(reporting_template_row_group,
+                                 pfcbl_category)]
+      }
+      
       #Template QRs might specifiy the facility ID versus the client ID
       #While the system enables a one-to-many relationship for facilities to have multiple clients, IFC business does not do this on the
       #investment side (it does on the advisory side).  But since RSFs are an IS/Upstream product, almost certainly a facility ID will have
@@ -90,13 +191,19 @@ template_process <- function(pool,
       setDT(defined_ids)
 
       if (!empty(defined_ids)) {
-        
-          template_match_data[defined_ids,
-                              `:=`(rsf_pfcbl_id=i.rsf_pfcbl_id,
-                                   parent_rsf_pfcbl_id=i.parent_rsf_pfcbl_id,
-                                   match_action="update",
-                                   matched_by="defined"),
-                              on=.(pfcbl_category)]
+        defined_ids[,joincondition:=as.numeric(NA)]
+        template_match_data[defined_ids,
+                            `:=`(rsf_pfcbl_id=i.rsf_pfcbl_id,
+                                 parent_rsf_pfcbl_id=i.parent_rsf_pfcbl_id,
+                                 match_action="update",
+                                 matched_by="defined"),
+                            on=.(pfcbl_category,
+                                 rsf_pfcbl_id=joincondition)]
+      }
+      
+      bad_matches <- template_match_data[!is.na(rsf_pfcbl_id)][,.(n=length(unique(rsf_pfcbl_id))),by=.(reporting_template_row_group,pfcbl_category)][n>1]
+      if (!empty(bad_matches)) {
+        stop("Bad matches:\n ",paste0("For ",paste0(bad_matches$pfcbl_category," at ",bad_matches$reporting_template_row_group),collapse=" \n"))
       }
       
       template_match_data[,row_num:=as.numeric(gsub("^(\\d+).*$","\\1",reporting_template_row_group))]
@@ -213,6 +320,7 @@ template_process <- function(pool,
   #################
   #Setup templates! Enter Name and ID information first to create SYSNAME and load subscription settings before upload and indicator checks.
   #################
+  
   {
     if (!is.null(template$template_settings$template_is_setup) && 
         template$template_settings$template_is_setup==TRUE) {
@@ -286,7 +394,7 @@ template_process <- function(pool,
         
         if (!setequal(names(program_indicators),
                       c("INDID","FRMID","SYSNAME","indicator_name","monitored","formula_title","is_auto_subscribed",
-                        "sort_preference","subscription_comments","comments_user_id","options_group_id","formula_calculation_unit"))) {
+                        "subscription_comments","comments_user_id","options_group_id","formula_calculation_unit"))) {
           
           status_message(class="error",
                          "Failed to import PROGRAM INDICATORS.  Expected columns: ",paste0(c("INDID","FRMID","SYSNAME","indicator_name","monitored","formula_title","options_group_id","formula_calculation_unit"),collapse=", "))
@@ -336,7 +444,6 @@ template_process <- function(pool,
                                                            is_subscribed bool,
                                                            is_auto_subscribed bool,
                                                            formula_id int,
-                                                           sort_preference int2,
                                                            subscription_comments text,
                                                            comments_user_id text,
                                                            options_group_id int,
@@ -352,7 +459,6 @@ template_process <- function(pool,
                                                       formula_id,
                                                       formula_calculation_unit,
                                                       options_group_id,
-                                                      sort_preference,
                                                       subscription_comments,
                                                       comments_user_id)])
             
@@ -959,8 +1065,8 @@ template_process <- function(pool,
   #parse indicators
   #some templates will filter these out on read-in.  Others won't so double check.
   {
-    #also pulls in program-facility ID to ensure facility-level uploads
-    #Note this includes ALL subscriptions across the family tree and so facilitist_Id will include global/program/facility/borrower, etc indicators
+    
+    #Note this includes ALL subscriptions across the family tree and will include global/program/facility/borrower, etc indicators
     indicator_subscriptions <- dbGetQuery(pool,"
       select 
         fis.rsf_pfcbl_id,
@@ -975,7 +1081,7 @@ template_process <- function(pool,
         fis.formula_calculation_unit
       from p_rsf.view_rsf_setup_indicator_subscriptions fis
       where fis.rsf_pfcbl_id = $1::int",
-    params=list(rsf_facilityist_id))
+    params=list(template$reporting_import$import_rsf_pfcbl_id))
     
     setDT(indicator_subscriptions)
     
@@ -1016,7 +1122,9 @@ template_process <- function(pool,
     template$pfcbl_data[,omit:=FALSE]
     template$pfcbl_data[is.na(indicator_id) |
                         is_unsubscribed==TRUE |
-                        indicator_id %in% template$rsf_indicators[is_system==TRUE,indicator_id],
+                        indicator_id %in% template$rsf_indicators[is_system==TRUE &
+                                                                  indicator_sys_category != "is_active", #special system indicator: allows manual overwrite by users
+                                                                  indicator_id],
                         omit:=TRUE]
     
     bad_indicators <- template$pfcbl_data[omit==TRUE]

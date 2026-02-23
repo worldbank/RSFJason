@@ -281,31 +281,6 @@ db_export_load_report <- function(pool,
                                                         sys_names=sysnames,
                                                         rsf_pfcbl_id.family_tree=reporting_rsf_pfcbl_id,
                                                         error.if.missing=FALSE)
-          
-          # sysids <- NULL
-          # sysnameids <- dbGetQuery(pool,"
-          # select 
-          #   sn.sys_name as \"SYSNAME\",
-          #   rsf_pfcbl_id
-          # from
-          # (select unnest(string_to_array($2::text,','))::text as sys_name) as sn
-          # left join lateral p_rsf.get_rsf_pfcbl_id_by_sys_name(sn.sys_name) as rsf_pfcbl_id on true
-          # where rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
-          #                          from p_rsf.view_rsf_pfcbl_id_family_tree ft 
-          #                          where ft.from_rsf_pfcbl_id= $1::int)
-          # ",params=list(reporting_rsf_pfcbl_id,
-          #               paste0(sysnames,collapse=",")))
-          
-          # sysnameids <- dbGetQuery(pool,"
-          #                          select 
-          #                           ft.to_family_rsf_pfcbl_id::int,
-          #                           sn.sys_name as \"SYSNAME\"
-          #                           from p_rsf.view_rsf_pfcbl_id_family_tree ft 
-          #                           inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-          #                           where ft.from_rsf_pfcbl_id = $1::int
-          #                             and sn.sys_name = any(select unnest(string_to_array($2::text,','))::text)
-          #                          ",params=list(reporting_rsf_pfcbl_id,
-          #                                        paste0(sysnames,collapse=",")))
           setDT(sysnameids)
           rsf_data[sysnameids,
                    SYSID:=as.integer(i.rsf_pfcbl_id),

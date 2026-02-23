@@ -100,7 +100,7 @@ select
   
   filename <- paste0("#0 ",gsub("[^[:alnum:][:space:]]","",paste0(entity$id," ",entity$name))," - ",
                      format_asof_date_label(entity$created_in_reporting_asof_date)," - ",
-                     "RSF ",entity$pfcbl_category," - v1.xlsx")
+                     "CREATE RSF ",entity$pfcbl_category," - v1.xlsx")
   
   outpath <- paste0(file_path,"/",filename)
   openxlsx::saveWorkbook(excelwb,

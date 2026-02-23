@@ -1,18 +1,16 @@
 SERVER_SETUP_INDICATORS_LIST_REFRESH <- reactiveVal(0)
 SERVER_SETUP_INDICATORS_TOGGLE_SELECTED <- reactiveVal(c())
 SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
-                                                input$ui_setup__indicator_program_facilities,
+                                                input$server_programs__selected_facility,
                                                 SERVER_SETUP_INDICATORS_LIST_REFRESH()), {
   
   if (empty(RSF_INDICATORS())) return (NULL)
-                                                
   
-  
-  selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
-  
-  if (!isTruthy(selected_rsf_pfcbl_id)) {
-    selected_rsf_pfcbl_id <- SELECTED_PROGRAM()$rsf_pfcbl_id
-  }
+  selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
+  if (!isTruthy(selected_rsf_pfcbl_id) ||
+      !selected_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) {
+    return(NULL)
+  } 
     
   monitored_indicators <- DBPOOL %>% dbGetQuery("
     select 
@@ -207,7 +205,7 @@ SERVER_SETUP_INDICATORS_LIST_FILTERED <- eventReactive(c(SERVER_SETUP_INDICATORS
   
   if (SERVER_SETUP_INDICATORS_MODE_IS_SETUP()) {
 
-    selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
+    selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
     if (!all(monitored_indicators$rsf_pfcbl_id==selected_rsf_pfcbl_id)) {
       showNotification(type="error",
                        ui=h3("Setup editing mode is only permitted for FACILITIES"))
@@ -282,11 +280,16 @@ observeEvent(input$ui_setup__indicator_search_filter, {
 },ignoreNULL=FALSE,ignoreInit=TRUE)
 
 observeEvent(input$action_setup_program_recalculate_reset, {
-  program <- SELECTED_PROGRAM()
-  if (!isTruthy(program)) return(NULL)
   
-  selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
-  if (!isTruthy(selected_rsf_pfcbl_id)) selected_rsf_pfcbl_id <- program()$rsf_pfcbl_id
+  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
+  if (empty(facilities)) return (NULL)
+  
+  selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
+  if (!isTruthy(selected_rsf_pfcbl_id) ||
+      !selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id) {
+    return(showNotification(type="error",
+                            ui=h3("An error occurred.  Ensure an active project is selected")))
+  }  
   
   withProgress(message="Resetting all calculations takes a minute or two...",
                value=0.5,{
@@ -308,35 +311,34 @@ observeEvent(input$action_setup_program_recalculate_reset, {
                             and pfi.is_subscribed is true",
                           params=list(selected_rsf_pfcbl_id))
                })  
-})
+},ignoreInit = TRUE)
 
 observeEvent(input$server_setup_indicators__recalculate_pending, {
   
-  program <- SELECTED_PROGRAM()
-  facilities <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()
+  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
   
-  if (empty(program)) return (NULL)
+  if (empty(facilities)) return (NULL)
  
-  selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
-  if (is.na(selected_rsf_pfcbl_id) ||
-      selected_rsf_pfcbl_id==program$rsf_pfcbl_id) {
-    facilities <- facilities[is.na(rsf_facility_id)==FALSE] #all facilities of the program.
-  } else {
-    facilities <- facilities[rsf_pfcbl_id == selected_rsf_pfcbl_id]
-  }
+  selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
+  if (!isTruthy(selected_rsf_pfcbl_id) ||
+      !selected_rsf_pfcbl_id %in% facilities()$rsf_pfcbl_id) {
+    return(showNotification(type="error",
+                            ui=h3("An error occurred.  Ensure an active project is selected")))
+  } 
+  
+  facilities <- facilities[rsf_pfcbl_id == selected_rsf_pfcbl_id]
 
   facilities <- facilities[,.(rsf_program_id,
                               rsf_pfcbl_id,
                               nickname)]
   
   #Not necessary, but for the progress messaging will show calculating GLOBAL instead of the facility's name
-  if (SELECTED_PROGRAM_ID() != 0) {
+
     facilities <- rbindlist(list(data.table(rsf_program_id=0,
                                             rsf_pfcbl_id=0,
                                             nickname="GLOBAL"),
                                  facilities))
-  }
-  
+
   removeModal()
   #Recalculats on a per-client basis to ensure each client is up to date before recalculating the next
 
@@ -360,15 +362,24 @@ observeEvent(input$server_setup_indicators__recalculate_pending, {
                                                     status_message=progress_status_message)
                  })
   }
-})
+},ignoreInit = TRUE)
 
 observeEvent(input$ui_setup__indicators_recalculate, {
   
   
-  fp <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()
-  selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__checks_program_facilities)
-  if (!isTruthy(selected_rsf_pfcbl_id)) selected_rsf_pfcbl_id <- SELECTED_PROGRAM()$rsf_pfcbl_id
-  nickname <- fp[rsf_pfcbl_id==selected_rsf_pfcbl_id,nickname]
+  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
+  if (empty(facilities)) return (NULL)
+  
+  selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
+  if (!isTruthy(selected_rsf_pfcbl_id) ||
+      !selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id) {
+    return (NULL)
+  }  
+  
+    
+    
+  selected_rsf_pfcbl_id <- SELECTED_PROGRAM()$rsf_pfcbl_id
+  nickname <- facilities[rsf_pfcbl_id==selected_rsf_pfcbl_id,nickname]
   
   m <-modalDialog(id="recalculate_program_indicators",
                   div(style="background-color:white;color:black;font-size:16px;padding:5px;height:150px;width:100%;",
@@ -394,7 +405,8 @@ observeEvent(input$ui_setup__indicators_recalculate, {
                   size="s")
   
   showModal(m)
-})
+},
+ignoreInit = TRUE)
 
 observeEvent(input$server_setup_indicators__formula_subscription_edit, {
 
@@ -419,17 +431,17 @@ observeEvent(input$server_setup_indicators__formula_subscription_edit, {
                        inputId="admin_system_selected_indicator",
                        selected=selected_indicator_id)
   removeModal()
-})
+}, ignoreInit=TRUE)
 
 observeEvent(input$server_setup_indicators__formula_subscription_apply, {
   
   formula_click <- input$server_setup_indicators__formula_subscription
-  selected_facility_id <- as.numeric(input$ui_setup__indicator_program_facilities)
+  selected_facility_id <- as.numeric(input$server_programs__selected_facility)
   unit_click <- input$server_setup_indicators__formula_subscription_calculation_unit
   
   if (!isTruthy(formula_click)) return (NULL)
-  if (!isTruthy(SELECTED_PROGRAM_ID())) return (NULL)
   if (!isTruthy(selected_facility_id)) return (NULL)
+  if (!empty(SELECTED_PROGRAM_FACILITIES_LIST()) || !selected_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) return (NULL)
   
   click_ids <- strsplit(formula_click,"-")[[1]]
   
@@ -503,34 +515,20 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
   
   shiny::removeModal()
   SERVER_SETUP_INDICATORS_LIST_REFRESH(SERVER_SETUP_INDICATORS_LIST_REFRESH()+1)
-})
+},ignoreInit = TRUE)
 
 observeEvent(input$server_setup_indicators__formula_subscription, {
   
   formula_click <- input$server_setup_indicators__formula_subscription
-  selected_facility_id <- as.numeric(input$ui_setup__indicator_program_facilities)
+  selected_facility_id <- as.numeric(input$server_programs__selected_facility)
 
   if (!isTruthy(formula_click)) return (NULL)
   if (!isTruthy(SELECTED_PROGRAM_ID())) return (NULL)
   if (!isTruthy(selected_facility_id)) return (NULL)
+  if (empty(SELECTED_PROGRAM_FACILITIES_LIST()) || !selected_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) return (NULL)
   
-  program <- SELECTED_PROGRAM()
-  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
-  selected_facility <- NULL
+  selected_facility <- SELECTED_PROGRAM_FACILITIES_LIST()[rsf_pfcbl_id==selected_facility_id,facility_name]
   
-  #Because newly created programs without facilities trying to setup indicators will crash
-  if (empty(facilities)) {
-    selected_facility <- setNames(c(program$rsf_pfcbl_id),
-                                  c(paste0("program:",program$program_nickname," (all facilities)")))
-    
-  } else {
-    selected_facility <- setNames(c(program$rsf_pfcbl_id,
-                                    facilities$rsf_pfcbl_id),
-                                  c(paste0("program:",program$program_nickname," (all facilities)"),
-                                    paste0("facility:",facilities$facility_name)))
-  }
-  selected_facility <- selected_facility[which(selected_facility==selected_facility_id)]
-  selected_facility <- names(selected_facility)
   
   
   click_ids <- strsplit(formula_click,"-")[[1]]
@@ -539,6 +537,11 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
   
   selected_rsf_pfcbl_id <- as.numeric(click_ids[[2]])
   selected_indicator_id <- as.numeric(click_ids[[3]])
+  
+  if (!identical(selected_rsf_pfcbl_id,selected_facility_id)) {
+    return(showNotification(type="error",
+                            ui=h3("An error occured: IDs mismatch")))
+  }
   
   formulas <- DBPOOL %>% dbGetQuery("select
                                        indf.formula_id,
@@ -650,7 +653,7 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
                   size="s")
   
   showModal(m)
-})
+},ignoreInit = TRUE)
 
 observeEvent(input$server_setup_indicators__toggle_select, {
   
@@ -662,7 +665,7 @@ observeEvent(input$server_setup_indicators__toggle_select, {
     SERVER_SETUP_INDICATORS_TOGGLE_SELECTED(c(SERVER_SETUP_INDICATORS_TOGGLE_SELECTED(),selected))
   }
   
-})
+},ignoreInit = TRUE)
 
 observeEvent(input$server_setup_indicators__toggle_subscriptions, {
 
@@ -777,16 +780,14 @@ output$server_setup_indicators__formula_subscription.view_formula_notes <- rende
 })
 
 output$server_setup_indicators__recalculate_pendingcount <- renderText({
-  rsf_program_id <- SELECTED_PROGRAM_ID()
-  if (!isTruthy(rsf_program_id)) return("0")
+  
+  selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
+  if (!isTruthy(selected_rsf_pfcbl_id)) return("0")
   
   input$ui_setup__indicators_recalculate
   input$action_setup_program_recalculate_pending
   input$action_setup_program_recalculate_reset
   input$setup_program_recalculate_indicators
-  
-  selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
-  if (!isTruthy(selected_rsf_pfcbl_id)) selected_rsf_pfcbl_id <- SELECTED_PROGRAM()$rsf_pfcbl_id
 
   pc <- DBPOOL %>% dbGetQuery("select count(*) as pending_count
                               from p_rsf.rsf_data_calculation_evaluations dce 
@@ -932,11 +933,7 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
   
   #regardless of it being setup mode, user edited ordering or made notes.
   if (clicked_cell$col %in% c(order_col,notes_col)) {
-    if (clicked_cell$col==order_col) { 
-      monitored_indicator[["sort_preference"]] <- as.numeric(clicked_cell$value)
-      
-      
-    } else if (clicked_cell$col==notes_col) {
+    if (clicked_cell$col==notes_col) {
       monitored_indicator[["subscription_comments"]] <- as.character(clicked_cell$value)
     }
     
@@ -948,7 +945,6 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
                                                       rsf_facility_id,
                                                       is_subscribed,
                                                       is_auto_subscribed,
-                                                      sort_preference,
                                                       subscription_comments,
                                                       auto_subscribed_by_reporting_cohort_id)
             select 
@@ -959,8 +955,7 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
               ids.rsf_facility_id,
               $4::bool as is_subscribed,
               false as is_auto_subscribed,
-              $5::int2 as sort_preference,
-              $6::text as subscription_comments,
+              $5::text as subscription_comments,
               NULL as auto_subscribed_by_reporting_cohort_id
             from p_rsf.rsf_pfcbl_ids ids
             cross join p_rsf.indicators ind
@@ -973,14 +968,12 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
             set formula_id = EXCLUDED.formula_id,
                 is_subscribed = EXCLUDED.is_subscribed,
                 is_auto_subscribed = EXCLUDED.is_auto_subscribed,
-                sort_preference = EXCLUDED.sort_preference,
                 subscription_comments = EXCLUDED.subscription_comments,
                 auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id",
     params=list(monitored_indicator$rsf_pfcbl_id,
                 monitored_indicator$indicator_id,
                 monitored_indicator$formula_id,
                 monitored_indicator$is_subscribed,
-                monitored_indicator$sort_preference,
                 monitored_indicator$subscription_comments))
     
   }
@@ -1020,15 +1013,14 @@ output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
                              title='Toggle Subscription...' 
                              onclick='event.stopPropagation();Shiny.setInputValue(\"server_setup_indicators__toggle_subscriptions\",-1,{priority:\"event\"})'>
                         </i></div>")
-  
-  padding <- max(c(1,nchar(as.character(monitored_indicators$sort_preference))),na.rm=T)
-  
+
+
   if (is_setup_mode) {
     #browser()
     reporting_asof_date <- ymd(unique(as.character(monitored_indicators$created_in_reporting_asof_date)))
     setorder(monitored_indicators,
              data_category_rank,
-             sort_preference,
+             indicator_name,
              na.last=TRUE)
     
     monitored_indicators <- monitored_indicators[,
@@ -1067,11 +1059,6 @@ output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
                   `width` = "150px",
                   `white-space`="nowrap") %>%
       
-      # formatStyle(columns="sort_preference",
-      #             target="cell",
-      #             `width` = "50px",
-      #             `white-space`="nowrap") %>%
-      
       formatStyle(columns="subscription_comments",
                   target="cell",
                   `width` = "200px",
@@ -1105,13 +1092,7 @@ output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
                     columnDefs = list(
                       list(targets = c(0,2,3,4), orderable = FALSE),
                       list(targets = c(0,1), className = 'dt-left')))) %>%
-      
-      # formatStyle(columns="sort_preference",
-      #             target="cell",
-      #             `width` = "50px",
-      #             `white-space`="nowrap") %>%
-      # 
-      formatStyle(columns="subscription_comments",
+            formatStyle(columns="subscription_comments",
                   target="cell",
                   `width` = "200px",
                   `white-space`="normal",

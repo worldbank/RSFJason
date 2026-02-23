@@ -186,6 +186,8 @@ source("./R/reports/export_backup_data_to_csv.R")
 source("./R/reports/export_create_entity_to_excel.R")
 
 source('./R/templates/parse_data_formats.R')
+source('./R/templates/parse_text_to_paragraphs.R')
+
 source('./R/templates/parse_template_labels.R')
 
 source('./R/templates/template_parse_file.R')
@@ -339,7 +341,7 @@ format_html_check <- function(check_name,
   
   check_type_color <- fcase(check_type=="data_audit","violet",
                             check_type=="data_validity","violet",
-                            check_type=="contract_breach","limegreen",
+                            check_type=="contract_terms","limegreen",
                             check_type=="contract_criteria","limegreen",
                             check_type=="business_integrity","skyblue",
                             check_type=="business_monitoring","skyblue",

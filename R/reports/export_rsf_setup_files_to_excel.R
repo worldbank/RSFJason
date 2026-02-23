@@ -156,7 +156,7 @@ export_rsf_setup_files_to_excel <- function(pool,
       #Can inherit GLOBAL template actions
       program_template_actions <- dbGetQuery(pool,"
                                              select * 
-                                             from p_rsf.view_rsf_program_facility_template_headers fth
+                                             from p_rsf.view_rsf_setup_template_headers fth
                                              where fth.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
                                                                           from p_rsf.view_rsf_pfcbl_id_family_tree ft
                                                                           where ft.from_rsf_pfcbl_id = $1::int
@@ -256,7 +256,6 @@ export_rsf_setup_files_to_excel <- function(pool,
                                            
                                            formula_title,
                                            formula_calculation_unit,
-                                           sort_preference,
                                            subscription_comments,
                                            comments_user_id,
                                            options_group_id)]

@@ -444,21 +444,22 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                    `:=`(data_value=default_value,
                         data_unit=default_unit)]
 
-      if (!empty(default_data) && flag.defaults==TRUE) {
-          
-        default_data_flags <- default_data[,.(parse_id,
-                                              check_name="sys_flag_data_missing_value_using_default",
-                                             check_message=paste0(indicator_name,": ",
-                                                              "from {",ifelse(is.na(data_value),'MISSING',reporting_submitted_data_value),"}",
-                                                              " to ",
-                                                              "{",ifelse(is.na(default_value),'MISSING',default_value),
-                                                                  ifelse(is.na(default_unit),'',default_unit),
-                                                              "}"))]
-          
-        indicator_data_flags <- rbindlist(list(indicator_data_flags,
-                                               default_data_flags))
-        default_data_flags <- NULL
-      }
+      #This just generates noise and then auto-resolves.
+      # if (!empty(default_data) && flag.defaults==TRUE) {
+      #     
+      #   default_data_flags <- default_data[,.(parse_id,
+      #                                         check_name="sys_flag_data_missing_value_using_default",
+      #                                        check_message=paste0(indicator_name,": ",
+      #                                                         "from {",ifelse(is.na(data_value),'MISSING',reporting_submitted_data_value),"}",
+      #                                                         " to ",
+      #                                                         "{",ifelse(is.na(default_value),'MISSING',default_value),
+      #                                                             ifelse(is.na(default_unit),'',default_unit),
+      #                                                         "}"))]
+      #     
+      #   indicator_data_flags <- rbindlist(list(indicator_data_flags,
+      #                                          default_data_flags))
+      #   default_data_flags <- NULL
+      # }
       default_data <- NULL
       
       #FORMATTING BY DATA TYPE
@@ -511,18 +512,31 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
           regular_data[units_data_numerics,
                        `:=`(data_value=trimws(gsub("^([^[:alpha:]]+).*$","\\1",data_value,perl=T)),
                             data_unit=trimws(toupper(gsub("^[^[:alpha:]]+(.*)$","\\1",data_value,perl=T))))]
+          
+          if (!empty(regular_data[units_data_numerics & tolower(data_value)==tolower(data_unit) & !grepl("[[:digit:]]",data_value)])) {
+            regular_data[units_data_numerics & tolower(data_value)==tolower(data_unit) & !grepl("[[:digit:]]",data_value),
+                         data_value:=NA]
+          }
         }
         #Numeric data where user has submitted placeholder, eg, "1,000" to parse these out.  But since users might enter data
         #in either US or EU standards and interchange 1,000.00 vs 2.000.000,03 try to suss this out and convert to 1000.00 and 2000000.03, etc
         regular_data_numerics <- regular_data[data_type %in% c("number","currency","currency_ratio","percent")
                                               & is.na(data_value)==FALSE
-                                              & grepl("[,\\.]",data_value,perl=T)==TRUE,
+                                              & grepl("[,\\.\\s]",data_value,perl=T)==TRUE,
                                               .(parse_id,
                                                 indicator_name,
                                                 reporting_submitted_data_value,
-                                                data_value)]
+                                                data_value,
+                                                data_unit)]
+        
+        regular_data_numerics[grepl("\\s+",data_value),
+                              data_value:=gsub("\\s+","",data_value,perl=T)]
         
         regular_data_numerics[,thousands_sep:=as.character(NA)]
+
+        #ends after comma or period without thousands sep
+        regular_data_numerics[is.na(thousands_sep) & grepl(",\\d{1,2}$",data_value,perl=T),thousands_sep:="comma"]   #if multiple thousands-seps are used, then that must be the units sep 
+        regular_data_numerics[is.na(thousands_sep) & grepl(".\\d{1,2}$",data_value,perl=T),thousands_sep:="period"]   #if multiple thousands-seps are used, then that must be the units sep 
         
         #if both , and . are used, then the first one must be thousands sep and the second one must be decimal sep
         regular_data_numerics[is.na(thousands_sep) & grepl(",\\d{3}\\.",data_value,perl=T),thousands_sep:="comma"]
@@ -531,6 +545,7 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
         #if multiple thousands-seps are used, then that must be the thousands sep
         regular_data_numerics[is.na(thousands_sep) & grepl(",\\d{3},",data_value,perl=T),thousands_sep:="comma"]   
         regular_data_numerics[is.na(thousands_sep) & grepl("\\.\\d{3}\\.",data_value,perl=T),thousands_sep:="period"]   #if multiple thousands-seps are used, then that must be the units sep 
+        
         
         #A bit of a guess work, but a pretty good guess that if , or . is followed by 000 that it's a thousands sep and not specifying a decimal that is precisely .000
         #Assume that period separator is less common, so require that at least one period was previously identified
@@ -562,6 +577,11 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
         has_subs <- !is.na(regular_data_numerics$thousands_sep)     &
                     regular_data_numerics$thousands_sep == "comma"  &
                     grepl(",",regular_data_numerics$data_value,perl=T)
+
+        #comma is the decimal separator
+        regular_data_numerics[has_subs & grepl(",\\d{0,2}$",data_value),
+                              `:=`(data_value=gsub(",(\\d{0,2})$",".\\1",data_value,perl=T),
+                                   thousands_sep=as.character(NA))]
         
         regular_data_numerics[has_subs,
                               `:=`(data_value=gsub(",","",data_value,perl=T),
@@ -572,14 +592,17 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                               check_name="sys_flag_data_format_auto_correction",
                                               check_message=paste0(indicator_name,": ",
                                                                    "from {",reporting_submitted_data_value,"} ",
-                                                                   "to {",ifelse(is.na(data_value),"MISSING",data_value),"}"))]
+                                                                   "to {",ifelse(is.na(data_value),"MISSING",data_value),
+                                                                          ifelse(is.na(data_unit),"",paste(" ",data_unit)),"}"))]
         
         indicator_data_flags <- rbindlist(list(indicator_data_flags,
                                                subs_flags))
         
+        #eg, 100.000.000,23
         has_subs <- !is.na(regular_data_numerics$thousands_sep)     &
                     regular_data_numerics$thousands_sep == "period" &
-                    grepl("[\\.,]",regular_data_numerics$data_value,perl=T)
+                    grepl("\\.",regular_data_numerics$data_value,perl=T) &
+                    grepl(",",regular_data_numerics$data_value,perl=T)
         
         regular_data_numerics[has_subs,
                               `:=`(data_value=gsub(",","\\.",
@@ -591,9 +614,11 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                               check_name="sys_flag_data_format_auto_correction",
                                               check_message=paste0(indicator_name,": ",
                                                                    "from {",reporting_submitted_data_value,"} ",
-                                                                   "to {",ifelse(is.na(data_value),"MISSING",data_value),"}"))]
+                                                                   "to {",ifelse(is.na(data_value),"MISSING",data_value),
+                                                                          ifelse(is.na(data_unit),"",paste(" ",data_unit)),"}"))]
         
-        has_zeros <- grepl("\\.$|\\.0+",regular_data_numerics$data_value,perl=T)
+        #ends in period eg, 100.  or lots of zeros after period 1.00
+        has_zeros <- grepl("\\.$|\\.0+$",regular_data_numerics$data_value,perl=T)
         if (any(has_zeros)) {
           regular_data_numerics[has_zeros,
                                 data_value:=gsub("\\.$|\\.0+$","",data_value,perl=T)]
@@ -696,7 +721,8 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                                check_name="sys_flag_data_format_auto_correction",
                                                check_message=paste0(indicator_name,": ",
                                                                   "from {",reporting_submitted_data_value,"} ",
-                                                                  "to {",ifelse(is.na(data_value),"MISSING",data_value),"}"))]
+                                                                  "to {",ifelse(is.na(data_value),"MISSING",data_value),
+                                                                  ifelse(is.na(data_unit),"",paste(" ",data_unit)),"}"))]
           
           indicator_data_flags <- rbindlist(list(indicator_data_flags,
                                                  subs_flags))
@@ -748,7 +774,8 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                                check_name="sys_flag_data_format_auto_correction",
                                                check_message=paste0(indicator_name,": ",
                                                                   "from {",reporting_submitted_data_value,"} ",
-                                                                  "to {",ifelse(is.na(data_value),"MISSING",data_value),"}"))]
+                                                                  "to {",ifelse(is.na(data_value),"MISSING",data_value),
+                                                                  ifelse(is.na(data_unit),"",paste(" ",data_unit)),"}"))]
           
           indicator_data_flags <- rbindlist(list(indicator_data_flags,
                                                  subs_flags))
@@ -800,7 +827,8 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                                 check_name="sys_flag_data_format_auto_correction",
                                                 check_message=paste0(indicator_name,": ",
                                                                     "from {",reporting_submitted_data_value,"} ",
-                                                                    "to {",ifelse(is.na(data_value),"MISSING",data_value),"}"))]
+                                                                    "to {",ifelse(is.na(data_value),"MISSING",data_value),
+                                                                    ifelse(is.na(data_unit),"",paste(" ",data_unit)),"}"))]
           
           indicator_data_flags <- rbindlist(list(indicator_data_flags,
                                                  subs_flags))
@@ -848,7 +876,8 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                                 check_name="sys_flag_data_format_auto_correction",
                                                 check_message=paste0(indicator_name,": ",
                                                                    "from {",reporting_submitted_data_value,"} ",
-                                                                   "to {",ifelse(is.na(data_value),"MISSING",data_value),"}"))]
+                                                                   "to {",ifelse(is.na(data_value),"MISSING",data_value),
+                                                                   ifelse(is.na(data_unit),"",paste(" ",data_unit)),"}"))]
           
           indicator_data_flags <- rbindlist(list(indicator_data_flags,
                                                  subs_flags))
@@ -869,7 +898,8 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                            check_name="sys_flag_data_format_auto_correction",
                                            check_message=paste0(indicator_name,": ",
                                                             "from {",reporting_submitted_data_value,"} ",
-                                                            "to {",ifelse(is.na(data_value),"MISSING",data_value),"}"))]
+                                                            "to {",ifelse(is.na(data_value),"MISSING",data_value),
+                                                            ifelse(is.na(data_unit),"",paste(" ",data_unit)),"}"))]
           
           indicator_data_flags <- rbindlist(list(indicator_data_flags,
                                                  subs_flags))
@@ -889,7 +919,8 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                            check_name="sys_flag_data_format_auto_correction",
                                            check_message=paste0(indicator_name,": ",
                                                                 "from {",reporting_submitted_data_value,"} ",
-                                                                "to {",ifelse(is.na(data_value),"MISSING",data_value),"}"))]
+                                                                "to {",ifelse(is.na(data_value),"MISSING",data_value),
+                                                                ifelse(is.na(data_unit),"",paste(" ",data_unit)),"}"))]
           
           indicator_data_flags <- rbindlist(list(indicator_data_flags,
                                                  subs_flags))

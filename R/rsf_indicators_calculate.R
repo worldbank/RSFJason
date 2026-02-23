@@ -326,6 +326,7 @@ rsf_indicators_calculate <- function(pool,
           calc_data <- calc_data[missing_ids==FALSE]
           calc_data[,missing_ids:=NULL]
           
+          #If there aren't any loans then it's expected, eg, sum(loan outstanding amount) is going to fail.  These flags aren't informative.
           if (!empty(missing_ids)) {
             #status_message(class="error",paste0("\nCalculation failed due to missing data: ",calculation$indicator_name,"\n  Formula has no data to calculate after filtering for entity missing IDs.  Skipping.\n"))
             add_data_flag(rsf_pfcbl_id = unlist(missing_ids$rsf_pfcbl_id),
@@ -760,7 +761,8 @@ rsf_indicators_calculate <- function(pool,
 
       do_calculations <- with(calc_env,
       {
-        
+        #for formulas to use "CALCULATION_DATE"
+        calc_data[,CALCULATION_DATE:=reporting_current_date]
         if (!is.na(calculation_formula_sort)) {
           #NOTE: no because some formula_sorts are themselves computed, eg sort=rsf_client_id,pmax(loan_contract_commitment_date.current,loan_contract_renewal_date.current,na.rm=T)
           #setorderv(calc_data,cols=strsplit(calculation_formula_sort,",")[[1]]) 
@@ -773,15 +775,16 @@ rsf_indicators_calculate <- function(pool,
         if (any(grouping_cols=="rsf_pfcbl_id")) {
           do_calc <- calc_data[,
                                .(data_value=eval(parse(text=calculation_formula))),
-                               by=grouping_cols]
+                               by=c(grouping_cols,"CALCULATION_DATE")]
         } else {
           do_calc <- calc_data[,
                                .(rsf_pfcbl_id,
                                  data_value=eval(parse(text=calculation_formula))),
-                               by=grouping_cols]
+                               by=c(grouping_cols,"CALCULATION_DATE")]
         }
         do_calc <- do_calc[,
                            .(rsf_pfcbl_id,
+                             CALCULATION_DATE,
                              reporting_current_date,
                              grouping,
                              data_value)]
@@ -990,6 +993,7 @@ rsf_indicators_calculate <- function(pool,
                                       ][is.na(reporting_asof_date)] #is.na(reporting_asof_date) is the key filter
     
     if (!empty(failed_calcs)) {
+
       failed_calcs[,`:=`(data_value=as.character(NA),
                          data_unit=as.character(NA))]
       
@@ -1004,7 +1008,18 @@ rsf_indicators_calculate <- function(pool,
                         formula_id)]
       
       failed_calcs[,reporting_asof_date:=unique(rsf_data_wide$reporting_current_date)]
+
+      #removing it.  It was set above when no rsf_pfcbl_ids existed in the dataset.
+      #So obviously it has failed and returns NA.
+      #But this flag also served to ensure that the calculation did what it was supposed to do.  Eg, there wasn't some other erorr that wasn't properly handled
+      #So we're now removing it so that it doesn't need to be uploaded.  Once upon a time, these were all reported.  But they were just noise and never helped to 
+      #track down any real issues.
+      failed_calcs[,data_flags_new:=lapply(data_flags_dt,
+                                           function(x) { 
+                                            x[!(check_name=="sys_flag_missing_data")]
+                                           })]
       
+
       
       calculated_data <- rbindlist(list(calculated_data,
                                          failed_calcs[,.(rsf_pfcbl_id,
@@ -1013,7 +1028,7 @@ rsf_indicators_calculate <- function(pool,
                                                          data_value,
                                                          data_unit,
                                                          formula_id,
-                                                         data_flags_new=data_flags_dt)]))
+                                                         data_flags_new)]))
     }
     
     

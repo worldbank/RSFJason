@@ -32,9 +32,12 @@
            #.info -- special category for internal and/or exogenously reported data
            #Like the current reporting date (whose lookup value will be triggered by sys_x_reporting)
            #Or system-assigned data, like the entity name or its issuance series information
-           "info.status", #removed 20MAR2025 -- wasn't used by any formulas and relies on a separate database function call and is probably not accurate.
+           
            "info.computationdate", #Date at which the computation is running, ie, reporting_current_date
            "info.createddate",
+           "info.id",
+           "info.rank",
+           "info.tranche",
            "info.name",
            
            #.current is the most recently submitted value as-of the requested reporting_current_date
@@ -85,14 +88,14 @@
            #issuances will place the dataset sorted by reporting_asof_date,issuance_sequance_rank
            #If the client reporting is correct and no anachronistic reporting values are made, this will give a correct sequence of the issuance timeseries reporting
            #However, this assumtion is violated regularly.
-           "issuances.current",  #Current reported value in the issuance sequence
-           "issuances.current.unit",
-           "issuances.current.reporteddate",
-           #All but useless, except if a historic issuance reports anachronistically and can check if it is not the current one
-           #When the entity is the most recent issuance, then .current and .issuances.current will return the same value
-           "issuances.previous", #Previously reported issuance's value in the issuance sequence
-           "issuances.previous.unit",
-           "issuances.previous.reporteddate",
+           # "issuances.current",  #Current reported value in the issuance sequence
+           # "issuances.current.unit",
+           # "issuances.current.reporteddate",
+           # #All but useless, except if a historic issuance reports anachronistically and can check if it is not the current one
+           # #When the entity is the most recent issuance, then .current and .issuances.current will return the same value
+           # "issuances.previous", #Previously reported issuance's value in the issuance sequence
+           # "issuances.previous.unit",
+           # "issuances.previous.reporteddate",
            #Primarily relevant when a new issuance is generated and we can compare with the closing values of the last issuance
            
            
@@ -115,7 +118,7 @@
          pos=0,
          value=function(group_values,
                         member_values,
-                        sep="&",
+                        sep="guess",
                         mode=c("any","all")) {
 
            mode <- match.arg(mode)
@@ -134,7 +137,14 @@
            groups <- unique(dt[,.(group_values,group_grouping)])
            members <- unique(dt[,.(member_values,member_grouping,group_grouping)])
            
-           
+           #ordered in most likely to be a delimiter to most likely to be regular punctuation
+           if (sep=="guess") {
+             if (any(grepl("\\|",unique(groups$group_values)))) { sep <- "|" 
+             } else if (any(grepl(";",unique(groups$group_values)))) { sep <- ";"    
+             } else if (any(grepl("&",unique(groups$group_values)))) { sep <- "&" #commas are relatively common in Lists, eg sector of: "Lumber, furniture, wood products"
+             } else if (any(grepl(",",unique(groups$group_values)))) { sep <- "," }
+           }
+
            groups[,group_values:=strsplit(x=group_values,split=sep,fixed=T)]
            members[,member_values:=strsplit(x=member_values,split=sep,fixed=T)]
            
@@ -148,8 +158,8 @@
                               .(member_value=unlist(member_values,recursive=F)),
                               by=.(group_grouping,member_grouping)]
            
-           groups[,group_value:=trimws(group_value)]
-           members[,member_value:=trimws(member_value)]
+           groups[,group_value:=tolower(trimws(group_value))]
+           members[,member_value:=tolower(trimws(member_value))]
            
            if (mode=="all") {
              groups[,size:=.N,
@@ -479,10 +489,6 @@
              timelines <- unique(rbindlist(list(timelines,
                                                 rbindlist(entity_vars)[timeseries.reporteddate <= calculation_date,
                                                                        .(entity_id,timeseries.reporteddate)])))
-             # timelines <- unique(rbindlist(list(timelines,
-             #                                    rbindlist(lapply(entity_vars,
-             #                                                     function(ev) { ev[timeseries.reporteddate <= calculation_date,
-             #                                                                       .(entity_id,timeseries.reporteddate)] })))))
            }
            
            timelines <- timelines[,
@@ -490,16 +496,6 @@
                                                   calculation_date+1,
                                                   by="quarters"))-1),
                                  by=.(entity_id)]
-           
-           # timelines[entities]
-           # timelines[,by_timeline:=FALSE]
-           # timelines[entities[timeseries.reporteddate <= calculation_date,
-           #                    .(timeline=c(seq(min(timeseries.reporteddate)+1,
-           #                                     calculation_date+1,
-           #                                     by="quarters"))-1),
-           #                    by=.(entity_id)],
-           #           by_timeline:=TRUE,
-           #           on=.(entity_id,timeline)]
 
            entity_vars[[length(entity_vars)+1]] <- entities
            for (i in 1:length(entity_vars)) {
@@ -586,103 +582,6 @@
            
            return(timelines)
            
-         
-           # if (is.list(by) && all(unlist(lapply(by,is.data.table)))) {
-           #   
-           #   #new
-           #   #means by is a .all variable
-           #   #and also means that all "vars" should be .all varables
-           #   if (length(by) > 1 && length(vars) > 0) {
-           #   }
-           #   
-           #   if (length(by) > 1 && length(vars) > 0) {
-           #     stop(paste0("By variable has a length greater than 1 (multiple elements in this list). ",
-           #                 "This is not allowed when passing a list of other variables too."))
-           #   }
-           #   
-           #   by <- rbindlist(by)
-           # }
-           # 
-           # if (!all(c("indicator_name",
-           #            "timeseries.reporteddate",
-           #            "reporting_current_date",
-           #            "timeseries") %in% names(by))) {
-           #   stop("Timeseries arguments require columns with .all specified, eg: loan_risk_balance.all to provide a data.table with columns: timeseries, timeseries.unit, timeseries.reporteddate, timeseries.changed, timeseries.updated")
-           # }
-           # 
-           # 
-           # timeline <- seq(min(by$timeseries.reporteddate)+1,
-           #                 max(by$reporting_current_date)+1,
-           #                 by="quarters")
-           # 
-           # timeline <- data.table(reporting_current_date=ymd(timeline)-1)
-           # timeline_origin <- min(timeline$reporting_current_date)
-           # vars[[length(vars)+1]] <- by
-           # 
-           # 
-           # for (i in 1:length(vars)) {
-           #   
-           #   col <- vars[[i]]
-           #   if (is.null(names(col)) && !is.null(names(col[[1]]))) col <- col[[1]]
-           #   if (!all(c("indicator_name",
-           #              "timeseries.reporteddate",
-           #              "reporting_current_date",
-           #              "timeseries") %in% names(col))) {
-           #     stop("Timeseries arguments require columns with .all specified, eg: loan_risk_balance.all to provide a data.table with columns: timeseries, timeseries.unit, timeseries.reporteddate, timeseries.changed, timeseries.updated")
-           #   }
-           #   
-           #   this_fill <- NULL
-           #   if (length(fill)==1) { this_fill <- fill 
-           #   } else { this_fill <- fill[i] }
-           #   
-           #   ind_col <- paste0(unique(col$indicator_name),".timeseries")
-           #   
-           # 
-           #   
-           #   col <- col[,
-           #              .(reporting_current_date=`timeseries.reporteddate`,
-           #                timeseries)]
-           #   
-           #   #column's reporting data pre-dates the "By" reporting dates.  So we carry its value forward.
-           #   #Note: this will be incorrect for flow-type data.  But this is a rarely used expert-only function that anyone using should account for themselves.
-           #   #perhaps can add a pre-fill
-           #   if (!any(col$reporting_current_date==timeline_origin) &&
-           #       any(col$reporting_current_date < timeline_origin) &&
-           #       as.logical(this_fill) %in% TRUE) {
-           #     
-           #     col_origin <- col[reporting_current_date < timeline_origin,max(reporting_current_date)]
-           #     col <- col[reporting_current_date >= col_origin]
-           #     col[reporting_current_date==col_origin,
-           #         reporting_current_date:=timeline_origin]
-           #   }
-           #   col[,has_NA_value:=is.na(timeseries)]
-           #   
-           #   timeline <- col[timeline,
-           #                   on=.(reporting_current_date)]
-           #   
-           #   
-           #   if (as.logical(this_fill) %in% TRUE) {
-           #     timeline <- tidyr::fill(timeline,
-           #                             timeseries,
-           #                             .direction="down")
-           #   
-           #   } else if (!is.na(this_fill) &&
-           #              !identical(this_fill,FALSE)) {
-           #     suppressWarnings(timeline[is.na(timeseries),
-           #                               timeseries:=this_fill])
-           #   }    
-           #   
-           #   #we don't want fill to fill down NA values that are REPORTED as NA
-           #   timeline[!is.na(timeseries) & has_NA_value %in% TRUE,
-           #            timeseries:=NA]
-           #   
-           #   timeline[,has_NA_value:=NULL]
-           #   
-           #   setnames(timeline,
-           #            old="timeseries",
-           #            new=ind_col)
-           # }
-           # return(timeline)
          })
 
   assign(x="concatenate",

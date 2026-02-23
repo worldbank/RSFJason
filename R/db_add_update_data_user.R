@@ -118,7 +118,9 @@ db_add_update_data_user <- function(pool,
   #dbRollback(conn)
   
   ###NEW 2025-10-23: Embedded indicator prioritization and cohort creation
-  deleted_rows <- poolWithTransaction(pool,function(conn) {
+  errors <- NULL
+  deleted_rows <- tryCatch({
+    poolWithTransaction(pool,function(conn) {
     
     #Create and upload temp tables
     #set insert actions
@@ -432,6 +434,41 @@ db_add_update_data_user <- function(pool,
     }
     
   })
+  },
+  error=function(e) {
+    errors <<- e
+    NULL
+  })
+  
+  if (!is.null(errors)) {
+    if (grepl("rsf_data_current_names_and_ids_sys_name_udx",as.character(errors$message))) {
+      detail <- gsub("^.*ERROR:.*DETAIL:(.*)TEXT:.*$","\\1",as.character(errors$message))
+      conflict_name <- gsub("^.*=\\((.*)\\,.*$","\\1",detail)
+      conflicts <- dbGetQuery(pool,"
+        select 
+          sn.sys_name,
+          ids.created_in_reporting_asof_date::text
+        from p_rsf.rsf_pfcbl_ids ids
+        inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ids.rsf_pfcbl_id
+        where ids.rsf_pfcbl_id = any(select p_rsf.get_rsf_pfcbl_id_by_sys_name($1::text))",
+        params=list(conflict_name))
+      
+      if (!empty(conflicts)) {
+        message <- paste0("\nFailed to create: ",conflict_name,"\n",
+                          paste0("Conflict with: ",conflicts$sys_name," created in ",conflicts$created_in_reporting_asof_date,collapse=" \n"),
+                          "\nEnsure names and IDs match across all reporting entries (and for all time periods).\n",
+                          "If the current information is a data correction for an historic error, that error must be corrected in the historic dataset (which must be deleted, corrected and re-reported)\n",
+                          "If the old data is correct and the new data is a change in ID, change the reported data using the format:\n",
+                          "OLD >> NEW\n",
+                          "For example, if a borrower last QR had ID #4321 and the client has changed its ID to #1234 this QR, then change the ID column in the template to:\n",
+                          "4321 >> 1234")
+        stop(message)
+      }
+    } else {
+      stop(errors$message)
+    }
+  }
+  
   upload_data[,inserted:=!(inserted_row_number %in% deleted_rows)]
   upload_data[,inserted_row_number:=NULL]
   

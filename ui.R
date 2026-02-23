@@ -1,5 +1,3 @@
-#ui <- USERLogin()
-
 ui <- tagList(ui_htmlHead,
               dashboardPage(head=ui_header_OUT,
                             sidebar=ui_sidebar_OUT,

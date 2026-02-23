@@ -22,8 +22,12 @@ RSF_CHECKS <- eventReactive(SERVER_ADMIN_CHECKS.LOAD_RSF_CHECK(), {
     ic.definition,
     ic.auto_resolve_system_check,
     ic.auto_subscribe,
-    ic.is_calculator_check
-  from p_rsf.indicator_checks ic")
+    ic.is_calculator_check,
+    array_to_string(formulas.txt,',') as formulas
+  from p_rsf.indicator_checks ic
+  left join lateral(select array_agg(trim(regexp_replace(concat(icf.check_formula_title,' ',icf.formula_comments),',',' '))) as txt
+                    from p_Rsf.indicator_check_formulas icf
+                    where icf.indicator_check_id = ic.indicator_check_id) as formulas on true")
 
   if (empty(checks)) return (NULL)
   
@@ -135,6 +139,67 @@ observeEvent(LOGGEDIN(), {
   }
 },ignoreInit = TRUE)
 
+observeEvent(RSF_CHECK_TYPES(), {
+  
+  
+  types <- RSF_CHECK_TYPES()$check_type
+  expected_types <- c("data_validity",
+                      "data_audit",
+                      "business_integrity",
+                      "business_monitoring",
+                      "contract_terms",
+                      "contract_criteria",
+                      "none")
+
+  if (!setequal(types,
+                expected_types)) {
+    showNotification(type="error",
+                     ui=h3("Database defines unexpected check type: ",
+                     paste0(setdiff(expected_types,types),collapse=" and ")))
+  }
+
+  type.choices <- c(`Any Flag Types`="")
+  
+  type.choices <- c(type.choices,setNames("nosystem","Hide SYS Flags <i class='fa-solid fa-cog' style='color:gray'></i>"))
+
+  type.choices <- c(type.choices,setNames("contract_terms","Contract Terms <i class='fa-solid fa-square' style='color:limegreen'></i>"))
+  type.choices <- c(type.choices,setNames("contract_criteria","Eligibility Criteria <i class='fa-solid fa-square' style='color:limegreen'></i>"))
+  
+  type.choices <- c(type.choices,setNames("business_integrity","Business Rules <i class='fa-solid fa-square' style='color:skyblue'></i>"))
+  type.choices <- c(type.choices,setNames("business_monitoring","Business Monitoring <i class='fa-solid fa-square' style='color:skyblue'></i>"))
+
+  #data_audit and data_validity do not provide useful differentiation (at least not enought to sub-search on)
+  #Most are all system checks.
+  type.choices <- c(type.choices,setNames("data","Data <i class='fa-solid fa-square' style='color:violet'></i>"))
+  
+  #unclassified shouldn't exist anyway, so not useful to add a category for this.
+  #type.choices <- c(type.choices,setNames("none","Unclassified <i class='fa-solid fa-square' style='color:pink'></i>"))
+  
+  type.choices <- c(type.choices,setNames("loan","<i class='fa-solid fa-circle icon-loan'></i> Loan"))
+  type.choices <- c(type.choices,setNames("borrower","<i class='fa-solid fa-circle icon-borrower'></i> Borrower"))
+  type.choices <- c(type.choices,setNames("client","<i class='fa-solid fa-circle icon-client'></i> Client"))
+  type.choices <- c(type.choices,setNames("facility","<i class='fa-solid fa-circle icon-facility'></i> Facility"))
+  type.choices <- c(type.choices,setNames("program","<i class='fa-solid fa-circle icon-program'></i> Program"))
+  
+  #checks aren't allowed for Global (nobody monitors, nobody will check, no need to clog-up UI)
+  #if ("global" %in% data_types) type.choices <- c(type.choices,setNames("global","<i class='fa-solid fa-circle icon-global'></i> Global"))
+  
+  types.selected <- "" #By default none selected.
+  #if (isTruthy(input$cohort_view_flag_types)) types.selected <- input$cohort_view_flag_types
+  
+  if (is.null(input$server_admin_checks__filter)) {
+    types.selected <- "nosystem"
+  } else if(isTruthy(input$server_admin_checks__filter)) {
+    types.selected <- input$server_admin_checks__filter
+  }
+  
+  updateSelectizeInput(session = session,
+                       inputId="server_admin_checks__filter",
+                       choices=type.choices,
+                       selected=types.selected)
+  
+},ignoreInit=FALSE,ignoreNULL=FALSE)
+
 observeEvent(RSF_CHECKS(), {
 
   all_checks <- RSF_CHECKS()
@@ -156,15 +221,44 @@ observeEvent(RSF_CHECKS(), {
                        choices=choices,
                        selected=selected_id)
   
+  
+ 
+  
 }, ignoreInit = FALSE, ignoreNULL=FALSE, priority=100) #Refresh on init
 
 ##set system indicators drop down menu.  Updated when new indicators are selected
 observeEvent(c(RSF_CHECKS(),
-               input$server_admin_checks__search), {
+               input$server_admin_checks__search,
+               input$server_admin_checks__filter), {
                  
   all_checks <- RSF_CHECKS()
   
   if (!isTruthy(all_checks)) return (NULL)
+  
+  filter_type <- input$server_admin_checks__filter
+  if (isTruthy(filter_type)) {
+    
+    if (any(filter_type=="nosystem")) { all_checks <- all_checks[is_system==FALSE] }
+    
+    if (any(filter_type=="loan")) { all_checks <- all_checks[check_pfcbl_category=="loan"] }
+    if (any(filter_type=="borrower")) { all_checks <- all_checks[check_pfcbl_category=="borrower"] }
+    if (any(filter_type=="client")) { all_checks <- all_checks[check_pfcbl_category=="client"] }
+    if (any(filter_type=="facility")) { all_checks <- all_checks[check_pfcbl_category=="facility"] }
+    if (any(filter_type=="program")) { all_checks <- all_checks[check_pfcbl_category=="program"] }
+    
+    #These will filter as OR criteria
+    if (any(filter_type %in% c("data","contract_terms","contract_criteria","business_integrity","business_monitoring"))) {
+      is_type_filter <- FALSE
+      
+      if (any(filter_type=="data")) { is_type_filter <- is_type_filter | grepl("^data",all_checks$check_type) }
+      if (any(filter_type=="contract_terms")) { is_type_filter <- is_type_filter | all_checks$check_type=="contract_terms" }
+      if (any(filter_type=="contract_criteria")) { is_type_filter <- is_type_filter | all_checks$check_type=="contract_criteria" }
+      if (any(filter_type=="business_integrity")) { is_type_filter <- is_type_filter | all_checks$check_type=="business_integrity" }
+      if (any(filter_type=="business_monitoring")) { is_type_filter <- is_type_filter | all_checks$check_type=="business_monitoring" }
+      
+      all_checks <- all_checks[is_type_filter==TRUE]
+    }
+  }
   
   selected_id <- abs(as.numeric(SERVER_ADMIN_CHECKS.LOAD_RSF_CHECK()))
   all_checks <- all_checks[order(check_name)]
@@ -179,7 +273,7 @@ observeEvent(c(RSF_CHECKS(),
    keywords <- unlist(strsplit(keywords,"[^[:alpha:]]+"))
    labels <- rbindlist(list(all_checks[,.(indicator_check_id,label=check_name)],
                             all_checks[,.(indicator_check_id,label=definition)],
-                            all_checks[,.(indicator_check_id,label=check_type)],
+                            all_checks[,.(indicator_check_id,label=formulas)],
                             all_checks[,.(indicator_check_id,label=check_class)]))
    
    matches <- lapply(keywords,grepl,x=labels$label,ignore.case=TRUE)

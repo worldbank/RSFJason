@@ -273,23 +273,25 @@ parse_template_IFC_QR <- function(pool,
                       sapply(paste0("^",CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES,"$"),
                              grep,x=unlist(summary_sheet[srows]),value=T,USE.NAMES = F))))
         
-        if (length(lcu)==0) {
+        if (length(lcu)==1) {
           
-          for (n in names(remap_lcu)) {
-            print(n)
+          for (n in unique(names(remap_lcu))) {
+            
             summary_sheet[,(n):=gsub("LCU|LCY",lcu,get(n),ignore.case=F)]
           }
         
-          for (n in unlist(remap_lcu)) {
+          for (n in unique(unlist(remap_lcu))) {
             rl <- gsub("LCU|LCY",lcu,n)
-            status_message("warning",
+            status_message(class="warning",
                            paste0("Correcting Local Currency reference FROM [",n,"] TO [",rl,"]\n"))
             reporting_flags <- rbindlist(list(reporting_flags,
                                               data.table(rsf_pfcbl_id=NA,
                                                          indicator_id=NA,
+                                                         reporting_asof_date=NA,
                                                          check_name="sys_flag_data_format_auto_correction",
                                                          check_message=paste0("Correcting Local Currency reference FROM [",n,"] TO [",rl,"]\n"))))
           }
+        }
       }
     }
     #new

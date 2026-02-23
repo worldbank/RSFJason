@@ -201,9 +201,11 @@ observeEvent(input$modal_dataset_upload_next, {
   
   DATASET_UPLOAD_FILE(NA) #Makes it not Truthy and will re-call this reactive, skipping this block and going into "else if" below
   
+  REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1) #failed cohorts will leave an artifact, generally, which should be viewable.
+  
   if (empty(results)) {
     COHORT_NEW_ID(NA) 
-    REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1) #failed cohorts will leave an artifact, generally, which should be viewable.
+    
     #COHORT_TEMPLATES(NA)
   } else {
     #reporting_cohort_ids <- sapply(up_template,function(x) x[['reporting_cohort']][['reporting_cohort_id']])
@@ -228,13 +230,15 @@ observeEvent(input$modal_dataset_upload_next, {
         LOAD_PROGRAM_ID(import_ids$rsf_program_id)
       }
       
+      session$userData$server_programs__selected_facility <- as.numeric(import_ids$rsf_facility_id)
+      
       updateSelectizeInput(session=session,
-                           inputId="select_rsf_program_id",
+                           inputId="server_programs__selected_program",
                            selected=as.numeric(import_ids$rsf_program_id))
     }
     
     COHORT_NEW_ID(last_import_id)
-    LOAD_IMPORT(last_import_id)
+    
     
     if (!any(as.character(unique(results$reporting_asof_date)) %in% as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))) {
       new_dates <- setdiff(sort(as.character(unique(results$reporting_asof_date))),as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))
@@ -248,14 +252,18 @@ observeEvent(input$modal_dataset_upload_next, {
     enable(id="modal_dataset_upload_dashboard")
 
     
-    if (is.na(as.numeric(input$dataset_review_filter_facility)) || 
-        !any(as.numeric(unlist(import_ids)) %in% as.numeric(input$dataset_review_filter_facility))) {
+    #if the selected facility is NA/Unselected OR
+    #if no import IDs of the recent import equal the currently selected facility (ie, one is selected but not for the recently uploaded one)
+    #Then auto-selected the uploaded facility
+    if (is.na(as.numeric(input$server_programs__selected_facility)) || 
+        !any(as.numeric(unlist(import_ids)) %in% as.numeric(input$server_programs__selected_facility))) {
       
-    if (any(import_ids$rsf_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,na.rm=T)) {
-        setDT(import_ids)
-        updateSelectInput(session=session,
-                          inputId="dataset_review_filter_facility",
-                          selected = import_ids[rsf_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,rsf_pfcbl_id][[1]])
+      if (any(import_ids$rsf_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,na.rm=T)) {
+          setDT(import_ids)
+          updateSelectInput(session=session,
+                            inputId="server_programs__selected_facility",
+                            #if bulk upladed many, selected the firstest one [[1]]
+                            selected = import_ids[rsf_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id,rsf_pfcbl_id][[1]])
       } 
     }
   }

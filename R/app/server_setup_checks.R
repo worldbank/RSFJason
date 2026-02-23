@@ -6,19 +6,21 @@ SERVER_SETUP_CHECKS_LIST_REFRESH <- reactiveVal(0)
 
 SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
                                                         SERVER_SETUP_CHECKS_LIST_REFRESH(),
-                                                        input$ui_setup__checks_program_facilities,
+                                                        input$server_programs__selected_facility,
                                                         input$ui_setup__checks_monitoring_filter,
                                                         input$ui_setup__checks_category_filter,
                                                         input$ui_setup__checks_search_filter,
                                                         input$ui_setup__checks_type_filter), {
 
-   if (!isTruthy(SELECTED_PROGRAM_ID())) return (NULL)
+   if (empty(SELECTED_PROGRAM_FACILITIES_LIST())) return (NULL)
    if (empty(RSF_CHECKS())) return (NULL)
    
-   selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__checks_program_facilities)
-   if (!isTruthy(selected_rsf_pfcbl_id)) {
-     selected_rsf_pfcbl_id <- SELECTED_PROGRAM()$rsf_pfcbl_id
-   }
+    selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
+    if (!isTruthy(selected_rsf_pfcbl_id) ||
+        !selected_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) {
+      return(NULL)
+    } 
+    
    
    SERVER_SETUP_CHECKS_TOGGLE_SELECTED(c())
    
@@ -222,12 +224,15 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
 
 observeEvent(input$ui_setup__checks_recheck, {
   
-  rsf_program_id <- SELECTED_PROGRAM_ID()
-  if (!isTruthy(rsf_program_id)) return (NULL)
-  
   fp <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()
-  selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__checks_program_facilities)
-  if (!isTruthy(selected_rsf_pfcbl_id)) selected_rsf_pfcbl_id <- SELECTED_PROGRAM()$rsf_pfcbl_id
+  
+  selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
+  if (!isTruthy(selected_rsf_pfcbl_id) ||
+      !selected_rsf_pfcbl_id %in% fp$rsf_pfcbl_id) {
+    return(showNotification(type="error",
+                            ui=h3("An error occurred.  Ensure an active project is selected")))
+  } 
+  
   nickname <- fp[rsf_pfcbl_id==selected_rsf_pfcbl_id,nickname]
   
   
@@ -256,14 +261,16 @@ observeEvent(input$ui_setup__checks_recheck, {
   
   showModal(m)
   
-})
+},ignoreInit = TRUE)
 
 observeEvent(input$server_setup_checks__recheck_reset, {
-  program <- SELECTED_PROGRAM()
-  if (!isTruthy(program)) return(NULL)
-  
-  selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__checks_program_facilities)
-  if (!isTruthy(selected_rsf_pfcbl_id)) selected_rsf_pfcbl_id <- program()$rsf_pfcbl_id
+
+  selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
+  if (!isTruthy(selected_rsf_pfcbl_id) ||
+      !selected_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) {
+    return(showNotification(type="error",
+                            ui=h3("An error occurred.  Ensure an active project is selected")))
+  } 
   
   withProgress(message="Resetting all checks takes a minute or two...",
                value=0.5,{
@@ -284,24 +291,17 @@ observeEvent(input$server_setup_checks__recheck_reset, {
         ad pfc.is_subscribed is true",
       params=list(selected_rsf_pfcbl_id))
   })
-})
+},ignoreInit = TRUE)
 
 observeEvent(input$server_setup_checks__recheck_run, {
   
   program <- SELECTED_PROGRAM()
   facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
   
-  if (empty(program)) return (NULL)
+  if (empty(facilities)) return (NULL)
  
   
-  selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
-  if (is.na(selected_rsf_pfcbl_id) ||
-      selected_rsf_pfcbl_id==program$rsf_pfcbl_id) {
-    facilities <- facilities[is.na(rsf_facility_id)==FALSE] #all facilities of the program.
-  } else {
-    facilities <- facilities[rsf_pfcbl_id == selected_rsf_pfcbl_id]
-  }
-
+  selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
   facilities <- facilities[,.(rsf_program_id,
                               rsf_pfcbl_id,
                               nickname)]
@@ -338,7 +338,7 @@ observeEvent(input$server_setup_checks__recheck_run, {
                  })
   }
   
-})
+},ignoreInit = TRUE)
 
 observeEvent(input$server_setup_checks__toggle_select, {
   
@@ -349,7 +349,7 @@ observeEvent(input$server_setup_checks__toggle_select, {
   } else {
     SERVER_SETUP_CHECKS_TOGGLE_SELECTED(c(SERVER_SETUP_CHECKS_TOGGLE_SELECTED(),selected))
   }
-})
+},ignoreInit = TRUE)
 
 observeEvent(input$server_setup_checks__toggle_subscriptions, {
   
@@ -386,7 +386,7 @@ observeEvent(input$server_setup_checks__toggle_subscriptions, {
   SERVER_SETUP_CHECKS_TOGGLE_SELECTED(c())  
   SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1)
  
-})
+},ignoreInit = TRUE)
 
 observeEvent(input$server_setup_checks__view, {
   selected_check_formula_id <- as.numeric(input$server_setup_checks__view)
@@ -430,8 +430,13 @@ output$server_setup_checks__recheck_pending_UI <- renderText({
   input$server_setup_checks__reset
   input$setup_program_recheck_indicators
   
-  selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__checks_program_facilities)
-  if (!isTruthy(selected_rsf_pfcbl_id)) selected_rsf_pfcbl_id <- SELECTED_PROGRAM()$rsf_pfcbl_id
+  selected_rsf_pfcbl_id <- req(as.numeric(input$server_programs__selected_facility))
+  
+  if (!isTruthy(selected_rsf_pfcbl_id) ||
+      !selected_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) {
+    return(showNotification(type="error",
+                            ui=h3("An error occurred.  Ensure an active project is selected")))
+  } 
   
   pc <- DBPOOL %>% dbGetQuery("select count(*) as pending_count
                               from p_rsf.rsf_data_check_evaluations dce

@@ -68,7 +68,13 @@ db_rsf_checks_add_update <- function(pool,
                                  check_message,
                                  variance)]
     
-    
+    # #mostly differentiates system checks (with an NA formula_id)
+    # #and user defined checks that have a formula_id -- and also will have an indicator_check_id, but this will be automatically asigned
+    # data_checks[!is.na(check_formula_id),
+    #             indicator_check_id:=NA]
+    # 
+    # data_checks[!is.na(indicator_check_id),
+    #             check_formula_id:=NA]  
   }
   
   #conn <- poolCheckout(pool)
@@ -129,6 +135,14 @@ t20 <- Sys.time()
                           from p_rsf.indicator_check_formulas icf
                           where icf.check_formula_id = tac.check_formula_id
                             and tac.indicator_check_id is NULL")
+          
+          dbExecute(conn,"update _temp_add_checks tac
+                          set check_formula_id = NULL
+                          where exists(select * from p_rsf.indicator_checks ic 
+                                       where tac.indicator_check_id = ic.indicator_check_id
+                                         and ic.is_system is true)
+                             or not exists(select * from p_rsf.indicator_check_formulas icf
+                                           where icf.indicator_check_id = tac.indicator_check_id)")
           
           dbExecute(conn,"
             update _temp_add_checks tic
@@ -253,13 +267,6 @@ t20 <- Sys.time()
                                    and ic.is_system = true)
                       and check_formula_id is distinct from NULL")
 
-          #delete if guidance is set to ignore
-          # dbExecute(conn,"
-          #           delete from _temp_add_checks tac
-          #           where exists(select * from p_rsf.indicator_check_guidance icg
-          #                        where icg.indicator_check_guidance_id = tac.guidance_id
-          #                          and icg.is_ignoring_guidance = true)")
-          
           #delete where data already has this flag and this message (its redundant)
           dbExecute(conn,"
                   delete from _temp_add_checks tac
@@ -352,7 +359,8 @@ t20 <- Sys.time()
                           left join p_rsf.view_rsf_setup_check_config scc on scc.rsf_pfcbl_id = rd.rsf_pfcbl_id
                                                                          and scc.for_indicator_id = rd.indicator_id
                                                                          and scc.indicator_check_id = ic.indicator_check_id
-                                                                         and ic.is_system is true
+                                                                         and scc.check_formula_id is not distinct from tac.check_formula_id
+                                                                         --and ic.is_system is true
                           left join p_rsf.view_account_info ssc_vai on ssc_vai.account_id = scc.comments_user_id")
           
           

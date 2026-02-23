@@ -170,7 +170,7 @@ server <- function(input, output, session)
   source("./R/app/server_datasets_upload.R",local=serverENV)
   
   #When permissions are implemented, only load administrateive modules if an admin
-  source("./R/app/server_setup.R",local=serverENV)
+  source("./R/app/server_setup_agreement.R",local=serverENV)
   source("./R/app/server_setup_program.R",local=serverENV)
   source("./R/app/server_setup_indicators.R",local=serverENV)
   source("./R/app/server_setup_checks.R",local=serverENV)
@@ -233,15 +233,15 @@ server <- function(input, output, session)
     
   })
   
-  output$dashboard_title <- renderText({ 
-    user_id <- USER_ID()
-    if (!isTruthy(user_id)) return ("RSF/ Jason")
-    
-    program <- SELECTED_PROGRAM()
-    if (!isTruthy(program)) return ("RSF <Select>")
-    else return (paste0("RSF: ",program$program_nickname))
-  })
-  
+  # output$dashboard_title <- renderText({ 
+  #   user_id <- USER_ID()
+  #   if (!isTruthy(user_id)) return ("RSF/ Jason")
+  #   
+  #   program <- SELECTED_PROGRAM()
+  #   if (!isTruthy(program)) return ("RSF <Select>")
+  #   else return (paste0("RSF: ",program$program_nickname))
+  # })
+  # 
   
   intercept_status_message <- function(...,
                                        class="none",

@@ -6,21 +6,22 @@ template_upload <- function(pool,
   
 
   {
-    {
-      
-      SYSTEM_CALCULATOR_ACCOUNT <- CALCULATIONS_ENVIRONMENT$SYSTEM_CALCULATOR_ACCOUNT
-      
-      if (is.null(template$pfcbl_data) || all(is.na(template$pfcbl_data))) stop("Missing pfcbl_data")
-      
-      status_message(class="none",paste0("Uploading data for: ",template$reporting_cohort$source_reference," ...\n"))
-    } #Validating Formats
     
+    SYSTEM_CALCULATOR_ACCOUNT <- CALCULATIONS_ENVIRONMENT$SYSTEM_CALCULATOR_ACCOUNT
+    
+    if (is.null(template$pfcbl_data) || all(is.na(template$pfcbl_data))) stop("Missing pfcbl_data")
+    
+    status_message(class="none",paste0("Uploading data for: ",template$reporting_cohort$source_reference," ...\n"))
+  
     t1<-Sys.time() 
-    uploaded_data <- db_add_update_data_user(pool=pool,
-                                             import_id=template$reporting_import$import_id,
-                                             upload_data=template$pfcbl_data,
-                                             upload_user_id=template$reporting_user_id,
-                                             rsf_indicators=template$rsf_indicators)
+    
+    uploaded_data <-  db_add_update_data_user(pool=pool,
+                                              import_id=template$reporting_import$import_id,
+                                              upload_data=template$pfcbl_data,
+                                              upload_user_id=template$reporting_user_id,
+                                              rsf_indicators=template$rsf_indicators)
+    
+    
     template$pfcbl_data <- uploaded_data
     status_message(class="info","\nUploaded ",format(nrow(template$pfcbl_data),big.mark=","), " data points: ",format(round(Sys.time()-t1,2),units="secs"),"\n"); 
   }
@@ -245,10 +246,11 @@ template_upload <- function(pool,
                               and rdp.indicator_id = rdc.indicator_id
                               and rdp.reporting_asof_date < rdc.reporting_asof_date
                             order by rdp.reporting_asof_date desc
-                            limit 1) as previous on previous.data_value is not distinct from rdc.data_value
+                            limit 1) as previous on true
         where ri.import_id = $1::int
           and ind.is_periodic_or_flow_reporting is true  
-          and ind.is_system is false",
+          and ind.is_system is false
+          and NULLIF(previous.data_value,'0') is not distinct from NULLIF(rdc.data_value,'0')",
       params=list(template$reporting_import$import_id))
       
       setDT(flow_repeats)

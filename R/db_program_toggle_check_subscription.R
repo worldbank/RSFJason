@@ -16,13 +16,13 @@ db_program_toggle_check_subscription <- function(pool,
       where ids.rsf_pfcbl_id = $1::int   
     )
     insert into p_rsf.rsf_setup_checks(rsf_pfcbl_id,
-                                                  check_formula_id,
-                                                  indicator_check_id,
-                                                  rsf_program_id,
-                                                  rsf_facility_id,
-                                                  is_subscribed,
-                                                  is_auto_subscribed,
-                                                  auto_subscribed_by_reporting_cohort_id)
+                                       check_formula_id,
+                                       indicator_check_id,
+                                       rsf_program_id,
+                                       rsf_facility_id,
+                                       is_subscribed,
+                                       is_auto_subscribed,
+                                       auto_subscribed_by_reporting_cohort_id)
     select
       status.rsf_pfcbl_id,
       status.check_formula_id,

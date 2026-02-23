@@ -567,7 +567,7 @@ observeEvent(input$action_server_dashboard__edit_save, {
     SERVER_DASHBOARD_EDIT_STATUS(FALSE)
     SERVER_DASHBOARD_EDIT_NEW_DATA(NULL)
     SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1)
-    LOAD_IMPORT(results[nrow(results),import_id]) #if multiple, loads last upload
+    #LOAD_IMPORT(results[nrow(results),import_id]) #if multiple, loads last upload
     
     if (!any(as.character(unique(results$reporting_asof_date)) %in% as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))) {
       new_dates <- setdiff(sort(as.character(unique(results$reporting_asof_date))),as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))

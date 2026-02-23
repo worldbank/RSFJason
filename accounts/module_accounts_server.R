@@ -45,7 +45,7 @@ module_accounts_server <- function(id,
       
       if (!isTruthy(credentials) || 
           !isTruthy(credentials$session_id) ||
-          !isTruthy(credentials$account_id)) return(NULL)
+          !isTruthy(credentials$account_id)) return(FALSE)
 
       removeUI(selector="header.main-header *",immediate = TRUE,multiple=TRUE)
       insertUI(selector="header.main-header",where="afterBegin",ui=tagList(ui_header_IN$children),immediate = TRUE)
@@ -72,6 +72,8 @@ module_accounts_server <- function(id,
       USER_ACCOUNT$user_name <- credentials$users_name
       USER_ACCOUNT$user_account_id <- credentials$account_id
       USER_ACCOUNT$user_login <- credentials$user_login
+      
+      return (TRUE)
     }
     
     show_error <- function(n) { 
@@ -191,10 +193,12 @@ module_accounts_server <- function(id,
       }
       
       ad_user <- NULL
+      success <- FALSE
       message(paste0("Parent session: ",parent_session$user))
+      
       if (isTruthy(parent_session$user)) {
         
-        ad_user <- session$user
+        ad_user <- parent_session$user
         
         if (!is.null(ad_user)) {
           
@@ -216,13 +220,15 @@ module_accounts_server <- function(id,
           
           user_account$session_id <- parent_session$token
           
-          print(user_account)
+          
           if (nrow(user_account)==1) {
-            doLogin(credentials=user_account)
+            success <- doLogin(credentials=user_account)
           }
         }
-        
-      } else if (isTruthy(cookie$user_login) && isTruthy(cookie$session_id) && as.logical(input$login_rememberme) %in% TRUE) {
+      }
+      
+      if (success==FALSE &&
+          isTruthy(cookie$user_login) && isTruthy(cookie$session_id) && as.logical(input$login_rememberme) %in% TRUE) {
         
         result <- db_user_login(pool=APPLICATIONS,
                                 application_hashid=application_hashid,
@@ -230,7 +236,7 @@ module_accounts_server <- function(id,
                                 password=cookie$session_id)
         if (isTruthy(result)) {
           message("Login by remember password cookie session credentials")
-          doLogin(credentials=result)
+          success <- doLogin(credentials=result)
         } else {
           updateTextInput(session=session,
                           inputId = "login_password",
@@ -239,6 +245,9 @@ module_accounts_server <- function(id,
         
       }
       
+      if (!success) {
+        message(paste0("Failed to auto-login.  AD reference: ",ad_user,".  Cookie user_login reference: ",cookie$user_login))
+      }
       
       
       

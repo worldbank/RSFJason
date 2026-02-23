@@ -26,7 +26,7 @@ server_setup_template__header_module_server <- function(id,
      if (isTruthy(input$template_header_sheet_name)) {
        tryCatch({
          dbExecute(pool,"
-            update p_rsf.rsf_program_facility_template_headers fth
+            update p_rsf.rsf_setup_template_headers fth
             set template_header_sheet_name = NULLIF($1::text,'')
             where fth.header_id = $2::int",
             params=list(as.character(input$template_header_sheet_name),
@@ -41,7 +41,7 @@ server_setup_template__header_module_server <- function(id,
       if (isTruthy(input$template_header_text)) {
         tryCatch({
         dbExecute(pool,"
-          update p_rsf.rsf_program_facility_template_headers fth
+          update p_rsf.rsf_setup_template_headers fth
           set template_header = NULLIF($1::text,'')
           where fth.header_id = $2::int",
                   params=list(as.character(input$template_header_text),
@@ -71,7 +71,7 @@ server_setup_template__header_module_server <- function(id,
       }
       tryCatch({
         dbExecute(pool,"
-          update p_rsf.rsf_program_facility_template_headers fth
+          update p_rsf.rsf_setup_template_headers fth
           set action = $1::text,
               map_indicator_id = NULL,
               map_formula_id = NULL,
@@ -137,7 +137,7 @@ server_setup_template__header_module_server <- function(id,
       tryCatch({
         if (action %in% c("default","ignore","parse")) {
           dbExecute(pool,"
-          update p_rsf.rsf_program_facility_template_headers fth
+          update p_rsf.rsf_setup_template_headers fth
           set map_indicator_id = NULL,
               map_formula_id = NULL,
               map_check_formula_id = NULL
@@ -150,7 +150,7 @@ server_setup_template__header_module_server <- function(id,
           
   
           dbExecute(pool,"
-          update p_rsf.rsf_program_facility_template_headers fth
+          update p_rsf.rsf_setup_template_headers fth
           set map_indicator_id = $2,
               map_formula_id = NULL,
               map_check_formula_id = NULL
@@ -422,7 +422,7 @@ SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE_DATA <- eventReactive(SERVER_SETUP_TEM
   tdata <- DBPOOL %>% dbGetQuery("
   select * 
   from
-  p_rsf.view_rsf_program_facility_template_headers fth
+  p_rsf.view_rsf_setup_template_headers fth
   where fth.template_id = $1::int
     and fth.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
                              from p_rsf.view_rsf_pfcbl_id_family_tree ft
@@ -435,13 +435,11 @@ SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE_DATA <- eventReactive(SERVER_SETUP_TEM
   
 },ignoreNULL = FALSE)
 
-
-SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE <- eventReactive(c(input$ui_setup__templates_program_facilities,
-                                                             input$ui_setup__template_selected), 
-{
+SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE <- eventReactive(c(input$server_programs__selected_facility,
+                                                             input$ui_setup__template_selected), {
   
   selected_template_id <- as.numeric(input$ui_setup__template_selected)
-  selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__templates_program_facilities)
+  selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
   
   if (!isTruthy(selected_template_id)) return (NULL)
   if (!isTruthy(selected_rsf_pfcbl_id)) return (NULL)
@@ -514,7 +512,6 @@ observeEvent(SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE(), {
   Shiny.destroyList(SERVER_SETUP_TEMPLATES__ACTIVE_HEADER_MODULES)
   
 },ignoreInit=TRUE,ignoreNULL=FALSE)
-
 
 observeEvent(input$server_setup_templates__header_edit, {
   edit_header_id <- as.numeric(input$server_setup_templates__header_edit)
@@ -831,7 +828,6 @@ observeEvent(input$ui_setup__template_headers_upload, {
    
   })
 })
-  
   
 output$ui_setup__templates_add_mapping_UI <- renderUI({
   selected_template <- SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE()

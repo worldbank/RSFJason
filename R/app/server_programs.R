@@ -41,12 +41,11 @@ USER_PROGRAMS <- eventReactive(c(LOGGEDIN(),
   programs
 })
 
-SELECTED_PROGRAM_ID <- eventReactive(c(input$select_rsf_program_id,
+SELECTED_PROGRAM_ID <- eventReactive(c(input$server_programs__selected_program,
                                        USER_PROGRAMS()), {
   
-  rsf_program_id <- as.numeric(input$select_rsf_program_id)
-  if(SYS_PRINT_TIMING) debugtime("reactive: SELECTED_PROGRAM_ID='",rsf_program_id,"'")
-  
+  rsf_program_id <- as.numeric(input$server_programs__selected_program)
+
   programs <- USER_PROGRAMS()
   
   if (!isTruthy(programs)) return (NA)
@@ -173,10 +172,8 @@ SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST <- eventReactive(c(SELECTED_PROGRAM
 observeEvent(USER_PROGRAMS(), {
   
   if (!LOGGEDIN()) return (NULL)
-  print("observe: USER_PROGRAMS")
-  
+
   programs <- USER_PROGRAMS()
-  
   
   selected_rsf_program <- ""
   
@@ -184,17 +181,102 @@ observeEvent(USER_PROGRAMS(), {
     selected_rsf_program <- LOAD_PROGRAM_ID()
   } 
   
-  #print(USER_PROGRAMS())
-  #print(selected_rsf_program)
-  #if (nrow(programs)==1 && !all(is.na(programs$rsf_program_id))) selected_rsf_program <- programs$rsf_program_id
-  
   program.choices <- setNames(programs$rsf_program_id,programs$program_name)
   program.choices <- c("",program.choices)
   
   updateSelectizeInput(session,
-                       inputId="select_rsf_program_id",
+                       inputId="server_programs__selected_program",
                        choices=program.choices,
                        selected=selected_rsf_program,
                        options = list(placeholder = 'Select RSF Program...'))
   
 }, ignoreNULL = FALSE, ignoreInit = TRUE)
+
+#Populates select input to filter on client/facility name
+observeEvent(SELECTED_PROGRAM_FACILITIES_LIST(), {
+  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
+  
+  if (is.null(facilities)) {
+    updateSelectizeInput(session=session,
+                         inputId="server_programs__selected_facility",
+                         choices = c(`Project Filter...`=""),
+                         selected = "")
+    
+  } else {
+    
+    setorder(facilities,
+             facility_name)
+    
+    facility_selected <- "" 
+    
+    if (!is.null(session$userData$server_programs__selected_facility) &&
+        as.numeric(session$userData$server_programs__selected_facility) %in% facilities$rsf_pfcbl_id) {
+      facility_selected <- as.numeric(session$userData$server_programs__selected_facility)
+    } else if (as.numeric(input$server_programs__selected_facility) %in% facilities$rsf_pfcbl_id) {
+      facility_selected <- as.numeric(input$server_programs__selected_facility)
+    } else {
+      facility_selected <- "-1"
+    }
+    
+    facilities_choices <- c(`All Projects`="-1",
+                            setNames(facilities$rsf_pfcbl_id,
+                                     facilities$facility_name))
+    
+    print(paste0("Loading and rstoring server_programs__selected_facility=",facility_selected))
+    
+    updateSelectizeInput(session=session,
+                         inputId="server_programs__selected_facility",
+                         choices = facilities_choices,
+                         selected = facility_selected,
+                         options=list(placeholder="Project Filter..."))
+    
+  }
+}, ignoreNULL = FALSE)
+
+observeEvent(input$server_programs__selected_facility, {
+  
+  if (!LOGGEDIN()) { return (NULL) }
+  if (is.null(USER_PROGRAMS()) || is.null(SELECTED_PROGRAM_FACILITIES_LIST())) { return(NULL) }
+  
+  save_id <- as.numeric(input$server_programs__selected_facility)
+  if (save_id %in% c(-1)) save_id <- SELECTED_PROGRAM_ID()
+    
+  print(paste0("Saving user setting server_programs__selected_facility=",save_id))
+  session$userData$server_programs__selected_facility <- save_id
+  
+  DBPOOL %>% dbExecute("insert into users.user_settings(account_id,setting_name,setting_value)
+                        values($1::text,$2::text,$3::text)
+                        on conflict(account_id,setting_name)
+                        do update
+                        set setting_value = EXCLUDED.setting_value",
+                       params=list(USER_ID(),
+                                   "server_programs__selected_facility",
+                                   as.character(save_id)))
+  
+},ignoreNULL = FALSE,ignoreInit = TRUE)
+
+observeEvent(LOGGEDIN(), {
+  selected_facility <- DBPOOL %>% dbGetQuery("
+    select 
+      ids.rsf_pfcbl_id,
+      ids.rsf_program_id,
+      ids.rsf_facility_id
+    from users.user_settings ust
+    inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = (ust.setting_value::numeric)
+    where public.isnumeric(ust.setting_value) is true
+      and ust.account_id = $1::text
+      and ust.setting_name = 'server_programs__selected_facility'",
+    params=list(USER_ID()))
+  
+  if (!empty(selected_facility)) {
+    
+    f_id <- as.numeric(selected_facility$rsf_facility_id)
+    if (is.na(f_id)) f_id <- -1
+    
+    session$userData$server_programs__selected_facility <- f_id
+    
+    updateSelectizeInput(session=session,
+                      inputId="server_programs__selected_program",
+                      selected=selected_facility$rsf_program_id)
+  }
+},ignoreInit=TRUE)

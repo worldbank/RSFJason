@@ -9,6 +9,7 @@ parse_template_IFC_QR2025 <- function(pool,
                                       status_message,
                                       CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) 
 {
+  
   #Read file
   {
     if (!file_ext(template_file) %in% "xlsx") stop("Only .xlsx files using Excel-365 versions or later may use this template")
@@ -1698,7 +1699,7 @@ parse_template_IFC_QR2025 <- function(pool,
                  sheet=sheet_num,
                  flag=summary[f])
       }
-    }
+    } else { summary[,ref:=NA] }
     
     rsf_pfcbl_ids <- dbGetQuery(pool,"
       select

@@ -546,6 +546,17 @@ rsf_program_perform_calculations <- function(pool,
                         & suppressWarnings(as.numeric(data_value))==0,
                         equivalent:=TRUE]  #current value is {MISSING} but we calcualted 0, so don't flag.
         
+        #User reported 0 (zero) and system calculatd NA {MISSING}
+        #These can be treated as equivalent as many calculations and Excel formulas will report 0 as a default instead of NA or #CALC or other error
+        current_results[data_changed==TRUE
+                        & data_type %in% c("number","percent","currency","currency_ratio")
+                        & equivalent==FALSE
+                        & current_value_updated_in_reporting_current_date==TRUE 
+                        & current_data_is_system_calculation==FALSE 
+                        & is.na(data_value) #system calculated NA
+                        & suppressWarnings(as.numeric(current_data_value))==0, #user reported zero
+                        equivalent:=TRUE]  
+        
         #Are currency values equivalent after converting to same fx rate?
         # fx_results <- current_results[data_changed==TRUE
         #                               & data_type == "currency"

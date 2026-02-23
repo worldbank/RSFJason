@@ -1,25 +1,24 @@
 COHORTS_SELECTED <- reactiveVal(c())
-LOAD_IMPORT <- reactiveVal(0)
+#LOAD_IMPORT <- reactiveVal(0)
 REFRESH_SELECTED_COHORT_DATA <- reactiveVal(1)
 
 #All "reported" cohorts uploaded under the given program
-COHORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
-                                REFRESH_SELECTED_COHORT_DATA(),
-                                LOAD_IMPORT(),
-                                input$dataset_review_filter_facility,
+COHORTS_LIST <- eventReactive(c(REFRESH_SELECTED_COHORT_DATA(),
+                                #LOAD_IMPORT(),
+                                input$server_programs__selected_facility,
                                 input$dataset_review_filter),
 {
 
-  rsf_program_id <- SELECTED_PROGRAM_ID()
-  filter_facility_id <- as.numeric(input$dataset_review_filter_facility)
+  filter_facility_id <- as.numeric(input$server_programs__selected_facility)
   
   rx1<-REFRESH_SELECTED_COHORT_DATA()
-  load_import_id <- LOAD_IMPORT()
+  #load_import_id <- LOAD_IMPORT()
   phrase <- input$dataset_review_filter
   phrase <- trimws(phrase,whitespace="[ \\t\\r\\n\\v\\h\\s]")
   
-  if (!isTruthy(rsf_program_id)) return (NULL)
-  if (!isTruthy(filter_facility_id)) filter_facility_id <- rsf_program_id
+  if (!isTruthy(filter_facility_id)) return (NULL)
+  if (filter_facility_id==-1) filter_facility_id <- SELECTED_PROGRAM_ID()
+  if (!filter_facility_id %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id) { return (NULL) }
   
   load_by_limit <- as.numeric(NA)
   if (isTruthy(phrase) &&
@@ -93,27 +92,50 @@ COHORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
   
   setDT(flags)
   
-  cohort_dates <- unique(rbindlist(list(unique(flags[,.(import_id,
+  cohort_dates <- unique(rbindlist(list(unique(cohorts[,
+                                                       .(import_id,cohort_asof_date=reporting_asof_date)]),
+                                        unique(flags[,.(import_id,
                                                         cohort_asof_date=check_asof_date)]),
                                         unique(counts[,.(import_id,
                                                          cohort_asof_date=reporting_asof_date)]))))  
-  cohorts[cohort_dates,
-          cohort_asof_date:=i.cohort_asof_date,
-          on=.(import_id)]
   
-  cohorts[,import_cohort_date_group:=1:.N]
   
+  #cohort_dates <- cohort_dates[,.(cohort_asof_date=list(cohort_asof_date)),by=.(import_id)]
+  
+  
+  cohorts <- cohorts[cohort_dates,
+                     on=.(import_id)]
+ 
   cohorts[,
           is_deletable := reporting_asof_date == cohort_asof_date]
   
+  setorder(cohorts,
+           -cohort_asof_date,
+           -is_deletable,
+           -import_id)
+  
+  cohorts[,import_cohort_date_group:=1:.N]
+  
+  cohorts[is_deletable==FALSE,
+          source_name:=paste0("[SYSTEM] ",source_name)]
+
   cohorts[flags,
           `:=`(data_checks_active=i.data_checks_active,
                data_checks_critical_active=i.data_checks_critical_active,
                data_checks_error_active=i.data_checks_error_active,
                data_checks_warning_active=i.data_checks_warning_active,
-               data_checks_info_active=i.data_checks_info_active),
+               data_checks_info_active=i.data_checks_info_active,
+               
+               #effectively placeholder counts because checks that are flagged outside of import reporting date may simply be the result of 
+               #non reported data getting calcualted out of the reporting timeline.
+               #and if there is real reporting data, these values will all be over-written.
+               data_count_reported=0,
+               data_count_calculated=i.data_checks_active,
+               data_current_count_reported=0,
+               data_current_count_calculated=i.data_checks_active),
           on=.(import_id,
                cohort_asof_date=check_asof_date)]
+  
   cohorts[counts,
           `:=`(data_count_reported=i.data_count_reported,
                data_count_calculated=i.data_count_calculated,
@@ -135,8 +157,9 @@ COHORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
           cohort_checks:=2]
 
   #3=Only system-calculated data reported (probably means overwrote whatever reported data triggered the calculation)
-  cohorts[data_current_count_reported==0 &
-          data_current_count_calculated >0,
+  cohorts[
+          (data_current_count_reported==0 &
+          data_current_count_calculated >0),
           cohort_checks:=3]
   
   cohorts[(data_current_count_reported >0 |
@@ -247,6 +270,17 @@ COHORTS_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
 })
 
 #When a user clicks on an icon in the main datasets view panel
+observeEvent(input$cohort_collection_selected_id, {
+  if (identical(as.integer(input$cohort_collection_selected_id),
+                as.integer(input$action_cohort_view)) ||
+      is.na(suppressWarnings(as.numeric(input$cohort_collection_selected_id)))) {
+    return (NULL)
+  } else {
+    shinyjs::runjs(paste0("Shiny.setInputValue(\"action_cohort_view\",",as.integer(input$cohort_collection_selected_id),");"));
+  }
+})
+
+
 SELECTED_COHORT_ID <- eventReactive(c(input$action_cohort_view,
                                       COHORTS_LIST()), {
   
@@ -282,7 +316,7 @@ ignoreNULL=FALSE)
 #Selected cohort will pull all flags for all cohorts under this selected cohort rsf_client_id
 #Unless the panel is specifically requesting an individiual cohort
 SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_IMPORT_COHORT_GROUP(),
-                                         input$cohort_collection_selected_id, #NA or a specific reporting_cohort_id: collections are all timeseries uploads for the client
+                                         
                                          REFRESH_SELECTED_COHORT_DATA()), { 
                                           
                                           
@@ -339,6 +373,7 @@ SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_IMPORT_COHORT_GROUP(),
       left join p_rsf.view_rsf_setup_check_config scc on scc.rsf_pfcbl_id = rdc.rsf_pfcbl_id
                                                      and scc.for_indicator_id = rdc.indicator_id
                                                      and scc.indicator_check_id = rdc.indicator_check_id
+                                                     and scc.check_formula_id is not distinct from rdc.check_formula_id
       where rc.import_id = $1::int 
         and rdc.check_asof_date = $2::date
         and rdc.check_data_id_is_current = true
@@ -416,13 +451,13 @@ SELECTED_COHORT_INDICATOR_FLAGS_FILTERS <- eventReactive(c(SELECTED_COHORT_FLAGS
   
 
   view_data_flags <- toupper(input$cohort_view_flagged_data)
-  if (!isTruthy(view_data_flags)) view_data_flags <- "ALL"
+  if (!isTruthy(view_data_flags)) view_data_flags <- ""
   
   flagged_filter <- NA
   
   if ("ACTIVE" %in% view_data_flags) flagged_filter <- flagged_filter | cohort_indicator_flags$active_count > 0
   if ("RESOLVED" %in% view_data_flags) flagged_filter <- flagged_filter | cohort_indicator_flags$resolved_count > 0
-  if ("ALL" %in% view_data_flags) flagged_filter <- flagged_filter | TRUE
+  if (all(view_data_flags=="")) flagged_filter <- FALSE
   
   cohort_indicator_flags <- cohort_indicator_flags[flagged_filter==TRUE]
   
@@ -618,30 +653,6 @@ SELECTED_COHORT_INDICATOR_FLAGS_FILTERED <- eventReactive(c(input$cohort_view_fl
   return (flags)
 })
 
-#Populates select input to filter on client/facility name
-observeEvent(SELECTED_PROGRAM_FACILITIES_LIST(), {
-  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
-  
-  if (empty(facilities)) {
-    updateSelectizeInput(session=session,
-                         inputId="dataset_review_filter_facility",
-                         choices = c(`Project Filter...`=""),
-                         selected = "")
-    
-  } else {
-    setorder(facilities,
-             facility_name)
-    facilities_choices <- c(`Project Filter...`="",
-                         setNames(facilities$rsf_pfcbl_id,
-                                  facilities$facility_name))
-    updateSelectizeInput(session=session,
-                         inputId="dataset_review_filter_facility",
-                         choices = facilities_choices,
-                         selected = "")
-                         
-  }
-}, ignoreNULL = FALSE)
-
 observeEvent(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS(), {
   
   if (empty(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS()) ||
@@ -724,16 +735,12 @@ observeEvent(SELECTED_COHORT_FLAGS(), {
     view_data.choices <- c("")
     view_data.selected <- ""
     if (any(flags_data$check_status=="active")) {
-      view_data.choices <- c(view_data.choices,`Active Flags`="ACTIVE")
+      view_data.choices <- c(view_data.choices,`Active`="ACTIVE")
       view_data.selected <- "ACTIVE"
     }
-    if (any(flags_data$check_status=="resolved")) view_data.choices <- c(view_data.choices,`Resolved Flags`="RESOLVED")
-    if (empty(flags_data)) view_data.choices <- c(view_data.choices,`Not Flagged`="NONE")
-    
-    
-    
-    #if (isTruthy(input$cohort_view_flagged_data)) view_data.selected <- intersect(view_data.choices,input$cohort_view_flagged_data)
-    
+    if (any(flags_data$check_status=="resolved")) view_data.choices <- c(view_data.choices,`Resolved`="RESOLVED")
+    if (empty(flags_data)) view_data.choices <- c(view_data.choices,`No Flags`="")
+
     updateSelectizeInput(session = session,
                          inputId="cohort_view_flagged_data",
                          choices=view_data.choices,
@@ -816,8 +823,6 @@ observeEvent(input$action_dataset_review_filter_clear, {
   shinyjs::runjs(paste0("Shiny.setInputValue('action_cohort_view','',{priority:'event'})"))
   
   updateTextInput(session=session,inputId="dataset_review_filter",value="")
-  updateTextInput(session=session,inputId="dataset_review_filter_facility",value="")
-  
 }, ignoreInit = TRUE)
 
 observeEvent(input$action_cohort_delete, {
@@ -827,102 +832,103 @@ observeEvent(input$action_cohort_delete, {
   tryCatch({
     
 
-  withProgress(value=.15,message="Deleting datasets...",
-               {
-                 delete_import_ids <- unique(na.omit(delete_import_ids))
-                 if (length(delete_import_ids)==0) {
-                   return(showNotification(type="error",
-                                           h3("Bad selection: reporting cohorts do not exist or may have already been deleted")))
-                 }
-                 
-                 affected_ids <- DBPOOL %>% dbGetQuery("select distinct 
-                                                          ri.import_rsf_pfcbl_id,
-                                                          ids.pfcbl_category_rank as pfcbl_rank,
-                                                          ids.rsf_program_id,
-                                                          ids.rsf_facility_id,
-                                                          sn.pfcbl_name
-                                                        from p_rsf.reporting_imports ri
-                                                        inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ri.import_rsf_pfcbl_id
-                                                        inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                                        where ri.import_id = any(select unnest(string_to_array($1::text,','))::int)",
-                                                        params=list(paste0(delete_import_ids,collapse=",")))
-                 
-                 setDT(affected_ids)
+    withProgress(value=.15,message="Deleting datasets...", {
+       delete_import_ids <- unique(na.omit(delete_import_ids))
+       if (length(delete_import_ids)==0) {
+         return(showNotification(type="error",
+                                 h3("Bad selection: reporting cohorts do not exist or may have already been deleted")))
+       }
+       
+       affected_ids <- DBPOOL %>% dbGetQuery("select distinct 
+                                                ri.import_rsf_pfcbl_id,
+                                                ids.pfcbl_category_rank as pfcbl_rank,
+                                                ids.rsf_program_id,
+                                                ids.rsf_facility_id,
+                                                sn.pfcbl_name
+                                              from p_rsf.reporting_imports ri
+                                              inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ri.import_rsf_pfcbl_id
+                                              inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ids.rsf_pfcbl_id
+                                              where ri.import_id = any(select unnest(string_to_array($1::text,','))::int)",
+                                              params=list(paste0(delete_import_ids,collapse=",")))
+       
+       setDT(affected_ids)
 
-                 if (empty(affected_ids)) {
-                   return(showNotification(type="error",
-                                           h3("Bad selection: reporting cohorts do not exist or may have already been deleted")))
-                   
-                 } else if (length(unique(affected_ids$rsf_program_id)) != 1) {
-                   return(showNotification(type="error",
-                                           h3("Bad selection: Deletes can only affect one Program at a time")))
-                 }
-                 
-                 incProgress(amount=0.20,message="Deleting datasets . . . ")
-                 
-                 DBPOOL %>% dbExecute("insert into p_rsf.reporting_imports_deleted_archive(import_id,
-                                                                                           deleting_user_id)
-                                       select
-                                         unnest(string_to_array($1::text,','))::int,
-                                         $2::text",
-                                      params=list(paste0(delete_import_ids,collapse=","),
-                                                  USER_ID()))
-                 
-                 #If program doesnt exist after delete then it means we've deleted the entire program
-                 stillexists <- DBPOOL %>% dbGetQuery("select distinct ids.rsf_pfcbl_id as import_rsf_pfcbl_id
-                                                       from p_rsf.rsf_pfcbl_ids ids
-                                                       where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
-                                                       params=list(paste0(unique(affected_ids$import_rsf_pfcbl_id),collapse=",")))
+       if (empty(affected_ids)) {
+         return(showNotification(type="error",
+                                 h3("Bad selection: reporting cohorts do not exist or may have already been deleted")))
+         
+       } else if (length(unique(affected_ids$rsf_program_id)) != 1) {
+         return(showNotification(type="error",
+                                 h3("Bad selection: Deletes can only affect one Program at a time")))
+       }
+       
+       incProgress(amount=0.20,message="Deleting datasets . . . ")
+       
+       DBPOOL %>% dbExecute("insert into p_rsf.reporting_imports_deleted_archive(import_id,
+                                                                                 deleting_user_id)
+                             select
+                               unnest(string_to_array($1::text,','))::int,
+                               $2::text",
+                            params=list(paste0(delete_import_ids,collapse=","),
+                                        USER_ID()))
+       
+       #If program doesnt exist after delete then it means we've deleted the entire program
+       stillexists <- DBPOOL %>% dbGetQuery("select distinct ids.rsf_pfcbl_id as import_rsf_pfcbl_id
+                                             from p_rsf.rsf_pfcbl_ids ids
+                                             where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
+                                             params=list(paste0(unique(affected_ids$import_rsf_pfcbl_id),collapse=",")))
 
-                 affected_ids[,exists:=FALSE]
-                 affected_ids[stillexists,
-                              exists:=TRUE,
-                              on=.(import_rsf_pfcbl_id)]
-                 
-                 if (!any(affected_ids$exists==TRUE,na.rm=T)) {
-                   LOAD_PROGRAM_ID((-program_id))
-                   
-                 } else {
-                   
-                   incProgress(amount=0.20,
-                               message="Recalculating affected data . . . ")
-                   
-                   
-                   }
-                   for (id in unique(affected_ids[exists==TRUE,import_rsf_pfcbl_id])) {
-                     who <- unique(affected_ids[import_rsf_pfcbl_id==id,pfcbl_name])
-                     
-                     progress_status_message <- function(class,...) {
-                       dots <- list(...)
-                       dots <- paste0(unlist(dots),collapse=" ")
-                       incProgress(amount=0,
-                                   message=paste0("Recalculating affected ",who," data: ",dots))
-                       
-                     DBPOOL %>% rsf_program_calculate(rsf_indicators = RSF_INDICATORS(),
-                                                      rsf_pfcbl_id.family = id,
-                                                      for_import_id=NA,
-                                                      status_message=progress_status_message)
-                     
-                     incProgress(amount=(0.30/length(affected_ids[exists==TRUE,import_rsf_pfcbl_id])),
-                                 message=paste0("Rechecking affected data . . . "))
-    
-                     progress_status_message <- function(class,...) {
-                       dots <- list(...)
-                       dots <- paste0(unlist(dots),collapse=" ")
-                       incProgress(amount=0,
-                                   message=paste0("Rechecking affected ",who," data: ",dots))
-                     }
+       affected_ids[,exists:=FALSE]
+       affected_ids[stillexists,
+                    exists:=TRUE,
+                    on=.(import_rsf_pfcbl_id)]
+       
+       if (!any(affected_ids$exists==TRUE,na.rm=T)) {
+         LOAD_PROGRAM_ID((-program_id))
+         
+       } else {
+         
+         incProgress(amount=0.20,
+                     message="Recalculating affected data . . . ")
+         
+         
+       }
+       
+       for (id in unique(affected_ids[exists==TRUE,import_rsf_pfcbl_id])) {
+         who <- unique(affected_ids[import_rsf_pfcbl_id==id,pfcbl_name])
+         
+         progress_status_message <- function(class,...) {
+           dots <- list(...)
+           dots <- paste0(unlist(dots),collapse=" ")
+           incProgress(amount=0,
+                       message=paste0("Recalculating affected ",who," data: ",dots))
+         }
+         
+         DBPOOL %>% rsf_program_calculate(rsf_indicators = RSF_INDICATORS(),
+                                          rsf_pfcbl_id.family = id,
+                                          for_import_id=NA,
+                                          status_message=progress_status_message)
+         
+         incProgress(amount=(0.30/length(affected_ids[exists==TRUE,import_rsf_pfcbl_id])),
+                     message=paste0("Rechecking affected data . . . "))
 
-                     DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
-                                                  rsf_pfcbl_id.family=id,
-                                                  check_future=TRUE,
-                                                  check_consolidation_threshold=NA,
-                                                  reference_asof_date=NULL,
-                                                  status_message= progress_status_message)
-                   }
-                 }
-                 incProgress(amount=1,message="Done")
-               })
+         progress_status_message <- function(class,...) {
+           dots <- list(...)
+           dots <- paste0(unlist(dots),collapse=" ")
+           incProgress(amount=0,
+                       message=paste0("Rechecking affected ",who," data: ",dots))
+         }
+
+         DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
+                                      rsf_pfcbl_id.family=id,
+                                      check_future=TRUE,
+                                      check_consolidation_threshold=NA,
+                                      reference_asof_date=NULL,
+                                      status_message= progress_status_message)
+       
+       }
+       incProgress(amount=1,message="Done")
+     })
 
   },
   error=function(e) {
@@ -1247,15 +1253,43 @@ observeEvent(input$cohort_action_dashboard, {
 output$datasets_review_flags_summary <- DT::renderDataTable({
   
   cohort_indicator_flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()
-  if (!isTruthy(cohort_indicator_flags)) return (DT::datatable(data.frame(Error="This selection has no flags to display"),
-                                               rownames=FALSE,
-                                               fillContainer = TRUE,
-                                               options=list(
-                                                 dom="t",
-                                                 autoWidth=TRUE,
-                                                 paging=FALSE
-                                               )))
   
+  
+  
+  
+  if (!isTruthy(cohort_indicator_flags)) {
+    view_flags_data <- input$cohort_view_flagged_data
+    if (empty(SELECTED_COHORT_FLAGS())) {
+      return (DT::datatable(data.frame(`Nothing`=paste0("This selection has no flags (no active and no resolved flags) at all")),
+                            rownames=FALSE,
+                            fillContainer = TRUE,
+                            options=list(
+                              dom="t",
+                              autoWidth=TRUE,
+                              paging=FALSE
+                            )))
+      
+    } else if (!isTruthy(view_flags_data)) {
+      return (DT::datatable(data.frame(`Nothing`=paste0("Please select ACTIVE/RESOLVED flags in the View Flags menu")),
+                            rownames=FALSE,
+                            fillContainer = TRUE,
+                            options=list(
+                              dom="t",
+                              autoWidth=TRUE,
+                              paging=FALSE
+                            )))
+      
+    } else {
+      return (DT::datatable(data.frame(`Nothing`=paste0("There are no ",view_flags_data," flags to display")),
+                                                 rownames=FALSE,
+                                                 fillContainer = TRUE,
+                                                 options=list(
+                                                   dom="t",
+                                                   autoWidth=TRUE,
+                                                   paging=FALSE
+                                                 )))
+    }
+  }
   display_cols <- c()
   defs <- NULL
 
@@ -1292,6 +1326,7 @@ output$datasets_review_flags_summary <- DT::renderDataTable({
 ###MAIN LISTINGS on "Uploads Tab"
 output$list_reporting_cohorts <- DT::renderDataTable({
   cohorts <- COHORTS_LIST()
+  
   if (!isTruthy(cohorts) || all(is.na(cohorts))) return (DT::datatable(data.frame(Error="There is no data to display"),
                                                                        rownames=FALSE,
                                                                        fillContainer = TRUE,
@@ -1308,7 +1343,9 @@ output$list_reporting_cohorts <- DT::renderDataTable({
   cohorts <- cohorts[,.(actions,
                         entity_name,
                         reporting_asof_date_label,
-                        file_name=gsub("\\.gz$","",file_name),
+                        file_name=gsub("\\.gz$","",
+                                       fcase(is_deletable==TRUE,file_name,
+                                             is_deletable==FALSE,paste0("[SYSTEM] ",file_name))),
                         users_name,
                         upload_text,
                         flags,
@@ -1343,12 +1380,13 @@ output$list_reporting_cohorts <- DT::renderDataTable({
                   #,
                   #initComplete = JS("function(settings, json) {$(this.api().table().header()).css({'white-space' : 'nowrap'});}")
                 )) %>% 
-    formatStyle(columns=c(0,1,3,4,6,7),whiteSpace="nowrap") %>%
-    formatStyle(columns=c(1),minWidth="75px",width="75px") %>%
-    formatStyle(columns=c(2),minWidth="150px",width="200px") %>%
-    formatStyle(columns=c(3),minWidth="150px",width="200px") %>%
-    formatStyle(columns=c(4),minWidth="100px") %>%
-    formatStyle(columns=c(5),minWidth="50px") %>%
-    formatStyle(columns=c(6),minWidth="75px") %>%
-    formatStyle(columns=c(7),minWidth="25px")
+    formatStyle(columns=c(0,1,2,3,4,6,7),whiteSpace="nowrap") %>%
+    formatStyle(columns=0,minWidth="50px",width="50px") %>%   #Eye
+    formatStyle(columns=1,minWidth="100px",width="150px") %>% #Name
+    formatStyle(columns=2,minWidth="50px",width="75px") %>%   #Date
+    formatStyle(columns=3,minWidth="150px",width="200px") %>% #Source
+    formatStyle(columns=4,minWidth="100px") %>%
+    formatStyle(columns=5,minWidth="50px") %>%
+    formatStyle(columns=6,minWidth="75px") %>%
+    formatStyle(columns=7,minWidth="25px")
 })

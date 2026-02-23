@@ -98,35 +98,9 @@ db_program_get_data  <- function(pool,
                                             indicator_sys_category,
                                             default_value,
                                             data_unit,
-                                            is_static_nonreporting,
                                             is_periodic_or_flow_reporting)]
       
-      pfcbl_indicators[is.na(is_static_nonreporting),is_static_nonreporting:=FALSE]
       pfcbl_indicators[is.na(is_periodic_or_flow_reporting),is_periodic_or_flow_reporting:=FALSE]
-      
-      # #Deliberate decision NOT to check if entry exists in rsf_program_indicators because non-subscribed indicators could be requested via
-      # #formulas, checks, globals -- let the consumer function verify validity
-      # pfcbl_indicators <- dbGetQuery(pool,
-      #                                "
-      #                                select
-      #                                 ind.indicator_id,
-      #                                 ind.indicator_name,
-      #                                 ind.data_category,
-      #                                 ind.data_type,
-      #                                 ind.indicator_sys_category,
-      #                                 ind.default_value,
-      #                                 ind.data_unit,
-      #                                 coalesce(ind.is_static_nonreporting,false) as is_static_nonreporting,
-      #                                 coalesce(ind.is_periodic_or_flow_reporting,false) as is_periodic_or_flow_reporting
-      #                                 from p_rsf.indicators ind
-      #                                 where ind.indicator_id = any(select unnest(string_to_array(nullif($1::text,'NA'),','))::int)
-      #                                   and ind.indicator_name ~ E'^rsf_' = false", #don't pull-in any newly created indicators
-      #                                params=list(paste0(indicators_requested,collapse=",")))
-      # 
-      # 
-      # setDT(pfcbl_indicators)
-      #pfcbl_indicators[,is_reporting_indicator:=FALSE]
-      #pfcbl_indicators[indicator_sys_category=='entity_reporting',is_reporting_indicator:=TRUE]
       
       if (any(!indicators_requested %in% pfcbl_indicators$indicator_id) & all(is.na(indicators_requested))==FALSE) {
         
@@ -165,9 +139,9 @@ db_program_get_data  <- function(pool,
       query_indicators[indicator_variable_class %in% c("min","max","sum"),
                        indicator_variable_class:=gsub("^([a-z]+\\.[a-z]+).*","\\1",indicator_variable)]      
       #Issuances:
-      #.current and .previous have different query structures and "issuances" isn't a proper class
-      query_indicators[indicator_variable_class=="issuances",
-                       indicator_variable_class:=indicator_variable]
+      # #.current and .previous have different query structures and "issuances" isn't a proper class
+      # query_indicators[indicator_variable_class=="issuances",
+      #                  indicator_variable_class:=indicator_variable]
       
       #.current.reportingcount has a different query structure from .current
       # query_indicators[indicator_variable=="current.reportingcount",
@@ -180,16 +154,7 @@ db_program_get_data  <- function(pool,
       query_indicators <- unique(query_indicators)
       query_indicators <- query_indicators[indicator_variable %in% CALCULATIONS_ENVIRONMENT$indicator_ATTRIBUTES]
       
-      #static indicators can only meaningfully request .current so enforce this
-      query_indicators[,is_static_nonreporting:=FALSE]
-      query_indicators[pfcbl_indicators[is_static_nonreporting==TRUE],
-                       is_static_nonreporting:=i.is_static_nonreporting,
-                       on=.(indicator_id)]
-      
-      #static non reporting indicators are only meaningful at "current"
-      query_indicators <- query_indicators[is_static_nonreporting==FALSE | indicator_variable_class=="current"]
-      query_indicators[,is_static_nonreporting:=NULL]
-      
+
       query_indicators <- unique(query_indicators)
       query_indicators[rsf_indicators,
                        `:=`(indicator_name=i.indicator_name,
@@ -212,11 +177,11 @@ db_program_get_data  <- function(pool,
       pfcbl_categories <- na.omit(c(for_pfcbl_categories,
                                     pfcbl_indicators[order(indicator_pfcbl_rank),data_category]))
 
-      #previous data must lookup the last reported date at the program level
-      if (any(grepl("previous",query_indicators$indicator_variable)==TRUE &
-              grepl("issuances\\.previous",query_indicators$indicator_variable)==FALSE)) {
-        pfcbl_categories <- c("program",pfcbl_categories)
-      }
+      # #previous data must lookup the last reported date at the program level
+      # if (any(grepl("previous",query_indicators$indicator_variable)==TRUE &
+      #         grepl("issuances\\.previous",query_indicators$indicator_variable)==FALSE)) {
+      #   pfcbl_categories <- c("program",pfcbl_categories)
+      # }
       
       pfcbl_categories <- unique(pfcbl_categories)
       #passed a null/empty indicator request in.  So just request all pfcbl categories
@@ -256,21 +221,21 @@ db_program_get_data  <- function(pool,
         pfcbl_sql <- paste0(pfcbl_sql,", ids.created_in_reporting_asof_date")
       }
 
-      #move this to issuances query
-      if (any(query_indicators$indicator_variable_class %in% c("issuances.current","issuances.previous")) ||
-          any(query_indicators$indicator_id==rsf_indicators[indicator_sys_category == "issuance_id",indicator_id])) {
-        pfcbl_sql <- paste0(pfcbl_sql,", lis.loan_issuance_series_id, lis.loan_issuance_series_rank")
-      }
+      # #move this to issuances query
+      # if (any(query_indicators$indicator_variable_class %in% c("issuances.current","issuances.previous")) ||
+      #     any(query_indicators$indicator_id==rsf_indicators[indicator_sys_category == "issuance_id",indicator_id])) {
+      #   pfcbl_sql <- paste0(pfcbl_sql,", lis.loan_issuance_series_id, lis.loan_issuance_series_rank")
+      # }
       
       pfcbl_sql <- paste0(pfcbl_sql," from p_rsf.rsf_pfcbl_ids ids ")
       
 
-      #move this to issuances query
-      if (any(query_indicators$indicator_variable_class %in% c("issuances.current","issuances.previous")) ||
-          any(query_indicators$indicator_id==rsf_indicators[indicator_sys_category == "issuance_id",indicator_id])) {
-        pfcbl_sql <- paste0(pfcbl_sql," left join p_rsf.rsf_loan_issuance_series lis on lis.rsf_pfcbl_id = ids.rsf_pfcbl_id")
-        
-      }
+      # #move this to issuances query
+      # if (any(query_indicators$indicator_variable_class %in% c("issuances.current","issuances.previous")) ||
+      #     any(query_indicators$indicator_id==rsf_indicators[indicator_sys_category == "issuance_id",indicator_id])) {
+      #   pfcbl_sql <- paste0(pfcbl_sql," left join p_rsf.rsf_loan_issuance_series lis on lis.rsf_pfcbl_id = ids.rsf_pfcbl_id")
+      #   
+      # }
 
       pfcbl_ids <- dbGetQuery(pool,glue(
                               "{pfcbl_sql}
@@ -772,121 +737,121 @@ db_program_get_data  <- function(pool,
       }
       #issueances variable_class is not a true base class:
       #issuances.current and issuances.previous have different rules
-      if (any(query_indicators$indicator_variable_class=="issuances.current")) {
-        query_indicator_ids <- query_indicators[indicator_variable=="issuances.current",unique(indicator_id)]
-        query_issuance_ids <- pfcbl_ids[!is.na(loan_issuance_series_id),rsf_pfcbl_id]
-        
-        
-        query_rsf_data <- dbGetQuery(pool,"
-                                      select 
-                                      	end_period.reporting_asof_date as data_asof_date,
-                                      	lis.rsf_pfcbl_id,
-                                      	end_period.data_id,
-                                      	ind.indicator_id,
-                                      	end_period.data_value,
-                                      	end_period.data_unit
-                                      	
-                                      from p_rsf.rsf_loan_issuance_series lis
-                                      inner join lateral (select c_lis.rsf_pfcbl_id as current_rsf_pfcbl_id
-                                                          from p_rsf.rsf_loan_issuance_series c_lis
-                                      										where c_lis.loan_issuance_series_id = lis.loan_issuance_series_id
-                                      										order by c_lis.loan_issuance_series_rank desc
-                                      										limit 1) current_lis on true
-                              				inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = current_lis.current_rsf_pfcbl_id
-                                      inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
-                                      inner join lateral (select
-                                                            rdc.data_id,
-                                      											rdc.reporting_asof_date,
-                                      											rdc.data_value,
-                                      											rdc.data_unit
-                                      										from p_rsf.rsf_data_current rdc
-                                      										where rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                      										  and rdc.indicator_id = ind.indicator_id
-                                      											and rdc.reporting_asof_date <= $3::date
-                                      										order by 
-                                      										  rdc.reporting_asof_date desc
-                                      										limit 1) end_period on true
-                                      where lis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                      	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
-                               params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
-                                           paste0(query_indicator_ids,collapse=","),
-                                           reporting_current_date))
-        
-        setDT(query_rsf_data)
-        query_rsf_data[,data_class:="issuances.current"]
-        
-        query_rsf_data[,
-                       `:=`(reporting_asof_date=reporting_current_date,
-                            data_value_changed=as.logical(NA),
-                            data_value_updated=(data_asof_date==reporting_current_date),
-                            reportnumber=as.numeric(NA))]
-        
-        
-        setcolorder(query_rsf_data,neworder=names(rsf_data))
-        rsf_data <- rbindlist(list(rsf_data,
-                                   query_rsf_data))
-        
-        query_rsf_data <- NULL
-      }
-      if (any(query_indicators$indicator_variable_class=="issuances.previous")) {
-        
-        query_indicator_ids <- query_indicators[indicator_variable=="issuances.previous",unique(indicator_id)]
-        query_issuance_ids <- pfcbl_ids[!is.na(loan_issuance_series_id),rsf_pfcbl_id]
-        
-        
-        query_rsf_data <- dbGetQuery(pool,"
-                                      select 
-                                      	end_period.reporting_asof_date as data_asof_date,
-                                      	lis.rsf_pfcbl_id,
-                                      	end_period.data_id,
-                                      	ind.indicator_id,
-                                      	end_period.data_value,
-                                      	end_period.data_unit
-                                      	
-                                      from p_rsf.rsf_loan_issuance_series lis
-                                      inner join lateral (select c_lis.rsf_pfcbl_id as previous_rsf_pfcbl_id
-                                                  from p_rsf.rsf_loan_issuance_series c_lis
-                              										where c_lis.loan_issuance_series_id = lis.loan_issuance_series_id
-                              										  and c_lis.loan_issuance_series_rank < lis.loan_issuance_series_rank
-                              										order by c_lis.loan_issuance_series_rank desc
-                              										limit 1) previous_lis on true
-                              				inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = previous_lis.previous_rsf_pfcbl_id
-                                      inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
-                                      inner join lateral (select
-                                                            rdc.data_id,
-                                      											rdc.reporting_asof_date,
-                                      											rdc.data_value,
-                                      											rdc.data_unit
-                                      										from p_rsf.rsf_data_current rdc
-                                      										where rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                      										  and rdc.indicator_id = ind.indicator_id
-                                      											and rdc.reporting_asof_date <= $3::date
-                                      										order by 
-                                      										  rdc.reporting_asof_date desc
-                                      										limit 1) end_period on true
-                                      where lis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                      	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
-                                     params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
-                                                 paste0(query_indicator_ids,collapse=","),
-                                                 reporting_current_date))
-
-        setDT(query_rsf_data)
-        query_rsf_data[,data_class:="issuances.previous"]
-        
-        query_rsf_data[,
-                       `:=`(reporting_asof_date=reporting_current_date,
-                            data_value_changed=as.logical(NA),
-                            data_value_updated=(data_asof_date==reporting_current_date),
-                            reportnumber=as.numeric(NA))]
-        
-        
-        setcolorder(query_rsf_data,neworder=names(rsf_data))
-        rsf_data <- rbindlist(list(rsf_data,
-                                   query_rsf_data))
-        
-        query_rsf_data <- NULL
-      }
-      
+      # if (any(query_indicators$indicator_variable_class=="issuances.current")) {
+      #   query_indicator_ids <- query_indicators[indicator_variable=="issuances.current",unique(indicator_id)]
+      #   query_issuance_ids <- pfcbl_ids[!is.na(loan_issuance_series_id),rsf_pfcbl_id]
+      #   
+      #   
+      #   query_rsf_data <- dbGetQuery(pool,"
+      #                                 select 
+      #                                 	end_period.reporting_asof_date as data_asof_date,
+      #                                 	lis.rsf_pfcbl_id,
+      #                                 	end_period.data_id,
+      #                                 	ind.indicator_id,
+      #                                 	end_period.data_value,
+      #                                 	end_period.data_unit
+      #                                 	
+      #                                 from p_rsf.rsf_loan_issuance_series lis
+      #                                 inner join lateral (select c_lis.rsf_pfcbl_id as current_rsf_pfcbl_id
+      #                                                     from p_rsf.rsf_loan_issuance_series c_lis
+      #                                 										where c_lis.loan_issuance_series_id = lis.loan_issuance_series_id
+      #                                 										order by c_lis.loan_issuance_series_rank desc
+      #                                 										limit 1) current_lis on true
+      #                         				inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = current_lis.current_rsf_pfcbl_id
+      #                                 inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
+      #                                 inner join lateral (select
+      #                                                       rdc.data_id,
+      #                                 											rdc.reporting_asof_date,
+      #                                 											rdc.data_value,
+      #                                 											rdc.data_unit
+      #                                 										from p_rsf.rsf_data_current rdc
+      #                                 										where rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
+      #                                 										  and rdc.indicator_id = ind.indicator_id
+      #                                 											and rdc.reporting_asof_date <= $3::date
+      #                                 										order by 
+      #                                 										  rdc.reporting_asof_date desc
+      #                                 										limit 1) end_period on true
+      #                                 where lis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+      #                                 	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
+      #                          params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+      #                                      paste0(query_indicator_ids,collapse=","),
+      #                                      reporting_current_date))
+      #   
+      #   setDT(query_rsf_data)
+      #   query_rsf_data[,data_class:="issuances.current"]
+      #   
+      #   query_rsf_data[,
+      #                  `:=`(reporting_asof_date=reporting_current_date,
+      #                       data_value_changed=as.logical(NA),
+      #                       data_value_updated=(data_asof_date==reporting_current_date),
+      #                       reportnumber=as.numeric(NA))]
+      #   
+      #   
+      #   setcolorder(query_rsf_data,neworder=names(rsf_data))
+      #   rsf_data <- rbindlist(list(rsf_data,
+      #                              query_rsf_data))
+      #   
+      #   query_rsf_data <- NULL
+      # }
+      # if (any(query_indicators$indicator_variable_class=="issuances.previous")) {
+      #   
+      #   query_indicator_ids <- query_indicators[indicator_variable=="issuances.previous",unique(indicator_id)]
+      #   query_issuance_ids <- pfcbl_ids[!is.na(loan_issuance_series_id),rsf_pfcbl_id]
+      #   
+      #   
+      #   query_rsf_data <- dbGetQuery(pool,"
+      #                                 select 
+      #                                 	end_period.reporting_asof_date as data_asof_date,
+      #                                 	lis.rsf_pfcbl_id,
+      #                                 	end_period.data_id,
+      #                                 	ind.indicator_id,
+      #                                 	end_period.data_value,
+      #                                 	end_period.data_unit
+      #                                 	
+      #                                 from p_rsf.rsf_loan_issuance_series lis
+      #                                 inner join lateral (select c_lis.rsf_pfcbl_id as previous_rsf_pfcbl_id
+      #                                             from p_rsf.rsf_loan_issuance_series c_lis
+      #                         										where c_lis.loan_issuance_series_id = lis.loan_issuance_series_id
+      #                         										  and c_lis.loan_issuance_series_rank < lis.loan_issuance_series_rank
+      #                         										order by c_lis.loan_issuance_series_rank desc
+      #                         										limit 1) previous_lis on true
+      #                         				inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = previous_lis.previous_rsf_pfcbl_id
+      #                                 inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
+      #                                 inner join lateral (select
+      #                                                       rdc.data_id,
+      #                                 											rdc.reporting_asof_date,
+      #                                 											rdc.data_value,
+      #                                 											rdc.data_unit
+      #                                 										from p_rsf.rsf_data_current rdc
+      #                                 										where rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
+      #                                 										  and rdc.indicator_id = ind.indicator_id
+      #                                 											and rdc.reporting_asof_date <= $3::date
+      #                                 										order by 
+      #                                 										  rdc.reporting_asof_date desc
+      #                                 										limit 1) end_period on true
+      #                                 where lis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+      #                                 	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
+      #                                params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
+      #                                            paste0(query_indicator_ids,collapse=","),
+      #                                            reporting_current_date))
+      # 
+      #   setDT(query_rsf_data)
+      #   query_rsf_data[,data_class:="issuances.previous"]
+      #   
+      #   query_rsf_data[,
+      #                  `:=`(reporting_asof_date=reporting_current_date,
+      #                       data_value_changed=as.logical(NA),
+      #                       data_value_updated=(data_asof_date==reporting_current_date),
+      #                       reportnumber=as.numeric(NA))]
+      #   
+      #   
+      #   setcolorder(query_rsf_data,neworder=names(rsf_data))
+      #   rsf_data <- rbindlist(list(rsf_data,
+      #                              query_rsf_data))
+      #   
+      #   query_rsf_data <- NULL
+      # }
+      # 
       
       #First should probably be obsoleted: is it really useful?
       # > lookup entity creation date with sys_entity_reporting.first.reporting_date ?
@@ -1030,67 +995,110 @@ db_program_get_data  <- function(pool,
           #status function is obsolete.  
           #replace checks that use info.status with 'loan_status_reporting.current'
           
-          if (any(query_indicators$indicator_variable == "info.status")) {
-  
-            info.status <- status_ids[data_class=="info.status"]
-            
-            
-            status_data <- dbGetQuery(pool,"
-                                   select 
-                                    ids.rsf_pfcbl_id, 
-                                    quarter_end_reporting_status
-                                  from p_rsf.rsf_pfcbl_ids ids
-                                  left join lateral p_rsf.get_rsf_pfcbl_id_reporting_status_asof_date(ids.rsf_pfcbl_id,
-                                                                                                      ids.pfcbl_category::text,
-                                                                                                      $2::date) status on true
-                                  where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
-                                     params=list(paste0(unique(info.status$rsf_pfcbl_id),collapse=","),
-                                                 reporting_current_date))
-            
-            setDT(status_data)
-            status_data[,reporting_asof_date:=reporting_current_date]
-            status_data <- status_data[info.status,
-                                       on=.(rsf_pfcbl_id),
-                                       nomatch=NULL]
-            
-            if (!empty(status_data)) {
-              status_data <- status_data[,
-                                         .(reporting_asof_date,
-                                           rsf_pfcbl_id,
-                                           data_id=as.numeric(NA),
-                                           indicator_id,
-                                           data_value=as.character(NA),
-                                           data_unit=quarter_end_reporting_status,
-                                           data_class,
-                                           data_value_changed=as.numeric(NA),
-                                           data_value_updated=as.numeric(NA),
-                                           data_asof_date=reporting_asof_date,
-                                           reportnumber=as.numeric(NA))]
-            
-              rsf_data <- rbindlist(list(rsf_data,
-                                         status_data))
-            }
-            info.status <- NULL
-            status_data <- NULL
-          }
+          # if (any(query_indicators$indicator_variable == "info.status")) {
+          # 
+          #   info.status <- status_ids[data_class=="info.status"]
+          #   
+          #   
+          #   status_data <- dbGetQuery(pool,"
+          #                          select 
+          #                           ids.rsf_pfcbl_id, 
+          #                           quarter_end_reporting_status
+          #                         from p_rsf.rsf_pfcbl_ids ids
+          #                         left join lateral p_rsf.get_rsf_pfcbl_id_reporting_status_asof_date(ids.rsf_pfcbl_id,
+          #                                                                                             ids.pfcbl_category::text,
+          #                                                                                             $2::date) status on true
+          #                         where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
+          #                            params=list(paste0(unique(info.status$rsf_pfcbl_id),collapse=","),
+          #                                        reporting_current_date))
+          #   
+          #   setDT(status_data)
+          #   status_data[,reporting_asof_date:=reporting_current_date]
+          #   status_data <- status_data[info.status,
+          #                              on=.(rsf_pfcbl_id),
+          #                              nomatch=NULL]
+          #   
+          #   if (!empty(status_data)) {
+          #     status_data <- status_data[,
+          #                                .(reporting_asof_date,
+          #                                  rsf_pfcbl_id,
+          #                                  data_id=as.numeric(NA),
+          #                                  indicator_id,
+          #                                  data_value=as.character(NA),
+          #                                  data_unit=quarter_end_reporting_status,
+          #                                  data_class,
+          #                                  data_value_changed=as.numeric(NA),
+          #                                  data_value_updated=as.numeric(NA),
+          #                                  data_asof_date=reporting_asof_date,
+          #                                  reportnumber=as.numeric(NA))]
+          #   
+          #     rsf_data <- rbindlist(list(rsf_data,
+          #                                status_data))
+          #   }
+          #   info.status <- NULL
+          #   status_data <- NULL
+          # }
           
-          if (any(query_indicators$indicator_variable == "info.name")) {
+          if (any(query_indicators$indicator_variable %in% c("info.name","info.id","info.rank","info.tranche"))) {
             
-            info.name <- status_ids[data_class=="info.name"]
-            
+           
             
             status_data <- dbGetQuery(pool,"
-                                   select 
-                                    nids.rsf_pfcbl_id,
-                                    nids.rsf_full_name
-                                  from p_rsf.view_current_entity_names_and_ids nids
-                                  where nids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
-                                      params=list(paste0(unique(info.name$rsf_pfcbl_id),collapse=",")))
+               select 
+                ids.rsf_pfcbl_id,
+                nids.pfcbl_name,
+                nids.id,
+                nids.tranche_id,
+                nids.rank_id
+              from p_rsf.rsf_pfcbl_ids ids 
+              left join lateral(select 
+                                nids.pfcbl_name,
+                                nids.id,
+                                nids.tranche_id,
+                                nids.rank_id
+                                from p_rsf.rsf_data_current_names_and_ids nids 
+                                where nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
+                                  and nids.reporting_asof_date <= $2::date
+                                order by
+                                reporting_asof_date desc
+                                limit 1) as nids on true
+              where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+                and ids.created_in_reporting_asof_date <= $2::date",
+                  params=list(paste0(unique(status_ids[data_class %in% c("info.name","info.id","info.rank","info.tranche"),rsf_pfcbl_id]),collapse=","),
+                              reporting_current_date))
             
             setDT(status_data)
-            status_data <- status_data[info.name,
-                                       on=.(rsf_pfcbl_id),
-                                       nomatch=NULL]
+            
+            status_data <- rbindlist(list(
+              status_data[status_ids[data_class=="info.name"],
+                          .(rsf_pfcbl_id,
+                            indicator_id,
+                            data_class,
+                            data_unit=pfcbl_name),
+                          on=.(rsf_pfcbl_id),
+                          nomatch=NULL],
+              status_data[status_ids[data_class=="info.id"],
+                          .(rsf_pfcbl_id,
+                            indicator_id,
+                            data_class,
+                            data_unit=id),
+                          on=.(rsf_pfcbl_id),
+                          nomatch=NULL],
+              status_data[status_ids[data_class=="info.tranche"],
+                          .(rsf_pfcbl_id,
+                            indicator_id,
+                            data_class,
+                            data_unit=tranche_id),
+                          on=.(rsf_pfcbl_id),
+                          nomatch=NULL],
+              status_data[status_ids[data_class=="info.rank"],
+                          .(rsf_pfcbl_id,
+                            indicator_id,
+                            data_class,
+                            data_unit=rank_id),
+                          on=.(rsf_pfcbl_id),
+                          nomatch=NULL]))
+            
             
             if (!empty(status_data)) {
               status_data <- status_data[,
@@ -1099,7 +1107,7 @@ db_program_get_data  <- function(pool,
                                            data_id=as.numeric(NA),
                                            indicator_id,
                                            data_value=as.character(NA),
-                                           data_unit=rsf_full_name, #using data_unit to carry the value as it's guaranteed character and wont throw NAs introduced by coercion warning
+                                           data_unit, #using data_unit to carry the value as it's guaranteed character and wont throw NAs introduced by coercion warning
                                            data_class,
                                            data_value_changed=as.numeric(NA),
                                            data_value_updated=as.numeric(NA),
@@ -1109,7 +1117,7 @@ db_program_get_data  <- function(pool,
               rsf_data <- rbindlist(list(rsf_data,
                                          status_data))
             }
-            info.name <- NULL
+          
             status_data <- NULL
           }
           
@@ -1164,72 +1172,6 @@ db_program_get_data  <- function(pool,
       }
     }
     
-    #static indicators
-    {
-      static_indicators <- pfcbl_indicators[is_static_nonreporting==TRUE & indicator_id %in% query_indicators$indicator_id,
-                                           .(indicator_id,
-                                             indicator_sys_category,
-                                             data_unit,
-                                             data_class="current",
-                                             pfcbl_category=data_category)]
-      
-      if (any(static_indicators$indicator_sys_category == "issuance_id")) {
-        static_data <- pfcbl_ids[static_indicators[indicator_sys_category == "issuance_id",
-                                              .(indicator_id,
-                                                pfcbl_category,
-                                                data_unit,
-                                                data_class)],
-                             on=.(pfcbl_category),
-                             nomatch=NULL]
-        
-        if (!empty(static_data)) {
-          static_data <- static_data[,
-                                     .(reporting_asof_date=reporting_current_date,
-                                       rsf_pfcbl_id,
-                                       data_id=as.numeric(NA),
-                                       indicator_id,
-                                       data_value=as.character(loan_issuance_series_id),
-                                       data_unit=data_unit,
-                                       data_class,
-                                       data_value_changed=as.numeric(NA),
-                                       data_value_updated=as.numeric(NA),
-                                       data_asof_date=as.Date(as.numeric(NA)),
-                                       reportnumber=as.numeric(NA))]
-
-        }
-        static_data <- NULL
-      }
-      
-      if (any(static_indicators$indicator_sys_category == "issuance_rank")) {
-        static_data <- pfcbl_ids[static_indicators[indicator_sys_category == "issuance_rank",
-                                                 .(indicator_id,
-                                                   pfcbl_category,
-                                                   data_unit,
-                                                   data_class)],
-                                on=.(pfcbl_category),
-                                nomatch=NULL]
-        
-        if (!empty(static_data)) {
-          
-          static_data <- static_data[,
-                                    .(reporting_asof_date=reporting_current_date,
-                                      rsf_pfcbl_id,
-                                      data_id=as.numeric(NA),
-                                      indicator_id,
-                                      data_value=as.character(loan_issuance_series_rank),
-                                      data_unit=data_unit,
-                                      data_class,
-                                      data_value_changed=as.numeric(NA),
-                                      data_value_updated=as.numeric(NA),
-                                      data_asof_date=as.Date(as.numeric(NA)),
-                                      reportnumber=as.numeric(NA))]
-
-          rsf_data <- rbindlist(list(rsf_data,
-                                     static_data))
-        }
-        static_data <- NULL
-      }
-    }
     
     #update reporting_current_date and indicator_names etc
     {
@@ -1538,36 +1480,36 @@ db_program_get_data  <- function(pool,
                                             by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
             
            
-            } else if (current_variable=="issuances.current") {
-              atts_data <- current_rsf_data[data_class=="issuances.current",
-                                            .(issuances.current=data_value),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="issuances.current.unit") {
-              atts_data <- current_rsf_data[data_class=="issuances.current",
-                                            .(issuances.current.unit=data_unit),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="issuances.current.reporteddate") {
-              atts_data <- current_rsf_data[data_class=="issuances.current",
-                                            .(issuances.current.reporteddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="issuances.previous") {
-              atts_data <- current_rsf_data[data_class=="issuances.previous",
-                                            .(issuances.previous=data_value),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="issuances.previous.unit") {
-              atts_data <- current_rsf_data[data_class=="issuances.previous",
-                                            .(issuances.previous.unit=data_unit),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
-            } else if (current_variable=="issuances.previous.reporteddate") {
-              atts_data <- current_rsf_data[data_class=="issuances.previous",
-                                            .(issuances.previous.reporteddate=data_asof_date),
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
+            # } else if (current_variable=="issuances.current") {
+            #   atts_data <- current_rsf_data[data_class=="issuances.current",
+            #                                 .(issuances.current=data_value),
+            #                                 by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            #   
+            # } else if (current_variable=="issuances.current.unit") {
+            #   atts_data <- current_rsf_data[data_class=="issuances.current",
+            #                                 .(issuances.current.unit=data_unit),
+            #                                 by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            #   
+            # } else if (current_variable=="issuances.current.reporteddate") {
+            #   atts_data <- current_rsf_data[data_class=="issuances.current",
+            #                                 .(issuances.current.reporteddate=data_asof_date),
+            #                                 by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            #   
+            # } else if (current_variable=="issuances.previous") {
+            #   atts_data <- current_rsf_data[data_class=="issuances.previous",
+            #                                 .(issuances.previous=data_value),
+            #                                 by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            #   
+            # } else if (current_variable=="issuances.previous.unit") {
+            #   atts_data <- current_rsf_data[data_class=="issuances.previous",
+            #                                 .(issuances.previous.unit=data_unit),
+            #                                 by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            #   
+            # } else if (current_variable=="issuances.previous.reporteddate") {
+            #   atts_data <- current_rsf_data[data_class=="issuances.previous",
+            #                                 .(issuances.previous.reporteddate=data_asof_date),
+            #                                 by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            #   
             } else if (current_variable=="all") {
               
               atts_data <- current_rsf_data[data_class=="all"]
@@ -1610,16 +1552,34 @@ db_program_get_data  <- function(pool,
                                             .(info.createddate=data_asof_date),
                                             by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
               
-            } else if (current_variable=="info.status") {
-              atts_data <- current_rsf_data[data_class=="info.status",
-                                            .(info.status=data_unit), #using data unit to carry value in query above, as if indicator data type is 
-                                                                       #numeric, date, etc then casting the text value will throw errors
-                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
-              
+            # } else if (current_variable=="info.status") {
+            #   atts_data <- current_rsf_data[data_class=="info.status",
+            #                                 .(info.status=data_unit), #using data unit to carry value in query above, as if indicator data type is 
+            #                                                            #numeric, date, etc then casting the text value will throw errors
+            #                                 by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+            #   
             } else if (current_variable=="info.name") {
               atts_data <- current_rsf_data[data_class=="info.name",
                                             .(info.name=data_unit), #using data unit to carry value in query above, as if indicator data type is 
                                                                     #numeric, date, etc then casting the text value will throw errors
+                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+              
+            } else if (current_variable=="info.id") {
+              atts_data <- current_rsf_data[data_class=="info.id",
+                                            .(info.id=data_unit), #using data unit to carry value in query above, as if indicator data type is 
+                                            #numeric, date, etc then casting the text value will throw errors
+                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+              
+            } else if (current_variable=="info.tranche") {
+              atts_data <- current_rsf_data[data_class=="info.tranche",
+                                            .(info.tranche=data_unit), #using data unit to carry value in query above, as if indicator data type is 
+                                            #numeric, date, etc then casting the text value will throw errors
+                                            by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
+              
+            } else if (current_variable=="info.rank") {
+              atts_data <- current_rsf_data[data_class=="info.rank",
+                                            .(info.rank=data_unit), #using data unit to carry value in query above, as if indicator data type is 
+                                            #numeric, date, etc then casting the text value will throw errors
                                             by=.(reporting_current_date,rsf_pfcbl_id,indicator_name)]
               
             } else {

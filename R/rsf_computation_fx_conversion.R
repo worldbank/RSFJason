@@ -59,7 +59,7 @@ rsf_computation_fx_conversion <- function(pool,
     #This can only happen if a default indicator is queried that never had any values submitted, so gives default data unit
     #We can assume default data unit is equal to calculation's local currency unit.
     #It can also occur if .previous is requested where no "previous" reporting exists.  Here we can also assume that the entity's
-    #current LCU was the same in previous quarter.
+    #current LCU was the same in previous quarter.  Although where LCU and previous are present, the data value is likely to be NA (that is, there is no previous, as LCU will exist where loan is at-entry)
     if (anyNA(data_units) || any(data_units=="LCU")) {
       for(lcu_col in fx_indicator_unit_colnames) {
         lcu <- which((is.na(comp_data[[lcu_col]]) | comp_data[[lcu_col]]=="LCU"))
@@ -120,7 +120,8 @@ rsf_computation_fx_conversion <- function(pool,
       
       #FX cols will include BOTH currency columns that may need to be fx rates
       
-      fx_cols <- parameters[parameter_indicator_name %in% parameters[for_fx==TRUE,unique(parameter_indicator_name)] &
+      fx_cols <- parameters[grepl("changed$",parameter_variable)==FALSE
+                            ][parameter_indicator_name %in% parameters[for_fx==TRUE,unique(parameter_indicator_name)] &
                               (for_calculation==TRUE | for_fx==TRUE | for_subgrouping==TRUE),
                             unique(parameter_column_name)]
       
@@ -192,6 +193,10 @@ rsf_computation_fx_conversion <- function(pool,
       #rsf_X_id, which has been lost in the transformations because the rsf_pfcbl_id is for the calculation and not the entity column data
       fx_currency_data[,entity_id:=1:.N]
       
+      
+      
+      
+      # tmp <- as.data.frame(fx_currency_data)
       fx_currency_data <- melt.data.table(fx_currency_data,
                                           id.vars=c(fx_data_id_vars,"entity_id"),
                                           variable.name="parameter_column_name",
@@ -211,6 +216,12 @@ rsf_computation_fx_conversion <- function(pool,
       
       fx_currency_data <- fx_currency_data[is_unit==FALSE & is_date==FALSE]
       
+      if (length(unique(c(nrow(fx_currency_data),
+                          nrow(fx_currency_units),
+                          nrow(fx_currency_dates)))) != 1) {
+        stop(paste0("Mismatched sizes for fx_currency_data(",nrow(fx_currency_data),") and fx_currency_units(",nrow(fx_currency_units),") and fx_currency_dates(",nrow(fx_currency_dates),")"))
+      }
+      
       fx_currency_units[,parameter_column_unit:=parameter_column_name]
       fx_currency_units[,parameter_column_name:=gsub("\\.unit$","",parameter_column_name)]
       
@@ -220,14 +231,38 @@ rsf_computation_fx_conversion <- function(pool,
       fx_currency_dates[is.na(data_value),
                         data_value:=as.Date(computation_asof_date)]
       
-      if (nrow(fx_currency_data) != nrow(fx_currency_units)) {
-        stop("Mismatch: fx_currency_data has ",nrow(fx_currency_data)," rows but fx_currency_units has ",nrow(fx_currency_units))
-      }
+      # if (nrow(fx_currency_data) != nrow(fx_currency_units)) {
+      #   stop("Mismatch: fx_currency_data has ",nrow(fx_currency_data)," rows but fx_currency_units has ",nrow(fx_currency_units))
+      # }
+      # 
+      # if (nrow(fx_currency_data) != nrow(fx_currency_dates)) {
+      #   stop("Mismatch: fx_currency_data has ",nrow(fx_currency_data)," rows but fx_currency_dates has ",nrow(fx_currency_dates))
+      # }
       
-      if (nrow(fx_currency_data) != nrow(fx_currency_dates)) {
-        stop("Mismatch: fx_currency_data has ",nrow(fx_currency_data)," rows but fx_currency_dates has ",nrow(fx_currency_dates))
-      }
-      
+      ##new
+      # setnames(fx_currency_units,
+      #          old="data_value",
+      #          new="fx_from")
+      # 
+      # fx_currency_units <- fx_currency_units[,.SD,
+      #                                        .SDcols=c("fx_from",fx_data_id_vars,"entity_id","parameter_column_name")]
+      # 
+      # setnames(fx_currency_dates,
+      #          old="data_value",
+      #          new="fx_date")
+      # 
+      # fx_currency_dates <- fx_currency_dates[,.SD,
+      #                                        .SDcols=c("fx_date",fx_data_id_vars,"entity_id","parameter_column_name")]
+      # 
+      # 
+      # fx_currency_data <- fx_currency_units[fx_currency_data,
+      #                                       on=c(fx_data_id_vars,"entity_id","parameter_column_name")]
+      # 
+      # fx_currency_data <- fx_currency_dates[fx_currency_data,
+      #                                       on=c(fx_data_id_vars,"entity_id","parameter_column_name")]
+      # 
+      ##end new
+      ##OLD
       fx_currency_data[fx_currency_units,
                        `:=`(fx_from=i.data_value,
                             parameter_column_unit=i.parameter_column_unit),
@@ -237,7 +272,7 @@ rsf_computation_fx_conversion <- function(pool,
                        `:=`(fx_date=i.data_value,
                             parameter_column_date=i.parameter_column_date),
                        on=c(fx_data_id_vars,"entity_id","parameter_column_name")]
-      
+      ##end old
       fx_currency_units <- NULL
       fx_currency_dates <- NULL
       fx_currency_data[,is_unit:=NULL]

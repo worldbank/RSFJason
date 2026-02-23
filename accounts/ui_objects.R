@@ -1,7 +1,5 @@
-sidebar_width <- 250
+sidebar_width <- 200
 LOCATION_SKIN  <- switch(LOCATION,
-                         SSA_DEV="red",
-                         SSA_PROD="purple",
                          Jason_DEV="yellow",
                          Jason_PROD="blue",
                          "green")
@@ -399,11 +397,30 @@ ui_htmlHead <- tagList(
               background-color: #ffdf00; color:black;
              }
 
+
+            [name=headerSelect] .selectize-input {
+              line-height: 20px;
+              color:navy;
+              min-height:30px;
+              vertical-align: middle;
+              border:none;
+              padding-left:25px;
+             }
+             [name=headerSelect] .selectize-control { margin-bottom:0px;}
+             [name=headerSelect] .selectize-dropdown { color:navy; }
+
+             [name=headerSelect] .form-group { margin-bottom: 0px !important; }
+             
+             
              #datasets_review_flags_summary .dataTables_scrollBody {
               max-height:inherit;
               height:inherit!important;
              }
     
+             #tabset_setup_agreement {
+              padding-left:25px;padding-top:25px;background-color:gainsborough;
+             }
+             
              #server_datasets_review_flags_dataset .dataTables_scrollBody {
               max-height:inherit;
               height:inherit!important;
@@ -412,19 +429,54 @@ ui_htmlHead <- tagList(
               #server_dashboard__reporting_column_priority_lookup_results .dataTables_scrollBody {
               max-height:inherit;
               height:inherit!important;
+              }
+             
+             .navbar-nav {
+              float:left;
              }
+             
+             .nav-tabs > li > a[class=agreement] {
+                 background-color: forestgreen;
+                 color: white;
+                 font-weight:bold;
+             }
+              
+              #ui_system { margin-top:100px; }
+              #ui_reporting { margin-top:50px; }
             "),
   useShinyjs())
 
-ui_header_OUT <- dashboardHeader(title=div(ifelse(grepl("DEV",LOCATION)==TRUE,"DEV! ",""),
+ui_header_OUT <- shinydashboardPlus::dashboardHeader(title=div(ifelse(grepl("DEV",LOCATION)==TRUE,"DEV! ",""),
                                            "RSF/ Jason"),
-                                 titleWidth = sidebar_width)
-
-
-ui_header_IN <- dashboardHeader(title=div(ifelse(grepl("DEV",LOCATION)==TRUE,"DEV! ",""),
-                                          textOutput(outputId="dashboard_title",inline=TRUE)),
                                  titleWidth = sidebar_width,
-                                 #tags$li(class = 'dropdown',titleWidth = sidebar_width),
+                                 controlbarIcon=NULL)
+
+
+
+ui_header_IN <- shinydashboardPlus::dashboardHeader(title=div(ifelse(grepl("DEV",LOCATION)==TRUE,"DEV/ Jason",
+                                                                     "RSF/ Jason")),
+                                                    titleWidth = sidebar_width,
+                                                    controlbarIcon=NULL,
+                                 leftUi = tagList(
+                                            div(name="headerSelect",
+                                                style=" display:inline-block;float:right",
+                                              div(style=" display:inline-block;",
+                                                  selectizeInput(inputId="server_programs__selected_program",
+                                                             label=NULL,
+                                                             choices=NULL,
+                                                             multiple=FALSE,
+                                                             options=list(placeholder="...Loading..."),
+                                                             width="200px")),
+                                              div(style=" display:inline-block;padding-left:15px;",
+                                                selectizeInput(inputId="server_programs__selected_facility",
+                                                           label=NULL,
+                                                           choices=NULL,
+                                                           selected=NULL,
+                                                           multiple=FALSE,
+                                                           options=list(placeholder="...Loading..."),
+                                                           width="200px"))),
+                                            
+                                            ),
                                  tags$li(class = 'dropdown',
                                          div(style="margin-right:5px;color:white;font-size:22px;font-weight:bold;vertical-align:middle;padding-top:8px;display:inline-block",
                                              div(style="padding-right:10px;display:inline-block",textOutput(outputId=accounts_NS("login_who"))),
@@ -432,20 +484,22 @@ ui_header_IN <- dashboardHeader(title=div(ifelse(grepl("DEV",LOCATION)==TRUE,"DE
                                                  actionButton(inputId=accounts_NS("login_logout_action"),
                                                               label="Exit",icon=icon("sign-out-alt"),class="btn btn-primary")))))
 
-ui_sidebar_OUT <- dashboardSidebar(
+ui_sidebar_OUT <- shinydashboardPlus::dashboardSidebar(
   width = sidebar_width,
   collapsed = TRUE,
-  disable = TRUE)
+  disable = TRUE,
+  minified = FALSE)
 
 
 
-ui_sidebar_IN <- dashboardSidebar(
+ui_sidebar_IN <- shinydashboardPlus::dashboardSidebar(
   width = sidebar_width,
   collapsed = FALSE,
   disable = FALSE,
+  minified = FALSE,
   sidebarMenu(id="sidebarMenu",
-    div(style="padding-left:5px;display: inline-block;width:245px;",
-        selectizeInput(inputId="select_rsf_program_id",label=NULL,choices=NULL,multiple=FALSE,width="245px")),
+    # div(style="padding-left:5px;display: inline-block;width:245px;",
+    #     ),
     
     # menuItem("Reporting",  
     #          href="https://qlik.worldbank.org/hub/stream/aaec8d41-5201-43ab-809f-3063750dfafd",
