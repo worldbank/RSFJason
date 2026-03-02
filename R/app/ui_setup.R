@@ -47,7 +47,10 @@ div(style="background-color:white;padding:10px;",
     #     Shiny.setInputValue('server_setup_agreement__paste_event','server_setup_agreement__rsa_terms',{priority:'event'});
     # });")),
                     
-                    
+                    div(style="padding-top:10px",
+                        textOutput(outputId="setup_agreement__title")
+                      
+                    ),
                     tabsetPanel(id="tabset_setup_agreement",
                                 
                                 tabPanel("Terms",

@@ -1741,11 +1741,37 @@ db_program_get_data  <- function(pool,
 
   rsf_data <- NULL
  
-  #Simplify columns and grab-back pfcbl_ids
-  {
-    cnames <- names(pfcbl_family)
-    setcolorder(pfcbl_family,order(rsf_colranks(cnames),cnames))
-  }
+  #removed this -- nobody ever sees it -- why bother formatting its column order?
+  # #Simplify columns and grab-back pfcbl_ids
+  # {
+  #   #todo: move to separate funcion
+  #   rsf_colranks <- function(cols) {
+  #     ranks <- rep(4,length(cols))
+  #     ranks[grepl("^reporting",cols)]  <- 1
+  #     ranks[grepl("^rsf",cols)]        <- 3
+  #     ranks[grepl("^rsf_pfcbl",cols)]  <- 2
+  #     ranks[grepl("^sys",cols)]        <- 4
+  #     
+  #     g <- grepl("^(rsf_|sys_|.*\\.)?global",cols) | grepl("^global\\..*$",cols)
+  #     p <- grepl("^(rsf_|sys_|.*\\.)?program",cols) | grepl("^program\\..*$",cols)
+  #     f <- grepl("^(rsf_|sys_|.*\\.)?facility",cols) | grepl("^facility\\..*$",cols)
+  #     c <- grepl("^(rsf_|sys_|.*\\.)?client",cols) | grepl("^client\\..*$",cols)
+  #     b <- grepl("^(rsf_|sys_|.*\\.)?borrower",cols) | grepl("^borrower\\..*$",cols)
+  #     l <- grepl("^(rsf_|sys_|.*\\.)?loan",cols) | grepl("^loan\\..*$",cols)
+  #     
+  #     ranks[g] <- ranks[g] + 0.0
+  #     ranks[p] <- ranks[p] + 0.1
+  #     ranks[f] <- ranks[f] + 0.2
+  #     ranks[c] <- ranks[c] + 0.3
+  #     ranks[b] <- ranks[b] + 0.4
+  #     ranks[l] <- ranks[l] + 0.5
+  #     
+  #     return (ranks)
+  #   }
+  #   
+  #   cnames <- names(pfcbl_family)
+  #   setcolorder(pfcbl_family,order(rsf_colranks(cnames),cnames))
+  # }
   
   pfcbl_family[,
                CALCULATION_DATE:=reporting_current_date]

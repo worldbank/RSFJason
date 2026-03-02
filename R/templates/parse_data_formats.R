@@ -518,6 +518,7 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                          data_value:=NA]
           }
         }
+        
         #Numeric data where user has submitted placeholder, eg, "1,000" to parse these out.  But since users might enter data
         #in either US or EU standards and interchange 1,000.00 vs 2.000.000,03 try to suss this out and convert to 1000.00 and 2000000.03, etc
         regular_data_numerics <- regular_data[data_type %in% c("number","currency","currency_ratio","percent")
@@ -535,8 +536,8 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
         regular_data_numerics[,thousands_sep:=as.character(NA)]
 
         #ends after comma or period without thousands sep
-        regular_data_numerics[is.na(thousands_sep) & grepl(",\\d{1,2}$",data_value,perl=T),thousands_sep:="comma"]   #if multiple thousands-seps are used, then that must be the units sep 
-        regular_data_numerics[is.na(thousands_sep) & grepl(".\\d{1,2}$",data_value,perl=T),thousands_sep:="period"]   #if multiple thousands-seps are used, then that must be the units sep 
+        regular_data_numerics[is.na(thousands_sep) & grepl(",\\d{1,2}$",data_value,perl=T),thousands_sep:="period"]  #if multiple thousands-seps are used, then that must be the units sep 
+        regular_data_numerics[is.na(thousands_sep) & grepl("\\.\\d{1,2}$",data_value,perl=T),thousands_sep:="comma"]   #if multiple thousands-seps are used, then that must be the units sep 
         
         #if both , and . are used, then the first one must be thousands sep and the second one must be decimal sep
         regular_data_numerics[is.na(thousands_sep) & grepl(",\\d{3}\\.",data_value,perl=T),thousands_sep:="comma"]
@@ -1245,7 +1246,7 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                           check_message=paste0(indicator_name,
                                                               " is a non-calculated field reporting value {",
                                                               reporting_submitted_data_value,
-                                                              "} using formula {",reporting_submitted_data_formula,"}"))]
+                                                              "} using formula {",reporting_submitted_data_formula,"} Note: the reported value may be correct right now; but when other values change in the future, this formula may not continue to be correct. It is reccommended to either enter the actual value or copy-paste values to remove the formula."))]
       
       indicator_data_flags <- rbindlist(list(indicator_data_flags,
                                              bad_flags))
@@ -1408,15 +1409,17 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                             data_unit_validated=TRUE),
                        on=.(parse_id)]
 
-        convert_units_flags <- convert_units[,
-                                     .(parse_id,
-                                       check_name="sys_flag_data_unit_auto_correction",
-                                       check_message=paste0(indicator_name,": ",
-                                                            "corrected and converted from {",reporting_submitted_data_value," ",reporting_submitted_data_unit,"}",
-                                                            " to {",data_value," ",data_unit,"}"))]
-        
-        indicator_data_flags <- rbindlist(list(indicator_data_flags,
-                                               convert_units_flags))
+        #Just generates noise
+        #If indicator is MONTHS and person enters 2 YEARS then whatever.  The covnersion is clear and accurate. no need to flag it.
+        # convert_units_flags <- convert_units[,
+        #                              .(parse_id,
+        #                                check_name="sys_flag_data_unit_auto_correction",
+        #                                check_message=paste0(indicator_name,": ",
+        #                                                     "corrected and converted from {",reporting_submitted_data_value," ",reporting_submitted_data_unit,"}",
+        #                                                     " to {",data_value," ",data_unit,"}"))]
+        # 
+        # indicator_data_flags <- rbindlist(list(indicator_data_flags,
+        #                                        convert_units_flags))
         
         convert_units_flags <- NULL
       }

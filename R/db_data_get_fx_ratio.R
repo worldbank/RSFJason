@@ -283,7 +283,7 @@ db_data_get_fx_ratio <- function(pool,
                           															 definition,
                           															 data_unit,
                           															 modification_time,
-                          															 is_system_calculated,
+                          															 is_required,
                                                          default_subscription)
                            select 
                           	'sys_global_fx_' || currency_ratio_name,
@@ -294,7 +294,7 @@ db_data_get_fx_ratio <- function(pool,
                           	alphabetic_lookup_ratio || ' WBG corporate exchange rate, internally managed by System' as definition,
                           	alphabetic_lookup_ratio as data_unit,
                           	(timeofday())::timestamptz as modification_time,
-                          	false as is_system_calculated,
+                          	false as is_required,
                             true as default_subscription
                            from new_currencies
                            returning indicator_id,label_id,data_unit

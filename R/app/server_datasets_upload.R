@@ -297,7 +297,7 @@ observeEvent(input$dataset_upload_file, {
   }
   
   
-  if (!all(file_ext(filename) %in% c("xlsx","csv","zip","pdf"))) {
+  if (!all(file_ext(filename) %in% c("xlsx","csv","zip","pdf","txt"))) {
     return (showNotification(h1("Error: file must be Excel format .xlsx only (not .xls, .xlsxm or .xlsxb); or .csv with client name and date in filename; or a zip of these"),
                      closeButton = TRUE,
                      duration=8,

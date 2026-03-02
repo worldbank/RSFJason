@@ -1510,6 +1510,8 @@ output$datasets_review_download_flags_action <- downloadHandler(
                                                  status_message = function(...) {},
                                                  CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
             
+          
+          
           } else {
             
             wbflags <- openxlsx2::wb_load(file=file)
@@ -1548,48 +1550,75 @@ output$datasets_review_download_flags_action <- downloadHandler(
                                               10,
                                               10,
                                               10))
+            
           }
+          
+          wbflags$save(file=file,
+                       overwrite=TRUE)
         }
+      
+      
+      } else if (cohort$file_extension %in% c("pdf","txt")) {
+
+        setorder(flags,
+                 entity_name,
+                 check_status,
+                 indicator_name,
+                 check_name,
+                 check_formula_title,
+                 check_class,
+                 check_message)
+        
+        wbflags <- paste0(flags$entity_name,": ",
+               flags$indicator_name,": ",ifelse(is.na(flags$check_formula_title),flags$check_name,flags$check_formula_title),
+               " [",toupper(flags$check_status),":",flags$evaluation_id,"] [",flags$check_type,":",toupper(flags$check_class),"]\n",
+               flags$check_message,"\n\n")
+        
+        writeLines(text=wbflags,
+                   con=file)
+        
       }
       
-      if (is.null(wbflags)) {
-        
-        wbflags <- openxlsx2::wb_workbook(creator="RSF Jason")
-        wbflags$add_worksheet(sheet="Current Flags")
-        wbflags$add_data_table(sheet="Current Flags",
-                               table_name="RSF_current_flags",
-                               x=flags[,
-                                       .(FLAGID=evaluation_id,
-                                         CHECK_DATE=check_asof_date,
-                                         NAME=entity_name,
-                                         type=check_type,
-                                         class=check_class,
-                                         MESSAGE=check_message,
-                                         CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
-                                                                                 check_formula_title)),
-                                         STATUS=check_status,
-                                         comment=check_status_comment,
-                                         user=check_status_users_name)])
-        
-        wbflags$set_active_sheet(sheet="Current Flags")
-        wbflags$set_col_widths(sheet="Current Flags",
-                               cols=c(1,2,3,4,5,6,7,8,9,10),
-                               widths = c(10,
-                                          13, #check date 
-                                          35, #entity name
-                                          17, #check type
-                                          10, #check class
-                                          90, #check message
-                                          90, #check
-                                          10,
-                                          10,
-                                          10))
-      }
+      #catch-all 
+      # if (is.null(wbflags)) {
+      #   
+      #   wbflags <- openxlsx2::wb_workbook(creator="RSF Jason")
+      #   wbflags$add_worksheet(sheet="Current Flags")
+      #   wbflags$add_data_table(sheet="Current Flags",
+      #                          table_name="RSF_current_flags",
+      #                          x=flags[,
+      #                                  .(FLAGID=evaluation_id,
+      #                                    CHECK_DATE=check_asof_date,
+      #                                    NAME=entity_name,
+      #                                    type=check_type,
+      #                                    class=check_class,
+      #                                    MESSAGE=check_message,
+      #                                    CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
+      #                                                                            check_formula_title)),
+      #                                    STATUS=check_status,
+      #                                    comment=check_status_comment,
+      #                                    user=check_status_users_name)])
+      #   
+      #   wbflags$set_active_sheet(sheet="Current Flags")
+      #   wbflags$set_col_widths(sheet="Current Flags",
+      #                          cols=c(1,2,3,4,5,6,7,8,9,10),
+      #                          widths = c(10,
+      #                                     13, #check date 
+      #                                     35, #entity name
+      #                                     17, #check type
+      #                                     10, #check class
+      #                                     90, #check message
+      #                                     90, #check
+      #                                     10,
+      #                                     10,
+      #                                     10))
+      #   wbflags$save(file=file,
+      #                overwrite=TRUE)
+      # }
   
       
         
-      wbflags$save(file=file,
-                   overwrite=TRUE)
+      
       
       incProgress(amount=1.0,message="Completed")
     })

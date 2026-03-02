@@ -43,7 +43,7 @@ export_dashboard_edits_to_excel <- function(pool,
                                             sheet_data_table_name="RSF_TEMPLATE_DATA",
                                             sheet_data=edits_dt,
                                             
-                                            program_name=export_cohort$program_name,
+                                            header_name=export_cohort$program_name,
                                             
                                             template_key=TEMPLATE$template_key,
                                             report_key=export_cohort$reporting_key,

@@ -1,50 +1,9 @@
-# rsf_hash <- function(...) {
-#   params <- unlist(lapply(list(...),as.character)) #unlist will convert to base character and thereby convert dates to their integer-days and then interger as string
-#                                                    #and thereby cause inconsistancies when hashing date data that is passes in, eg as.Date('2016-08-01') vs '2016-08-01'
-#                                                    #so first call as.character on each object for format consistency and then hash
-#   if (all(is.na(params))) return (NA)
-#   
-#   digestion <- paste0(params,collapse="|")
-#   hash <- digest(digestion,algo="sha256")
-# 
-#   return (hash)
-# }
-
 enabled <- function(state,...) { 
   if (state) return(tagList(...))
   else return (disabled(...))
 }
 
-#todo: move to separate funcion
-rsf_colranks <- function(cols) {
-  ranks <- rep(4,length(cols))
-  ranks[grepl("^reporting",cols)]  <- 1
-  ranks[grepl("^rsf",cols)]        <- 3
-  ranks[grepl("^rsf_pfcbl",cols)]  <- 2
-  ranks[grepl("^sys",cols)]        <- 4
-  
-  g <- grepl("^(rsf_|sys_|.*\\.)?global",cols) | grepl("^global\\..*$",cols)
-  p <- grepl("^(rsf_|sys_|.*\\.)?program",cols) | grepl("^program\\..*$",cols)
-  f <- grepl("^(rsf_|sys_|.*\\.)?facility",cols) | grepl("^facility\\..*$",cols)
-  c <- grepl("^(rsf_|sys_|.*\\.)?client",cols) | grepl("^client\\..*$",cols)
-  b <- grepl("^(rsf_|sys_|.*\\.)?borrower",cols) | grepl("^borrower\\..*$",cols)
-  l <- grepl("^(rsf_|sys_|.*\\.)?loan",cols) | grepl("^loan\\..*$",cols)
-  
-  ranks[g] <- ranks[g] + 0.0
-  ranks[p] <- ranks[p] + 0.1
-  ranks[f] <- ranks[f] + 0.2
-  ranks[c] <- ranks[c] + 0.3
-  ranks[b] <- ranks[b] + 0.4
-  ranks[l] <- ranks[l] + 0.5
-  
-  return (ranks)
-}
 
-#indicatorNames_namePattern <- function() { "[a-zA-Z0-9_]+" }
-
-indicatorNames_isIndicator <- function(ind_names) {
-  grepl("^(sys_)?(global|program|facility|client|borrower|loan)_[a-zA-Z0-9_]+\\.?.*$",ind_names)
-}
 
 indicatorNames_getBasenames <- function(ind_names) {
   pattern <- "^([a-zA-Z0-9_@]+)\\.[a-z.]+$" #The '@' symbol only used in dashboard view for currency conversions
@@ -62,55 +21,12 @@ indicatorNames_getAttributes <- function(ind_names) {
   ind_names[!grepl(pattern,ind_names)] <- NA
   gsub(pattern,"\\1",ind_names)
 }
-
-parentIndicatorCategory <- function(indicator_category) {
-  sapply(indicator_category,
-         switch,
-         global="global",
-         program="program",
-         facility="program",
-         client="facility",
-         borrower="client",
-         loan="borrower",
-         NA)
-}
-
-rankIndicatorCategories <- function(indicator_category) { 
-  sapply(indicator_category,
-         switch,
-         global=0,
-         program=1,
-         facility=2,
-         client=3,
-         borrower=4,
-         loan=5,
-         NA)  
-}
-
-indicatorNameResolveCategory <- function(indicator_names) {
-  category_names <- grepl("^(sys_|rsf_)?(global|program|facility|client|borrower|loan)_.*$",indicator_names)
-  categories <- gsub("^(sys_|rsf_)?([a-z]+)_.*$","\\2",indicator_names)
-  categories[categories=="" | !category_names] <- NA
-  return (categories)
-}
-
-
-get_rsf_id_from_category <- function(category) { 
-  switch(category,
-         loan="rsf_loan_id",
-         borrower="rsf_borrower_id",
-         client="rsf_client_id",
-         facility="rsf_facility_id",
-         program="rsf_program_id",
-         global="rsf_program_id",
-         NA) 
-}       
-
-
-flag_text <- function(check_class,check_name,check_message,check_status,evaluation_asof_date) {
-  paste0(ifelse(check_status=="active","",paste0("{",toupper(check_status),"} ")),
-         toupper(check_class),": ",check_name,ifelse(nchar(check_message)>0,paste0("/ ",check_message),"")," \U2208 ",evaluation_asof_date)
-}
+# 
+# 
+# flag_text <- function(check_class,check_name,check_message,check_status,evaluation_asof_date) {
+#   paste0(ifelse(check_status=="active","",paste0("{",toupper(check_status),"} ")),
+#          toupper(check_class),": ",check_name,ifelse(nchar(check_message)>0,paste0("/ ",check_message),"")," \U2208 ",evaluation_asof_date)
+# }
 
 normalizeSystemName <- function(x) {
   x <- gsub("%","pct",x)  #no % in names -- this could conflict with dataase like 'acme%' sql
@@ -171,11 +87,7 @@ normalizeSyscategory_name <- function(x) {
 }
 
 
-validSyscategory_id <- function(x) {
 
-  !is.na(x) & grepl("^[A-Za-z0-9\\.:_-]+(\\s?[#\\(]{1}\\d+\\)?)?$",x)==TRUE
-  
-}
 
 normalizeSyscategory_id <- function(x) {
   x <- paste0(x)
@@ -221,18 +133,18 @@ normalizeSyscategory_id <- function(x) {
 
 
 #read-in skips blank start rows
-normalizePunctuation <- function(x) {
-  
-  x <- gsub("1st","first",x,perl=T,ignore.case = T)             #1st -> first
-  x <- gsub("N/A","na",x,ignore.case = TRUE,perl=T)             #1st -> first
-  x <- gsub("#","num",x,perl=T)                 #pound sign to "num"
-  x <- gsub("'","",x,perl=T)                   #get rid of "'s"
-  x <- gsub("([[:digit:]])\\s+","\\1",x,perl=T) #remove spaces after digits
-  x <- gsub("[[:punct:]]"," ",x,perl=T)         #remove punctuation
-  x <- gsub("\\s+"," ",x,perl=T)                #remove mlutiple spaces
-  x <- gsub("(\\s+)$|^(\\s+)","",x,perl=T)      #remove leading and trailing spaces
-  return (x)
-}
+# normalizePunctuation <- function(x) {
+#   
+#   x <- gsub("1st","first",x,perl=T,ignore.case = T)             #1st -> first
+#   x <- gsub("N/A","na",x,ignore.case = TRUE,perl=T)             #1st -> first
+#   x <- gsub("#","num",x,perl=T)                 #pound sign to "num"
+#   x <- gsub("'","",x,perl=T)                   #get rid of "'s"
+#   x <- gsub("([[:digit:]])\\s+","\\1",x,perl=T) #remove spaces after digits
+#   x <- gsub("[[:punct:]]"," ",x,perl=T)         #remove punctuation
+#   x <- gsub("\\s+"," ",x,perl=T)                #remove mlutiple spaces
+#   x <- gsub("(\\s+)$|^(\\s+)","",x,perl=T)      #remove leading and trailing spaces
+#   return (x)
+# }
 
 normalizeLabel <- function(x) {
   #stringi::stri_trans_general(normalizePunctuation(superTrim(x)),"Latin-ASCII")
@@ -278,19 +190,19 @@ superTrim <- function(x,
   return (x)
 }
 
-if.na <- function(x,replacement) {
-  if (length(x)==0) return(x)
-  x[is.na(x)] <- replacement
-  return (x)
-}
+# if.na <- function(x,replacement) {
+#   if (length(x)==0) return(x)
+#   x[is.na(x)] <- replacement
+#   return (x)
+# }
 
-if.null <- function(x,replacement) {
-  
-  if (length(x)==0) return(x)
-  nulls <- sapply(x,is.null)
-  if (any(nulls)) x[nulls] <- replacement
-  return (x)
-}
+# if.null <- function(x,replacement) {
+#   
+#   if (length(x)==0) return(x)
+#   nulls <- sapply(x,is.null)
+#   if (any(nulls)) x[nulls] <- replacement
+#   return (x)
+# }
 
 letters2numbers <- function(x){
   #from: https://stackoverflow.com/questions/34537243/convert-excel-column-names-to-numbers

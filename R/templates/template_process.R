@@ -896,7 +896,7 @@ template_process <- function(pool,
               select 
               tac.header_id
             from _temp_actions tac
-            where exists(select * from p_rsf.rsf_program_facility_template_headers fth
+            where exists(select * from p_rsf.rsf_setup_template_headers fth
                          where fth.header_id = tac.header_id
             						   and fth.rsf_pfcbl_id is distinct from tac.rsf_pfcbl_id)
             )

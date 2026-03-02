@@ -441,8 +441,8 @@ ui_htmlHead <- tagList(
                  font-weight:bold;
              }
               
-              #ui_system { margin-top:100px; }
-              #ui_reporting { margin-top:50px; }
+              #ui_system { margin-top:20px; }
+              #ui_reporting { margin-top:25px; }
             "),
   useShinyjs())
 

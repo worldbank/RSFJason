@@ -376,6 +376,7 @@ rsf_indicators_calculate <- function(pool,
       
       calc_data[,row_id:=1:.N]
       
+      #GROUPING
       {    
         grouping_id <- NULL
         
@@ -812,12 +813,10 @@ rsf_indicators_calculate <- function(pool,
                     check_message=paste0(calculation$indicator_name,": ",conditionMessage(w)),
                     formula_id=calculation$formula_id)
       
-      do_calc <- unique(calc_data[,.(data_value=as.character(NA)),
-                                  by=c(grouping_cols)][,
-                                                       .(rsf_pfcbl_id,
-                                                         reporting_current_date,
-                                                         grouping,
-                                                         data_value)])
+      do_calc <- unique(calc_data[,.(rsf_pfcbl_id,
+                                     reporting_current_date,
+                                     grouping,
+                                     data_value=as.character(NA))])
       do_calc
     },
     error = function(err) { 
@@ -831,12 +830,10 @@ rsf_indicators_calculate <- function(pool,
                     check_message=paste0(calculation$indicator_name,": ",conditionMessage(err)),
                     formula_id=calculation$formula_id)
       
-      do_calc <- unique(calc_data[,.(data_value=as.character(NA)),
-                                  by=c(grouping_cols)][,
-                                                       .(rsf_pfcbl_id,
-                                                         reporting_current_date,
-                                                         grouping,
-                                                         data_value)])
+      do_calc <- unique(calc_data[,.(rsf_pfcbl_id,
+                                     reporting_current_date,
+                                     grouping,
+                                     data_value=as.character(NA))])
       do_calc
     })
     

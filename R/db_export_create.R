@@ -125,7 +125,8 @@ db_export_create <- function(pool,
   
   sys_name <- dbGetQuery(pool,
                          "select
-                            nai.sys_name
+                            nai.sys_name,
+                            nai.pfcbl_name
                           from p_rsf.rsf_data_current_names_and_ids nai
                           where nai.rsf_pfcbl_id = $1::int
                             and nai.reporting_asof_date <= $2::date
@@ -136,6 +137,7 @@ db_export_create <- function(pool,
   
   exporting_cohort[,program_name:=program_info$name]
   exporting_cohort[,exporting_entity_name:=sys_name$sys_name]
+  exporting_cohort[,exporting_pfcbl_name:=sys_name$pfcbl_name]
   exporting_cohort[,exporting_users_name:=account_info$users_name]
   
   return (exporting_cohort)

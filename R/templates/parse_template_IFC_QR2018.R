@@ -1,6 +1,6 @@
 
 
-parse_template_IFC_QR <- function(pool,
+parse_template_IFC_QR2018 <- function(pool,
                                   template_lookup,
                                   template_file,
                                   rsf_indicators,
@@ -166,8 +166,7 @@ parse_template_IFC_QR <- function(pool,
                                                      template_id=template_lookup$template_id,
                                                      rsf_pfcbl_id=rsf_pfcbl_id.facility,
                                                      rsf_indicators=rsf_indicators,
-                                                     detection="full",
-                                                     normalize=T)
+                                                     formatting.function=normalizeLabel)
       
       stop_actions <- rsf_labels[is.na(stop)==FALSE & action=="ignore"]
       #This is now updated
@@ -195,7 +194,8 @@ parse_template_IFC_QR <- function(pool,
       
       header_actions <- db_indicators_get_header_actions(pool=pool,
                                                          template_id=template_lookup$template_id,
-                                                         rsf_pfcbl_id=rsf_pfcbl_id.facility)
+                                                         rsf_pfcbl_id=rsf_pfcbl_id.facility,
+                                                         formatting.function=superTrim)
       
      
       

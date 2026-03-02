@@ -165,7 +165,7 @@ source("./R/rsf_reports_excel_read_rsf_data.R")
 
 #source("./R/db_rsf_get_pfcbl_from_sys_ids.R")
 source("./R/db_get_rsf_pfcbl_id_by_sys_name.R")
-source("./R/slgp_helpers_trim.R")
+source("./R/global_formatting_functions.R")
 source("./R/rsf_calculations_resolve_parameters.R")
 source("./R/rsf_checks_resolve_parameters.R")
 source('./R/templates/template_excel_read_sheet.R')
@@ -193,7 +193,7 @@ source('./R/templates/parse_template_labels.R')
 source('./R/templates/template_parse_file.R')
 source('./R/templates/template_parse_process_and_upload.R')
 
-source('./R/templates/parse_template_IFC_QR.R')
+source('./R/templates/parse_template_IFC_QR2018.R')
 source('./R/templates/parse_template_IFC_QR2025.R')
 
 source('./R/templates/parse_template_RSA.R')
@@ -296,314 +296,6 @@ SYS_PRINT_TIMING <- TRUE
 if (grepl("DEV",LOCATION)==TRUE) devmode()
 #devmode126(FALSE)
 
-
-
-
-format_html_option <- function(options_group_name) {
-  html <- glue("<div class='indicator_bubble' style='vertical-align:middle;white-space:nowrap;padding-right:10px;display:inline-block;background-color:#3db83b'>
-                              <div style='display:inline-block;vertical-align:middle;'><i class='fa fa-sitemap'></i></div>
-                              <div style='display:inline-block;vertical-align:middle;'>{options_group_name}</div>
-                              </div>")
-  return (html)
-}
-
-format_html_check_icon <- function(check_class,is_reporting_flag=FALSE,title=check_class,css_class="") {
-  
-  icon_class <- switch(check_class,
-                       critical='fas fa-fire',
-                       error='fas fa-times-circle',
-                       warning='fas fa-exclamation-triangle',
-                       info='fas fa-info-circle',
-                       "")
-
-  reporting_icon <- ""
-  if (is_reporting_flag==TRUE) reporting_icon <- "<i class='fas fa-file-upload icon-reporting' style='display:inline-block;'></i>"
-  
-  html <- paste0(reporting_icon,"<i class='",icon_class," icon-",check_class," ",css_class,"' style='display:inline-block;' title=\"",title,"\"></i>")
-  return (html)
-}
-
-format_html_check <- function(check_name,
-                              check_class,
-                              check_type=NA,
-                              is_subscribed=TRUE,
-                              is_system=FALSE,
-                              user_subscription=NULL,
-                              id="") {
-
-  htmlid <- ifelse(nchar(id)>1,paste0("id='",id,"'"),"")
-  htmluserid <- ifelse(nchar(id)>1,paste0("id='",id,"subscription'"),"")
-  
-  check_name <- gsub("[[:punct:]]"," ",check_name) #easier to read in html bubble
-  check_name <- sub("(loan|borrower|client|facility|program|global)","\\1:",check_name,ignore.case = T)
-  check_name <- tools::toTitleCase(check_name)
-  check_name <- gsub("^sys","SYS",check_name,ignore.case = T)
-  
-  check_type_color <- fcase(check_type=="data_audit","violet",
-                            check_type=="data_validity","violet",
-                            check_type=="contract_terms","limegreen",
-                            check_type=="contract_criteria","limegreen",
-                            check_type=="business_integrity","skyblue",
-                            check_type=="business_monitoring","skyblue",
-                            check_type=="none","pink",
-                            default="gray")
-  
- 
-  icon_class <- switch(check_class,
-                       critical='fas fa-fire',
-                       error='fas fa-times-circle',
-                       warning='fas fa-exclamation-triangle',
-                       info='fas fa-info-circle',
-                       "")
-  
-  unsubscribed <- ifelse(is_subscribed==FALSE," unsubscribed","")
-  user_subscribed <- fcase(is.null(user_subscription),"",
-                           user_subscription==TRUE,
-                           paste0("<i ",htmluserid," class='fa-regular fa-circle-check' style='color:white;font-size:12px;'></i>"),
-                           user_subscription==FALSE,
-                           paste0("<i ",htmluserid," class='fa-regular fa-circle-xmark' style='color:white;font-size:12px;'></i>"),
-                           default=paste0("<i ",htmluserid," class='fa-regular fa-circle-question' style='color:white;font-size:12px;'></i>"))
-  
-  
-  
-  #user_subscribed <- "<i name='userSubscription' class='fa-regular fa-circle-check' style='color:green'></i>"
-  html <- glue("<div class='check_mark' style='display:flex;flex-flow:row nowrap;white-space:nowrap;background:linear-gradient(to right,{check_type_color},white)'>
-                  <div {htmlid} class='check_bubble {check_class}{unsubscribed}' style='display:flex;flex-flow:row nowrap;justify-content:flex-end;align-items: center;'>
-                    <div style='color:rgba(250,250,250,.5);display:flex;flex-flow:row nowrap;margin-left:5px;'><i class='{icon_class}'></i></div>
-                    <div style='margin-left:5px;margin-right:5px;display:flex;flex-flow:row nowrap;'>{check_name}</div>
-                    {user_subscribed}
-                  </div>
-                </div>")
-  
-  return (html)
-}
-
-format_html_indicator <- function(indicator_name,
-                                  data_category,
-                                  data_type,
-                                  is_system,
-                                  is_calculated,
-                                  options_group_name=NA,
-                                  is_subscribed=TRUE,
-                                  user_subscription=NULL,
-                                  id="") {
-  
-  data_category <- tolower(data_category)
-  data_type <- tolower(data_type)
-  is_calculated <- toupper(as.character(is_calculated))
-  is_system <- as.logical(is_system) #should only be passed-in by system
-  htmluserid <- ifelse(nchar(id)>1,paste0("id='",id,"subscription'"),"")
-  html_attributes <- "<div style='display:inline-block;white-space:nowrap;color:rgba(250,250,250,.5);vertical-align:middle;'>"
-  if (data_type=="number")        html_attributes <- paste(html_attributes,"<i class='fa fa-hashtag' title='Data type: number' style='padding-left:5px;'></i>")
-  else if (data_type=="currency") html_attributes <- paste(html_attributes,"<i class='fa fa-coins' title='Data type: currency' style='padding-left:5px;'></i>")
-  else if (data_type=="currency_ratio") html_attributes <- paste(html_attributes,"<i class='fa fa-coins' title='Data type: currency' style='padding-left:5px;'></i>")
-  else if (data_type=="percent")  html_attributes <- paste(html_attributes,"<i class='fa fa-percent' title='Data type: percent' style='padding-left:5px;'></i>")
-  else if (data_type=="date")     html_attributes <- paste(html_attributes,"<i class='fa fa-calendar-alt' title='Data type: date' style='padding-left:5px;'></i>")
-  else if (data_type=="text")     html_attributes <- paste(html_attributes,"<i class='fa fa-paragraph' title='Data type: text' style='padding-left:5px;'></i>")
-  else if (data_type=="logical")  html_attributes <- paste(html_attributes,"<i class='fa fa-grip-lines-vertical' title='Data type: true-false' style='padding-left:5px;'></i>")
-  
-  if (is_system==TRUE) html_attributes <- paste(html_attributes,"<i class='fa fa-cogs' title='System Indicator' style='padding-left:5px;'></i>")
-  if (toupper(is_calculated)=="TRUE") html_attributes <- paste(html_attributes,"<i class='fa fa-calculator' title='Calculated Indicator' style='padding-left:5px;'></i>")
-  if (is.na(options_group_name)==FALSE) html_attributes <- paste(html_attributes,"<i class='fa fa-sitemap' title='Assigned choices type: ",options_group_name,"' style='padding-left:5px;'></i>")
-  
-  user_subscribed <- fcase(is.null(user_subscription),"",
-                           user_subscription==TRUE,
-                           paste0("<i ",htmluserid," class='fa-regular fa-circle-check' style='color:white;font-size:12px;'></i>"),
-                           user_subscription==FALSE,
-                           paste0("<i ",htmluserid," class='fa-regular fa-circle-xmark' style='color:white;font-size:12px;'></i>"),
-                           default=paste0("<i ",htmluserid," class='fa-regular fa-circle-question' style='color:white;font-size:12px;'></i>"))
-  
-  
-  html_attributes <- paste(html_attributes,"</div>")
-  
-  html_status <- "<div style='display:inline-block;vertical-align:middle'>"
-  #if (is_hidden==TRUE)      html_status <- paste(html_status,"<i class='fa fa-user-secret' style='color:purple;padding-left:5px;' title='Indicator is hidden: will not appear in searches or downloads; but will be saved on uploads'></i>")
-  #if (is_deprecated==TRUE)  html_status <- paste(html_status,"<i class='fa fa-ban' style='color:red;padding-left:5px;' title='Indicator is deprecated and no longer used by this RSF Program (however old data reported when inidcator was previously used is retained)'></i>")
-  html_status <- paste(html_status,"</div>")
-  
-  indicator_html <- paste0("<div style='display:inline-block;vertical-align:middle;'>",html_status,"
-                              <div ",ifelse(isTruthy(id),
-                                            paste0("id='",id,"'"),
-                                            ""),
-                              "class='indicator_bubble indicator ",data_category," ",ifelse(is_subscribed==FALSE,"unsubscribed","")," ",ifelse(is_system,"disabled",""),"' style='vertical-align:middle;white-space:nowrap;display:inline-block;'>
-                                       ",html_attributes,"
-                                       <div ",
-                                       ifelse(isTruthy(id),
-                                              paste0("id='",id,"-text'"),
-                                              "")
-                                ," style='display:inline-block;vertical-align:middle;font-size:12px;font-weight:bold;padding-left:5px;padding-right:10px;'>",indicator_name,"</div>
-                               ",user_subscribed,"
-                                       </div>
-                                       </div>")
-
-  return (indicator_html)
-}
-
-
-# 
-# in calculations environment for replaceing == and !=
-# `%equal%` <- function(e1,e2) { 
-#    mapply(function(a,b) { isTRUE(base::all.equal(a,b,check.class=F)) },a=e1,b=e2,USE.NAMES=F)
-# }
-# 
-# 
-# `%unequal%` <- function(e1,e2) { 
-#          mapply(function(a,b) { !isTRUE(base::all.equal(a,b,check.class=F)) },a=e1,b=e2,USE.NAMES=F)
-# }
-# 
-
-
-is.same_text <- function(a,b) { 
-  x<-(is.na(a) & is.na(b)) | (as.character(a)==as.character(b)) 
-  ifelse(is.na(x),FALSE,x)
-}
-
-#all forms of nothing, with zero being a numeric nothing
-is.nothing <- function(x) {
-  (is.null(x) || length(x)==0 || all(x==0))
-}
-
-is.same_number <- function(a,b,tolerance=1/10^CALCULATIONS_ENVIRONMENT$SIG_DIGITS) { 
-  
-  
-  x <- mapply(function(a,b) { 
-    if (!is.na(a) & !is.na(suppressWarnings(as.numeric(a)))) a<-as.numeric(a)
-    if (!is.na(b) & !is.na(suppressWarnings(as.numeric(b)))) b<-as.numeric(b)
-    
-    #isTRUE(base::all.equal(a,b,check.class=F,tolerance=tolerance)) 
-    isTRUE(base::all.equal(a,b,check.class=F)) | isTRUE(base::`==`(e1=a,e2=b))  | all(c(is.nothing(a),is.nothing(b)))
-    
-  },a=a,b=b,USE.NAMES=F)
-  x[is.na(x)] <- FALSE
-  
-  if (is.nothing(x)) {
-    
-    return (FALSE)
-    
-  } else {
-    
-    return (x)
-    
-  }
-
-  
-  # nas <- is.na(a) & is.na(b)
-  # 
-  # a <- suppressWarnings(as.numeric(a))
-  # b <- suppressWarnings(as.numeric(b))
-  # 
-  # invert <- a < 1 & b < 1 & a !=0 & b != 0
-  # invert[is.na(invert)] <- FALSE
-  # a[invert] <- 1/a[invert]
-  # b[invert] <- 1/b[invert]
-  # 
-  # x <- abs(a-b) < (1/10^sig_digits)
-  # x[is.na(x)] <- FALSE #Both NAs will be TRUE, so means either A or B is NA, but not both.  Means, not the same.
-  # x[nas] <- TRUE       #Both are NAs so means is the same.
-  # x
-}
-
-user_send_email <- function(pool,
-                            from="\"RSF JASON\"<noreply@positconnect.int.worldbank.org>",
-                            to,
-                            subject,
-                            html) {
-  
-  lookup <- db_user_check_email_exists(pool=pool,
-                                       RSF_MANAGEMENT_APPLICATION_ID,
-                                       to)
-  
-  #to <- "sheitmann@ifc.org"
-  valid <- !empty(lookup)
-  
-  if (!valid) stop(paste0("Invalid email address: ",to))
-  
-  if (length(to) != 1) stop("Only one receipient may be defined")
-  print(paste0("user_send_email : emailing ",to," from ",from," subject: ",subject))
-  html <- as.character(html)
-  html <- gsub(">[[:space:]]+","> ",html) #Pandoc won't format html when line breaks exist; and it will crash when not having some spaces.
-  
-  page <- paste0("<html>
-          <head><title>",subject,"</title></head>
-          <body style='font-family:Verdana;'>
-            <section id='emailbody'>",html,"</section>
-          </body>
-        </html>")
-  
-  msg <- page
-  msg <- mime_part(msg)
-  msg[["headers"]][["Content-Type"]] <- "text/html"
-  
-  tryCatch({
-    sendmail(from=from,
-             to=to,
-             subject=subject,
-             msg=msg,
-             control=list(smtpServer="lmail.worldbank.org"))
-  },
-  error=function(e) {
-    print(conditionMessage(e))
-  },
-  warning=function(w) {
-    print(conditionMessage(w))
-  })
-}
-
-format_name_abbreviation <- function(person_name) {
-  
-  re <- "^\\w{1}|\\w+-?\\w+$"
-  
-  name <- unlist(regmatches(person_name, gregexpr(re, person_name)))
-  if (is.null(name) || all(is.na(name)) || length(name) != 2) name <- person_name
-  else name <- paste0(name[1],".",name[2])
-  return(name)
-}
-
-#See: https://stackoverflow.com/questions/60977641/r-function-for-rgba-to-hex-color-conversion
-rgba2rgb <- function(color_RGBA,background_RGB=col2rgb("white")) {
-  
-  # get alpha
-  if (length(color_RGBA)==1) color_RGBA <- as.numeric(trimws(unlist(str_split(color_RGBA,","))))
-  if (length(color_RGBA) != 4) stop("color_RGBA should have 4 elements")
-  
-  alpha=color_RGBA[4]
-  
-  # get new color  
-  new_col=matrix(c(
-    (1 - alpha) * background_RGB[1] + alpha * color_RGBA[1],
-    (1 - alpha) * background_RGB[2] + alpha * color_RGBA[2],
-    (1 - alpha) * background_RGB[3] + alpha * color_RGBA[3]),
-    nrow=3,ncol=1,dimnames=list(c("red","green","blue"))
-  )
-  return(new_col)
-}
-
-rgb2hex <- function(x) { rgb(x[1], x[2], x[3], maxColorValue = 255) }
-rgba2hex <- function(color_RGBA,background_RGB) {
-  rgb2hex(rgba2rgb(color_RGBA = color_RGBA))
-}
-
-words_to_numbers <- function(s) {
-  s <- stringr::str_to_lower(s)
-  for (i in rev(c(0:19,20,30,40,50,60,70,80,90,100,1000))) {
-    s <- stringr::str_replace_all(s, words(i), as.character(i))
-    s <- stringr::str_replace_all(s, ordinal(i), as.character(i))
-  }
-  #s
-  
-  n <- suppressWarnings(as.numeric(s))
-  
-  #if, eg, "thirty three" is passed as an argument, 's' will be "30 3"
-  #correct format should be "thirty-three"
-  #this is fine for small numbers.  For "one million" this will result in NA, for better or worse?
-  if (anyNA(n)) {
-    nn <- which(is.na(n))
-    x <- strsplit(s[nn],"[\\s-]+")
-    x <- sapply(x,FUN=function(nums) { sum(suppressWarnings(as.numeric(nums))) })
-    n[nn] <- x
-  }
-  return (n)
-}
 
 
 
@@ -738,4 +430,49 @@ openxlsx_getNamedRegionsTable <- function(excelwb) {
   return (nregion_data)
 }
 
+user_send_email <- function(pool,
+                            from="\"RSF JASON\"<noreply@positconnect.int.worldbank.org>",
+                            to,
+                            subject,
+                            html) {
+  
+  lookup <- db_user_check_email_exists(pool=pool,
+                                       RSF_MANAGEMENT_APPLICATION_ID,
+                                       to)
+  
+  #to <- "sheitmann@ifc.org"
+  valid <- !empty(lookup)
+  
+  if (!valid) stop(paste0("Invalid email address: ",to))
+  
+  if (length(to) != 1) stop("Only one receipient may be defined")
+  print(paste0("user_send_email : emailing ",to," from ",from," subject: ",subject))
+  html <- as.character(html)
+  html <- gsub(">[[:space:]]+","> ",html) #Pandoc won't format html when line breaks exist; and it will crash when not having some spaces.
+  
+  page <- paste0("<html>
+          <head><title>",subject,"</title></head>
+          <body style='font-family:Verdana;'>
+            <section id='emailbody'>",html,"</section>
+          </body>
+        </html>")
+  
+  msg <- page
+  msg <- mime_part(msg)
+  msg[["headers"]][["Content-Type"]] <- "text/html"
+  
+  tryCatch({
+    sendmail(from=from,
+             to=to,
+             subject=subject,
+             msg=msg,
+             control=list(smtpServer="lmail.worldbank.org"))
+  },
+  error=function(e) {
+    print(conditionMessage(e))
+  },
+  warning=function(w) {
+    print(conditionMessage(w))
+  })
+}
 

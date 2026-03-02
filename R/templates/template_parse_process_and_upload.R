@@ -37,6 +37,7 @@ template_parse_process_and_upload <- function(pool,
   template_files <- sort(template_files)
   ppu_results <- NULL
   
+  
   #tf <- template_files[[1]]
   for (tf in template_files) {
     

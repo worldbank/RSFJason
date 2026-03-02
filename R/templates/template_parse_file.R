@@ -12,8 +12,8 @@ template_parse_file <- function(pool,
   
     if (!all(file.exists(template_file))) stop(paste0("File note found: ",template_file))
   
-    if (!grepl("\\.xlsx?|\\.csv|\\.csv\\.gz|.pdf$",template_file,ignore.case = TRUE)) {
-      status_message(class="error","Error: Only .xlsx or .csv files can be uploaded: ",template_file," is not allowed.\n")
+    if (!grepl("\\.xlsx?|\\.csv|\\.csv\\.gz|.pdf|.txt$",template_file,ignore.case = TRUE)) {
+      status_message(class="error","Error: Only .xlsx files can be uploaded: ",template_file," is not allowed.\n")
       #.xls files are prohibbted because openxlsx package cannot read them and this package is used to manage the excel sheets, downloads, etc.
       if (grepl("\\.xls$",template_file,ignore.case = TRUE)) status_message(class="info","Older .xls files cannot be uploaded.  In Excel, use 'Save As' to save the file to a modern version format.\n")
       
@@ -79,10 +79,17 @@ template_parse_file <- function(pool,
         snames <- NULL
         
         is_excel <- grepl("\\.xlsx$",template_file,ignore.case = TRUE)
-        if (is_excel==TRUE) {    
-          nregions <- c(openxlsx::getNamedRegions(template_file))
-          snames <- c(openxlsx::getSheetNames(template_file))
+        if (is_excel==TRUE) {   
+          excelwb <- openxlsx2::wb_load(file=template_file)
+          
+          nregions <- excelwb$get_named_regions()
+          snames <- excelwb$sheet_names
+          
+          setDT(nregions)
+          # nregions <- c(openxlsx::getNamedRegions(template_file))
+          # snames <- c(openxlsx::getSheetNames(template_file))
         }    
+
         
         template_name <- {
           
@@ -101,6 +108,47 @@ template_parse_file <- function(pool,
               "RSF-CSV-TEMPLATE"
             }
           }
+          else if (tolower(file_ext(template_file))=="txt") {
+            
+            template_lines <- readLines(con=template_file,n=4)
+            tkey <- unique(grep("^<KEY>",template_lines,value=T))
+            
+            tname <- NULL
+            if (length(tkey)==1) {
+              tkey <- gsub("<KEY>","",tkey)
+              tkey <- dbGetQuery(pool,"
+                select rt.template_name
+                from p_rsf.reporting_templates rt
+                where rt.template_key = $1::text",
+                params=list(toupper(tkey)))
+              
+              if (empty(tkey)) {
+                stop(paste0("It looks like you're trying to upload a Jason agreement configuration template? A <KEY> can be found in the file, but the value '",tkey,
+                            "' is not a recognized template key"))
+              }
+              tname <- tkey$template_name
+              
+              sname <- unique(grep("^<SYSNAME>",template_lines,value=T))
+              sname <- unique(gsub("<SYSNAME>","",sname))
+              
+              if (length(sname)==1) {
+                ids <- db_get_rsf_pfcbl_id_by_sys_name(pool=pool,
+                                                       sys_names=sname)
+                if (!empty(ids) && nrow(ids)==1) {
+                  if (!is.null(parse_rsf_pfcbl_id) && !(as.numeric(parse_rsf_pfcbl_id)==as.numeric(ids$rsf_pfcbl_id))) {
+                    stop(paste0("Failed to match parse request SYSID ",parse_rsf_pfcbl_id," with agreement config request and file SYSNAME '",sname,"'"))
+                  }
+                  #this will set/reset the value passed to template_parse_file()
+                  parse_rsf_pfcbl_id <- as.numeric(ids$rsf_pfcbl_id)
+                }
+              } else {
+                stop(paste0("It looks like you're trying to upload a Jason agreement configuration template? A <SYSNAME> can be found in the file, but the value '",sname,
+                            "' is not a recognized Facility. If the facility has been entirely deleted, it needs to be re-setup from its setup file before configuring its agreement"))
+              }
+            } 
+            tname
+          }
+          
           else if (tolower(file_ext(template_file))=="pdf") {
             
             pfcbl_category <- dbGetQuery(pool,"select pfcbl_category from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id=$1::int",upload_rsf_pfcbl_id)
@@ -114,11 +162,12 @@ template_parse_file <- function(pool,
           ##################
           #NON JASON TEMPLATES#
           ##################
-          else if (any(nregions=="Template_ID")) {
+          else if (any(nregions$name=="Template_ID",na.rm=T)) {
             
-            template_id <- openxlsx::read.xlsx(xlsxFile=template_file,
-                                               namedRegion = "Template_ID")
-            template_id <- names(template_id)
+            template_id <- unlist(wb_to_df(excelwb,named_region = "Template_ID",col_names = F))
+            # # template_id <- openxlsx::read.xlsx(xlsxFile=template_file,
+            # #                                    namedRegion = "Template_ID")
+            # template_id <- names(template_id)
             found <- dbGetQuery(pool,"
               select exists(select * from p_rsf.reporting_templates rt where rt.template_key ~* $1::text)::bool as template_exists",
               params=list(template_id))
@@ -132,17 +181,17 @@ template_parse_file <- function(pool,
           #"1. Summary" & "2. Current QReport"
           #And QDD named receive either of S_DET or S_QDD depending on the template's version.
           else if (length(grep("(summary)|(current qreport)",snames,ignore.case=T))==2 & 
-                   any(grepl("S_DET|S_QDD",nregions,ignore.case=F))) {
+                   any(grepl("S_DET|S_QDD",nregions$name,ignore.case=F))) {
             
             #template_format
-            "IFC-QR-TEMPLATE"
+            "IFC-QR-TEMPLATE2018"
             
           } 
           
           else {
             
             if (length(grep("(summary)|(current qreport)",snames,ignore.case=T)) > 0 ||
-                any(grepl("S_DET|S_QDD",nregions,ignore.case=F))) {
+                any(grepl("S_DET|S_QDD",nregions$name,ignore.case=F))) {
               
               #paste0(grep("(summary)|(current qreport)",snames,ignore.case=T,value=T),collapse=", ")
               #paste0(grep("S_DET|S_QDD",nregions,ignore.case=F,value=T))
@@ -154,7 +203,7 @@ template_parse_file <- function(pool,
                              "This sheet defines these sheets (there should be two and only two): \n",
                              paste0(paste0("[",grep("(summary)|(current qreport)",snames,ignore.case=T,value=T),"]"),collapse=" & ")," \n",
                              "and these named ranges (there may be one or two):\n", 
-                             paste0(grep("S_DET|S_QDD",nregions,ignore.case=F,value=T)),"\n",
+                             paste0(grep("S_DET|S_QDD",nregions$names,ignore.case=F,value=T)),"\n",
                              "If this message sees multiple Sheet names, be sure to look in hidden sheets in your file and either delete or rename those that are not relevant")
               
               stop("Unable to identify template: possible IFC QR Template that has multiple sheets or incorrectly named sheets or named ranges.")
@@ -172,9 +221,9 @@ template_parse_file <- function(pool,
         template_name <- template_lookup$template_name
       }
       
-      if (template_name=="IFC-QR-TEMPLATE") {
+      if (template_name=="IFC-QR-TEMPLATE2018") {
 
-        template <- parse_template_IFC_QR(pool=pool,
+        template <- parse_template_IFC_QR2018(pool=pool,
                                           template_lookup = template_lookup,
                                           template_file=template_file,
                                           rsf_indicators=rsf_indicators,
@@ -234,17 +283,20 @@ template_parse_file <- function(pool,
         
         ids <- dbGetQuery(pool,"
                           select 
-                            rsf_program_id,
-                            rsf_facility_id 
+                            rsf_pfcbl_id
                           from p_rsf.rsf_pfcbl_ids 
-                          where rsf_pfcbl_id = $1::int",parse_rsf_pfcbl_id)
-        if (empty(ids) || is.na(ids$rsf_facility_id)) {
+                          where rsf_pfcbl_id = $1::int
+                            and pfcbl_category in ('program','facility')",
+                          params=list(parse_rsf_pfcbl_id))
+        
+        #if this is a text file, parse_rsf_pfcbl_id will be read-in while determining the template_name validity.
+        if (empty(ids) || is.na(ids$rsf_pfcbl_id)) {
           stop(paste0("IFC-RSA-TEMPLATE must pass rsf_facility_id but facility could not be found for: ",parse_rsf_pfcbl_id))
         }
         
         template <- parse_template_RSA(pool=pool,
                                        template_id = template_lookup$template_id,
-                                       rsf_facility_id=ids$rsf_facility_id, #This is checked in parse template
+                                       for_rsf_pfcbl_id=ids$rsf_pfcbl_id, #This is checked in parse template
                                        template_file=template_file,
                                        rsf_indicators=rsf_indicators,
                                        rsf_indicator_formulas=db_indicators_get_formulas(pool=pool),
@@ -252,7 +304,7 @@ template_parse_file <- function(pool,
                                        reporting_user_id=reporting_user_id,
                                        status_message = status_message)
         
-        template$template_source_reference <- "RSA Setup PDF File"
+        template$template_source_reference <- "RSA Configuration File"
         template$template_ids_method <- "pfcbl_id" #set as pfcbl_id for simplicity, but this file cannot create new entities (or match any entities)
       }
       
@@ -496,6 +548,7 @@ template_parse_file <- function(pool,
     
     
     
+    
     } else {
 
       if (!all(unique(template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)])[,c(1:.N)]==1:nrow(template$template_data))) {
@@ -598,7 +651,8 @@ template_parse_file <- function(pool,
       }
       
       if (template$reporting_asof_date > as.Date(valid_date_range$current_date)) {
-        stop("Future reporting is not allowed: ",valid_date_range$current_date," is the maximum allowed reporting date")
+        stop(paste0("Future reporting is not allowed: Template reports QDD for '",template$reporting_asof_date,"' which is ",(template$reporting_asof_date-today())," DAYS into the future. ",
+                    valid_date_range$current_date," is the maximum allowed reporting date"))
       }
     }
   }  
@@ -665,17 +719,21 @@ template_parse_file <- function(pool,
     #Create a new reporting cohort, user-created cohort will be parent of any subsequent sys-created cohorts
     #must be created first, for this chronology to have an entry for potenitally new rsf_ids yet to be created under a specific reporting cohort
     {
+      #should be null for most templates.
+      #But some templates (eg, parse_template_RSA) creates its own import and assigns it in order to facilitate asigning cohort ID to setup parameters
+      if (is.null(template$reporting_import)) {
+        reporting_import <- db_reporting_import_create(pool=pool,
+                                                       import_rsf_pfcbl_id=template$cohort_pfcbl_id,
+                                                       import_user_id=template$reporting_user_id,
+                                                       reporting_asof_date=template$reporting_asof_date,
+                                                       template_id=template$template_id,
+                                                       file_path=template_file,
+                                                       import_comments=NA,
+                                                       auto_delete_old_versions=TRUE) 
+        
+        template$reporting_import <- reporting_import
+      }  
     
-      reporting_import <- db_reporting_import_create(pool=pool,
-                                                     import_rsf_pfcbl_id=template$cohort_pfcbl_id,
-                                                     import_user_id=template$reporting_user_id,
-                                                     reporting_asof_date=template$reporting_asof_date,
-                                                     template_id=template$template_id,
-                                                     file_path=template_file,
-                                                     import_comments=NA,
-                                                     auto_delete_old_versions=TRUE) 
-      template$reporting_import <- reporting_import
-      
       template$template_source <- NULL #Now available in reporting_cohort$source_name
       template$cohort_pfcbl_id <- NULL #Now available in reporting_cohort$reporting_rsf_pfcbl_id
       template$template_source_reference <- NULL #Now available in reporting_cohort$source_reference, automatically adjusted

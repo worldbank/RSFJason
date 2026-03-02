@@ -24,45 +24,50 @@ parse_template_pfcbl_editor_report <- function(pool,
     report_data[,SYSID:=as.numeric(SYSID)]
     report_data[,indicator_id:=as.numeric(indicator_id)]
   
-    bad_indicators <- setdiff(report_data[,.(indicator_id,indicator_name)],
-                              rsf_indicators[,.(indicator_id,indicator_name)])
-    
-    bad_indicators <- as.data.frame(bad_indicators)
-    setDT(bad_indicators)
-    
-    bad_indicators[rsf_indicators,
-                   current_name:=i.indicator_name,
-                   on=.(indicator_id)]
-    
-    bad_indicators[,similarity:=mapply(FUN=function(a,b) { 
-      a<-unlist(strsplit(a,split="_",fixed=T))
-      b<-unlist(strsplit(b,split="_",fixed=T))
-      n <- min(length(a),length(b))
-      n <- length(intersect(a,b))/n
-      if (all(is.na(n)) || length(n)==0) n <- 0
-      n;
-    },a=indicator_name,b=current_name)]
-    
-    auto_correct <- bad_indicators[similarity >= 0.7]
-    report_data[auto_correct,
-          indicator_name:=i.current_name,
-          on=.(indicator_id)]
-    
-    bad_indicators <- bad_indicators[similarity < 0.7]
-    
-    if (!empty(bad_indicators)) {
-      bad_indicators[,
-                     message:=paste0(indicator_name," (",
-                                     indicator_id,
-                                     ifelse(is.na(current_name),
-                                            " is undefined/deleted",
-                                            paste0(" is now '",current_name,"'")),")")]
+    #Determine "Bad indicators"
+    #Mostly this is for backwards compatability (or lackthereof) when old sheets that have been uploaded with data are download and re-uploaded; but meanwhile, the metric's
+    #name has changed -- it tries to guess the new name.
+    {
+      bad_indicators <- fsetdiff(report_data[,.(indicator_id,indicator_name)],
+                                rsf_indicators[,.(indicator_id,indicator_name)])
       
-      stop(paste0("The setup file defines the following indicators, which are NOT defined in the database.\n",
-                  "Perhaps the indicator names have been changed (or deleted) since the file was generated?\n",
-                  "If so, review the current master list and revise the upload file accordingly.\n",
-                  "Bad indicators: ",
-                  paste0(bad_indicators$message,collapse=", \n")))
+      bad_indicators <- as.data.frame(bad_indicators)
+      setDT(bad_indicators)
+      
+      bad_indicators[rsf_indicators,
+                     current_name:=i.indicator_name,
+                     on=.(indicator_id)]
+      
+      bad_indicators[,similarity:=mapply(FUN=function(a,b) { 
+        a<-unlist(strsplit(a,split="_",fixed=T))
+        b<-unlist(strsplit(b,split="_",fixed=T))
+        n <- min(length(a),length(b))
+        n <- length(intersect(a,b))/n
+        if (all(is.na(n)) || length(n)==0) n <- 0
+        n;
+      },a=indicator_name,b=current_name)]
+      
+      auto_correct <- bad_indicators[similarity >= 0.7]
+      report_data[auto_correct,
+            indicator_name:=i.current_name,
+            on=.(indicator_id)]
+      
+      bad_indicators <- bad_indicators[similarity < 0.7]
+      
+      if (!empty(bad_indicators)) {
+        bad_indicators[,
+                       message:=paste0(indicator_name," (",
+                                       indicator_id,
+                                       ifelse(is.na(current_name),
+                                              " is undefined/deleted",
+                                              paste0(" is now '",current_name,"'")),")")]
+        
+        stop(paste0("The setup file defines the following indicators, which are NOT defined in the database.\n",
+                    "Perhaps the indicator names have been changed (or deleted) since the file was generated?\n",
+                    "If so, review the current master list and revise the upload file accordingly.\n",
+                    "Bad indicators: ",
+                    paste0(bad_indicators$message,collapse=", \n")))
+      }
     }
   }
   

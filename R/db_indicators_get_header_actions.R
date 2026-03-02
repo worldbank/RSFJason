@@ -2,29 +2,27 @@ db_indicators_get_header_actions <- function(pool,
                                              template_id,
                                              rsf_pfcbl_id,
                                              rsf_indicators,
-                                             detection=c("full","partial"), 
                                              # "full" will add pattern ^string$ and "partial" will add pattern ^.*string.*$
                                              # in other words, match the full header or any partial match.  For templates (like RSA) that have
                                              # discrete terms that are a specific header section, a partial match can help identify similar equivalent 
                                              # patterns of the same term. Whereas for QR template, each section is a list of complete headers that should be fully matched
-                                             normalize=F) 
+                                             formatting.function=superTrim,
+                                             formatting.strip=NULL) #regexp to strip-out, ie, gsub to "" 
   {
   
   trimFunc <- NULL
-
-  detection <- match.arg(detection)
   
   #superTrim calls trim.punct by default as true
   #normalizeLabel does a few more stuff, like remove accents; but not trim punct
-  if (normalize==T) {
+  if (is.null(formatting.function)) {
     trimFunc <- normalizeLabel
   } else {
-    trimFunc <- superTrim
+    trimFunc <- formatting.function
   }
   
   header_actions <- dbGetQuery(pool,"
       select tha.*,indf.indicator_id as formula_indicator_id
-        from p_rsf.view_rsf_program_facility_template_header_actions tha
+        from p_rsf.view_rsf_setup_template_header_actions tha
         left join p_rsf.indicator_formulas indf on indf.formula_id = map_formula_id
       where tha.rsf_pfcbl_id = $1::int
         and tha.template_id = $2::int
@@ -86,46 +84,78 @@ db_indicators_get_header_actions <- function(pool,
   
   
   header_actions[,label_key:="SYS"]
-  header_actions[,label:=trimFunc(template_header)] #for this template, use trimmed, not normalized (as parsing values are used and therefore don't normalize {} delimiter!)
+ 
   
-  header_actions[,template_label_lookup:=str_escape(label)]
   
   #except, for titles that are purely "*"
   #and where JASON control codes inside {} have been inserted
-  header_actions[,template_label_lookup:=gsub("\\\\\\{[^\\}]+\\\\\\}",
-                                              ".*",
-                                              template_label_lookup)]
   
-  header_actions[,template_label_lookup:=gsub("^([[:punct:]]+|\\\\\\*)$",
-                                              ".*",
-                                              template_label_lookup)]
-  
-  #to ignore an entire section.
-  header_actions[!is.na(template_header_section_name) &
-                 grepl("^\\{IGNORE\\}$",template_header,ignore.case=T),
-                 template_label_lookup:=".*"]
+  #Primarily designed to strip-out bullets.  This is done before the str_escape, else bullets are no longer formatted as anticipated
+  if (!is.null(formatting.strip)) {
+    if (length(formatting.strip) != 1) {
+      formatting.strip <- paste0(formatting.strip,collapse="|")
+    }
+    header_actions[grepl(formatting.strip,template_header),
+                   template_header:=gsub(formatting.strip,"",template_header)]
+  }
 
-  if (detection=="full") {
+  
+  header_actions[,label:=trimFunc(template_header)] #for this template, use trimmed, not normalized (as parsing values are used and therefore don't normalize {} delimiter!)
+  header_actions[,template_label_lookup:=template_header]
+  {
+    # #to ignore an entire section.
+    # header_actions[!is.na(template_header_section_name) &
+    #                  grepl("^\\{IGNORE\\}$",template_header,ignore.case=T),
+    #                template_label_lookup:=".*"]
     
-    header_actions[,template_label_lookup:=paste0("^",str_escape(trimFunc(template_label_lookup)),"$")]
+    #the whole header is punctuation or a * char -- is this really useful?  I think not... 
+    #but system parsing must be specific to a defined section
+    # header_actions[!is.na(template_header_section_name) & 
+    #                grepl("^([[:punct:]]+|\\\\\\*)$",template_label_lookup),
+    #                template_label_lookup:=".*"]
     
-  } else {
+    #{indicators inside brackets#units}
+    header_actions[!is.na(template_header_section_name) & 
+                   grepl("\\{[^\\}]+\\}",template_label_lookup),
+                   template_label_lookup:=gsub("\\{[^\\}]+\\}",
+                                               ".*",
+                                               template_label_lookup)]
     
-    header_actions[,template_label_lookup:=paste0("^.*",str_escape(trimFunc(template_label_lookup)),".*$")]
+    #header_actions[,template_label_lookup:=str_escape(label)]
+    
+    
   }
   
-  #adds .* AFTER the header section name, so any "Summary..."
-  header_actions[,template_section_lookup:= paste0("^",str_escape(trimFunc(template_header_section_name)),".*$")]
   
-  #Is this still necessary?
-  # header_actions[,template_section_lookup:= paste0("^",
-  #                                                  gsub(":(all|any)$|:$","",
-  #                                                       x=str_escape(
-  #                                                         trimFunc(
-  #                                                           template_header_section_name)),
-  #                                                       ignore.case=T),
-  #                                                  ".*",
-  #                                                  "$")]
+  # header_actions[,template_label_lookup:=gsub("\\\\\\{[^\\}]+\\\\\\}",
+  #                                             ".*",
+  #                                             template_label_lookup)]
+  # 
+  # header_actions[,template_label_lookup:=gsub("^([[:punct:]]+|\\\\\\*)$",
+  #                                             ".*",
+  #                                             template_label_lookup)]
+  
+
+  #For the label "template_label_lookup"
+  header_actions[,template_label_lookup:=paste0("^",str_escape(trimFunc(template_label_lookup)),"$")]
+  # if (detection=="full") {
+  #   
+  #   
+  #   
+  # } else {
+  #   
+  #   header_actions[,template_label_lookup:=paste0("^",str_escape(trimFunc(template_label_lookup)),".*$")]
+  # }
+  #...but if we had {system} stuff that are replaced with ".*" str_escape will escape those to literal \\.\\* so undo that!
+  header_actions[grepl("(\\\\\\.\\\\\\*)",template_label_lookup),
+                 template_label_lookup:=gsub("(\\\\\\.\\\\\\*)",".*",template_label_lookup)]
+  
+  #For the "section"
+  #adds .* AFTER the header section name, so any "Summary..."
+  header_actions[,template_section_lookup:= paste0("^",str_escape(trimFunc(template_header_section_name)),"$")]
+  
+  
+
   #if there's a header action whose label is identical to a regular indicator, it means that the header actions are setup to overwrite the default.  So omit these
   #and where there is a match, the header will match any presence found in the document
   #however, for those where template_header_position is not NA, it means there was a concatenated label && in the template header and we DONT want to omit any where one/two of the
@@ -152,11 +182,6 @@ db_indicators_get_header_actions <- function(pool,
   
   header_actions[,label_header_id:=.GRP,
                  by=.(header_id)]
-  
-  
-  # setnames(header_actions,
-  #          old="remap_indicator_id",
-  #          new="indicator_id")
   
  return (header_actions)
 }

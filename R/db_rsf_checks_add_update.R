@@ -208,52 +208,6 @@ t20 <- Sys.time()
             x <- dbGetQuery(conn,"select * from _temp_add_checks where data_id is NULL or for_indicator_id is null")
             print(x)
             stop("_temp_add_checks failed to resolve data_id to apply flag.  see logs for details.")
-            
-          #   dbExecute(conn,"
-          #                         with reassign_checks as MATERIALIZED (
-          #                           select
-          #                           	tac.rsf_pfcbl_id,
-          #                           	concat(c_ind.data_category,' has never reported \"',
-          #                           	       c_ind.indicator_name,'\" but system checker flagged it for ',
-          #                           				 c_ic.check_name,': ',
-          #                           				 tac.check_message) as check_message,
-          #                           	r_ind.indicator_id as reassign_indicator_id,
-          #                           	r_ic.indicator_check_id as reassign_check_id,
-          #                           	reporting.data_id,
-          #                           	tac.for_indicator_id,
-          #                           	tac.check_asof_date,
-          #                           	tac.indicator_check_id
-          #                           
-          #                           from _temp_add_checks tac
-          #                           inner join p_rsf.indicators c_ind on c_ind.indicator_id = tac.for_indicator_id
-          #                           inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = tac.rsf_pfcbl_id
-          #                           inner join p_rsf.indicators r_ind on r_ind.data_category = ids.pfcbl_category
-          #                           inner join p_rsf.indicator_checks c_ic on c_ic.indicator_check_id = tac.indicator_check_id
-          #                           inner join p_rsf.indicator_checks r_ic on r_ic.check_class = c_ic.check_class
-          #                                                                 and r_ic.check_name ~ 'sys_unreported_data_flag'
-          #                           inner join lateral (select rdc.data_id 
-          #                                               from p_rsf.rsf_data_current rdc 
-          #                                               where rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
-          #                           											and rdc.indicator_id = r_ind.indicator_id
-          #                           											and rdc.reporting_asof_date <= tac.check_asof_date::date
-          #                           										order by rdc.reporting_asof_date desc
-          #                           										limit 1) as reporting on true
-          #                           where tac.data_id is NULL
-          #                           	and r_ind.indicator_sys_category = 'entity_reporting'
-          #                         )
-          #                         update _temp_add_checks tac
-          #                         set check_message = rc.check_message,
-          #                             for_indicator_id = rc.reassign_indicator_id,
-          #                         		indicator_check_id = rc.reassign_check_id,
-          #                         		data_id = rc.data_id
-          #                         from reassign_checks rc
-          #                         where tac.data_id is NULL
-          #                           and tac.rsf_pfcbl_id = rc.rsf_pfcbl_id
-          #                         	and tac.for_indicator_id = rc.for_indicator_id
-          #                         	and tac.indicator_check_id = rc.indicator_check_id
-          #                         	and tac.check_asof_date = rc.check_asof_date")
-          # }
-          
           
         }
     

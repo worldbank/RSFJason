@@ -7,19 +7,7 @@ parse_text_to_paragraphs <- function(content_lines,
     
   output <- match.arg(output)
   #content_lines <- readLines("C:/Users/SHeitmann/OneDrive-New/WBG/IFC Risk Sharing - Documents/Apps/Jason/Dev/RSFJason/facilityOTPSMELEASING51197-2026-02-18.txt")
-  bullet_rxp <- c("^[a-z]\\.",       #eg, a.
-                  "^[A-Z]\\.",       #eg, A.
-                  "^\\(\\d+\\)",     #eg, (1)
-                  "^\\([a-z]\\)",      #eg, (a)
-                  "^\\([A-Z]\\)",      #eg, (A)
-                  "^\\([ivx]+\\)",     #eg, (iv)
-                  "^\\([IXV]+\\)",     #eg, (IV)
-                  "^[ivx]+\\.",    #eg, iii.
-                  "^[IXV]+\\.",    #eg, III.
-                  "^o$",           #eg, "o"
-                  "^o\\.",         #eg, "o."
-                  "^o\\s",         #eg, "o "
-                  "^\\*")            #eg, *
+  bullet_rxp <- regexp_get_bullets()
   
   content_lines <- data.table(ln=1:length(content_lines),line=trimws(content_lines))
   
@@ -31,7 +19,7 @@ parse_text_to_paragraphs <- function(content_lines,
   content_lines[,junk:=NULL]
   
   content_lines[,
-                line:=gsub("[^[:punct:][:cntrl:][:alnum:][:space:]]","*",line)] #basically these are non-printing characters, which get generated from copy-pasting bullets.
+                line:=gsub("[^[:punct:][:cntrl:][:alnum:][:space:]]","+",line)] #basically these are non-printing characters, which get generated from copy-pasting bullets.
   
   content_lines[,
                 prev_line:=shift(line,n=1,type="lag",fill="")]
@@ -151,7 +139,8 @@ parse_text_to_paragraphs <- function(content_lines,
   
     if (paragraph.bullets & any(para$bullet_point)) {
       primary_bullet <- para$line[min(which(para$bullet_point))]
-      bullet_style <- names(which.max(sapply(bullet_rxp,grepl,x=primary_bullet)))
+      bullet_style <- names(which.max(sapply(bullet_rxp,grepl,
+                                             x=primary_bullet)))
       if (length(bullet_style)) {
         para[,
              pbullet:=bullet_point & grepl(bullet_style,line,ignore.case=F)]   

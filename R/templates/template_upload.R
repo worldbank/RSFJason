@@ -250,7 +250,8 @@ template_upload <- function(pool,
         where ri.import_id = $1::int
           and ind.is_periodic_or_flow_reporting is true  
           and ind.is_system is false
-          and NULLIF(previous.data_value,'0') is not distinct from NULLIF(rdc.data_value,'0')",
+          and NULLIF(previous.data_value,'0') is not distinct from NULLIF(rdc.data_value,'0')
+          and coalesce(previous.data_value,'0') is distinct from coalesce(rdc.data_value,'0')", #reporting zero repeatedly means "no change" and happens if zero is reported followed by a NULL/NA
       params=list(template$reporting_import$import_id))
       
       setDT(flow_repeats)
@@ -375,6 +376,12 @@ template_upload <- function(pool,
     
     #Bad ID formats and Essential Data Not reported
     if (any(template$match_results$match_action=="new")) {
+      
+      validSyscategory_id <- function(x) {
+        
+        !is.na(x) & grepl("^[A-Za-z0-9\\.:_-]+(\\s?[#\\(]{1}\\d+\\)?)?$",x)==TRUE
+        
+      }
       
       new_ids <- unique(template$match_results[match_action=="new",rsf_pfcbl_id])
       

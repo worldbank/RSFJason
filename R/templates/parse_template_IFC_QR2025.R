@@ -156,8 +156,12 @@ parse_template_IFC_QR2025 <- function(pool,
                      data_value:=dval]
         }
         
-        list_sheet <- nregions_table[sheets=="Lists",.(name,data_value)]
-        list_sheet <- list_sheet[grepl("^Template_",name)==F]
+        
+        lsheet <- grep("lists|template",snames,ignore.case=T,value=T)
+        if (length(lsheet) != 1) { stop("Failed to find Template sheet (formally Lists)") }
+        
+        list_sheet <- nregions_table[sheets==lsheet,.(name,data_value)]
+        list_sheet <- list_sheet[grepl("^Template_",name)==F] #template defined names are inherently excluded as not relevant for Jason (they're for the template!)
         list_sheet[,original_row_num:=.I]
       }
     }
@@ -203,8 +207,7 @@ parse_template_IFC_QR2025 <- function(pool,
                                                      template_id=template_lookup$template_id,
                                                      rsf_pfcbl_id=rsf_pfcbl_id.facility,
                                                      rsf_indicators=rsf_indicators,
-                                                     detection="full",
-                                                     normalize=T)
+                                                     formatting.function=normalizeLabel)
     }
   }
   
@@ -217,7 +220,7 @@ parse_template_IFC_QR2025 <- function(pool,
              find_labels=tolower(rsf_labels$template_label_lookup),
              match_id=rsf_labels$label_header_id,
              match_postion=rsf_labels$template_header_position,
-             MoreArgs=list(search_sections=rep(x="lists",times=length(list_sheet$name)),
+             MoreArgs=list(search_sections=rep(x="template",times=length(list_sheet$name)),
                            search_labels=normalizeLabel(list_sheet$name)),
              USE.NAMES = F)
       
@@ -311,7 +314,7 @@ parse_template_IFC_QR2025 <- function(pool,
         template_headers <- rbindlist(list(template_headers,
                                            list_sheet[!is.na(map_indicator_id),
                                                          .(label=name,
-                                                           data_source_index=paste0("Lists Sheet defined name ",name),
+                                                           data_source_index=paste0("Template Sheet defined name ",name),
                                                            indicator_id=map_indicator_id)]))
       }
       
@@ -554,7 +557,7 @@ parse_template_IFC_QR2025 <- function(pool,
       }
       
       list_sheet[,
-                 reporting_template_row_group:='1LISTS']
+                 reporting_template_row_group:='1TEMPLATE']
       
       list_sheet[,
                  reporting_template_data_rank:=1:.N] #1:.N instead of original row number since new data may be added in products
@@ -607,7 +610,9 @@ parse_template_IFC_QR2025 <- function(pool,
       if (length(label_cols[label_cols > 0]) == 0) stop("Failed to indicator labels in the template Summary sheet: Expected on Column B")
       if (which.max(label_cols) != 2) stop("Indicators are expected in Column B (and Column A may be used for multi-language labeling).  However, labels appear to be entered primarily elsewhere?")
       
-      label_cols <- label_cols[2]
+      
+      label_cols <- label_cols[which(names(label_cols) %in% c("A","B","C"))] #only columns where labels are allowed
+      #label_cols <- label_cols[which(names(label_cols) %in% c("B"))] #only check B (the defined names are separately checked)
       label_cols_index <- which(names(label_matches) %in% names(label_cols))
       
       
@@ -615,7 +620,8 @@ parse_template_IFC_QR2025 <- function(pool,
       label_matches <- label_matches[label_cols_index]
       
       #match_id is label_header_id
-      label_matches <- rbindlist(lapply(seq_along(label_cols_index),function(header_row,label_matches) { 
+      label_matches <- rbindlist(lapply(which(label_cols>0),
+                                        function(header_row,label_matches) { 
         x <- rbindlist(label_matches[[header_row]])
         x[,header_row:=header_row]
         return(x)
@@ -625,13 +631,18 @@ parse_template_IFC_QR2025 <- function(pool,
                                      on=.(match_id=label_header_id),
                                      nomatch=NULL]
       label_matches <- label_matches[,
-                                     .(header_ids=list(unique(match_id))),
-                                     by=.(original_row_num=match_rows,action,map_indicator_id,map_formula_id,map_check_formula_id,header_row)]
+                                     .(header_ids=list(unique(match_id)),
+                                       header_cols=list(header_row)),
+                                     by=.(original_row_num=match_rows,
+                                          action,
+                                          map_indicator_id,
+                                          map_formula_id,
+                                          map_check_formula_id)]
       
-      data_cols <- names(summary_sheet)[seq(from=min(label_cols_index),length.out=4)]
+      data_cols <- names(summary_sheet)[c(2,3,4,5)] #Cols B,C,D,E
       data_cols <- c(data_cols,"original_row_num")
       
-      formula_cols <- names(summary_formula_matrix)[seq(from=min(label_cols_index),length.out=4)]
+      formula_cols <- names(summary_formula_matrix)[c(2,3,4,5)]
       summary_formula_matrix <- summary_formula_matrix[,..formula_cols] #df not dt
       
       summary_sheet <- summary_sheet[,
@@ -655,6 +666,8 @@ parse_template_IFC_QR2025 <- function(pool,
                                            to.lower.case=FALSE,
                                            empty.is.NA=TRUE)]
   
+      
+      all_blanks <- which(sapply(as.data.frame(is.na(t(summary_sheet[,.(label,defined_name,data_unit,data_value)]))),all))
       
       all_blanks <- which(sapply(as.data.frame(is.na(t(summary_sheet[,.(label,defined_name,data_unit,data_value)]))),all))
       if (any(all_blanks)) summary_sheet <- summary_sheet[-all_blanks]
@@ -707,14 +720,12 @@ parse_template_IFC_QR2025 <- function(pool,
       #a defind_name label is not required
       #The template uses this functionality to help users match-up where defined names may not match-up with labels they're using for formulas
       summary_sheet <- summary_sheet[!(is.na(label) & header_row==2)]
-    }
-    
-    {
+      
       summary_sheet <- label_matches[summary_sheet,
-                                     on=.(original_row_num,
-                                          header_row)]  
+                                     on=.(original_row_num)]  
     }
     
+
     #Label errors/mismatching
     {
       
@@ -727,7 +738,11 @@ parse_template_IFC_QR2025 <- function(pool,
                     original_row_num > 0,
                     ignore:=TRUE]
       
-      stop_row <- summary_sheet[map_indicator_id %in% rsf_indicators[indicator_sys_category=="template_read_stop",indicator_id],original_row_num]
+      
+      #stop_row <- summary_sheet[map_indicator_id %in% rsf_indicators[indicator_sys_category=="template_read_stop",indicator_id],original_row_num]
+      
+      #changed to label_matches versus summary_sheet because the stop row could have matched a row that was removed already (like if stop row matched label is in column A)
+      stop_row <- label_matches[map_indicator_id %in% rsf_indicators[indicator_sys_category=="template_read_stop",indicator_id],original_row_num]
       if (length(stop_row) > 0) {
         stop_row <- min(stop_row)
         summary_sheet[original_row_num >= stop_row,
@@ -736,6 +751,7 @@ parse_template_IFC_QR2025 <- function(pool,
       
       #summary_sheet[ignore==TRUE]
       summary_sheet <- summary_sheet[ignore==FALSE]
+      
       
       summary_sheet[rsf_indicators,
                     indicator_name:=i.indicator_name,
@@ -784,7 +800,7 @@ parse_template_IFC_QR2025 <- function(pool,
                               indicator_id=as.numeric(NA), #will be auto-assigned to reporting indicator
                               reporting_asof_date=reporting_asof_date,
                               check_name="sys_flag_indicator_not_found",
-                              check_message=paste0("Summary Tab Row ",original_row_num," Column ",header_row," \"",label,"\""))]
+                              check_message=paste0("Summary Tab Row ",original_row_num," Column ",openxlsx2::int2col(header_row+1)," \"",label,"\""))]
           
           unfound_labels <- unfound_labels[,.(rsf_pfcbl_id,
                                               indicator_id,

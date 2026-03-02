@@ -31,8 +31,8 @@ rsf_program_calculate <- function(pool,
       if (calculate_future==FALSE &&
           is.null(reference_asof_date)==FALSE) {
         limit_date <- as.Date(reference_asof_date)
-        status_message(class="warning",
-                       "Setting calculate_future set to FALSE.  Skipping calculations after ",as.character(reference_asof_date),": update program setting to avoid this warning\n")
+        # status_message(class="warning",
+        #                "Setting calculate_future set to FALSE.  Skipping calculations after ",as.character(reference_asof_date),": update program setting to avoid this warning\n")
         
       }
       
