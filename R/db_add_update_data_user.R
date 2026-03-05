@@ -244,7 +244,7 @@ db_add_update_data_user <- function(pool,
         current_deletes <- dbGetQuery(conn,"
                               delete from _temp_upload_rsf_data urd
                               where urd.sequence_rank = $1::int
-                                and p_rsf.data_value_is_meaningfully_different2(input_rsf_pfcbl_id => urd.rsf_pfcbl_id,
+                                and p_rsf.data_value_is_meaningfully_different(input_rsf_pfcbl_id => urd.rsf_pfcbl_id,
                                                       													input_indicator_id => urd.indicator_id,
                                                       													input_reporting_asof_date => urd.reporting_asof_date,
                                                       													input_data_value => urd.data_value,

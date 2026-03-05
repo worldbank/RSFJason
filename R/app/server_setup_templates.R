@@ -69,6 +69,7 @@ server_setup_template__header_module_server <- function(id,
         return(showNotification(type="error",
                          ui=h3("Action must be selected")))
       }
+      
       tryCatch({
         dbExecute(pool,"
           update p_rsf.rsf_setup_template_headers fth
@@ -88,6 +89,7 @@ server_setup_template__header_module_server <- function(id,
                             selected="")
           
         
+        
         } else if (action %in% c("remap","unmap")) {
           
           updateSelectizeInput(session=session,
@@ -97,7 +99,8 @@ server_setup_template__header_module_server <- function(id,
                                                                 .(object=indicator_id,nm=indicator_name)])),
                             selected="")
         
-        }  else if (action %in% c("check")) {
+        
+        } else if (action %in% c("check")) {
           
           updateSelectizeInput(session=session,
                             inputId="template_header_target_name",
@@ -105,7 +108,8 @@ server_setup_template__header_module_server <- function(id,
                                                  RSF_CHECK_FORMULAS()[order(check_name_formula_title),
                                                                   .(object=check_formula_id,nm=check_name_formula_title)])))
         
-        }  else if (action %in% c("calculate")) {
+        
+        } else if (action %in% c("calculate")) {
           
           updateSelectizeInput(session=session,
                             inputId="template_header_target_name",
@@ -113,6 +117,7 @@ server_setup_template__header_module_server <- function(id,
                                                  RSF_INDICATOR_FORMULAS()[order(indicator_name_formula_title),
                                                                   .(object=formula_id,nm=indicator_name_formula_title)])))
                             
+        
         
         } else {
           showNotification(type="error",
@@ -240,7 +245,7 @@ server_setup_template__header_module_ui <- function(id,
   
   is_system <- template$is_system #Users can view system templates!
   
-  template_sheet  <- div(style="display:flex;flex-flow:row nowrap;min-width:150px;width:200px;padding:0 0 0 2px;white-space:nowrap;",
+  template_sheet  <- div(style="display:flex;flex-flow:row nowrap;flex-shrink:1;min-width:100px;width:200px;padding:0 0 0 2px;white-space:nowrap;",
                          textAreaInput(inputId=ns("template_header_sheet_name"),
                                    label=NULL,
                                    value=header$template_header_sheet_name,
@@ -258,7 +263,7 @@ server_setup_template__header_module_ui <- function(id,
                                      width="100%",
                                      placeholder="Enter template column to match"))
    
-    header_action <- div(style="display:flex;flex-flow:row nowrap;min-width:175px;width:175px;padding:0 0 0 2px;white-space:nowrap;",
+    header_action <- div(style="display:flex;flex-flow:row nowrap;min-width:125px;width:125px;padding:0 0 0 2px;white-space:nowrap;",
                          selectizeInput(inputId=ns("template_header_action"),
                                         label=NULL,
                                         width="100%",
@@ -276,7 +281,11 @@ server_setup_template__header_module_ui <- function(id,
     
     header_mapping <- NULL
     if (header$action %in% c("default","ignore","parse")) {
-      header_mapping <- div(style="display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;white-space:nowrap;",
+      
+      color <- NULL
+      if (header$action=="default" & nchar(header$template_header) > 5) color <- "background-color:orange;"
+      
+      header_mapping <- div(style=paste0("display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;white-space:nowrap;",color),
                             selectizeInput(inputId=ns("template_header_target_name"),
                                            label=NULL,
                                            width="100%",
@@ -285,8 +294,8 @@ server_setup_template__header_module_ui <- function(id,
                                            options=list(placeholder="Header not mapped")))
       
     } else if (header$action %in% c("remap","unmap")) {
-
-      header_mapping <- div(style="display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;white-space:nowrap;",
+      
+      header_mapping <- div(style="display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;",
                             selectizeInput(inputId=ns("template_header_target_name"),
                                            label=NULL,
                                            width="100%",
@@ -297,18 +306,19 @@ server_setup_template__header_module_ui <- function(id,
                                            options=list(placeholder="Header not mapped")))
     } else if (header$action %in% c("check")) {
       
-      header_mapping <- div(style="display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;white-space:nowrap;",
+      header_mapping <- div(style="display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;",
                             selectizeInput(inputId=ns("template_header_target_name"),
                                            label=NULL,
                                            width="100%",
                                            choices=c("",do.call(setNames,
                                                                 RSF_CHECK_FORMULAS()[order(check_name_formula_title),
                                                                                      .(object=check_formula_id,nm=check_name_formula_title)])),
-                                           selected=header$map_formula_check_id,
+                                           selected=header$map_check_formula_id,
                                            options=list(placeholder="Header not mapped")))
+      
     }  else if (header$action %in% c("calculate")) {
       
-      header_mapping <- div(style="display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;white-space:nowrap;",
+      header_mapping <- div(style="display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;",
                             selectizeInput(inputId=ns("template_header_target_name"),
                                            label=NULL,
                                            width="100%",
@@ -320,7 +330,7 @@ server_setup_template__header_module_ui <- function(id,
     }      
       
 
-    header_comment <- div(style="display:flex;flex-flow:row nowrap;min-width:150px;padding:0 0 0 2px;white-space:nowrap;",
+    header_comment <- div(style="display:flex;flex-flow:row nowrap;min-width:200px;padding:0 0 0 2px;white-space:nowrap;",
                           textAreaInput(inputId=ns("template_header_comment"),
                                     label=NULL,
                                     value=header$comment,

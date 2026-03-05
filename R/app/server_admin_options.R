@@ -158,7 +158,7 @@ observeEvent(input$admin_system_edit_options_delete, {
 observeEvent(input$admin_system_edit_options_save, {
 
   if (!LOGGEDIN()) return (NULL)
-  print("SAVING OPTION DATA")
+
 
   new_options_name <- input$admin_system_edit_options_name
   new_definition <- input$admin_system_edit_options_definition
@@ -214,7 +214,7 @@ observeEvent(input$admin_system_edit_options_save, {
       return (NULL)
     }
   }
-  
+
   option_keys_label <- unique(option_data[,.(options_group_id,label_id,options_group_key,label_key)])[,.(n=.N),by=.(options_group_id,label_id,options_group_key,label_key)]
 
   label_count <- option_data[,.(label=unique(c(primary_label,secondary_labels))),by=.(options_group_id,options_group_key,label_id)][,.(n=.N),by=.(label)][label != ""]
@@ -237,8 +237,8 @@ observeEvent(input$admin_system_edit_options_save, {
   } else if (any(grepl("[^A-Za-z0-9_\\.-]",unique(option_data$options_group_key)))) {
     showNotification(type="error",h2("Save Failed. Punctuation is not permitted in choice codes.  Issues: ",paste0(unique(grep("[^[:alnum:]_\\.-]",unique(option_data$options_group_key),value=T)))))
     return (NULL)
-  } else if (any(nchar(unique(option_data$options_group_key)) > 8)) {
-    showNotification(type="error",h2("Save Failed. Choices codes are limited to 8 characters.  Issues: ",paste0(unique(option_data$options_group_key)[nchar(unique(option_data$options_group_key))>8])))
+  } else if (any(nchar(unique(option_data$options_group_key)) > 14)) {
+    showNotification(type="error",h2("Save Failed. Choices codes are limited to 10 characters.  Issues: ",paste0(unique(option_data$options_group_key)[nchar(unique(option_data$options_group_key))>14])))
     return (NULL)
   }
 

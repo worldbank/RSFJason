@@ -105,7 +105,7 @@ db_add_update_data_system <- function(pool,
         nx <- dbExecute(conn,"
                         with redundancies as  (
                           delete from _temp_upload_system_data usd
-                          where p_rsf.data_value_is_meaningfully_different2(input_rsf_pfcbl_id => usd.rsf_pfcbl_id,
+                          where p_rsf.data_value_is_meaningfully_different(input_rsf_pfcbl_id => usd.rsf_pfcbl_id,
                                                       											input_indicator_id => usd.indicator_id,
                                                       											input_reporting_asof_date => usd.reporting_asof_date,
                                                       											input_data_value => usd.data_value,

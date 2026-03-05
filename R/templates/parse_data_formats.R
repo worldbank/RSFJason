@@ -186,6 +186,8 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
     #If we have any options groups to parse
     if (any(!is.na(reference_indicators$options_group_id))) {
       and_or_replacement <- "^([^[:punct:][:space:]]+)[[:space:]]*([[:punct:]])[[:space:]]*([^[:punct:][:space:]]+)$"
+      and_or_delimiter <- "[[:punct:]]*[[:space:]]+and[[:space:]]|[[:punct:]]*[[:space:]]+or[[:space:]]"
+      
       multiples_delimiters <- "[,&]"
       
       #unique "by" because data.table can't apply unique() to list types (ie, the options group labels)
@@ -257,6 +259,8 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
     
       options_data[,normalized_submitted_data_value:=superTrim(reporting_submitted_data_value)]
       options_data[,normalized_submitted_data_value:=gsub(and_or_replacement,"\\1\\2\\3",normalized_submitted_data_value)]
+      options_data[,normalized_submitted_data_value:=gsub(and_or_delimiter," & ",normalized_submitted_data_value)]
+      options_data[,normalized_submitted_data_value:=gsub("[,&][[:space:]]*[,&]"," & ",normalized_submitted_data_value)]
       
       options_data[,
                    `:=`(matched=FALSE,
@@ -927,6 +931,27 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                                  subs_flags))
           subs_flags <- NULL
         }
+        
+        # has_percents <- grepl("%",regular_data_pct$data_unit,perl=T)
+        # if (any(has_percents)) {
+        #   
+        #   pcts <- regular_data_pct[which(has_percents),data_value]
+        #   
+        #   pcts <- as.numeric(pcts) / 100
+        #   set(regular_data_pct,i=which(has_percents),j="data_value",value=pcts)
+        #   
+        #   subs_flags <- regular_data_pct[which(has_percents),
+        #                                  .(parse_id,
+        #                                    check_name="sys_flag_data_format_auto_correction",
+        #                                    check_message=paste0(indicator_name,": ",
+        #                                                         "from {",reporting_submitted_data_value,"} ",
+        #                                                         "to {",ifelse(is.na(data_value),"MISSING",data_value),
+        #                                                         ifelse(is.na(data_unit),"",paste("",data_unit)),"}"))]
+        #   
+        #   indicator_data_flags <- rbindlist(list(indicator_data_flags,
+        #                                          subs_flags))
+        #   subs_flags <- NULL
+        # }
         
         missings <- is.na(regular_data_pct$data_value)        
         pcts <- suppressWarnings(as.numeric(regular_data_pct$data_value))

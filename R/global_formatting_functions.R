@@ -185,7 +185,7 @@ superTrim <- function(x,
   x[grepl("^[\"' ]+$",x,perl=T)] <- ""        #The whole string is spaces or quotes, such as literal "" or ''
   if (to.lower.case==TRUE) x <- tolower(x)
   if (trim.punct==TRUE) {                     #remove trialing punctuation, eg "Yes!" -> "Yes" or "Yes." -> "Yes" 
-    x <- gsub("[\\.,!;:\\\\/%#?_+-]$","",x)
+    x <- gsub("[\\.,!;:\\\\/#?_]$","",x)
   }
   if (empty.is.NA==TRUE) {
     blanks <- which(nchar(x)==0)

@@ -26,6 +26,10 @@ parse_template_RSA <- function(pool,
                                 check_name=character(0),
                                 check_message=character(0))
   
+  #when these controllabels are entered into brackets, eg {...} or {...LCU...} it's ignored
+  #variety is to enable specificity about what data is there
+  ignore.controllabels <- c("...etc...","...","...BCU...","...LCU...","...LCY...","LCU","LCY") 
+  
   
   sections_rsa <- c("TERMS","DETERMINATION","COSTS","TERMINATION","CRITERIA","REPORTING","OTHER")
   sections_sys <- c("KEY","SYSNAME","ASOFDATE","USERID","ASOFDATE","TIMESTAMP",
@@ -463,7 +467,7 @@ parse_template_RSA <- function(pool,
               type="locf",
               cols="paragraph")
     
-    pages <- pages[!(grepl("^[[:cntrl:]]+$",text) | nchar(text)==0)]
+    pages <- pages[!(grepl("^[[:cntrl:]]+$",text) | nchar(text)==0)] #omit text that is "" or just \n blank links
     
     pages[is.na(paragraph),
           paragraph:=1]
@@ -475,6 +479,9 @@ parse_template_RSA <- function(pool,
     pages <- pages[,
                    .(text=paste0(text,collapse="\n")),
                    by=.(section,paragraph)]
+    
+    #since set set bullets to empty, we may have created new empties.
+    pages <- pages[!(grepl("^[[:cntrl:][:space:]]+$",text) | nchar(text)==0)] #omit text that is "" or just \n blank links
     
     pages
     #unique(pages$section)
@@ -773,10 +780,13 @@ parse_template_RSA <- function(pool,
                              nomatch=NULL]
       conflicts[,
                 nmatch:=nchar(template_label_lookup)]
+      conflicts[,
+                nactions:= as.numeric(!is.na(map_indicator_id)) + as.numeric(!is.na(map_formula_id)) + as.numeric(!is.na(map_check_formula_id)) + fifelse(action=="default",yes=0,no=1,na=0)]
       
       setorder(conflicts,
                matched_row_num,
                n,
+               -nactions,
                -nmatch) #most match is first
       
       #this one is the most match and there is a clear "most" (ie, not two of the same nchar count)
@@ -834,15 +844,25 @@ parse_template_RSA <- function(pool,
     
     mapped_labels <- rsa[action=="remap" | action=="default"]
     if (!empty(mapped_labels)) {
-      mapped_labels <- mapped_labels[,
+      mapped_actions <- mapped_labels[!is.na(map_indicator_id),
                                      .(rsf_pfcbl_id=for_rsf_pfcbl_id,
-                                       indicator_id=map_indicator_id, #will be auto-assigned to reporting indicator
+                                       indicator_id=map_indicator_id,
                                        reporting_asof_date=reporting_asof_date,
                                        check_name='sys_flag_template_match_actions',
                                        check_message=paste0(indicator_name," mapped from section ",toupper(section)," paragraph ",paragraph,": [",text,"]"))]
       
       reporting_flags <- rbindlist(list(reporting_flags,
-                                        mapped_labels))
+                                        mapped_actions))
+      
+      mapped_actions <- mapped_labels[is.na(map_indicator_id),
+                                     .(rsf_pfcbl_id=for_rsf_pfcbl_id,
+                                       indicator_id=NA, #will be auto-assigned to reporting indicator
+                                       reporting_asof_date=reporting_asof_date,
+                                       check_name='sys_flag_indicator_not_found',
+                                       check_message=paste0("No mapping found for DEFAULT assignment for header ",toupper(section)," paragraph ",paragraph,": [",text,"] (should action be set to Ignore?)"))]
+      
+      reporting_flags <- rbindlist(list(reporting_flags,
+                                        mapped_actions))
     }
     
     mapped_labels <- rsa[action=="calculate"]
@@ -882,7 +902,9 @@ parse_template_RSA <- function(pool,
 
     parsing <- rsa[,.(label_header_id=unlist(header_ids,recursive=F)),
                    by=c(grep("header_ids",names(rsa),invert=T,value=T))]
-    
+
+    #parsing are all those explicitly labeled as "parse"
+    #and all those that have a {.*} stuff in brackets
     parsing <- parsing[rsf_labels[action=="parse" | grepl("\\{.*\\}",label),
                               .(parse_label=label,
                                 parse_label_lookup=template_label_lookup,
@@ -928,13 +950,6 @@ parse_template_RSA <- function(pool,
                                    USE.NAMES = F)]
       
       parsing[,id:=1:.N]
-      # parsing[,
-      #                    .(id,
-      #                      full_title,
-      #                      parse_label,
-      #                      text,
-      #                      pages,
-      #                      parse_keys)]
       
       pkv <- mapply(FUN=function(a,b) {
     
@@ -969,8 +984,12 @@ parse_template_RSA <- function(pool,
               on=.(indicator_id)]
       
       #where values are intentionally set to ignore but to allow the parsing to accommodate various text permutations
-      parsing <- parsing[!(is.na(indicator_id) & indicator_name %in% c("text","number","percent","ignore","date"))]
-    
+      parsing <- parsing[!(is.na(indicator_id) & data_unit %in% c("text","number","percent","ignore","date"))]
+      parsing <- parsing[!tolower(indicator_name) %in% tolower(ignore.controllabels)]
+      
+      parsing[!(is.na(indicator_id) & data_unit %in% c("percent")) & !grepl("%|percent",data_value) & data_unit %in% c("%") & !is.na(suppressWarnings(as.numeric(data_value))),
+              data_value:=as.character(as.numeric(data_value)/100)]
+      
       {
         unfound_labels <- parsing[is.na(indicator_id)]
         parsing <- parsing[is.na(indicator_id)==FALSE]
@@ -982,8 +1001,8 @@ parse_template_RSA <- function(pool,
                               indicator_id=as.numeric(NA), #will be auto-assigned to reporting indicator
                               reporting_asof_date=reporting_asof_date,
                               check_name="sys_flag_indicator_not_found",
-                              check_message=paste0("Failed to map '",indicator_name,"' for header: ",parse_label," USING [",full_title,"] pdf page ",pages,":: ",text))]
-          
+                              check_message=paste0("Failed to map '",indicator_name,"' for header: ",parse_label," USING [",toupper(section)," paragraph ",paragraph,": [",trimws(text),"]"))]
+
           unfound_labels <- unfound_labels[,.(rsf_pfcbl_id,
                                               indicator_id,
                                               reporting_asof_date,
@@ -1022,19 +1041,34 @@ parse_template_RSA <- function(pool,
       
       parsing[,SYSID:=for_rsf_pfcbl_id]
       
+      #we cannot parse and enter data for hierarchal data.  But we can (and need) to be able to specify loan, borrower, etc level indicators for facility-level indicator subscriptions.
+      #It's possible some of these could be subscribed via a parse instruction.
       pfcbl_category <- rsf_indicators[indicator_id %in% parsing[,indicator_id],unique(data_category)]
-      if (!all(pfcbl_category %in% c("facility","program"))) {
-        
-        parsing[rsf_indicators[,.(indicator_id,data_category)],
-                on=.(indicator_id),
-                nomatch=NULL][!data_category %in% c("facility","program")]
-        
-        stop("RSA template parsing can only map to facility-level indicators.  Double check the template header mapping settings.")
+      remap_hierarchies <- {
+        if (!all(pfcbl_category %in% c("facility","program"))) {
+  
+  
+          remap_hierarchies <-parsing[indicator_id %in% rsf_indicators[!data_category %in% c("facility","program"),indicator_id],
+                                      .(action="remap",
+                                        indicator_id,
+                                        indicator_formula_id=as.numeric(NA),
+                                        check_formula_id=as.numeric(NA),
+                                        comments=paste0(toupper(section)," paragraph ",paragraph,":: ",text))]
+          
+          parsing <- parsing[!(indicator_id %in% rsf_indicators[!data_category %in% c("facility","program"),indicator_id])]
+  
+          remap_hierarchies
+  
+        } else {
+          NULL
+        }
       }
     
     }
   }
  
+  #Its possible (expected) that the same metric could parse the same or multiple values.  For LIST text metrics, this is necessary.  And for multi-select values.
+  #Concatenate these into a csv list.
   parsing[,n:=.N,
           by=.(SYSID,
                reporting_asof_date,
@@ -1043,11 +1077,12 @@ parse_template_RSA <- function(pool,
   
   if (!empty(parsing[n>1])) {
     
-    parsing[indicator_name %in% rsf_indicators[indicator_options_group_allows_multiples==TRUE,indicator_name],
+    parsing[(indicator_name %in% rsf_indicators[indicator_options_group_allows_multiples==TRUE,indicator_name]) |
+            (grepl("list",indicator_name,ignore.case=T) & indicator_name %in% rsf_indicators[data_type=="text",indicator_name]),
             multiples:=TRUE]
     
     parsing[n > 1 & multiples==TRUE,
-            data_value:=paste0(sort(unique(data_value)),collapse=" & "),
+            data_value:=paste0(sort(unique(superTrim(data_value))),collapse=" & "),
             by=.(SYSID,
                  reporting_asof_date,
                  indicator_id,
@@ -1060,16 +1095,80 @@ parse_template_RSA <- function(pool,
   }
   
   parsing[,n:=NULL]
+  parsing[,data_value:=superTrim(data_value)]
+  
+  
+  
+  existing_data <- dbGetQuery(pool,"
+    select
+      rdc.rsf_pfcbl_id,
+      rdc.indicator_id,
+      rdc.reporting_asof_date,
+      p_rsf.rsf_data_value_unit(rdc.data_value,rdc.data_unit) as existing_value,
+      ri.file_name,
+      p_rsf.data_value_is_meaningfully_different(input_rsf_pfcbl_id => rdc.rsf_pfcbl_id,
+                                                 input_indicator_id => rdc.indicator_id,
+                                                 input_reporting_asof_date => rdc.reporting_asof_date,
+                                                 input_data_value => rdc.data_value,
+                                                 input_data_unit => rdc.data_unit,
+                                                 is_user_reporting => true) as different
+    from p_rsf.rsf_data_current rdc
+    inner join p_rsf.rsf_data rd on rd.data_id = rdc.data_id
+    inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
+    inner join p_rsf.reporting_imports ri on ri.import_id = rc.import_id
+    where rdc.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+      and rdc.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+      and rdc.reporting_asof_date = any(select unnest(string_to_array($3::text,','))::date)
+      and rc.is_calculated_cohort is false",
+    params=list(paste0(unique(parsing$SYSID),collapse=","),
+                paste0(unique(parsing$indicator_id),collapse=","),
+                paste0(unique(parsing$reporting_asof_date,collapse=",")))) 
+  
+  if (!empty(existing_data)) {
+    
+    setDT(existing_data)
+    existing_data[,file_name:=gsub(".gz","",file_name)]
+    parsing[,omit:=FALSE]
+    parsing[existing_data,
+            omit:=TRUE,
+            on=.(SYSID=rsf_pfcbl_id,
+                 indicator_id,
+                 reporting_asof_date)]
+    
+    existing_data <- existing_data[parsing,
+                  on=.(rsf_pfcbl_id=SYSID,
+                       indicator_id,
+                       reporting_asof_date),
+                  nomatch=NULL]
+    existing_data <- existing_data[different==TRUE]
+    existing_data <- unique(existing_data[,.(rsf_pfcbl_id,
+                                             indicator_id=NA, #consolidate under sys_reporting
+                                             reporting_asof_date,
+                                             check_name="sys_flag_indicator_ignored",
+                                             check_message=paste0("RSA template will not overwrite data: ",
+                                                                  "Parsed value ",indicator_name,"[",
+                                                                  fcase(!is.na(data_value) & !is.na(data_unit),paste0(data_value," ",data_unit),
+                                                                        is.na(data_value),data_unit,
+                                                                        is.na(data_unit),data_value,
+                                                                        default="MISSING"),
+                                                                  "] IGNORED because of existing value [",existing_value,"] ",
+                                                                  "reported in '",file_name,"'"))])
+    
+    reporting_flags <- rbindlist(list(reporting_flags,
+                                      existing_data))
+    
+    parsing <- parsing[omit==FALSE]
+  }                              
   #Only "PARSING" will generate data
   #other actions generate actions
   template_data <- unique(parsing[!is.na(indicator_name),
-                           .(SYSID,
-                             reporting_asof_date,
-                             indicator_id,
-                             indicator_name,
-                             reporting_submitted_data_value=data_value,
-                             reporting_submitted_data_unit=data_unit,
-                             reporting_submitted_data_formula=as.character(NA))])
+                                 .(SYSID,
+                                   reporting_asof_date,
+                                   indicator_id,
+                                   indicator_name,
+                                   reporting_submitted_data_value=data_value,
+                                   reporting_submitted_data_unit=data_unit,
+                                   reporting_submitted_data_formula=as.character(NA))])
   
   template_data[,reporting_template_row_group:=paste0(1:.N,"RSA")]
   
@@ -1084,7 +1183,8 @@ parse_template_RSA <- function(pool,
                                       indicator_id,
                                       indicator_formula_id=as.numeric(NA),
                                       check_formula_id=as.numeric(NA),
-                                      comments=paste0(toupper(section)," paragraph ",paragraph,":: ",text))]))
+                                      comments=paste0(toupper(section)," paragraph ",paragraph,":: ",text))],
+                            remap_hierarchies))
   
   
   actions <- actions[!(action=="ignore")] #ignore means ignore... do nothing
@@ -1376,7 +1476,7 @@ parse_template_RSA <- function(pool,
     })
   }
   
-  
+                             
   #These are essentially triggers:
   #IF this indicator_id/indicator_name is present in the facility's actions registry (presumably as a result of the actions we've just taken)
   #Then register this action.

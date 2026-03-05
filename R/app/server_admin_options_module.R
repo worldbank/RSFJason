@@ -44,7 +44,6 @@ module_session_system_options_key_labels <- function(id,label_id,label_key,slabe
      #o2 <- observeEvent(sapply(1:this.secondary_label_count(),function(x) input[[paste0("secondary_label",x)]]),{ 
      o2 <- observeEvent(sapply(grep("^secondary_label",names(input),value=T),function(x) input[[x]]), {
        
-
        option_data <- SELECTED_SYSTEM_OPTION_DATA()      
        ranks <- option_data$secondary_label_rank[option_data$label_id==label_id & option_data$label_key==this.label_key()]
        
@@ -56,23 +55,22 @@ module_session_system_options_key_labels <- function(id,label_id,label_key,slabe
        labs <- sapply(grep("^secondary_label",names(input),value=T),function(x) input[[x]])
        
        for(i in 1:length(labs)) {
-         #r <- ranks[i]
-         slabel <- labs[i]
+
+         slabel <- trimws(labs[i])
          
-         if (!isTruthy(slabel)) next;
+         if (!isTruthy(slabel)) slabel <- ""
          
          rank <- option_data$secondary_label_rank[option_data$label_id==label_id & option_data$label_key==this.label_key()][i]
-         current_val <- option_data$secondary_labels[option_data$label_id==label_id & option_data$label_key==this.label_key() & option_data$secondary_label_rank==rank]
-         if (isTruthy(current_val) && current_val==slabel) next
-         else option_data$secondary_labels[option_data$label_id==label_id & option_data$label_key==this.label_key() & option_data$secondary_label_rank==rank] <- slabel
+         option_data$secondary_labels[option_data$label_id==label_id & option_data$label_key==this.label_key() & option_data$secondary_label_rank==rank] <- slabel
        }
+       
        SELECTED_SYSTEM_OPTION_DATA(option_data)
      }, ignoreInit=TRUE)
      
      o3 <- observeEvent(input$primary_label, {
        #print("input$primary_label")
        new_pl <- trimws(input$primary_label,whitespace="[ \\t\\r\\n\\v\\h\\s]")
-       if (!isTruthy(new_pl)) new_pl <- NA
+       if (!isTruthy(new_pl)) new_pl <- ""
        
        ssod <- SELECTED_SYSTEM_OPTION_DATA()
        ssod$primary_label[ssod$label_id==label_id & ssod$label_key==this.label_key()] <- new_pl

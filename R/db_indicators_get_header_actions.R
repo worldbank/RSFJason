@@ -41,7 +41,7 @@ db_indicators_get_header_actions <- function(pool,
   stop_actions <- header_actions[is.na(stop)==FALSE & action=="ignore"]
   
   #default allows facilities to overwrite program-level setups, for example.
-  header_actions <- header_actions[action != "default"]
+  #header_actions <- header_actions[action != "default"]
   
   if (any(grepl("&&",header_actions$template_header))) {
     grouped_header_actions <- header_actions[grepl("&&",template_header),
@@ -121,6 +121,9 @@ db_indicators_get_header_actions <- function(pool,
                                                ".*",
                                                template_label_lookup)]
     
+    #words with the trim.punct of superTrim
+    #the label entries might not all match puctuation exactly; or user might wrap-up into one line instead of two.  So try to allow flexibility.
+    
     #header_actions[,template_label_lookup:=str_escape(label)]
     
     
@@ -135,7 +138,7 @@ db_indicators_get_header_actions <- function(pool,
   #                                             ".*",
   #                                             template_label_lookup)]
   
-
+  
   #For the label "template_label_lookup"
   header_actions[,template_label_lookup:=paste0("^",str_escape(trimFunc(template_label_lookup)),"$")]
   # if (detection=="full") {
@@ -148,7 +151,10 @@ db_indicators_get_header_actions <- function(pool,
   # }
   #...but if we had {system} stuff that are replaced with ".*" str_escape will escape those to literal \\.\\* so undo that!
   header_actions[grepl("(\\\\\\.\\\\\\*)",template_label_lookup),
-                 template_label_lookup:=gsub("(\\\\\\.\\\\\\*)",".*",template_label_lookup)]
+                 template_label_lookup:=gsub("([[:space:]]*\\\\\\.\\\\\\*[[:space:]]*)",".*",template_label_lookup)]
+  
+  header_actions[,
+                 template_label_lookup:=gsub("\\\\*[\\.,!;:?][\\n\\s]*(?!\\*)","[\\\\.,!;:\\\\?\\\\s\\\\n]*",template_label_lookup,perl=T)]
   
   #For the "section"
   #adds .* AFTER the header section name, so any "Summary..."

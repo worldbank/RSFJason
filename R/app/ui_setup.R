@@ -161,19 +161,66 @@ Each term should be separated by an empty line.")
                                      class="btn-primary"))
                     ),
                     fluidRow(column(10,div(style="display:flex;flex-direction:row;padding-top:5px;")))),
+
+
+################
+###TAB TEMPLATES
+################
+
+tabPanel("Setup Templates",value="setup_templates",
+         fluidRow(column(12,
+                         div(style="display:flex;flex-direction:row;padding-top:5px;",
+                             div(style="padding-left:20px",
+                                 selectizeInput(inputId="ui_setup__template_selected",
+                                                label="Templates Listing",
+                                                choices="",
+                                                options=list(placeholder="Nothing selected"),
+                                                selected="",
+                                                width="250px")),
+                             
+                             div(style="padding-left:40px;padding-top:25px;",
+                                 downloadButton(outputId="ui_setup__template_headers_download",
+                                                label="Download Headers",
+                                                width="250px"))
+                         ))
+         ),
+         fluidRow(style="margin-bottom:15px;",
+                  column(12,
+                         uiOutput(outputId="ui_setup__templates_add_mapping_UI"))),
+         
+         fluidRow(column(12,
+                         
+                         div(name="template_header_box",
+                             id="ui_setup__templates_mapping_labels",
+                             div(style="display:flex;flex-flow:row nowrap;justify-content:left;align-items:start;",
+                                 div(style="display:flex;flex-flow:row nowrap;flex-shrink:1;min-width:100px;width:200px;padding:0 0 0 2px;white-space:nowrap;",
+                                     tags$label("Location")),
+                                 
+                                 div(style="display:flex;flex-flow:row nowrap;min-width:450px;padding:0 0 0 2px;flex-grow:1;white-space:nowrap;",
+                                     tags$label("Template Header or Match Value")),
+                                 
+                                 div(style="display:flex;flex-flow:row nowrap;min-width:125px;width:125px;padding:0 0 0 2px;white-space:nowrap;",
+                                     tags$label("Action")),
+                                 
+                                 div(style="display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;",
+                                     tags$label("Target")),
+                                 
+                                 div(style="display:flex;flex-flow:row nowrap;min-width:200px;padding:0 0 0 2px;white-space:nowrap;",
+                                     tags$label("Comment")),
+                                 
+                                 div(style=paste0("display:flex;flex-flow:row nowrap;width:40px;padding:0 0 0 2px;"),"")
+                             )
+                         ),
+                         uiOutput(outputId="ui_setup__templates_mapping_UI")))),
+
+
 #################
 ###TAB INDICATORS
 #################
                   tabPanel("Setup Indicators",value="setup_indicators",
                            fluidRow(column(10,
                                     div(style="display:flex;flex-direction:row;padding-top:5px;",
-                                      # div(style="padding-left:20px",
-                                      #     selectizeInput(inputId="ui_setup__indicator_program_facilities",
-                                      #                label="RSF Program Facilities",
-                                      #                choices=c(),
-                                      #                selected="",
-                                      #                width="280px")),
-                                      
+
                                       hidden(div(style="padding-left:20px",
                                                  id="ui_setup__indicator_setup_filter_ui",
                                           selectizeInput(inputId="ui_setup__indicator_setup_filter",
@@ -247,13 +294,6 @@ Each term should be separated by an empty line.")
   tabPanel("Setup Checks",value="setup_checks",
            fluidRow(column(10,
                            div(style="display:flex;flex-direction:row;padding-top:5px;",
-                               # div(style="padding-left:20px",
-                               #     selectizeInput(inputId="ui_setup__checks_program_facilities",
-                               #                    label="RSF Program Facilities",
-                               #                    choices=c(),
-                               #                    selected="",
-                               #                    width="280px")),
-                               # 
                                div(style="padding-left:20px",
                                    selectizeInput(inputId="ui_setup__checks_monitoring_filter",
                                                   label="Monitoring Filter",
@@ -312,64 +352,6 @@ Each term should be separated by an empty line.")
                            
                            DT::dataTableOutput(outputId="ui_setup__checks_monitored_table")))),
 
-
-################
-###TAB TEMPLATES
-################
-
-tabPanel("Setup Templates",value="setup_templates",
-         fluidRow(column(12,
-                         div(style="display:flex;flex-direction:row;padding-top:5px;",
-                             # div(style="padding-left:20px",
-                             #     selectizeInput(inputId="ui_setup__templates_program_facilities",
-                             #                    label="RSF Program Facilities",
-                             #                    choices=c(),
-                             #                    selected="",
-                             #                    width="280px")),
-                             # 
-                             div(style="padding-left:20px",
-                                 selectizeInput(inputId="ui_setup__template_selected",
-                                                label="Templates Listing",
-                                                choices="",
-                                                options=list(placeholder="Nothing selected"),
-                                                selected="",
-                                                width="250px")),
-                             
-                             div(style="padding-left:40px;padding-top:25px;",
-                                 downloadButton(outputId="ui_setup__template_headers_download",
-                                                label="Download Headers",
-                                                width="250px")),
-                             
-                             div(style="padding-left:20px",
-                                 fileInput(inputId="ui_setup__template_headers_upload",
-                                           label="Upload Headers",
-                                           accept="xlsx",
-                                           width="250px"))
-                         ))
-         ),
-         fluidRow(style="margin-bottom:15px;",
-                  column(12,
-                         uiOutput(outputId="ui_setup__templates_add_mapping_UI"))),
-
-         fluidRow(column(12,
-                         
-                          div(name="template_header_box",
-                              id="ui_setup__templates_mapping_labels",
-                              div(style="display:flex;flex-flow:row nowrap;justify-content:left;align-items:start;",
-                                div(style="display:flex;flex-flow:row nowrap;min-width:100px;width:200px;padding:0 0 0 2px;white-space:nowrap;",
-                                    tags$label("Location")),
-                                div(style="display:flex;flex-flow:row nowrap;min-width:450px;padding:0 0 0 2px;flex-grow:1;white-space:nowrap;",
-                                    tags$label("Template Header or Match Value")),
-                                div(style="display:flex;flex-flow:row nowrap;min-width:175px;width:175px;padding:0 0 0 2px;white-space:nowrap;",
-                                    tags$label("Action")),
-                                div(style="display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;white-space:nowrap;",
-                                    tags$label("Target")),
-                                div(style="display:flex;flex-flow:row nowrap;min-width:150px;padding:0 0 0 2px;white-space:nowrap;",
-                                    tags$label("Comment")),
-                                div(style=paste0("display:flex;flex-flow:row nowrap;width:40px;padding:0 0 0 2px;"),"")
-                              )
-                          ),
-                          uiOutput(outputId="ui_setup__templates_mapping_UI")))),
 
 #################
 ###TAB CREATE NEW
