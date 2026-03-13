@@ -4,7 +4,15 @@ db_add_update_data_user <- function(pool,
                                     upload_user_id,
                                     rsf_indicators) {
   
-  if (empty(upload_data)) return (NULL)
+  if (empty(upload_data)) {
+    return (data.table(rsf_pfcbl_id=numeric(0),
+                       indicator_id=numeric(0),
+                       reporting_asof_date=as.Date(numeric(0)),
+                       data_value=character(0),
+                       data_unit=character(0),
+                       data_submitted=character(0),
+                       inserted=logical(0)))
+  }
   
 
   t1<-Sys.time()

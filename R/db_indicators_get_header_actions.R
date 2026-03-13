@@ -153,8 +153,20 @@ db_indicators_get_header_actions <- function(pool,
   header_actions[grepl("(\\\\\\.\\\\\\*)",template_label_lookup),
                  template_label_lookup:=gsub("([[:space:]]*\\\\\\.\\\\\\*[[:space:]]*)",".*",template_label_lookup)]
   
+  # header_actions[,
+  #                template_label_lookup:=gsub("\\\\*[\\.,!;:?][\\n\\s]*(?!\\*)","[\\\\.,!;:\\\\?\\\\s\\\\n]*",template_label_lookup,perl=T)]
+  # 
+  
+  #when we insert .* for content inside {} 
+  #if the text is, eg: This is a value:30
+  #and the parse is,   This is a value:{XXX}
+  #Then the result is: This is a value:.*
+  #So if we have a literal "*" with punctuation and (maybe) a space
+  #then replace it with a literal regexp expression [[:space:]\\\\.,!;:\\\\?]*
+  #to match zero-plus spaces or puncrutations preceeding a literal * so that we can match :.*
+  #Match literal *
   header_actions[,
-                 template_label_lookup:=gsub("\\\\*[\\.,!;:?][\\n\\s]*(?!\\*)","[\\\\.,!;:\\\\?\\\\s\\\\n]*",template_label_lookup,perl=T)]
+                 template_label_lookup:=gsub("\\\\*[.,!;:?][[:space:]]*(?!\\*)","[[:space:].,!;:?]*",template_label_lookup,perl=T)]
   
   #For the "section"
   #adds .* AFTER the header section name, so any "Summary..."

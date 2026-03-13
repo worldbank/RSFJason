@@ -96,18 +96,6 @@ export_rsf_setup_files_to_excel <- function(pool,
       
     }
     
-    program_settings <- NULL
-    if (any(include=="settings")) {
-      program_settings <- dbGetQuery(pool,"
-                                     select * 
-                                     from p_rsf.view_rsf_setup_programs_settings rps
-                                     where rps.pfcbl_category = $1::text
-                                       and rps.rsf_pfcbl_id = $2::int",
-                                     params=list(export_pfcbl_category,
-                                                 export_pfcbl_id))
-      setDT(program_settings)
-    }
-    
     program_indicators <- NULL
     if (any(include=="indicators")) {
       program_indicators <- dbGetQuery(pool,"
@@ -306,27 +294,7 @@ export_rsf_setup_files_to_excel <- function(pool,
                                               reporting_notes="")
   }  
   
-  if (!empty(program_settings)) {
-    program_settings <- program_settings[,
-                                         .(SYSNAME=sys_name,
-                                           setting=setting_name,
-                                           value=setting_value)]
-    
-    excelwb <- rsf_reports_create_excel_sheet(excelwb=excelwb,
-                                              sheet_name="PROGRAM_SETTINGS",
-                                              sheet_data_table_name="RSF_SETTINGS_DATA",
-                                              sheet_data=program_settings,
-                                              
-                                              program_name=exporting_name,
-                                              
-                                              template_key=TEMPLATE$template_key,
-                                              
-                                              reporting_entity=exporting_entity_name,
-                                              reporting_asof_date=exporting_asof_date,
-                                              reporting_user=format_name_abbreviation(exporting_users_name),
-                                              reporting_time=as.character(now()),
-                                              reporting_notes="")
-  }  
+  
   
   if (!empty(checks_config)) {
     setcolnames(checks_config,

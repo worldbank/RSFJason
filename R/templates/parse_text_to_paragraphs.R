@@ -213,7 +213,7 @@ parse_text_to_paragraphs <- function(content_lines,
                                paragraphs=content_paragraphs)
 
   if (output=="table") {
-    return (content_paragraphs)
+    return (rbindlist(content_paragraphs))
   } else if (output=="text") {
     return (paste0(sapply(content_paragraphs,'[[','text'),collapse="\n\n"))
   } else {

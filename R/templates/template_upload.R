@@ -9,9 +9,11 @@ template_upload <- function(pool,
     
     SYSTEM_CALCULATOR_ACCOUNT <- CALCULATIONS_ENVIRONMENT$SYSTEM_CALCULATOR_ACCOUNT
     
-    if (is.null(template$pfcbl_data) || all(is.na(template$pfcbl_data))) stop("Missing pfcbl_data")
-    
-    status_message(class="none",paste0("Uploading data for: ",template$reporting_cohort$source_reference," ...\n"))
+    if (is.null(template$pfcbl_data) || empty(is.na(template$pfcbl_data))) {
+      status_message(class="warning",paste0("\n EMPTY DATASET: this upload contains no data\n"))
+    } else {
+      status_message(class="none",paste0("Uploading data for: ",template$reporting_cohort$source_reference," ...\n"))
+    }
   
     t1<-Sys.time() 
     
@@ -526,20 +528,25 @@ template_upload <- function(pool,
       
       db_rsf_checks_add_update(pool=pool,
                                data_checks=sys_flags,
-                               consolidation_threshold=template$get_program_setting("on_upload_check_consolidation_threshold"))
+                               consolidation_threshold=0)
       
     }
   }  
   
   
   t2 <- Sys.time()
+  reference_asof_date <- pmax(template$reporting_import$reporting_asof_date,
+                              ifelse(length(template$pfcbl_data$reporting_asof_date),
+                                     template$pfcbl_data$reporting_asof_date,
+                                     NA),
+                              na.rm=T)
+
   processed_calculations <- rsf_program_calculate(pool=pool,
                                                   rsf_indicators=template$rsf_indicators,
                                                   rsf_pfcbl_id.family=template$reporting_import$import_rsf_pfcbl_id,
                                                   for_import_id=template$reporting_import$import_id,
-                                                  calculate_future=template$get_program_setting("on_upload_perform_future_calculations"),
-                                                  reference_asof_date=pmax(template$reporting_import$reporting_asof_date,
-                                                                           max(template$pfcbl_data$reporting_asof_date)),
+                                                  calculate_future=FALSE,
+                                                  reference_asof_date=reference_asof_date,
                                                   status_message = status_message)
 
   if(SYS_PRINT_TIMING) debugtime("template_upload"," >> Calculate time: ",format(Sys.time()-t2))
@@ -547,14 +554,13 @@ template_upload <- function(pool,
   template$calculate_time <- as.numeric(Sys.time()-t2,"secs")
   
   t2 <- Sys.time()
-  rsf_program_check(pool=pool,
-                    rsf_indicators=template$rsf_indicators,
-                    rsf_pfcbl_id.family=template$reporting_import$import_rsf_pfcbl_id,
-                    check_future=template$get_program_setting("on_upload_perform_future_checks"),
-                    check_consolidation_threshold=template$get_program_setting("on_upload_check_consolidation_threshold"),
-                    reference_asof_date=pmax(template$reporting_import$reporting_asof_date,
-                                             max(template$pfcbl_data$reporting_asof_date)),
-                    status_message= status_message)
+  processed_checks <- rsf_program_check(pool=pool,
+                                        rsf_indicators=template$rsf_indicators,
+                                        rsf_pfcbl_id.family=template$reporting_import$import_rsf_pfcbl_id,
+                                        check_future=FALSE,
+                                        check_consolidation_threshold=0,
+                                        reference_asof_date=reference_asof_date,
+                                        status_message= status_message)
 
   if(SYS_PRINT_TIMING) debugtime("template_upload"," >> Check time: ",format(Sys.time()-t2))
   
@@ -787,7 +793,7 @@ template_upload <- function(pool,
         rsf_program_calculate(pool=pool,
                               rsf_indicators=template$rsf_indicators,
                               rsf_pfcbl_id.family=template$reporting_import$import_rsf_pfcbl_id,
-                              calculate_future=template$get_program_setting("on_upload_perform_future_calculations"),
+                              calculate_future=FALSE,
                               reference_asof_date=pmax(template$reporting_import$reporting_asof_date,
                                                        max(template$pfcbl_data$reporting_asof_date)),
                               status_message = status_message)
@@ -795,7 +801,7 @@ template_upload <- function(pool,
         rsf_program_check(pool=pool,
                           rsf_indicators=template$rsf_indicators,
                           rsf_pfcbl_id.family=template$reporting_import$import_rsf_pfcbl_id,
-                          check_future=template$get_program_setting("on_upload_perform_future_checks"),
+                          check_future=FALSE,
                           
                           reference_asof_date=pmax(template$reporting_import$reporting_asof_date,
                                                    max(template$pfcbl_data$reporting_asof_date)),

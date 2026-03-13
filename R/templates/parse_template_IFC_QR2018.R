@@ -1291,58 +1291,6 @@ parse_template_IFC_QR2018 <- function(pool,
   
   template_data[,reporting_asof_date:=reporting_asof_date]
   
-  #This is moved to template_process in a more generalized manor.
-  # duplicates <- template_data[,
-  #                          .(n=length(unique(reporting_submitted_data_value)),
-  #                            values=list(reporting_submitted_data_value)),
-  #                          by=.(indicator_name,
-  #                               reporting_template_row_group)][n>1]
-  # if (!empty(duplicates)) {
-  #   
-  #   duplicates <- duplicates[,
-  #                            .(data_value=unlist(values,recursive=F)),
-  #                            by=.(indicator_name,
-  #                                 reporting_template_row_group)]
-  #   
-  #   duplicates[,
-  #              encounter_number:=1:.N,
-  #              by=.(indicator_name,
-  #                   reporting_template_row_group)]
-  #   
-  #   data_labels[,
-  #               encounter_number:=1:.N,
-  #               by=.(indicator_name)]
-  #   
-  #   duplicates <- duplicates[data_labels,
-  #                            on=.(indicator_name,encounter_number),
-  #                            nomatch=NULL]
-  #   duplicates[,
-  #              colnum:=openxlsx::int2col(as.numeric(gsub("\\D","",rn)))]
-  #   
-  #   messages <- duplicates[,
-  #                          .(message=paste0(indicator_name," is repeated ",.N," times with different values on row ",
-  #                                           reporting_template_row_group,": ",
-  #                                           paste0("column ",colnum," is {",data_value,"}",collapse=" AND "))),
-  #                          by=.(indicator_name,reporting_template_row_group)]
-  #   messages <- messages$message
-  #   if (length(messages) > 20) {
-  #     messages[21] <- paste0("Truncated...Top 20 errors reported of ",length(messages)," errors found")
-  #     messages <- messages[1:21]
-  #   }
-  #   
-  #   for (m in messages) {
-  #     status_message(class="error",
-  #                    m,"\n")
-  #   }
-  #   
-  #   duplicates <- duplicates[,
-  #                            .(cols=paste0(unique(colnum),collapse=" and ")),
-  #                            by=.(indicator_name)]
-  #   stop(paste0("On tab QReport indicators repeated multiple times under different labels and reporting different values: ",
-  #               paste0(paste0(duplicates$indicator_name," matched for columns ",duplicates$cols),
-  #                      collapse=" AND ALSO ")),". Either correct the column labels for the correct indicator; or if repeated columns are intentional, ensure the data is identical across rows; or if a column is for notes or non-reporting purposes, tell Jason to ignore the irrelevant column inder Setup Template")
-  # }
-  
   template <- list(cohort_pfcbl_id=rsf_pfcbl_id.facility,
                    reporting_asof_date=reporting_asof_date,
                    template_data=template_data,

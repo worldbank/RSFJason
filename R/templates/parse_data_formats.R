@@ -31,14 +31,29 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
     
     
     if (!inherits(template_data,"data.table")) stop("Input data must be type data.table")
-    
+    if (empty(template_data)) {
+      #if it's empty without data, returned as if its a SYSID dataset to avoid attempt to parse lookup data.
+      return(data.table(SYSID=numeric(0),
+                        reporting_asof_date=as.Date(as.numeric(0)),
+                        indicator_name=character(0),
+                        data_submitted=character(0),
+                        reporting_template_row_group=character(0),
+                        SYSNAME=character(0),
+                        indicator_id=numeric(0),
+                        indicator_sys_category=character(0),
+                        data_category=character(0),
+                        data_flags_new=list(NULL),
+                        data_value=character(0),
+                        data_unit=character(0)))
+      
+    }
     if (!all(c("indicator_id",
                "reporting_submitted_data_value",
                "reporting_submitted_data_unit") %in% names(template_data))) stop("Input data must define 'indicator_id' and 'reporting_submitted_data_value' and 'reporting_submitted_data_unit'")
     
     if (any(c("data_value","data_unit") %in% names(template_data))) stop("Input data must NOT define data_value or data_unit: these are output results of parse_data_formats().  Rename columns as reporting_submitted_data_value and reporting_submitted_data_unit")
     
-    if (empty(template_data)) stop("Failed to parse data formats: dataset contains no data")
+    
     
     if (is.null(template_data$reporting_submitted_data_formula)) template_data[,reporting_submitted_data_formula:=as.character(NA)]
     

@@ -43,13 +43,14 @@ parse_template_rsf_create_entities <- function(pool,
               `:=`(reporting_submitted_data_unit=as.character(NA),
                    reporting_submitted_data_formula=as.character(NA))]
   
-  setcolorder(report_data, c("SYSID",
-                             "reporting_asof_date",
-                             "indicator_name",
-                             "reporting_submitted_data_unit",
-                             "reporting_submitted_data_value",
-                             "reporting_submitted_data_formula",
-                             "reporting_template_row_group"))
+  setcolorder(report_data, 
+              c("SYSID",
+                "reporting_asof_date",
+                "indicator_name",
+                "reporting_submitted_data_unit",
+                "reporting_submitted_data_value",
+                "reporting_submitted_data_formula",
+                "reporting_template_row_group"))
   
   template$template_data <- report_data
   template$template_source_reference <- "SLGP Template"

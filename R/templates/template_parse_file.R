@@ -151,7 +151,11 @@ template_parse_file <- function(pool,
           
           else if (tolower(file_ext(template_file))=="pdf") {
             
-            pfcbl_category <- dbGetQuery(pool,"select pfcbl_category from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id=$1::int",upload_rsf_pfcbl_id)
+            if (!length(parse_rsf_pfcbl_id) || all(is.na(suppressWarnings(as.numeric(parse_rsf_pfcbl_id))),na.rm=T)) {
+              stop("PDF uploads require a SYSID for upload: parse_rsf_pfcbl_id cannot be missing")
+            }
+            
+            pfcbl_category <- dbGetQuery(pool,"select pfcbl_category from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id=$1::int",parse_rsf_pfcbl_id)
             
             if (!pfcbl_category %in% "facility") {
               stop("Only RSA agreements can be uploaded for .pdf documents.  When uploading an RSA, the RSF Program must be selected from the main drop-down menu AND ALSO the facility/client must be selected in the drop-down menu 'Client Filter' in the Datasets/Uploads List pane")
@@ -333,18 +337,7 @@ template_parse_file <- function(pool,
       #and have no idea what caused the failure.
       template$fail_on_incomplete_cohorts <- FALSE
 
-      # #Generated through download program archive and download setup files
-      # if (template$template_name=="RSF-SETUP-TEMPLATE") {
-      #   
-      #   
-      #   template <- parse_template_rsf_setup(pool=pool,
-      #                                        template=template,
-      #                                        template_file=template_file,
-      #                                        reporting_user_id=reporting_user_id,
-      #                                        rsf_indicators=rsf_indicators)
-      # }
-      # 
-      # #Generated through "Create New" UI in Programs Setup when creating a new facility, etc through UI
+      
       
       if (template$template_name=="RSF-ENTITIES-TEMPLATE") {
         
@@ -362,9 +355,6 @@ template_parse_file <- function(pool,
                                                        template_file=template_file,
                                                        reporting_user_id=reporting_user_id,
                                                        rsf_indicators=rsf_indicators)
-        
-        #pisses off users if they don't know why their edits didn't work.
-        #template$program_settings$on_upload_cohort_fail_on_check_class <- "None"
       } 
       
       else {
@@ -407,7 +397,7 @@ template_parse_file <- function(pool,
   
   {
    
-    #create template$pfcbl_reporting_flags
+    #setup reporting_flags
     { 
       #template_parse_file may have already created and added this data table as a result of parsing indicators.
       #but if not, no errors were found.  Yay!  But create an empty table because we query it later when trying to upload any errors that may exist.
@@ -429,6 +419,7 @@ template_parse_file <- function(pool,
         }
       }
     }
+    
     # (1) Parse indicators, ensure they're valid for this program
     # (2) Parse indicator formats and flag/omit invalid data formats and options 
     #     !important: this must be done before hashvalues and further controls to ensure comparisons are being made against normalized data (eg, trimmed, etc)
@@ -442,16 +433,19 @@ template_parse_file <- function(pool,
                  "template_ids_method",
                  "template_data") %in% names(template))) stop("Templates must return: cohort_pfcbl_id, rsf_indicators,  reporting_import, reporting_asof_date, template_source_reference, template_ids_method and template_data")
       
+      reqs <- c("reporting_asof_date",
+                "indicator_name",
+                "reporting_submitted_data_unit",
+                "reporting_submitted_data_value",
+                "reporting_submitted_data_formula",
+                "reporting_template_row_group")
       
-      if (length(setdiff(c("reporting_asof_date",
-                           "indicator_name",
-                           "reporting_submitted_data_unit",
-                           "reporting_submitted_data_value",
-                           "reporting_submitted_data_formula",
-                           "reporting_template_row_group"),
+      if (length(setdiff(reqs,
                          names(template$template_data)))>0) {
         
-        stop("Template Data must define: reporting_asof_date,indicator_name,reporting_submitted_data_unit,reporting_submitted_data_value,reporting_submitted_data_formula,reporting_template_row_group,<optional>labels_submitted")
+        stop(paste0("Template Data must define: ",
+                    paste0(reqs,collapse=", ")))
+      
       }
       
       if (!template$template_ids_method %in% c("rsf_id","pfcbl_id")) stop("Template IDs method must define either 'rsf_id' or 'pfcbl_id'")
@@ -460,20 +454,30 @@ template_parse_file <- function(pool,
         stop("Templates defining pfcbl_id lookup must define SYSID column in template_data")
       }
       
-      if (is.null(template$reporting_asof_date) || is.null(template$template_data$reporting_asof_date) || length(template$reporting_asof_date) != 1 || 
-          !all(template$reporting_asof_date %in% template$template_data$reporting_asof_date)) stop("Template's reporting_asof_date must uniquely match template's data program_id")
+      if (length(template$reporting_asof_date) != 1) {
+        stop("Template must report one (and only one) reporting date")
+      }
       
-      #Templates imported via fread return an "IDate" "Date" class that can later cause conflicts when rbindlist with regular Date classes
+      if (!all(template$reporting_asof_date %in% template$template_data$reporting_asof_date) && length(template$template_data$reporting_asof_date) > 0) {
+        stop(paste0("Template reporting_asof_date ",template$reporting_asof_date," must be present in template_data.  Must data dates are: ",
+                    paste0(unique(template$template_data$reporting_asof_date),collapse=", ")))
+      }
+      
+      #Templates imported via fread return an "IDate" "Date" class that can later cause conflicts when rbindlist with regular Date classes;
+      #for all other circumstances, this turns dates into dates and is otherwise not useful...
       template$template_data[,
                              reporting_asof_date:=as.Date(reporting_asof_date)]
     }
     
+    #Parsing template data
     {
       
       status_message("Parsing template data.\n")
       
-      if (empty(template$template_data)) stop("Template contains no data after omitting unrecognized/unsubscribed indicators.  Ensure program is subscribed to indicators and labels are properly defined.")
-      
+      # if (empty(template$template_data)) {
+      #   
+      #   stop("Template contains no data after omitting unrecognized/unsubscribed indicators.  Ensure program is subscribed to indicators and labels are properly defined.")
+      # }
       #if unknown indicator name is submitted, NA indicator_id. This will be filtered later after rsf_pfcbl_ids are identified along with relevant subscriptions
       template$template_data[template$rsf_indicators,
                              `:=`(indicator_id=i.indicator_id,
@@ -545,6 +549,7 @@ template_parse_file <- function(pool,
       }
       
       template$template_data[,reporting_template_data_rank:=1:.N]
+    
     
     
     
@@ -662,43 +667,44 @@ template_parse_file <- function(pool,
       #NOTE: Oct-2025
       #This is all but obsolete ... Barely used.
       #And in current versions almost everything is paramaeterized around program/facility level
-      program_settings <- dbGetQuery(pool,"select 
-                                            vrps.rsf_program_id,
-                                            vrps.setting_name,
-                                            vrps.setting_value,
-                                            vrps.default_data_type,
-                                            vrps.setting_group
-                                          from p_rsf.view_rsf_program_settings vrps
-                                          inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_program_id = vrps.rsf_program_id
-                                          where ids.rsf_pfcbl_id = $1::int",
-                                     params=list(template$cohort_pfcbl_id))
-      
-      setDT(program_settings)
-      
-      settings <- dcast.data.table(program_settings,
-                                   formula=rsf_program_id ~ setting_name,value.var="setting_value")
-      
-      for (sname in names(settings)) {
-        setting <- program_settings[setting_name==sname]
-        if (empty(setting)) next;
-        
-        if (setting$default_data_type=="logical") set(settings,i=NULL,j=setting$setting_name,value=as.logical(settings[[setting$setting_name]]))
-        else if (setting$default_data_type %in% c("number","currency","currency_ratio","percent")) set(settings,i=NULL,j=setting$setting_name,value=as.numeric(settings[[setting$setting_name]]))
-        else if (setting$default_data_type == "date") set(settings,i=NULL,j=setting$setting_name,value=as.Date(settings[[setting$setting_name]]))
-        else  set(settings,i=NULL,j=setting$setting_name,value=toupper(as.character(settings[[setting$setting_name]])))
-      }
-      
-      template$program_settings <- settings
-      template$get_program_setting <- function(setting) {
-        
-        ps <- (get("template",envir=parent.env(environment())))$program_settings
-        if (is.null(ps)) stop("Unable to locate program settings object in template")
-        
-        ps <- ps[[setting]]
-        if (is.null(ps)) stop(paste0("Invalid program setting: ",setting,". Verify setting exists in database table p_rsf.program_settings"))
-        if (is.na(ps) || length(ps)==0 || nchar(as.character(ps))==0) stop(paste0("Invalid program setting value: ",setting," is <NA> and must be specified."))
-        ps
-      }
+      # program_settings <- dbGetQuery(pool,"
+      #   select 
+      #     vrps.rsf_program_id,
+      #     vrps.setting_name,
+      #     vrps.setting_value,
+      #     vrps.default_data_type,
+      #     vrps.setting_group
+      #   from p_rsf.view_rsf_program_settings vrps
+      #   inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_program_id = vrps.rsf_program_id
+      #   where ids.rsf_pfcbl_id = $1::int",
+      #   params=list(template$cohort_pfcbl_id))
+      # 
+      # setDT(program_settings)
+      # 
+      # settings <- dcast.data.table(program_settings,
+      #                              formula=rsf_program_id ~ setting_name,value.var="setting_value")
+      # 
+      # for (sname in names(settings)) {
+      #   setting <- program_settings[setting_name==sname]
+      #   if (empty(setting)) next;
+      #   
+      #   if (setting$default_data_type=="logical") set(settings,i=NULL,j=setting$setting_name,value=as.logical(settings[[setting$setting_name]]))
+      #   else if (setting$default_data_type %in% c("number","currency","currency_ratio","percent")) set(settings,i=NULL,j=setting$setting_name,value=as.numeric(settings[[setting$setting_name]]))
+      #   else if (setting$default_data_type == "date") set(settings,i=NULL,j=setting$setting_name,value=as.Date(settings[[setting$setting_name]]))
+      #   else  set(settings,i=NULL,j=setting$setting_name,value=toupper(as.character(settings[[setting$setting_name]])))
+      # }
+      # 
+      # template$program_settings <- settings
+      # template$get_program_setting <- function(setting) {
+      #   
+      #   ps <- (get("template",envir=parent.env(environment())))$program_settings
+      #   if (is.null(ps)) stop("Unable to locate program settings object in template")
+      #   
+      #   ps <- ps[[setting]]
+      #   if (is.null(ps)) stop(paste0("Invalid program setting: ",setting,". Verify setting exists in database table p_rsf.program_settings"))
+      #   if (is.na(ps) || length(ps)==0 || nchar(as.character(ps))==0) stop(paste0("Invalid program setting value: ",setting," is <NA> and must be specified."))
+      #   ps
+      # }
     }
 
     if (template$template_name %in% c("PFCBL-EDITOR-TEMPLATE",
@@ -707,11 +713,11 @@ template_parse_file <- function(pool,
 
       template$fail_on_incomplete_cohorts <- FALSE
       
-      if (template$template_name %in% c("PFCBL-EDITOR-TEMPLATE",
-                                        "RSF-SETUP-TEMPLATE")) {
-        
-        template$program_settings$on_upload_cohort_fail_on_check_class <- "None"    
-      }
+      # if (template$template_name %in% c("PFCBL-EDITOR-TEMPLATE",
+      #                                   "RSF-SETUP-TEMPLATE")) {
+      #   
+      #   template$program_settings$on_upload_cohort_fail_on_check_class <- "None"    
+      # }
       
 
     }
@@ -743,8 +749,7 @@ template_parse_file <- function(pool,
  
   
   #if template/program monitors headers, save them
-  if (template$get_program_setting("on_upload_save_template_headers") &
-      !empty(template$template_headers)) {
+  if (!empty(template$template_headers)) {
     
     #conn <- poolCheckout(pool);dbBegin(conn)
     poolWithTransaction(pool,function(conn) {
@@ -765,15 +770,24 @@ template_parse_file <- function(pool,
       dbExecute(conn,"update theaders
                 set import_id = $1::int,
                     rsf_pfcbl_id = $2::int",
-                params=list(reporting_import$import_id,
-                            reporting_import$import_rsf_pfcbl_id))
+                params=list(template$reporting_import$import_id,
+                            template$reporting_import$import_rsf_pfcbl_id))
+      
+      #In case there's no indicator ID uploaded for this header
+      dbExecute(conn,"update theaders
+                set indicator_id = ind.indicator_id
+                from p_rsf.rsf_pfcbl_ids ids
+                inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
+                where ind.indicator_sys_category = 'entity_reporting'
+                  and theaders.indicator_id is NULL")
+      
       dbExecute(conn,"
         insert into p_rsf.reporting_import_template_headers(import_id,
                                                             rsf_pfcbl_id,
                                                             indicator_id,
                                                             template_header,
                                                             template_header_position)
-        select 
+        select distinct
           import_id,
           rsf_pfcbl_id,
           indicator_id,

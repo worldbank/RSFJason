@@ -3,7 +3,7 @@ template_set_redundancy_reporting <- function(pool,
                                               indicator_subscriptions) {
 
   if (is.null(template$pfcbl_data)) stop("Template does not define template$pfcbl_data")
-  if (empty(template$pfcbl_data)) return (NULL) #If all hashvalues are unchanged, will have filtered out everything
+  if (empty(template$pfcbl_data)) return (template) #If all hashvalues are unchanged, will have filtered out everything
   
   template$pfcbl_data[,
                       n:=.N,

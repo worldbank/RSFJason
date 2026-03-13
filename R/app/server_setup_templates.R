@@ -81,7 +81,7 @@ server_setup_template__header_module_server <- function(id,
                   params=list(action,
                               this.id()))
   
-        if (action %in% c("default","ignore","parse")) {
+        if (action %in% c("default","ignore","parse","section")) {
           
           updateSelectizeInput(session=session,
                             inputId="template_header_target_name",
@@ -140,7 +140,7 @@ server_setup_template__header_module_server <- function(id,
       }
 
       tryCatch({
-        if (action %in% c("default","ignore","parse")) {
+        if (action %in% c("default","ignore","parse","section")) {
           dbExecute(pool,"
           update p_rsf.rsf_setup_template_headers fth
           set map_indicator_id = NULL,
@@ -274,16 +274,19 @@ server_setup_template__header_module_ui <- function(id,
                                                   
                                                   `Set Check`="check",       #Subscribe to check
                                                   `Set Formula`="calculate", #Set/Subscribe to Formula/Indicator
-                                                  `Set Value`="parse"        #Match the content and parse {} into values for {indicator} and subscribe to it.
+                                                  `Set Value`="parse",        #Match the content and parse {} into values for {indicator} and subscribe to it.
+                                                  `Map Section`="section"    #The header is an alias for the section name: action is ignore.
                                         ),
                                         selected=header$action))
     
     
     header_mapping <- NULL
-    if (header$action %in% c("default","ignore","parse")) {
+    if (header$action %in% c("default","ignore","parse","section")) {
       
       color <- NULL
+      ph <- "Header not mapped"
       if (header$action=="default" & nchar(header$template_header) > 5) color <- "background-color:orange;"
+      if (header$action=="section") ph <- "Header mapped as section alias"
       
       header_mapping <- div(style=paste0("display:flex;flex-flow:row nowrap;min-width:400px;padding:0 0 0 2px;white-space:nowrap;",color),
                             selectizeInput(inputId=ns("template_header_target_name"),
@@ -291,7 +294,7 @@ server_setup_template__header_module_ui <- function(id,
                                            width="100%",
                                            choices="",
                                            selected="",
-                                           options=list(placeholder="Header not mapped")))
+                                           options=list(placeholder=ph)))
       
     } else if (header$action %in% c("remap","unmap")) {
       

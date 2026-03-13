@@ -19,6 +19,7 @@ regexp_get_bullets <- function() {
     "^o\\.",         #eg, "o."
     "^o\\s",         #eg, "o "
     "^\\*",
+    "^•",
     "^\\+",
     "^\\-\\s")            #eg, - bullet
 }

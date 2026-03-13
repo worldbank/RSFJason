@@ -71,15 +71,7 @@ observeEvent(input$setup_program_create_action_button, {
     return(showNotification(type="error",
                             h3("Error: Facility must be selected to create a new Client")))
   }
-  # if (what=="borrower" && (!isTruthy(rsf_program_id) || !isTruthy(facility_rsf_pfcbl_id) || !isTruthy(client_rsf_pfcbl_id))) {
-  #   return(showNotification(type="error",
-  #                           h3("Error: Client and Facility must be selected to create a new Borrower")))
-  # }
-  # if (what=="loan" && (!isTruthy(rsf_program_id) || !isTruthy(facility_rsf_pfcbl_id) || !isTruthy(client_rsf_pfcbl_id) || !isTruthy(borrower_rsf_pfcbl_id))) {
-  #   return(showNotification(type="error",
-  #                           h3("Error: Client, Facility and Borrower must be selected to create a new Loan")))
-  # }
-  
+
   setup_indicator_ids <- grep("^setup_program_create_setup_indicator_",names(reactiveValuesToList(input)),value=T)
   setup_indicators <- lapply(setup_indicator_ids,function(x) {
     val <- input[[x]]
@@ -141,6 +133,12 @@ observeEvent(input$setup_program_create_action_button, {
   
   reporting_asof_start <- floor_date(reporting_asof_date,reporting_frequency) #first date of current quarter
   reporting_asof_date <- ceiling_date(reporting_asof_date,reporting_frequency) - days(1) #last day of current quarter
+  id <- toupper(setup_indicators[indicator_sys_category=="id",data_value])
+  
+  if (!isTruthy(id)) {
+    return(showNotification(type="error",
+                            ui=h3("The ID number is required: For facillities, the IFC Project ID number.  For Clients, the IFC Partner ID number")))
+  }
   
   if (!empty(setup_indicators[indicator_sys_category=="entity_local_currency_unit" & data_value %in% c("LCU","LCY")])) {
     return(showNotification(type="error",
@@ -190,10 +188,11 @@ observeEvent(input$setup_program_create_action_button, {
   }
   setup_indicators <- setup_indicators[is.na(data_value)==FALSE]
   nickname <- toupper(setup_indicators[indicator_sys_category=="nickname",data_value])
+  
   if (!isTruthy(nickname)) nickname <- paste0(what,"_",trimws(toupper(setup_indicators[indicator_sys_category=="name",data_value])))
   if (!isTruthy(nickname)) nickname <- paste0("NEW_",what)
   
-  export_filename <- paste0("create_RSF_",nickname,".xlsx")
+  export_filename <- paste0("#0 ",nickname," (",id,") create_RSF_",toupper(what),".xlsx")
 
   #browser()
   tryCatch({
@@ -224,11 +223,15 @@ observeEvent(input$setup_program_create_action_button, {
                           inputId="tabset_setup_program",
                           selected = "Setup Indicators")
         
+      
       } else {
         
         parent_rsf_pfcbl_id <- NULL
-        if (what=="facility") parent_rsf_pfcbl_id <- SELECTED_PROGRAM()$rsf_pfcbl_id
-        else if (what=="client") parent_rsf_pfcbl_id <- facility_rsf_pfcbl_id
+        if (what=="facility") {
+          parent_rsf_pfcbl_id <- SELECTED_PROGRAM()$rsf_pfcbl_id
+        } else if (what=="client") {
+          parent_rsf_pfcbl_id <- facility_rsf_pfcbl_id
+        }
         #else if (what=="borrower") parent_rsf_pfcbl_id <- client_rsf_pfcbl_id
         #else if (what=="loan") parent_rsf_pfcbl_id <- borrower_rsf_pfcbl_id
 
@@ -387,29 +390,6 @@ observeEvent(input$setup_program_create_selected_facility, {
   facility_rsf_pfcbl_id <- as.numeric(input$setup_program_create_selected_facility)
   what <- input$setup_program_create_what
   
-  # if (isTruthy(facility_rsf_pfcbl_id) && any(what==c("borrower","loan"))) {
-  #   
-  #   clients <- DBPOOL %>% dbGetQuery("select 
-  #                                     	nids.rsf_pfcbl_id,
-  #                                     	nids.rsf_full_name
-  #                                     from p_rsf.rsf_pfcbl_ids
-  #                                     inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_client_id
-  #                                     where ids.rsf_pfcbl_id = $1::int 
-  #                                     order by nids.rsf_full_name",
-  #                                    params=list(facility_rsf_pfcbl_id))
-  #   
-  #   if (empty(clients)) clients <- setNames("","No clients exist")
-  #   else clients <- c("",setNames(clients$rsf_pfcbl_id,clients$rsf_full_name))
-  #   
-  #   updateSelectizeInput(session=session,
-  #                        inputId="setup_program_create_selected_client",
-  #                        choices=clients,
-  #                        selected="")
-  #   
-  #   showElement(id="setup_program_create_selected_client",anim = TRUE,animType="fade")
-  #   
-  # } else 
-    
   {
     updateSelectizeInput(session=session,
                          inputId="setup_program_create_selected_client",

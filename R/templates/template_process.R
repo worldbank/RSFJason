@@ -8,27 +8,7 @@ template_process <- function(pool,
   if (!any(names(template)=="reporting_import")) {
     stop("Template must define a reporting_import (this will be created in a call first to template_parse_file")
   }
-  
-  #tp <- copy(template)
-  #Indicator and data validations
-  
-  #cohorts can be created and uploaded at client, facility, program or global levels
-  #but settings are at global/program and facility levels.  So get the closest one
-  # rsf_facilityist_id <- { 
-  #   rsf_facilityist_id <- dbGetQuery(pool,"
-  #     select to_family_rsf_pfcbl_id as rsf_pfcbl_id
-  #     from p_rsf.view_rsf_pfcbl_id_family_tree ft 
-  #     where ft.from_rsf_pfcbl_id = $1::int 
-  #       and ft.to_pfcbl_rank <= ft.from_pfcbl_rank
-  #       and ft.to_pfcbl_rank <= 2 -- facility
-  #     order by ft.to_pfcbl_rank desc
-  #     limit 1",
-  #     params=list(template$reporting_import$import_rsf_pfcbl_id))
-  #  rsf_facilityist_id$rsf_pfcbl_id
-  # }
-  
  
-  
   #RSF ID vs PFCBL ID template matching
   {
     #Set defined rsf_pfcbl_ids
@@ -156,50 +136,54 @@ template_process <- function(pool,
                                  pfcbl_category)]
       }
       
+      
+      #March 2026: Removed because child-to-parent IDs from the inclusion rank is superior to guessing at parent-to-child where only one child exists
+      #and due to error creating new entities when program has only one facilitiy, that creatined 2nd facility failed.  So instead of fixing or adding cases, just removed.
+    
       #Template QRs might specifiy the facility ID versus the client ID
       #While the system enables a one-to-many relationship for facilities to have multiple clients, IFC business does not do this on the
       #investment side (it does on the advisory side).  But since RSFs are an IS/Upstream product, almost certainly a facility ID will have
       #only one client ID and therefore the client ID may be inferred, hence pfcbl_members=1
       #Note that if template defines facility_id and doesn't upload any client-level indicators then this could create an issue.
       #Presently, all QR templates upload client-level data
-      defined_ids <- dbGetQuery(pool,"
-                                with defined_ids as (
-                                  select 
-                                    ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id,
-                                  	ft.to_pfcbl_category as pfcbl_category,
-                                  	ft.to_pfcbl_rank,
-                                  	count(*) over(partition by ft.to_pfcbl_category) as pfcbl_members
-                                  from p_rsf.view_rsf_pfcbl_id_family_tree ft 
-                                  where ft.from_rsf_pfcbl_id = $1::int
-                                  )
-                                  select 
-                                  	ids.rsf_pfcbl_id,
-                                  	ids.pfcbl_category,
-                                  	case when ids.pfcbl_category = 'program' then 0
-                                  	     when ids.pfcbl_category = 'facility' then ids.rsf_program_id
-                                  	     when ids.pfcbl_category = 'client' then ids.rsf_facility_id
-                                  	     when ids.pfcbl_category = 'borrower' then ids.rsf_client_id
-                                  	     when ids.pfcbl_category = 'loan' then ids.rsf_borrower_id
-                                  	     else NULL::int end as parent_rsf_pfcbl_id 
-                                  from defined_ids di
-                                  inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = di.rsf_pfcbl_id
-                                  where di.pfcbl_members = 1
-                                    and di.pfcbl_category = any(select unnest(string_to_array($2::text,','))::text)
-                                    and di.pfcbl_category in ('global','program','facility','client')",
-                                params=list(template$reporting_import$import_rsf_pfcbl_id,
-                                            paste0(required_categories$pfcbl_category,collapse=",")))
-      setDT(defined_ids)
-
-      if (!empty(defined_ids)) {
-        defined_ids[,joincondition:=as.numeric(NA)]
-        template_match_data[defined_ids,
-                            `:=`(rsf_pfcbl_id=i.rsf_pfcbl_id,
-                                 parent_rsf_pfcbl_id=i.parent_rsf_pfcbl_id,
-                                 match_action="update",
-                                 matched_by="defined"),
-                            on=.(pfcbl_category,
-                                 rsf_pfcbl_id=joincondition)]
-      }
+      # defined_ids <- dbGetQuery(pool,"
+      #                           with defined_ids as (
+      #                             select 
+      #                               ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id,
+      #                             	ft.to_pfcbl_category as pfcbl_category,
+      #                             	ft.to_pfcbl_rank,
+      #                             	count(*) over(partition by ft.to_pfcbl_category) as pfcbl_members
+      #                             from p_rsf.view_rsf_pfcbl_id_family_tree ft 
+      #                             where ft.from_rsf_pfcbl_id = $1::int
+      #                             )
+      #                             select 
+      #                             	ids.rsf_pfcbl_id,
+      #                             	ids.pfcbl_category,
+      #                             	case when ids.pfcbl_category = 'program' then 0
+      #                             	     when ids.pfcbl_category = 'facility' then ids.rsf_program_id
+      #                             	     when ids.pfcbl_category = 'client' then ids.rsf_facility_id
+      #                             	     when ids.pfcbl_category = 'borrower' then ids.rsf_client_id
+      #                             	     when ids.pfcbl_category = 'loan' then ids.rsf_borrower_id
+      #                             	     else NULL::int end as parent_rsf_pfcbl_id 
+      #                             from defined_ids di
+      #                             inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = di.rsf_pfcbl_id
+      #                             where di.pfcbl_members = 1
+      #                               and di.pfcbl_category = any(select unnest(string_to_array($2::text,','))::text)
+      #                               and di.pfcbl_category in ('global','program','facility','client')",
+      #                           params=list(template$reporting_import$import_rsf_pfcbl_id,
+      #                                       paste0(required_categories$pfcbl_category,collapse=",")))
+      # setDT(defined_ids)
+      # 
+      # if (!empty(defined_ids)) {
+      #   defined_ids[,joincondition:=as.numeric(NA)]
+      #   template_match_data[defined_ids,
+      #                       `:=`(rsf_pfcbl_id=i.rsf_pfcbl_id,
+      #                            parent_rsf_pfcbl_id=i.parent_rsf_pfcbl_id,
+      #                            match_action="update",
+      #                            matched_by="defined"),
+      #                       on=.(pfcbl_category,
+      #                            rsf_pfcbl_id=joincondition)]
+      # }
       
       bad_matches <- template_match_data[!is.na(rsf_pfcbl_id)][,.(n=length(unique(rsf_pfcbl_id))),by=.(reporting_template_row_group,pfcbl_category)][n>1]
       if (!empty(bad_matches)) {
@@ -345,47 +329,7 @@ template_process <- function(pool,
                                                    upload_user_id=template$reporting_user_id,
                                                    rsf_indicators=template$rsf_indicators)
       }
-      
-      if (!empty(template$setup_data$PROGRAM_SETTINGS)) {
-        status_message(class="info",paste0(" - Setup Settings\n"))  
-        program_settings <- template$setup_data$PROGRAM_SETTINGS
-        
-        sysids <- db_get_rsf_pfcbl_id_by_sys_name(pool=pool,
-                                                  sys_names=unique(program_settings$SYSNAME),
-                                                  rsf_program_id=setup_rsf_program_id,
-                                                  include.global=FALSE,
-                                                  error.if.missing=TRUE)
-        
-        program_settings[sysids,
-                         rsf_pfcbl_id:=i.rsf_pfcbl_id,
-                         on=.(SYSNAME=lookup_sys_name)]
-        sysids <- NULL
-        
-        #conn <- poolCheckout(pool)
-        #dbBegin(conn)
-        #dbRollback(conn)
-        poolWithTransaction(pool,function(conn) { 
-          dbExecute(conn,"create temp table _temp_settings(setting_name text,
-                                                         setting_value text)
-                on commit drop;")
-          
-          dbAppendTable(conn,
-                        name="_temp_settings",
-                        value=program_settings[,.(setting_name=setting,
-                                                  setting_value=value)])
-          
-          dbExecute(conn,"analyze _temp_settings")
-          
-          dbExecute(conn,"insert into p_rsf.rsf_program_settings(rsf_program_id,setting_name,setting_value)
-                      select $1::int as rsf_program_id,ts.setting_name,ts.setting_value
-                      from _temp_settings ts
-                      on conflict(rsf_program_id,setting_name)
-                      do update
-                      set setting_value = EXCLUDED.setting_value")
-          
-        })
-        
-      }
+     
       
       #This is coming here in the template_upload because system is resolving SYSNAME and this requires name and ID data to have been already uploaded.
       if (!empty(template$setup_data$PROGRAM_INDICATORS)) {
@@ -1646,59 +1590,61 @@ template_process <- function(pool,
 
     }
     
-    if (empty(template$pfcbl_data)) {
-      print("Template has no new data.  Returning NULL")
-      return (NULL)
-    }
+    # if (empty(template$pfcbl_data)) {
+    #   print("Template has no new data.  Returning NULL")
+    #   return (NULL)
+    # }
     
     template <- template_set_redundancy_reporting(pool=pool,
                                                   indicator_subscriptions=indicator_subscriptions,
                                                   template=template)
 
-    template$pfcbl_data[,n:=.N,
-                        by=.(rsf_pfcbl_id,
-                             indicator_id,
-                             reporting_asof_date)]
-    
-    if (any(template$pfcbl_data$n>1,na.rm=T)) {
-      
-      #Unless it's for identical values.
-      #Which happens if template LIST values equal SUMMARY values, which come up as redundancies across different sheets.
-      template$pfcbl_data[n>1,
-                  `:=`(x=length(unique(paste0(data_value,"",data_unit))),
-                       i=(1:.N)[order(is.na(data_submitted),is.na(data_unit),is.na(data_value),nchar(data_submitted),nchar(data_value))]),
-                  by=.(rsf_pfcbl_id,
-                       indicator_id,
-                       reporting_asof_date)]
-      
-      template$pfcbl_data[,omit:=FALSE]
-      template$pfcbl_data[(n>1 & x==1 & i>1),
-                          omit:=TRUE]
-      
-      template$pfcbl_data <- template$pfcbl_data[omit==FALSE]
-      template$pfcbl_data[,
-                          `:=`(x=NULL,
-                               i=NULL,
-                               omit=NULL)]
-      
+    if (!empty(template$pfcbl_data)) {
       template$pfcbl_data[,n:=.N,
                           by=.(rsf_pfcbl_id,
                                indicator_id,
                                reporting_asof_date)]
       
-      
-      if (any(template$pfcbl_data$n>1,na.rm=T)) { stop("Template contains duplicated data across different indicators or data sheets that cannot be removed") }
-      template$pfcbl_data[,n:=NULL]
+      if (any(template$pfcbl_data$n>1,na.rm=T)) {
+        
+        #Unless it's for identical values.
+        #Which happens if template LIST values equal SUMMARY values, which come up as redundancies across different sheets.
+        template$pfcbl_data[n>1,
+                    `:=`(x=length(unique(paste0(data_value,"",data_unit))),
+                         i=(1:.N)[order(is.na(data_submitted),is.na(data_unit),is.na(data_value),nchar(data_submitted),nchar(data_value))]),
+                    by=.(rsf_pfcbl_id,
+                         indicator_id,
+                         reporting_asof_date)]
+        
+        template$pfcbl_data[,omit:=FALSE]
+        template$pfcbl_data[(n>1 & x==1 & i>1),
+                            omit:=TRUE]
+        
+        template$pfcbl_data <- template$pfcbl_data[omit==FALSE]
+        template$pfcbl_data[,
+                            `:=`(x=NULL,
+                                 i=NULL,
+                                 omit=NULL)]
+        
+        template$pfcbl_data[,n:=.N,
+                            by=.(rsf_pfcbl_id,
+                                 indicator_id,
+                                 reporting_asof_date)]
+        
+        
+        if (any(template$pfcbl_data$n>1,na.rm=T)) { stop("Template contains duplicated data across different indicators or data sheets that cannot be removed") }
+        template$pfcbl_data[,n:=NULL]
+      }
+    
+      #If redundancies data ranks have been removed 
+      if (!any(names(template$pfcbl_data)=="reporting_template_data_rank",na.rm=T)) stop("Failed to find column 'reporting_template_data_rank' in template$pfcbl_data")
+  
+      #if no data, then no data falgs.    
+      pfcbl_data_flags <- pfcbl_data_flags[reporting_template_data_rank %in% template$pfcbl_data$reporting_template_data_rank]
+      pfcbl_data_flags[,reporting_template_data_rank:=NULL]
+      pfcbl_data_flags <- unique(pfcbl_data_flags)
+      template$pfcbl_data_flags <- pfcbl_data_flags
     }
-    
-    #If redundancies data ranks have been removed 
-    if (!any(names(template$pfcbl_data)=="reporting_template_data_rank",na.rm=T)) stop("Failed to find column 'reporting_template_data_rank' in template$pfcbl_data")
-    
-    pfcbl_data_flags <- pfcbl_data_flags[reporting_template_data_rank %in% template$pfcbl_data$reporting_template_data_rank]
-    pfcbl_data_flags[,reporting_template_data_rank:=NULL]
-    pfcbl_data_flags <- unique(pfcbl_data_flags)
-    template$pfcbl_data_flags <- pfcbl_data_flags
-    
   }
 
   
@@ -1719,19 +1665,28 @@ template_process <- function(pool,
                    )
     
     remove_cols <- names(template$pfcbl_data)[!names(template$pfcbl_data) %in% keep_cols]
-    template$pfcbl_data[,(remove_cols):=NULL]
-    setcolorder(template$pfcbl_data,
-                neworder=keep_cols)
+    if (length(remove_cols)) template$pfcbl_data[,(remove_cols):=NULL]
     
+    # setcolorder(template$pfcbl_data,
+    #             neworder=keep_cols)
+    # 
     if (!all(unique(template$match_results$match_action) %in% c("new",         #identified as new based on input ID fields not already existing
                                                                 "unchanged",   #matched hasvalues shows data is unchanged
                                                                 "update"))) {
       stop(paste0("Match results match_action must be 1 of: new, unchanged, update, revert, omit.  Found: ",paste0(unique(template$match_results$match_action),collapse=", ")))
     }
     
+    if (is.null(template$pfcbl_data)) {
+      template$pfcbl_data <- data.table(reporting_template_row_group=character(0),
+                                        reporting_asof_date=as.Date(numeric(0)),
+                                        rsf_pfcbl_id=numeric(0),
+                                        indicator_id=numeric(0),
+                                        data_value=character(0),
+                                        data_unit=character(0),
+                                        data_submitted=character(0))
+    }
     
-    if (is.null(template$pfcbl_data) || 
-        !all(c("reporting_template_row_group",
+    if (!all(c("reporting_template_row_group",
                "reporting_asof_date",
                "rsf_pfcbl_id",
                "indicator_id",
@@ -1748,8 +1703,6 @@ template_process <- function(pool,
                                                    "data_unit",
                                                    "data_submitted"))
     }
-    
-    
   }
   
   template$process_time <- as.numeric(Sys.time()-t1,"secs")

@@ -43,12 +43,12 @@ SERVER_SETUP_AGREEMENT__RSA_CONTENT <- eventReactive(SERVER_SETUP_AGREEMENT__RSA
     x.value as text
   from p_rsf.reporting_imports ri
   inner join lateral (select * from jsonb_each_text(metadata -> 'RSA') ) as x on true
-  where import_Id = $1::int",
+  where ri.import_id = $1::int",
   params=list(rsa$import_id))
   setDT(content)
   
   return (content)
-})
+},ignoreNULL=FALSE,ignoreInit=TRUE)
 
 #The value last set by the paste event listener; or reset by the event receivier.
 SERVER_SETUP_AGREEMENT__PASTE_EVENT <- reactiveVal(NA)
@@ -79,7 +79,7 @@ SERVER_SETUP_AGREEMENT__PASTE_AUTO_FORMAT <- function(what,...) {
 observeEvent(SERVER_SETUP_AGREEMENT__RSA_CONTENT(), {
   
   content <- SERVER_SETUP_AGREEMENT__RSA_CONTENT()
-  
+
   for (sec in c("server_setup_agreement__rsa_terms",
                     "server_setup_agreement__rsa_determination",
                     "server_setup_agreement__rsa_costs",
@@ -88,8 +88,14 @@ observeEvent(SERVER_SETUP_AGREEMENT__RSA_CONTENT(), {
                     "server_setup_agreement__rsa_reporting",
                     "server_setup_agreement__rsa_other")) {
     
-      s <- toupper(gsub("^.*_([a-z]+)+$","\\1",sec))
-      value <- content[section==s,text]
+      
+      value <- NULL
+      
+      if (!empty(content)) {
+        value <- content[section==toupper(gsub("^.*_([a-z]+)+$","\\1",sec)),
+                         text]
+      }
+      
       if (!isTruthy(value)) value <- ""
       else value <- gsub("\\n{3,}","\\n\\n",value)
       
@@ -97,11 +103,12 @@ observeEvent(SERVER_SETUP_AGREEMENT__RSA_CONTENT(), {
                           inputId=sec,
                           value=value)
   }
-})
+},ignoreNULL=FALSE)
 
 observeEvent(input$server_setup_agreement__rsa_terms, { 
   SERVER_SETUP_AGREEMENT__PASTE_AUTO_FORMAT("server_setup_agreement__rsa_terms",
-                                            paragraph.bullets=FALSE) 
+                                            paragraph.bullets=FALSE,
+                                            paragraph.custom=c('^"[A-Z].*$')) 
   
 },ignoreInit=TRUE,ignoreNULL=TRUE)
 
@@ -113,8 +120,7 @@ observeEvent(input$server_setup_agreement__rsa_determination, {
 
 observeEvent(input$server_setup_agreement__rsa_costs, { 
   SERVER_SETUP_AGREEMENT__PASTE_AUTO_FORMAT("server_setup_agreement__rsa_costs",
-                                            paragraph.bullets=TRUE,
-                                            paragraph.custom=) 
+                                            paragraph.bullets=TRUE) 
   
 },ignoreInit=TRUE,ignoreNULL=TRUE)
 
@@ -271,6 +277,6 @@ output$setup_agreement__title <- renderText({
   rsa <- SERVER_SETUP_AGREEMENT__RSA()
   if (empty(rsa)) { "No RSA on file: Upload the RSA using the Upload Template; or copy-paste the relevant RSA sections into these form fields" 
   } else {
-    paste0("RSA Content as-of ",format_asof_date_label(rsa$reporting_asof_date),": ",gsub(".gz$","",rsa$file_name))
+    paste0("RSA Content as-of ",format_asof_date_label(rsa$reporting_asof_date),": ",gsub(".gz$","",rsa$file_name)," (",toupper(format.Date(rsa$import_time,"%b%d %Hh%M")),")")
   }
 })
