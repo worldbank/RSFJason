@@ -349,6 +349,62 @@ IMPORT_SELECTED <- eventReactive(c(IMPORT_SELECTED_ID(),
   if (!isTruthy(imports)) return (NULL)
   selected_import <- imports[import_id==IMPORT_SELECTED_ID()]
 
+  if (!empty(selected_import)) {
+    stale <- DBPOOL %>% dbGetQuery("
+      select exists(select true
+                    from p_rsf.rsf_data_calculation_evaluations dce
+                    inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.to_family_rsf_pfcbl_id = dce.rsf_pfcbl_id
+                    where ft.from_rsf_pfcbl_id = $1::int)::bool",
+      params=list(selected_import$import_rsf_pfcbl_id))
+    
+    if (any(unlist(stale),na.rm=T)) {
+      withProgress(message="Recalculating...",value=0.25, {
+        progress_status_message <- function(class,...) {
+          dots <- list(...)
+          dots <- paste0(unlist(dots),collapse=" ")
+          incProgress(amount=0,
+                      message=paste0("Recalculating affected data: ",dots))
+        }
+        
+        incProgress(amount=0.25,message="Recalculating data...")
+        
+        DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
+                                         rsf_pfcbl_id.family=selected_import$import_rsf_pfcbl_id,
+                                         for_import_id=selected_import$import_id,
+                                         calculate_future=FALSE,
+                                         reference_asof_date=selected_import$reporting_asof_date,
+                                         status_message=progress_status_message)
+      })
+    }
+
+    stale <- DBPOOL %>% dbGetQuery("
+      select exists(select true
+                    from p_rsf.rsf_data_check_evaluations dce
+                    inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.to_family_rsf_pfcbl_id = dce.rsf_pfcbl_id
+                    where ft.from_rsf_pfcbl_id = $1::int)::bool",
+                                   params=list(selected_import$import_rsf_pfcbl_id))
+    
+    if (any(unlist(stale),na.rm=T)) {
+      withProgress(message="Rechecking...",value=0.25, {
+        
+        progress_status_message <- function(class,...) {
+          dots <- list(...)
+          dots <- paste0(unlist(dots),collapse=" ")
+          incProgress(amount=0,
+                      message=paste0("Rechecking affected data: ",dots))
+        }
+        
+        incProgress(amount=0.25,message="Rechecking data...")
+        DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
+                                     rsf_pfcbl_id.family=import$import_rsf_pfcbl_id,
+                                     check_future=FALSE,
+                                     check_consolidation_threshold=NA,
+                                     reference_asof_date=import$reporting_asof_date,
+                                     status_message=progress_status_message)
+      })
+    }    
+  }
+  
   return (selected_import)
   
 }, 
@@ -455,7 +511,7 @@ IMPORT_FLAGS_SELECTED <- eventReactive(IMPORT_SELECTED(), {
                                                      and scc.for_indicator_id = rdc.indicator_id
                                                      and scc.indicator_check_id = rdc.indicator_check_id
                                                      and scc.check_formula_id is not distinct from rdc.check_formula_id
-      left join p_rsf.view_indicator_checks_data_is_correctable dic on dic.check_formula_id = rdc.check_formula_id -- correctable flags cannot by calculator or sys flags (formula_id required!)
+      left join p_rsf.view_indicator_checks_data_is_correctable dic on dic.check_formula_id is not distinct from rdc.check_formula_id 
                                                                    and dic.correctable_indicator_id = rdc.indicator_id
                                                      
       where rc.reporting_rsf_pfcbl_id in (select distinct reporting_rsf_pfcbl_id from p_rsf.reporting_cohorts rc where import_id = $1::int)

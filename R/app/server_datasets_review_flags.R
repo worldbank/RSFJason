@@ -662,8 +662,9 @@ observeEvent(input$action_indicator_flags_review, {
 
   placeholder <- "Apply update comment to all marked flags..."
   if (any(flag_selected$check_class=="critical")) {
-    status.choices <- c()
-    status.selected <- ""
+    status.choices <- c(Active="active")
+    status.selected <- "active"
+    #Can always submit "active" with
     placeholder <- "Critical flags must be resolved by deleting and re-uploading corrected datasets"
   }
   
@@ -1151,12 +1152,12 @@ observeEvent(input$action_indicator_flags_review_save, {
       DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
                                        rsf_pfcbl_id.family=import$import_rsf_pfcbl_id,
                                        for_import_id=import$import_id,
-                                       calculate_future=TRUE,
-                                       reference_asof_date=NA, #import$reporting_asof_date,
+                                       calculate_future=FALSE,
+                                       reference_asof_date=import$reporting_asof_date,
                                        status_message=progress_status_message)
     })
     
-    withProgress(message="Reverting calculations...",value=0.25, {
+    withProgress(message="Rechecking...",value=0.25, {
       
       progress_status_message <- function(class,...) {
         dots <- list(...)
@@ -1168,9 +1169,9 @@ observeEvent(input$action_indicator_flags_review_save, {
       incProgress(amount=0.25,message="Rechecking data...")
       DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
                                    rsf_pfcbl_id.family=import$import_rsf_pfcbl_id,
-                                   check_future=TRUE,
+                                   check_future=FALSE,
                                    check_consolidation_threshold=NA,
-                                   reference_asof_date=NA, #import$reporting_asof_date,
+                                   reference_asof_date=import$reporting_asof_date,
                                    status_message=progress_status_message)
     })
   }

@@ -697,6 +697,8 @@ observeEvent(input$server_admin_indicators__save_indicator, {
       return(showNotification(h3("Save failed: For LCU-defined currnecy indicators cannot have a reference FX reference indicator (although this LCU metric may be so for another defined currenct metric"),type="error"))
     }
     unit_fx_indicator_id <- NA
+  } else {
+    unit_fx_indicator_id <- NA #only currency type indicators can have unit_fx_indicator_id; but percentages with formulas still care about fx methods and sources, for example.
   }
   
   

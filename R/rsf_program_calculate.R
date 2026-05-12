@@ -16,7 +16,7 @@ rsf_program_calculate <- function(pool,
       #unique constraint on database will deny recycling cohort_ids and enforce new cohorts on upload
       
       #rsf_indicators <-db_indicators_get_labels(pool=pool)
-      #rsf_pfcbl_id.family = 40159
+      #rsf_pfcbl_id.family = 581034
       #using_reporting_cohort_id=NA
   
       if (all(is.na(reference_asof_date))) reference_asof_date <- NULL

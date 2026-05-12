@@ -473,6 +473,13 @@ rsf_program_perform_calculations <- function(pool,
                       current_data_is_system_calculation == FALSE,
                       omit_reporting:=TRUE]
       
+      
+      current_results[is.na(current_data_sys_flags)==FALSE & 
+                        bitwAnd(current_data_sys_flags,SYS_FLAGS_CALCULATE_SYSTEM) == SYS_FLAGS_CALCULATE_SYSTEM & 
+                        #current_value_reported_in_current_asof_date & 
+                        current_data_is_system_calculation == FALSE,
+                      formula_overwrite:="allow"]
+      
       # omitted_reporting <- current_results[omit_reporting==TRUE]
       # current_results <- current_results[omit_reporting==FALSE]
       
@@ -640,6 +647,9 @@ rsf_program_perform_calculations <- function(pool,
                                                                       "Reported: ",
                                                                       "{",ifelse(is.na(current_data_value),"MISSING",current_data_value),
                                                                                     flags_current_unit,"}",
+                                                                      ifelse(!is.na(current_data_sys_flags) &
+                                                                               bitwAnd(current_data_sys_flags,SYS_FLAGS_CALCULATE_SYSTEM)==SYS_FLAGS_CALCULATE_SYSTEM,
+                                                                             " was tagged to request system correction",""),
                                                                       ' -> ',
                                                                       "System: {",ifelse(is.na(data_value),"MISSING",data_value),
                                                                                   flags_unit,"}"),

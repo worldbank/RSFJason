@@ -41,7 +41,7 @@ db_data_update_flags <- function(pool,
   #conn <- poolCheckout(pool)
   #dbBegin(conn)
   #dbRollback(conn)
-
+#browser()
   affected_flags <- poolWithTransaction(pool,function(conn) {
     
     

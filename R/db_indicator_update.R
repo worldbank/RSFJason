@@ -4,6 +4,7 @@ db_indicator_update <- function(pool,
                                 formulas,
                                 user_id) {
   
+  
   if (length(unique(indicator$indicator_id)) != 1) stop("Only one indicator may be updated at a time.")
 
   lables <- unique(labels[,.(label_id,
