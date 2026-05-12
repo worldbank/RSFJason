@@ -354,8 +354,10 @@ IMPORT_SELECTED <- eventReactive(c(IMPORT_SELECTED_ID(),
       select exists(select true
                     from p_rsf.rsf_data_calculation_evaluations dce
                     inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.to_family_rsf_pfcbl_id = dce.rsf_pfcbl_id
-                    where ft.from_rsf_pfcbl_id = $1::int)::bool",
-      params=list(selected_import$import_rsf_pfcbl_id))
+                    where ft.from_rsf_pfcbl_id = $1::int
+                      and dce.calculation_asof_date <= $2::date)::bool",
+      params=list(selected_import$import_rsf_pfcbl_id,
+                  selected_import$reporting_asof_date))
     
     if (any(unlist(stale),na.rm=T)) {
       withProgress(message="Recalculating...",value=0.25, {
@@ -381,8 +383,10 @@ IMPORT_SELECTED <- eventReactive(c(IMPORT_SELECTED_ID(),
       select exists(select true
                     from p_rsf.rsf_data_check_evaluations dce
                     inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.to_family_rsf_pfcbl_id = dce.rsf_pfcbl_id
-                    where ft.from_rsf_pfcbl_id = $1::int)::bool",
-                                   params=list(selected_import$import_rsf_pfcbl_id))
+                    where ft.from_rsf_pfcbl_id = $1::int
+                      and dce.check_asof_date <= $2::date)::bool",
+                                   params=list(selected_import$import_rsf_pfcbl_id,
+                                               selected_import$reporting_asof_date))
     
     if (any(unlist(stale),na.rm=T)) {
       withProgress(message="Rechecking...",value=0.25, {
@@ -396,10 +400,10 @@ IMPORT_SELECTED <- eventReactive(c(IMPORT_SELECTED_ID(),
         
         incProgress(amount=0.25,message="Rechecking data...")
         DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
-                                     rsf_pfcbl_id.family=import$import_rsf_pfcbl_id,
+                                     rsf_pfcbl_id.family=selected_import$import_rsf_pfcbl_id,
                                      check_future=FALSE,
                                      check_consolidation_threshold=NA,
-                                     reference_asof_date=import$reporting_asof_date,
+                                     reference_asof_date=selected_import$reporting_asof_date,
                                      status_message=progress_status_message)
       })
     }    
