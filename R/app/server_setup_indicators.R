@@ -8,7 +8,7 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
   
   selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
   if (!isTruthy(selected_rsf_pfcbl_id) ||
-      !selected_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) {
+      !selected_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id) {
     return(NULL)
   } 
     
@@ -259,6 +259,12 @@ ignoreInit = FALSE, ignoreNULL=FALSE) %>% debounce(250)
 ###########OBSERVERS
 ####################
 
+# observeEvent(SERVER_SETUP_INDICATORS_LIST_REFRESH(), {
+#   
+#   #if indicators list changes, checks can also change.
+#   SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1)
+# })
+
 observeEvent(input$ui_setup__indicator_search_filter, {
   search <- input$ui_setup__indicator_search_filter
   
@@ -281,7 +287,7 @@ observeEvent(input$ui_setup__indicator_search_filter, {
 
 observeEvent(input$action_setup_program_recalculate_reset, {
   
-  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
+  facilities <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()
   if (empty(facilities)) return (NULL)
   
   selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
@@ -315,13 +321,13 @@ observeEvent(input$action_setup_program_recalculate_reset, {
 
 observeEvent(input$server_setup_indicators__recalculate_pending, {
   
-  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
+  facilities <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()
   
   if (empty(facilities)) return (NULL)
  
   selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
   if (!isTruthy(selected_rsf_pfcbl_id) ||
-      !selected_rsf_pfcbl_id %in% facilities()$rsf_pfcbl_id) {
+      !selected_rsf_pfcbl_id %in% facilities$rsf_pfcbl_id) {
     return(showNotification(type="error",
                             ui=h3("An error occurred.  Ensure an active project is selected")))
   } 
@@ -367,7 +373,7 @@ observeEvent(input$server_setup_indicators__recalculate_pending, {
 observeEvent(input$ui_setup__indicators_recalculate, {
   
   
-  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
+  facilities <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()
   if (empty(facilities)) return (NULL)
   
   selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
@@ -438,10 +444,11 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
   formula_click <- input$server_setup_indicators__formula_subscription
   selected_facility_id <- as.numeric(input$server_programs__selected_facility)
   unit_click <- input$server_setup_indicators__formula_subscription_calculation_unit
-  
+
   if (!isTruthy(formula_click)) return (NULL)
   if (!isTruthy(selected_facility_id)) return (NULL)
-  if (!empty(SELECTED_PROGRAM_FACILITIES_LIST()) || !selected_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) return (NULL)
+  if (empty(SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()) || 
+      !selected_facility_id %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id) return (NULL)
   
   click_ids <- strsplit(formula_click,"-")[[1]]
   
@@ -454,7 +461,7 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
     return(showNotification(type="error",
                             ui=h3("An error has occured. The requested formula does not match the selected facility")))
   }
-  formula_id <- as.numeric(input$server_setup_indicators__formula_subscription.select)
+  formula_id <- as.numeric(input$server_setup_indicators__formula_subscription_select)
   
   unit_click <- CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES[which(CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES==unit_click)]
   if (length(unit_click)==0) unit_click <- NA
@@ -507,14 +514,18 @@ observeEvent(input$server_setup_indicators__formula_subscription_apply, {
                 USER_NAME(),
                 USER_ID(),
                 unit_click))
-    
+  
+  SERVER_SETUP_INDICATORS_LIST_REFRESH(SERVER_SETUP_INDICATORS_LIST_REFRESH()+1)
+  
   if (empty(success) || !identical(as.numeric(success$formula_id),as.numeric(formula_id))) {
     return(showNotification(type="error",
                             ui=h3("An error has occured. The formula calculation was not successfully applied.  Try logging out and try again.")))
   } 
   
   shiny::removeModal()
-  SERVER_SETUP_INDICATORS_LIST_REFRESH(SERVER_SETUP_INDICATORS_LIST_REFRESH()+1)
+  
+  
+  
 },ignoreInit = TRUE)
 
 observeEvent(input$server_setup_indicators__formula_subscription, {
@@ -525,9 +536,9 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
   if (!isTruthy(formula_click)) return (NULL)
   if (!isTruthy(SELECTED_PROGRAM_ID())) return (NULL)
   if (!isTruthy(selected_facility_id)) return (NULL)
-  if (empty(SELECTED_PROGRAM_FACILITIES_LIST()) || !selected_facility_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) return (NULL)
+  if (empty(SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()) || !selected_facility_id %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id) return (NULL)
   
-  selected_facility <- SELECTED_PROGRAM_FACILITIES_LIST()[rsf_pfcbl_id==selected_facility_id,facility_name]
+  selected_facility <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()[rsf_pfcbl_id==selected_facility_id,facility_name]
   
   
   
@@ -575,8 +586,7 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
       sis.data_type,
       ind.data_unit,
       coalesce(sis.formula_calculation_unit,'') as formula_calculation_unit,
-      coalesce(case when indf.formula_fx_date = 'nofx' then false
-                    when ind.data_type = 'currency' and ind.data_unit = 'LCU' then true
+      coalesce(case when ind.data_type = 'currency' and ind.data_unit = 'LCU' then true
                     else exists(select * from p_rsf.indicators xind
                                 where xind.indicator_id = any(indf.formula_indicator_ids)
                                   and xind.data_type = 'currency')
@@ -624,9 +634,9 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
                                      choices=c(`Not applicable`="")))))
   }
   m <-modalDialog(id="program_indicators_formula_subscription",
-                  div(style="background-color:white;color:black;font-size:16px;padding:5px;height:250px;width:100%;",
+                  div(style="background-color:white;color:black;font-size:16px;padding:5px;width:100%;",
                       fluidRow(column(12,style="width:100%",
-                                      selectizeInput(inputId="server_setup_indicators__formula_subscription.select",
+                                      selectizeInput(inputId="server_setup_indicators__formula_subscription_select",
                                                      label="Selected Calculation Formula",
                                                      choices=choices,
                                                      selected=current_formula$formula_id))
@@ -635,7 +645,7 @@ observeEvent(input$server_setup_indicators__formula_subscription, {
                       
                       fluidRow(column(12,style="width:100%;padding-top:10px;",
                                       tags$label("Formula Notes:"),
-                                      textOutput(outputId="server_setup_indicators__formula_subscription.view_formula_notes")))
+                                      textOutput(outputId="server_setup_indicators__formula_subscription_view_formula_notes")))
                   ),
                   title=HTML(paste0("Select Indicator Calculation Formula for ",selected_facility)),
                   footer=div(style="display:flex;flex-flow:row nowrap;",
@@ -688,7 +698,8 @@ observeEvent(input$server_setup_indicators__toggle_subscriptions, {
       
       subscription_status <- DBPOOL %>% db_program_toggle_indicator_subscription(rsf_program_id = SELECTED_PROGRAM_ID(),
                                                                                  rsf_pfcbl_id = selected_rsf_pfcbl_id,
-                                                                                 indicator_id = selected_indicator_id)
+                                                                                 indicator_id = selected_indicator_id,
+                                                                                 user_id = USER_ID())
       results <- c(results,subscription_status)
     }
   })
@@ -699,47 +710,8 @@ observeEvent(input$server_setup_indicators__toggle_subscriptions, {
   }
   
   SERVER_SETUP_INDICATORS_TOGGLE_SELECTED(c())
-  
-    # } else {
-    #   if (subscription_status==TRUE) {
-    #     shinyjs::removeClass(selector=paste0("#",click),
-    #                          class="unsubscribed")
-    #     
-    #     shinyjs::removeClass(selector=paste0("#",formula_click),
-    #                          class="unsubscribed")
-    #     
-    #     shinyjs::removeClass(selector=paste0("#",paste0(click,"subscription")),
-    #                          class="fa-regular fa-circle-xmark")
-    # 
-    #     shinyjs::removeClass(selector=paste0("#",paste0(click,"subscription")),
-    #                          class="fa-regular fa-circle-question")
-    #     
-    #     shinyjs::addClass(selector=paste0("#",paste0(click,"subscription")),
-    #                       class="fa-regular fa-circle-check")
-    #     
-    #     
-    # 
-    #   } else {
-    #     shinyjs::addClass(selector=paste0("#",click),
-    #                       class="unsubscribed")
-    #     
-    #     shinyjs::addClass(selector=paste0("#",formula_click),
-    #                       class="unsubscribed")
-    # 
-    #     shinyjs::removeClass(selector=paste0("#",paste0(click,"subscription")),
-    #                          class="fa-regular fa-circle-check")
-    #     
-    #     shinyjs::removeClass(selector=paste0("#",paste0(click,"subscription")),
-    #                          class="fa-regular fa-circle-question")
-    #     
-    #     shinyjs::addClass(selector=paste0("#",paste0(click,"subscription")),
-    #                       class="fa-regular fa-circle-xmark")
-    #     
-    #   }
-
-  #SERVER_DASHBOARD.INDICATORS_REFRESH(SERVER_DASHBOARD.INDICATORS_REFRESH()+1)
   SERVER_SETUP_INDICATORS_LIST_REFRESH(SERVER_SETUP_INDICATORS_LIST_REFRESH()+1)
-  SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1) #Because which indicators are subscribed/subscribable affects check auto-subscribe
+  #SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1) #Because which indicators are subscribed/subscribable affects check auto-subscribe
   
 }, ignoreInit = TRUE)
 
@@ -747,24 +719,8 @@ observeEvent(input$server_setup_indicators__toggle_subscriptions, {
 ###########OUTPUTS
 ##################
 
-output$server_setup_indicators__formula_subscription.view_formula <- renderText({
-  formula_select <- as.numeric(input$server_setup_indicators__formula_subscription.select)
-  if (!isTruthy(formula_select)) return (NULL)
-  
-  formula <- DBPOOL %>% dbGetQuery("
-    select
-      indf.formula
-    from p_rsf.indicator_formulas indf
-    where indf.formula_id = $1::int",
-    params=list(formula_select))
-  
-  formula <- formula$formula
-  if (!isTruthy(formula)) formula <- "This formula is undefined"
-  return (formula)
-})
-
-output$server_setup_indicators__formula_subscription.view_formula_notes <- renderText({
-  formula_select <- as.numeric(input$server_setup_indicators__formula_subscription.select)
+output$server_setup_indicators__formula_subscription_view_formula_notes <- renderText({
+  formula_select <- as.numeric(input$server_setup_indicators__formula_subscription_select)
   if (!isTruthy(formula_select)) return (NULL)
   
   formula <- DBPOOL %>% dbGetQuery("
@@ -802,34 +758,6 @@ output$server_setup_indicators__recalculate_pendingcount <- renderText({
   return (pc)
 })
 
-#Takes a while and not very informative
-# output$server_setup_indicators.recalculate_verifiedcount <- renderText({
-#   rsf_program_id <- SELECTED_PROGRAM_ID()
-#   if (!isTruthy(rsf_program_id)) return("0")
-#   
-#   input$ui_setup__indicators_recalculate #modal button
-#   input$action_setup_program_recalculate_pending
-#   input$action_setup_program_recalculate_reset
-#   input$setup_program_recalculate_indicators
-#   
-#   selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
-#   if (!isTruthy(selected_rsf_pfcbl_id)) selected_rsf_pfcbl_id <- SELECTED_PROGRAM()$rsf_pfcbl_id
-#   
-#   tc <- DBPOOL %>% dbGetQuery("select count(*) as verified_count
-#                               from p_rsf.rsf_data_current rdc
-#                               inner join p_rsf.view_rsf_pfcbl_indicator_subscriptions pis on pis.rsf_pfcbl_id = rdc.rsf_pfcbl_id
-#                                                                                          and pis.indicator_id = rdc.indicator_id
-#                               where pis.is_calculated = true
-#                                 and pis.is_calculated = true
-#                                 and rdc.rsf_pfcbl_id = any(select distinct fam.child_rsf_pfcbl_id
-#                                                            from p_rsf.rsf_pfcbl_id_family fam
-#                                                            where fam.parent_rsf_pfcbl_id = $1::int)",
-#                               params=list(selected_rsf_pfcbl_id))
-#   
-#   tc <- format(as.numeric(tc$verified_count),big.mark=",")
-#   if (!isTruthy(tc)) tc <- "0"
-#   return (tc)
-# })
 observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
   
   clicked_cell <- input$ui_setup__indicators_monitored_table_cell_edit
@@ -946,6 +874,7 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
                                                       is_subscribed,
                                                       is_auto_subscribed,
                                                       subscription_comments,
+                                                      comments_user_id,
                                                       auto_subscribed_by_reporting_cohort_id)
             select 
               ids.rsf_pfcbl_id,
@@ -956,11 +885,14 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
               $4::bool as is_subscribed,
               false as is_auto_subscribed,
               $5::text as subscription_comments,
+              $6::text as comments_user_id,
               NULL as auto_subscribed_by_reporting_cohort_id
+              
             from p_rsf.rsf_pfcbl_ids ids
             cross join p_rsf.indicators ind
             left join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
                                                    and indf.formula_id = $3::int
+            left join p_rsf.view_account_info vai on vai.account_id = $6::text                                                   
             where ids.rsf_pfcbl_id = $1::int
               and ind.indicator_id = $2::int
             on conflict (rsf_pfcbl_id,indicator_id)
@@ -969,12 +901,14 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
                 is_subscribed = EXCLUDED.is_subscribed,
                 is_auto_subscribed = EXCLUDED.is_auto_subscribed,
                 subscription_comments = EXCLUDED.subscription_comments,
+                comments_user_id = EXCLUDED.comments_user_id,
                 auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id",
     params=list(monitored_indicator$rsf_pfcbl_id,
                 monitored_indicator$indicator_id,
                 monitored_indicator$formula_id,
                 monitored_indicator$is_subscribed,
-                monitored_indicator$subscription_comments))
+                monitored_indicator$subscription_comments,
+                USER_ID()))
     
   }
 })
@@ -985,6 +919,7 @@ output$ui_setup__indicators_monitored_table <- DT::renderDataTable({
   selected_rsf_program_id <- SELECTED_PROGRAM_ID() ##Reactive on selected program_id
   monitored_indicators <- SERVER_SETUP_INDICATORS_LIST_FILTERED()
   is_setup_mode <- isolate(SERVER_SETUP_INDICATORS_MODE_IS_SETUP())
+  listen <- SERVER_SETUP_INDICATORS_LIST_REFRESH()
   
   if (!isTruthy(selected_rsf_program_id)) {
     return (DT::datatable(data.frame(Error="A Program must be selected first."),

@@ -663,7 +663,7 @@ parse_template_RSA <- function(pool,
   #parse
   
   template_headers <- rsa[,
-                          .(label_header_id=unlist(header_ids,recursive = F)),
+                          .(label_header_id=as.numeric(unlist(header_ids,recursive = F))),
                           by=.(section,
                                paragraph,
                                text,
@@ -673,10 +673,14 @@ parse_template_RSA <- function(pool,
                                map_check_formula_id)
                           ][,
                             .(rsf_pfcbl_id=for_rsf_pfcbl_id,
-                              indicator_id=label_header_id,
+                              label_header_id,
                               label=text,
                               data_source_index=paste0(section,":",paragraph,"#",action,"::",map_indicator_id,"_",map_formula_id,"_",map_check_formula_id))]
   
+  template_headers[rsf_labels,
+                   indicator_id:=i.map_indicator_id,
+                   on=.(label_header_id)]
+  template_headers[,label_header_id:=NULL]
   template_headers <- unique(template_headers)
   
   sys_text <- rsa[section %in% sections_sys]
@@ -696,7 +700,7 @@ parse_template_RSA <- function(pool,
     if (!empty(conflicts)) {
       conflicts[,n:=1:.N] #n recycled as row ID
       conflicts <- conflicts[,
-                             .(label_header_id=unlist(header_ids,recursive=F)),
+                             .(label_header_id=as.numeric(unlist(header_ids,recursive=F))),
                              by=.(matched_row_num,n,action,map_indicator_id,map_formula_id,map_check_formula_id)]
       
       conflicts <- conflicts[rsf_labels[,.(label_header_id,template_label_lookup)],
@@ -824,7 +828,7 @@ parse_template_RSA <- function(pool,
     #parsing <- rsa[action=="parse"]
     
 
-    parsing <- rsa[,.(label_header_id=unlist(header_ids,recursive=F)),
+    parsing <- rsa[,.(label_header_id=as.numeric(unlist(header_ids,recursive=F))),
                    by=c(grep("header_ids",names(rsa),invert=T,value=T))]
 
     #parsing are all those explicitly labeled as "parse"
@@ -884,8 +888,8 @@ parse_template_RSA <- function(pool,
       ",paste0(parsing[which(!pkv),text],collapse="\n AND ALSO \n")))
       
       parsing <- parsing[,
-                         .(indicator_name=unlist(parse_keys,recursive = F),
-                            data_value=unlist(parse_values,recursive=F)),
+                         .(indicator_name=as.character(unlist(parse_keys,recursive = F)),
+                            data_value=as.character(unlist(parse_values,recursive=F))),
                          by=.(id,parse_label,section,paragraph,text)]
       parsing[,data_unit:=as.character(NA)]
       parsing[,
@@ -1376,7 +1380,6 @@ parse_template_RSA <- function(pool,
   
                    #only the IFC QR template merits saving headers
                    #template_headers=unique(template_headers))
-  
   status_message(class="info","Success: Completed Parsing File:\n")
   return (template)
 }

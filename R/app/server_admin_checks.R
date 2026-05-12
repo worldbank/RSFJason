@@ -107,7 +107,7 @@ SERVER_ADMIN_CHECKS.SELECTED_CHECK <- eventReactive(c(RSF_CHECKS(),
         icf.formula_result_message,
         icf.formula_comments,
         coalesce(icf.auto_resolve,false) as auto_resolve,
-        icf.formula_fx_date,
+        icf.unit_fx_method,
         icf.check_formula_title
       from p_rsf.indicator_check_formulas icf
       where icf.indicator_check_id = $1::int",
@@ -522,7 +522,7 @@ observeEvent(input$server_admin_checks__edit_check_add_formulas, {
                             formula_result_message=as.character(NA),
                             formula_comments=as.character(NA),
                             auto_resolve=FALSE,
-                            formula_fx_date="calculation",
+                            unit_fx_method="calculation",
                             check_formula_title=as.character(NA))
   
   new_formula[,module_id:=paste0("SERVER_ADMIN_CHECKS__formula",check_formula_id)]

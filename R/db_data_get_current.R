@@ -4,8 +4,8 @@ db_data_get_current <- function(pool,
                                 reporting_current_date,
                                 include.sys_name=TRUE,
                                 include.rsf_name=TRUE,
-                                include.status=TRUE,
                                 include.flags=c("active","resolved"),
+                                #include.status=FALSE,
                                 fx_currency=NA,
                                 fx_force_global=TRUE,
                                 fx_reported_date=FALSE,
@@ -105,25 +105,25 @@ db_data_get_current <- function(pool,
                     
                       sn.sys_name,
                       nids.rsf_full_name,
-                      status.quarter_end_reporting_status as reporting_status,
-                      status.quarter_reporting_expected as reporting_expected,
-                      status.quarter_reporting_exists as reporting_happened
+                      case when $3::date < ids.created_in_reporting_asof_date then 'EXANTE'
+                           when ids.deactivated_in_reporting_asof_date is NULL then 'ACTIVE'
+                           when ids.deactivated_in_reporting_asof_date < $3::date then 'CLOSED'
+                           when ids.deactivated_in_reporting_asof_date >= $3::date then 'ACTIVE'
+                           else 'ERROR' end as reporting_status
 
                     from p_rsf.get_data_by_family_tree(input_rsf_pfcbl_ids_familytree => string_to_array($1::text,',')::int[], 
                     																	 input_indicator_ids => string_to_array($2::text,',')::int[],
                     																	 input_current_date => $3::date,
                     																	 input_to_currency => $4::text,
-                    																	 fx_force_global => $8::bool,
-                                                       fx_reported_date => $9::bool,
-                                                       include_flags => $10::bool) as dft 
-                    
+                    																	 fx_force_global => $7::bool,
+                                                       fx_reported_date => $8::bool,
+                                                       include_flags => $9::bool) as dft 
+                    inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = dft.rsf_pfcbl_id
                     left join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on $5::bool = true
                                                                           and sn.rsf_pfcbl_id = dft.rsf_pfcbl_id																						 
                     left join p_rsf.view_current_entity_names_and_ids nids on $6::bool = true
                                                                           and nids.rsf_pfcbl_id = dft.rsf_pfcbl_id
-                    left join lateral p_rsf.get_rsf_pfcbl_id_reporting_status_asof_date(input_rsf_pfcbl_id => dft.rsf_pfcbl_id,
-                    																																		input_pfcbl_category => dft.pfcbl_category,
-                    																																		input_current_date => $3::date) as status on $7::bool = true
+                    
                     ",
                          params=list(paste0(rsf_pfcbl_ids.familytree,collapse=","),
                                      paste0(indicator_ids,collapse=","),
@@ -131,7 +131,7 @@ db_data_get_current <- function(pool,
                                      fx_currency,
                                      include.sys_name,
                                      include.rsf_name,
-                                     include.status,
+                                     #include.status,
                                      fx_force_global,
                                      fx_reported_date,
                                      length(include.flags) > 0))
@@ -283,7 +283,6 @@ db_data_get_current <- function(pool,
                                    reporting_current_date=reporting_current_date,
                                    include.sys_name=include.sys_name,
                                    include.rsf_name=include.rsf_name,
-                                   include.status=include.status,
                                    include.flags=include.flags,
                fx_currency=fx_currency,
                fx_force_global=fx_force_global,

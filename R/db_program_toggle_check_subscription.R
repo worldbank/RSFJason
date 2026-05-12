@@ -1,6 +1,7 @@
 db_program_toggle_check_subscription <- function(pool,
                                                  rsf_pfcbl_id,
-                                                 check_formula_id) {
+                                                 check_formula_id,
+                                                 user_id) {
 
   subscription_status <- dbGetQuery(pool,"
     with status as (
@@ -22,7 +23,9 @@ db_program_toggle_check_subscription <- function(pool,
                                        rsf_facility_id,
                                        is_subscribed,
                                        is_auto_subscribed,
-                                       auto_subscribed_by_reporting_cohort_id)
+                                       auto_subscribed_by_reporting_cohort_id,
+                                       subscription_comments,
+                                       comments_user_id)
     select
       status.rsf_pfcbl_id,
       status.check_formula_id,
@@ -31,18 +34,25 @@ db_program_toggle_check_subscription <- function(pool,
       status.rsf_facility_id,
       (not status.is_subscribed) as is_subscribed,
       false as is_auto_subscribed,
-      NULL as auto_subscribed_by_reporting_cohort_id
+      NULL as auto_subscribed_by_reporting_cohort_id,
+      case when not status.is_subscribed is false then concat('Unsubscribed by ',coalesce(vai.users_name,'UNKNOWN'),' on ',now()::date)
+           else concat('Subscribed by ',vai.users_name,' on ',now()::date) end as subscription_comments,
+      $3::text as comments_user_id
     from status
     inner join p_rsf.indicator_check_formulas icf on icf.check_formula_id = status.check_formula_id
+    left join p_rsf.view_account_info vai on vai.account_id = $3::text
     on conflict(rsf_pfcbl_id,check_formula_id)
     do update
     set is_subscribed = EXCLUDED.is_subscribed,
         indicator_check_id = EXCLUDED.indicator_check_id,
         is_auto_subscribed = EXCLUDED.is_auto_subscribed,
-        auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id
+        auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id,
+        subscription_comments = concat(rsf_setup_checks.subscription_comments,'\n',EXCLUDED.subscription_comments),
+        comments_user_id = EXCLUDED.comments_user_id
     returning rsf_pfcbl_id,is_subscribed;",
     params=list(rsf_pfcbl_id,
-                check_formula_id))
+                check_formula_id,
+                user_id))
   
   if (empty(subscription_status)) { 
     subscription_status <- as.logical(NA)

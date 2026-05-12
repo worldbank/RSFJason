@@ -74,7 +74,7 @@ db_export_create <- function(pool,
       ")
     }
     
-    exporting_cohort <- dbGetQuery(conn,"insert into p_rsf.exporting_cohorts(rsf_program_id,
+    exporting_cohort <- dbGetQuery(conn,"insert into p_rsf.dashboard_exports(rsf_program_id,
                                                                              exporting_user_id,
                                                                              exporting_rsf_pfcbl_id,
                                                                              export_name,

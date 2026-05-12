@@ -575,6 +575,8 @@ observeEvent(input$action_server_dashboard__edit_save, {
     }
   }
   
+  IMPORT_LIST__REFRESH(IMPORT_LIST__REFRESH()+1)
+  
   removeModal()
   
 })

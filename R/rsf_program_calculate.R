@@ -45,9 +45,9 @@ rsf_program_calculate <- function(pool,
                                             where ic.is_calculator_check = true")
       
       setDT(rsf_calculator_checks)
-      aggregate_calculation_flags <- NULL
+      #aggregate_calculation_flags <- NULL
     } 
-    
+
     repeat {
       #Grouped by:
       #dce.rsf_pfcbl_id = 0 desc,
@@ -65,11 +65,13 @@ rsf_program_calculate <- function(pool,
         
         
         #using_calculations_cohort_id <- using_reporting_cohort_id
-        #any(required_calculations$calculate_indicator_id %in% c(157541))
-        #if(any(required_calculations$calculate_indicator_id==157541)) { stop("Found!") }
+        #if (any(required_calculations$calculate_indicator_id %in% c(157528))) { browser() }
+        #if(any(required_calculations$calculate_indicator_id %in% c(157542))) { stop("Found!") }
+        #if (any(required_calculations$calculate_asof_date > ymd('2025-06-30'))) { stop(">2025-06-30")}
         #required_calculations[rsf_indicators,on=.(calculate_indicator_id=indicator_id),nomatch=NULL][,.(indicator_name=sort(unique(indicator_name)))][indicator_name=="client_risk_sharing_fee_billing_period_DAYS"]
         current_calculate_asof_date <- unique(as.character(required_calculations$calculate_asof_date))
 
+        #if (current_calculate_asof_date != ymd('2025-06-30')) stop("Future date")
         if (empty(required_calculations)) break;
        
         ##TESTING
@@ -116,10 +118,17 @@ rsf_program_calculate <- function(pool,
           #Testing
 
           if (any(processed_calculations$processed_times > 1)) {
+            #stop("stop")
+            # repeat_calcs <- fsetdiff(required_calculations[,.(calculate_rsf_pfcbl_id,calculate_indicator_id,calculate_asof_date)],
+            #                          processed_calculations[processed_times > 1,.(calculate_rsf_pfcbl_id,calculate_indicator_id,calculate_asof_date)])
+            # 
             
-            repeat_calcs <- fsetdiff(required_calculations[,.(calculate_rsf_pfcbl_id,calculate_indicator_id,calculate_asof_date)],
-                                     processed_calculations[processed_times > 1,.(calculate_rsf_pfcbl_id,calculate_indicator_id,calculate_asof_date)])
-            
+            repeat_calcs <- processed_calculations[processed_times > 1,.(calculate_rsf_pfcbl_id,calculate_indicator_id,calculate_asof_date)
+                                   ][required_calculations[,.(calculate_rsf_pfcbl_id,calculate_indicator_id,calculate_asof_date)],
+                                     on=.(calculate_rsf_pfcbl_id,
+                                          calculate_indicator_id,
+                                          calculate_asof_date),
+                                     nomatch=NULL]
             repeat_calcs[rsf_indicators,
                          `:=`(indicator_name=i.indicator_name),
                          on=.(calculate_indicator_id=indicator_id)]
@@ -160,26 +169,21 @@ rsf_program_calculate <- function(pool,
         {
           #Note: if there's an indicator filter, then we might have more than the needed parmeters -- meaning more than necessary data may be pulled.
           #parameter_rsf_pfcbl_ids <- attr(required_calculations,"calculation_parameter_requirements")
-          flags <- rsf_program_perform_calculations(pool=pool,
-                                                    current_data=required_calculations,
-                                                    rsf_indicators=rsf_indicators,
-                                                    rsf_calculator_checks=rsf_calculator_checks,
-                                                    for_import_id=for_import_id,
-                                                    perform.test = FALSE,
-                                                    status_message=status_message)
+          #flags <- 
+            
+            results <- rsf_program_perform_calculations(pool=pool,
+                                                        current_data=required_calculations,
+                                                        rsf_indicators=rsf_indicators,
+                                                        rsf_calculator_checks=rsf_calculator_checks,
+                                                        for_import_id=for_import_id,
+                                                        perform.test = FALSE,
+                                                        status_message=status_message)
           
-          aggregate_calculation_flags <- rbindlist(list(aggregate_calculation_flags,
-                                                        flags))
-          flags <- NULL
+          # aggregate_calculation_flags <- rbindlist(list(aggregate_calculation_flags,
+          #                                               flags))
+          #flags <- NULL
         }
-    }
-    
-    if (!empty(aggregate_calculation_flags)) {
-      
-      db_rsf_checks_add_update(pool=pool,
-                               data_checks=aggregate_calculation_flags,
-                               consolidation_threshold=NA)
-      
+        
     }
   }
   

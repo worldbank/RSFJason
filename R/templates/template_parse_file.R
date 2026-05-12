@@ -26,7 +26,7 @@ template_parse_file <- function(pool,
     status_message(class="none","Parsing template: ",basename(template_file),"\n")
     
     
-    template <- db_export_load_report(pool=pool,
+    template <- db_dashboard_load_report(pool=pool,
                                       template_file=template_file,
                                       reporting_user_id=reporting_user_id,
                                       rsf_data_sheet="RSF_DATA")
@@ -228,11 +228,11 @@ template_parse_file <- function(pool,
       if (template_name=="IFC-QR-TEMPLATE2018") {
 
         template <- parse_template_IFC_QR2018(pool=pool,
-                                          template_lookup = template_lookup,
-                                          template_file=template_file,
-                                          rsf_indicators=rsf_indicators,
-                                          status_message = status_message,
-                                          CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
+                                              template_lookup = template_lookup,
+                                              template_file=template_file,
+                                              rsf_indicators=rsf_indicators,
+                                              status_message = status_message,
+                                              CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
         
         if (all(is.na(template))) {
           status_message(class="error",paste0("Failed to parse template for: ",template_file,"/",template_format))
@@ -323,7 +323,7 @@ template_parse_file <- function(pool,
       template$data_integrity_key <- as.character(NA)
       
       template$template_settings <- list()
-      template$template_settings$template_has_static_row_ids <- template_lookup$template_has_static_row_ids
+      template$template_settings$is_complete_portfolio <- template_lookup$is_complete_portfolio
       template$template_settings$template_is_reportable <- template_lookup$is_reportable
       
     } 
@@ -458,10 +458,10 @@ template_parse_file <- function(pool,
         stop("Template must report one (and only one) reporting date")
       }
       
-      if (!all(template$reporting_asof_date %in% template$template_data$reporting_asof_date) && length(template$template_data$reporting_asof_date) > 0) {
-        stop(paste0("Template reporting_asof_date ",template$reporting_asof_date," must be present in template_data.  Must data dates are: ",
-                    paste0(unique(template$template_data$reporting_asof_date),collapse=", ")))
-      }
+      # if (!all(template$reporting_asof_date %in% template$template_data$reporting_asof_date) && length(template$template_data$reporting_asof_date) > 0) {
+      #   stop(paste0("Template reporting_asof_date ",template$reporting_asof_date," must be present in template_data.  Must data dates are: ",
+      #               paste0(unique(template$template_data$reporting_asof_date),collapse=", ")))
+      # }
       
       #Templates imported via fread return an "IDate" "Date" class that can later cause conflicts when rbindlist with regular Date classes;
       #for all other circumstances, this turns dates into dates and is otherwise not useful...
@@ -549,6 +549,7 @@ template_parse_file <- function(pool,
       }
       
       template$template_data[,reporting_template_data_rank:=1:.N]
+    
     
     
     
@@ -663,62 +664,11 @@ template_parse_file <- function(pool,
   }  
   
   {
-    {
-      #NOTE: Oct-2025
-      #This is all but obsolete ... Barely used.
-      #And in current versions almost everything is paramaeterized around program/facility level
-      # program_settings <- dbGetQuery(pool,"
-      #   select 
-      #     vrps.rsf_program_id,
-      #     vrps.setting_name,
-      #     vrps.setting_value,
-      #     vrps.default_data_type,
-      #     vrps.setting_group
-      #   from p_rsf.view_rsf_program_settings vrps
-      #   inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_program_id = vrps.rsf_program_id
-      #   where ids.rsf_pfcbl_id = $1::int",
-      #   params=list(template$cohort_pfcbl_id))
-      # 
-      # setDT(program_settings)
-      # 
-      # settings <- dcast.data.table(program_settings,
-      #                              formula=rsf_program_id ~ setting_name,value.var="setting_value")
-      # 
-      # for (sname in names(settings)) {
-      #   setting <- program_settings[setting_name==sname]
-      #   if (empty(setting)) next;
-      #   
-      #   if (setting$default_data_type=="logical") set(settings,i=NULL,j=setting$setting_name,value=as.logical(settings[[setting$setting_name]]))
-      #   else if (setting$default_data_type %in% c("number","currency","currency_ratio","percent")) set(settings,i=NULL,j=setting$setting_name,value=as.numeric(settings[[setting$setting_name]]))
-      #   else if (setting$default_data_type == "date") set(settings,i=NULL,j=setting$setting_name,value=as.Date(settings[[setting$setting_name]]))
-      #   else  set(settings,i=NULL,j=setting$setting_name,value=toupper(as.character(settings[[setting$setting_name]])))
-      # }
-      # 
-      # template$program_settings <- settings
-      # template$get_program_setting <- function(setting) {
-      #   
-      #   ps <- (get("template",envir=parent.env(environment())))$program_settings
-      #   if (is.null(ps)) stop("Unable to locate program settings object in template")
-      #   
-      #   ps <- ps[[setting]]
-      #   if (is.null(ps)) stop(paste0("Invalid program setting: ",setting,". Verify setting exists in database table p_rsf.program_settings"))
-      #   if (is.na(ps) || length(ps)==0 || nchar(as.character(ps))==0) stop(paste0("Invalid program setting value: ",setting," is <NA> and must be specified."))
-      #   ps
-      # }
-    }
-
+    
     if (template$template_name %in% c("PFCBL-EDITOR-TEMPLATE",
-                                      "RSF-ENTITIES-TEMPLATE",
-                                      "RSF-SETUP-TEMPLATE")) {
+                                      "RSF-ENTITIES-TEMPLATE")) {
 
       template$fail_on_incomplete_cohorts <- FALSE
-      
-      # if (template$template_name %in% c("PFCBL-EDITOR-TEMPLATE",
-      #                                   "RSF-SETUP-TEMPLATE")) {
-      #   
-      #   template$program_settings$on_upload_cohort_fail_on_check_class <- "None"    
-      # }
-      
 
     }
     

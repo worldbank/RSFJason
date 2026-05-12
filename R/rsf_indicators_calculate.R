@@ -27,7 +27,7 @@ rsf_indicators_calculate <- function(pool,
     #if (length(calculation_rank) != 1) stop(paste0("calculations_dt must supply a data.table of calculations with only one unique formula_calculation_rank value at a time"))
     #if (is.null(calculations$for_rsf_pfcbl_id)) calculations[,for_rsf_pfcbl_id:=NA]
     
-    #each for_rsf_pfcbl_id should be calculated once per indicator/formula
+    #each for_rsf_pfcbl_id should be calculated once per indicator/formula/currency
     dups <- calculations[,.(rsf_pfcbl_id=unlist(calculate_rsf_pfcbl_ids,recursive=F)),
                                   by=.(indicator_name)][,.(n=.N),
                                                           by=.(indicator_name,
@@ -66,6 +66,7 @@ rsf_indicators_calculate <- function(pool,
     }
   }
 
+  NO_DATA_FAILURE <- "NO_DATA_FAILURE" #Temporary pseudo flag to just keep track of failed calculations that knowingly have failed in an acceptable way.
     #START 
   #testing specific claculation:
   #i<-which(sapply(calculations_list,'[[','indicator_name')=='loan_defaulted_recovery_amount_total')
@@ -96,6 +97,10 @@ rsf_indicators_calculate <- function(pool,
       #calculation_rsf_id_col <- paste0("rsf_",calculation$data_category,"_id")
       #calculation_rsf_pfcbl_id_col <- paste0("rsf_pfcbl_id.",calculation$data_category)
       calculation_rsf_pfcbl_id_col <- paste0("rsf_",calculation$data_category,"_id")
+      
+      # if (anyNA(rsf_data_wide[[calculation_rsf_pfcbl_id_col]])) {
+      #   missings_rsf_ids <- 
+      # }
       
       data_received_for_rsf_pfcbl_ids <- unique(rsf_data_wide[[calculation_rsf_pfcbl_id_col]])
       calculate_for_rsf_pfcbl_ids <- unlist(calculation$calculate_rsf_pfcbl_ids)
@@ -203,8 +208,9 @@ rsf_indicators_calculate <- function(pool,
         }
         
         if (!all(calculate_for_rsf_pfcbl_ids %in% data_received_for_rsf_pfcbl_ids)) {
-          stop(paste0("Requested to calculate SYSIDs: ",paste0(sort(calculate_for_rsf_pfcbl_ids),collapse=",")," BUT received data for ",
-                      paste0(sort(data_received_for_rsf_pfcbl_ids),collapse=",")))
+          
+          stop(paste0("Requested to calculate ",calculation$indicator_name," as-of ",calculation$calculate_asof_date," for the following SYSIDs that not present in the dataset:\n",
+                      paste0(sort(setdiff(calculate_for_rsf_pfcbl_ids,data_received_for_rsf_pfcbl_ids)),collapse=",")))
         }
         
         if (length(data_received_for_rsf_pfcbl_ids)==0) {
@@ -326,23 +332,14 @@ rsf_indicators_calculate <- function(pool,
           calc_data <- calc_data[missing_ids==FALSE]
           calc_data[,missing_ids:=NULL]
           
-          #If there aren't any loans then it's expected, eg, sum(loan outstanding amount) is going to fail.  These flags aren't informative.
+          #If there aren't any loans then it's expected, eg, sum(loan outstanding amount) is going to fail.
           if (!empty(missing_ids)) {
             #status_message(class="error",paste0("\nCalculation failed due to missing data: ",calculation$indicator_name,"\n  Formula has no data to calculate after filtering for entity missing IDs.  Skipping.\n"))
             add_data_flag(rsf_pfcbl_id = unlist(missing_ids$rsf_pfcbl_id),
                           indicator_id=calculation$calculate_indicator_id,
-                          check_name="sys_flag_missing_data",
-                          check_message=paste0(calculation$indicator_name," formula has no data after filtering for missing ",
-                                               paste0(formula_rsf_ids,collapse=" AND/OR "),
-                                               ". Ensure ",toTitleCase(calculation$data_category)," has reported any ",
-                                               fcase(any(formula_rsf_ids=="rsf_loan_id"),"Loans",
-                                                     any(formula_rsf_ids=="rsf_borrower_id"),"Borrowers",
-                                                     any(formula_rsf_ids=="rsf_client_id"),"Clients",
-                                                     any(formula_rsf_ids=="rsf_facility_id"),"Facilities",
-                                                     any(formula_rsf_ids=="rsf_program_id"),"Programs",
-                                                     default="data"),
-                                               " as-of ",as.character(calculation$calculate_asof_date)," ",
-                                               " and all input variables are defined and reported for this formula to calculate."),
+                          check_name=NO_DATA_FAILURE, #This is a pseudo flag that is removed later in this function.
+                                                                       #This is a special type of failure.
+                          check_message=NA,
                           formula_id=calculation$formula_id)
           }
           
@@ -435,7 +432,7 @@ rsf_indicators_calculate <- function(pool,
       if (!is.na(calculation$formula_grouping_pfcbl_rank)) {
         #Column names that are equal-to or parent-level from the current grouping-level
         #These columns will be passed to the data.table by() clause and ensure that any aggregate functions will see them only onces and not count/sum repeated rows
-        grouped_parameters <- parameters[parameter_variable != "all"][rsf_indicators[indicator_pfcbl_rank <= calculation$formula_grouping_pfcbl_rank,
+        grouped_parameters <- parameters[!(parameter_variable %in% c("all","conflicts"))][rsf_indicators[indicator_pfcbl_rank <= calculation$formula_grouping_pfcbl_rank,
                                                         .(parameter_indicator_id =indicator_id)],
                                          on=.(parameter_indicator_id ),
                                          nomatch=NULL,
@@ -454,7 +451,7 @@ rsf_indicators_calculate <- function(pool,
     
     #Currency conversions!
     {
-      nofx_units <- NULL
+      #nofx_units <- NULL
       if (!is.na(calculation$calculate_indicator_currency_unit)) {
         
         #This will ignore timeseries .all parameters
@@ -462,69 +459,70 @@ rsf_indicators_calculate <- function(pool,
         #nofx is to default the currency unit to the parameter currency.  
         #Eg, calculation is: X% rate * Fee will yield the output value in the same currency as the fee.
         #But this also necessitates that all the parameter(s) have the same currency unit(s).  Else it's ambiguous.
-        if (calculation$formula_fx_date=="nofx") {
-          unit_cols <- parameters[for_fx==TRUE & grepl("unit$",parameter_variable),parameter_column_name]
-          
-          nofx_units <- calc_data[,
-                             .SD,
-                             .SDcols=c("grouping","rsf_pfcbl_id",unit_cols)]
-          
-          nofx_units <- melt.data.table(nofx_units,
-                                   id.vars=c("grouping","rsf_pfcbl_id"),
-                                   variable.name="parameter_column_name",
-                                   value.name="unit",
-                                   variable.factor = F,
-                                   value.factor = F)
-          
-          #Make sure that the parameter currency units are consistent to ensure the output calculation result currency is consistent
-          nofx_units <- unique(nofx_units[,.(grouping,rsf_pfcbl_id,unit)])
-          
-          nofx_units <- nofx_units[,
-                         .(nofx_unit=unit[1],
-                           unit_n=length(unique(unit)),
-                           units=list(unique(unit))),
-                         by=.(grouping,rsf_pfcbl_id)]
-          
-          #because we KNOW they are all the same units,
-          #the unit re-assignment occurs below after the calculation result.
-          if (any(nofx_units$unit_n != 1)) {
-            bad_units <- nofx_units[unit_n != 1]
-            
-            #add a flag and also enforce the output currency to something...Below unit will be == 1 (whatever is first)
-            for(id in unique(bad_units$rsf_pfcbl_id)) {
-              add_data_flag(rsf_pfcbl_id = id,
-                            indicator_id=calculation$calculate_indicator_id,
-                            check_name="sys_calculator_failed",
-                            check_message=paste0(calculation$indicator_name,": Calculation FX date specifies 'NO FX' in system indicator setup. This requires all parameters to have the same currency unit value. ",
-                                                 "But multiple parameter currencies were found: ",
-                                                 paste0(unique(unlist(bad_units[rsf_pfcbl_id==id & unit_n != 1,units])),collapse=", "),
-                                                 ".  Calculation is defaulting to calculate FX in ",
-                                                 calculation$calculate_indicator_data_unit," values. Verify results"),
-                            formula_id=calculation$formula_id)
-              
-              
-            }
-            
-            #next;
-          }
-          
-          
-          nofx_units <- nofx_units[unit_n==1,
-                                   .(grouping,
-                                     rsf_pfcbl_id,
-                                     nofx_unit)]
-          
-          #What if the calculation hasn't defined its parameters?  Then the currency unit will be NA 
-          #Presumably this will return a zero/NA value since the required input parameter(s) are missing.  And perhaps trigger flags elsewhere.
-          #But we should ensure we know what the currency requirement is and so default to LCU
-          nofx_units[is.na(nofx_unit),
-                     nofx_unit:="LCU"]
-          
-          
-          #Since all parameter currencies must be the same, this clause is separate from else {} below as there cannot be any need for a currency
-          #conversion among the parameters (and we don't want the default conversion to local currency unit if it's different than the parameter units)
-        
-        } else {
+        # if (calculation$formula_fx_date=="nofx") {
+        #   unit_cols <- parameters[for_fx==TRUE & grepl("unit$",parameter_variable),parameter_column_name]
+        #   
+        #   nofx_units <- calc_data[,
+        #                      .SD,
+        #                      .SDcols=c("grouping","rsf_pfcbl_id",unit_cols)]
+        #   
+        #   nofx_units <- melt.data.table(nofx_units,
+        #                            id.vars=c("grouping","rsf_pfcbl_id"),
+        #                            variable.name="parameter_column_name",
+        #                            value.name="unit",
+        #                            variable.factor = F,
+        #                            value.factor = F)
+        #   
+        #   #Make sure that the parameter currency units are consistent to ensure the output calculation result currency is consistent
+        #   nofx_units <- unique(nofx_units[,.(grouping,rsf_pfcbl_id,unit)])
+        #   
+        #   nofx_units <- nofx_units[,
+        #                  .(nofx_unit=unit[1],
+        #                    unit_n=length(unique(unit)),
+        #                    units=list(unique(unit))),
+        #                  by=.(grouping,rsf_pfcbl_id)]
+        #   
+        #   #because we KNOW they are all the same units,
+        #   #the unit re-assignment occurs below after the calculation result.
+        #   if (any(nofx_units$unit_n != 1)) {
+        #     bad_units <- nofx_units[unit_n != 1]
+        #     
+        #     #add a flag and also enforce the output currency to something...Below unit will be == 1 (whatever is first)
+        #     for(id in unique(bad_units$rsf_pfcbl_id)) {
+        #       add_data_flag(rsf_pfcbl_id = id,
+        #                     indicator_id=calculation$calculate_indicator_id,
+        #                     check_name="sys_calculator_failed",
+        #                     check_message=paste0(calculation$indicator_name,": Calculation FX date specifies 'NO FX' in system indicator setup. This requires all parameters to have the same currency unit value. ",
+        #                                          "But multiple parameter currencies were found: ",
+        #                                          paste0(unique(unlist(bad_units[rsf_pfcbl_id==id & unit_n != 1,units])),collapse=", "),
+        #                                          ".  Calculation is defaulting to calculate FX in ",
+        #                                          calculation$calculate_indicator_data_unit," values. Verify results"),
+        #                     formula_id=calculation$formula_id)
+        #       
+        #       
+        #     }
+        #     
+        #     #next;
+        #   }
+        #   
+        #   
+        #   nofx_units <- nofx_units[unit_n==1,
+        #                            .(grouping,
+        #                              rsf_pfcbl_id,
+        #                              nofx_unit)]
+        #   
+        #   #What if the calculation hasn't defined its parameters?  Then the currency unit will be NA 
+        #   #Presumably this will return a zero/NA value since the required input parameter(s) are missing.  And perhaps trigger flags elsewhere.
+        #   #But we should ensure we know what the currency requirement is and so default to LCU
+        #   nofx_units[is.na(nofx_unit),
+        #              nofx_unit:="LCU"]
+        #   
+        #   
+        #   #Since all parameter currencies must be the same, this clause is separate from else {} below as there cannot be any need for a currency
+        #   #conversion among the parameters (and we don't want the default conversion to local currency unit if it's different than the parameter units)
+        # 
+        # } 
+        {
           
           #function parameters
           {
@@ -544,6 +542,7 @@ rsf_indicators_calculate <- function(pool,
                                                check_message) {
               
               #fx conversions generate a lot of noise. only keep for testing.
+              #flags.fx is equal to perform.text and therefore this flag can never be assigned to data.
               if (check_name=="sys_fx_conversion" && flags.fx==FALSE) {
                 
                 NULL;
@@ -642,6 +641,70 @@ rsf_indicators_calculate <- function(pool,
             }
           }
           
+          timeseries_parameters <- parameters[for_fx==TRUE & parameter_variable=="conflicts"]
+          if (!empty(timeseries_parameters)) {
+            
+            #ts_fx_col <- timeseries_parameters$parameter_indicator_name[[1]]
+            for (ts_fx_col in timeseries_parameters$parameter_indicator_name) {
+              ts_fx_col.conflicts <- paste0(ts_fx_col,".conflicts")
+              
+              #timeseries_fx_calc_data <- calc_data[,..ts_fx_cols]
+              timeseries_fx_calc_data <- calc_data[,
+                                                   unlist(get(ts_fx_col.conflicts),recursive = F),
+                                                   by=.(rsf_pfcbl_id,row_id,grouping)]
+              
+              fx_calculation <- as.list(calculation)
+              fx_ts_parameters <- timeseries_parameters[parameter_indicator_name==ts_fx_col,
+                                                        .(parameter_indicator_name,
+                                                          parameter_indicator_id,
+                                                          parameter_data_type,
+                                                          for_calculation,
+                                                          for_sort,
+                                                          for_fx)]
+              
+              fx_ts_parameters <- fx_ts_parameters[data.table(parameter_indicator_name=ts_fx_col,
+                                                              parameter_variable=c("timeseries",
+                                                                                   "timeseries.unit",
+                                                                                   "timeseries.reporteddate")),
+                                                   on=.(parameter_indicator_name)]
+              fx_ts_parameters[,parameter_column_name:=paste0(parameter_indicator_name,".",parameter_variable)]
+              
+              fx_calculation$parameters_dt <- list(fx_ts_parameters)
+              fx_calculation <- as.data.table(fx_calculation)
+              
+              
+              setnames(timeseries_fx_calc_data,
+                       old=grep("^timeseries",names(timeseries_fx_calc_data),value=T),
+                       new=paste0(ts_fx_col,".",grep("^timeseries",names(timeseries_fx_calc_data),value=T)))
+              
+              ts_fx_data <- rsf_computation_fx_conversion(pool=pool,
+                                                          computation=fx_calculation,
+                                                          comp_data=timeseries_fx_calc_data,
+                                                          computation_asof_date=calculation$calculate_asof_date,
+                                                          fx_table=fx_table,
+                                                          update_fx_table_function=update_fx_table_function, 
+                                                          add_data_flag_function=add_data_flag_function, #we don't flag the flags
+                                                          add_fx_conversions_function=add_fx_conversions_function)
+              
+              setnames(ts_fx_data,
+                       old=grep(paste0("^",ts_fx_col,"\\.timeseries"),names(ts_fx_data),value=T),
+                       new=gsub(paste0("^",ts_fx_col,"\\.timeseries"),"timeseries",grep(paste0("^",ts_fx_col,"\\.timeseries"),names(ts_fx_data),value=T)))
+              
+              #all(names(timeseries_fx_calc_data)==names(ts_fx_data))
+              setcolorder(ts_fx_data,
+                          neworder=names(timeseries_fx_calc_data))
+              
+              ts_fx_data <- ts_fx_data[,
+                                       .(fx_col=list(.SD)),
+                                       by=.(rsf_pfcbl_id,row_id,grouping),
+                                       .SDcols=names(ts_fx_data)[!names(ts_fx_data) %in% c("rsf_pfcbl_id","row_id","grouping")]]
+              
+              calc_data[ts_fx_data,
+                        c(ts_fx_col.conflicts) := i.fx_col,
+                        on=.(rsf_pfcbl_id,row_id,grouping)]
+            }
+          }
+          
           calc_data <- rsf_computation_fx_conversion(pool=pool,
                                                      computation=calculation,
                                                      comp_data=calc_data,
@@ -712,7 +775,8 @@ rsf_indicators_calculate <- function(pool,
             }
           }
         }
-        if (is.na(fx_calculation_unit)) {
+        
+        if (!length(fx_calculation_unit) || all(is.na(fx_calculation_unit))) {
           fx_calculation_unit <- calculation$calculate_indicator_data_unit
         }
         if (length(fx_calculation_unit) != 1) {
@@ -871,12 +935,7 @@ rsf_indicators_calculate <- function(pool,
     calc_results[,`:=`(indicator_id=calculation$calculate_indicator_id,
                        data_unit=calculation$calculate_indicator_data_unit)]
     
-    if (!empty(nofx_units)) {
-      calc_results[nofx_units,
-                   data_unit:=i.nofx_unit,
-                   on=.(rsf_pfcbl_id,
-                        grouping)]
-    }
+    
     
     #IMPORTANT
     #When currency data is submitted to database rsf_data table and the currency unit is defined, and the indicators table default data_unit is LCU
@@ -1013,7 +1072,7 @@ rsf_indicators_calculate <- function(pool,
       #track down any real issues.
       failed_calcs[,data_flags_new:=lapply(data_flags_dt,
                                            function(x) { 
-                                            x[!(check_name=="sys_flag_missing_data")]
+                                            x[!(check_name==NO_DATA_FAILURE)]
                                            })]
       
 

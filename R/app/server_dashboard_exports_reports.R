@@ -58,7 +58,7 @@ server_dashboard_exports__module_session_export_report <- function(id,
           set report_id = $2::int
           where etr.export_template_report_id = $1::int
             and etr.report_id is distinct from $2::int
-            and exists(select * from p_rsf.reports rep
+            and exists(select * from p_rsf.dashboard_reports rep
                        where rep.report_id = $2::int)",
           params=list(this.id(),
                       report_id))

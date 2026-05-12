@@ -1,6 +1,7 @@
 
-SERVER_SETUP_AGREEMENT__RSA <- eventReactive(COHORTS_LIST(), { #input$server_programs__selected_facility, {
-  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
+SERVER_SETUP_AGREEMENT__RSA <- eventReactive(IMPORTS_LIST(), { 
+  
+  facilities <- SELECTED_PROGRAM_FACILITIES_LIST() #NOT FACILITIES_AND_PROGRAMS_LIST as RSA is only relevant to facility-level
   selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
   
   if (!isTruthy(selected_rsf_pfcbl_id)) return (NULL)
@@ -75,6 +76,18 @@ SERVER_SETUP_AGREEMENT__PASTE_AUTO_FORMAT <- function(what,...) {
                       inputId=what,
                       value=ptext)
 }
+
+observeEvent(input$server_programs__selected_facility, {
+  selected_facility <- as.numeric(input$server_programs__selected_facility)
+  if (!selected_facility %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) {
+    hideElement(id="tabset_setup_agreement_ui")
+  } else {
+    showElement(id="tabset_setup_agreement_ui")
+  }
+})
+
+facilities <-  #NOT FACILITIES_AND_PROGRAMS_LIST as RSA is only relevant to facility-level
+selected_rsf_pfcbl_id <- as.numeric()
 
 observeEvent(SERVER_SETUP_AGREEMENT__RSA_CONTENT(), {
   
@@ -240,8 +253,6 @@ observeEvent(input$server_setup_agreement__apply, {
     
     tryCatch({
     
-    
-      
       template_parse_process_and_upload(pool=dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]])),
                                         reporting_user_id=USER_ID(),
                                         template_files=file_name,
@@ -251,7 +262,7 @@ observeEvent(input$server_setup_agreement__apply, {
                                         delete_after_upload=TRUE,
                                         status_message=progress_status_message,
                                         continue_on_error=FALSE,
-                                        delete_on_error=TRUE)
+                                        delete_on_error=T)
     },
     error=function(e) {
       showNotification(type="error",
@@ -269,7 +280,7 @@ observeEvent(input$server_setup_agreement__apply, {
     incProgress(amount=1,message="Done")
   })
   
-  REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1)
+  IMPORT_LIST__REFRESH(IMPORT_LIST__REFRESH()+1)
   
 },ignoreInit=TRUE)
 

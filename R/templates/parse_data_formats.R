@@ -200,6 +200,7 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
   {
     #If we have any options groups to parse
     if (any(!is.na(reference_indicators$options_group_id))) {
+      
       and_or_replacement <- "^([^[:punct:][:space:]]+)[[:space:]]*([[:punct:]])[[:space:]]*([^[:punct:][:space:]]+)$"
       and_or_delimiter <- "[[:punct:]]*[[:space:]]+and[[:space:]]|[[:punct:]]*[[:space:]]+or[[:space:]]"
       
@@ -271,24 +272,35 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                          reporting_submitted_data_value,
                                          reporting_submitted_data_unit)]
                                      
-    
+      reference_options_groups_labels[,joincondition:=as.logical(NA)]
+      options_data[,
+                   `:=`(matched=as.logical(NA),
+                        data_value=as.character(NA))
+      ]
+      
       options_data[,normalized_submitted_data_value:=superTrim(reporting_submitted_data_value)]
+      options_data[reference_options_groups_labels,
+                   `:=`(matched=TRUE,
+                        data_value=i.key_value,
+                        valid_blank=i.valid_blank),
+                   on=.(options_group_id,
+                        normalized_submitted_data_value=valid_value,
+                        matched=joincondition)]
+      
       options_data[,normalized_submitted_data_value:=gsub(and_or_replacement,"\\1\\2\\3",normalized_submitted_data_value)]
       options_data[,normalized_submitted_data_value:=gsub(and_or_delimiter," & ",normalized_submitted_data_value)]
       options_data[,normalized_submitted_data_value:=gsub("[,&][[:space:]]*[,&]"," & ",normalized_submitted_data_value)]
       
-      options_data[,
-                   `:=`(matched=FALSE,
-                        data_value=as.character(NA))
-                   ]
       
       options_data[reference_options_groups_labels,
                    `:=`(matched=TRUE,
                         data_value=i.key_value,
                         valid_blank=i.valid_blank),
                    on=.(options_group_id,
-                        normalized_submitted_data_value=valid_value)]
+                        normalized_submitted_data_value=valid_value,
+                        matched=joincondition)]
       
+      options_data[is.na(matched),matched:=FALSE]
       #OPTIONS GROUPS THAT ALL MULTIPLE INPUTS (delimited by & or ,)
       {
         options_data_multiples <- options_data[matched==FALSE 
@@ -1102,6 +1114,8 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
           
           return (parsed_dates)
         }
+        
+        regular_data_dates[tolower(data_value)=="date" | normalized_submitted_data_value=="date",data_value:=as.Date(as.numeric(NA))]
         
         missings <- is.na(regular_data_dates$data_value)
         dates <- parse_dates(excel_values=regular_data_dates$data_value)

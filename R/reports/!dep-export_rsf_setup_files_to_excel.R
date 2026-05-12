@@ -19,6 +19,7 @@ export_rsf_setup_files_to_excel <- function(pool,
                                                                   #subsequently overwritten by a non-setup file or non-setup creation date
                                                                   #FALSE has few use cases -- maybe when QRs update values where they shouldn't?
 {
+  stop("export_rsf_setup_files_to_excel has been deprecated: used rsf_setup_export_create_entity()")
   #browser()
   #setups
   {

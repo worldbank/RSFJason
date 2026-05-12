@@ -39,7 +39,7 @@ rsf_computation_fx_conversion <- function(pool,
     
     #.all parameteters should already have been converted individually and re-grouped in a list. 
     #In any case, ignore the list itself.
-    parameters <- parameters[!(parameter_variable=="all")]
+    parameters <- parameters[!(parameter_variable %in% c("all","conflicts"))]
     
     if (!any(parameters$for_fx,na.rm=T)) {
       #nothing to convert.  If this is  a currency calculation, it must be hard-coded and not parameter based.  Onus of correct conversion is on calculation!
@@ -128,12 +128,12 @@ rsf_computation_fx_conversion <- function(pool,
       if (length(fx_cols) == 0) {
         stop(paste0("System calculator determined fx required to currency ",to_currency,".  But no fx_cols identified in dataset"))
       }
-      
-      fx_date_method <- computation$formula_fx_date
+
+      fx_date_method <- computation$unit_fx_method
       #fx_date_method <- "parameter"
       #fx_date_method <- "calculation"
       if (is.null(fx_date_method) || all(is.na(fx_date_method)) || !any(fx_date_method %in% c("calculation","parameter","fx"))) {
-        stop("Formula FX date method is not defined.  Expected either by 'calculation' or by 'parameter' or by 'fx' change")
+        stop(paste0("Formula FX date method is not defined for '",computation$indicator_name,"'.  Expected either by 'calculation' or by 'parameter' or by 'fx' change"))
       }
       
       fx_cols <- unique(c(fx_unit_id_vars,
@@ -606,13 +606,6 @@ rsf_computation_fx_conversion <- function(pool,
                                                         fx$fx_from," -> ",fx$fx_to,
                                                         " @",fx$fx_rate," ",as.character(fx$fx_date),
                                                         " (",fx_date_method," date, ",fx$fx_pfcbl_category," rate)"))
-            # add_data_flag_function(rsf_pfcbl_id=unlist(fx$rsf_pfcbl_ids),
-            #                        check_name="sys_fx_conversion",
-            #                        check_message=paste0(fx$parameter_column_name,": ",
-            #                                             fx$fx_from," -> ",fx$fx_to,
-            #                                             " @",fx$fx_rate," ",as.character(fx$fx_date),
-            #                                             " ",as.character(fx$fx_date),
-            #                                             " (",fx_date_method," date)"))
           }
         }          
       }

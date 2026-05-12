@@ -27,7 +27,27 @@ parse_template_rsf_create_entities <- function(pool,
                                 value.factor = F,
                                 variable.factor = F)
                 
-   
+  
+  bad_indicators <- which(!report_data$indicator_name %in% rsf_indicators$indicator_name)
+  if (length(bad_indicators)) {
+    
+    rsf_labels <- db_indicators_get_header_actions(pool=pool,
+                                                   template_id=template$template_id, 
+                                                   rsf_pfcbl_id=template$cohort_pfcbl_id, #Invariable will be the parent/program
+                                                   rsf_indicators=rsf_indicators,
+                                                   formatting.function=normalizeLabel)
+    
+    for (i in bad_indicators) {
+      
+     bad_name <- report_data[i,indicator_name]
+     remap_name <- sapply(rsf_labels$template_label_lookup,grepl,x=normalizeLabel(bad_name))
+     matches <- unique(rsf_labels[remap_name & action != "ignore",map_indicator_id])
+     if (length(matches)==1 && all(matches %in% rsf_indicators$indicator_id)) {
+       
+       report_data[i,indicator_name:=rsf_indicators[indicator_id==matches,indicator_name]]
+     }
+    }
+  }
   # integrity_check <- rsf_reports_data_integrity_key(reporting_asof_date=report_data$reporting_asof_date,
   #                                                   rsf_pfcbl_ids=report_data$SYSID,
   #                                                   indicator_ids=report_data$indicator_id)
@@ -63,15 +83,15 @@ parse_template_rsf_create_entities <- function(pool,
     
     new_program <- db_program_create(pool=pool,
                                      rsf_indicators=rsf_indicators,
-                                    program_name=report_data[indicator_name=="program_name",reporting_submitted_data_value],
-                                    program_nickname=report_data[indicator_name=="program_nickname",reporting_submitted_data_value],
-                                    program_inception_date=report_data[indicator_name=="program_inception_date",reporting_submitted_data_value],
-                                    program_lcu=report_data[indicator_name=="program_base_currency_unit",reporting_submitted_data_value],
-                                    program_ifc_project_id=report_data[indicator_name=="program_ifc_project_id",reporting_submitted_data_value],
-                                    reporting_user_id=reporting_user_id,
-                                    template_id=template$template_id,
-                                    program_reporting_frequency="quarter",
-                                    source_name=template$template_source_reference)
+                                     program_name=report_data[indicator_name=="program_name",reporting_submitted_data_value],
+                                     program_nickname=report_data[indicator_name=="program_nickname",reporting_submitted_data_value],
+                                     program_inception_date=report_data[indicator_name=="program_inception_date",reporting_submitted_data_value],
+                                     program_lcu=report_data[indicator_name=="program_base_currency_unit",reporting_submitted_data_value],
+                                     program_ifc_project_id=report_data[indicator_name=="program_ifc_project_id",reporting_submitted_data_value],
+                                     reporting_user_id=reporting_user_id,
+                                     template_id=template$template_id,
+                                     program_reporting_frequency="quarter",
+                                     source_name=template$template_source_reference)
       
     template$cohort_pfcbl_id <- as.numeric(new_program$reporting_rsf_pfcbl_id)
   }

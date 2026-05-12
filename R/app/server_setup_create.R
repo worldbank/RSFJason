@@ -296,7 +296,7 @@ observeEvent(input$setup_program_create_action_button, {
           created_rsf_pfcbl_ids <- unlist(created_rsf_pfcbl_ids)
           #if (!isTruthy(created_rsf_pfcbl_ids)) created_rsf_pfcbl_ids <- NA
           
-          REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1)
+          IMPORT_LIST__REFRESH(IMPORT_LIST__REFRESH()+1)
           
           if (length(created_rsf_pfcbl_ids)>0) LOAD_RSF_PFCBL_IDS(created_rsf_pfcbl_ids)
           

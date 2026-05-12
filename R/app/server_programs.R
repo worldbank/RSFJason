@@ -66,11 +66,19 @@ SELECTED_PROGRAM <- eventReactive(SELECTED_PROGRAM_ID(), {
   
   program <- DBPOOL %>% dbGetQuery("
                                    select
-                                    nids.rsf_program_id,
                                     nids.rsf_pfcbl_id,
+                                    ids.rsf_program_id,
+                                    ids.rsf_facility_id,
                                     coalesce(nids.nickname,nids.name,'RSF' || nids.rsf_program_id) as program_nickname,
-                                    rsf_name as program_name
+                                    nids.rsf_name as program_name,
+                                    nids.pfcbl_category,
+                                    nids.rsf_name,
+                                    nids.nickname,
+                                    nids.name,
+                                    nids.id,
+                                    ids.created_in_reporting_asof_date
                                    from p_rsf.view_current_entity_names_and_ids nids
+                                   inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = nids.rsf_pfcbl_id
                                    where nids.rsf_program_id = $1::int
                                      and nids.pfcbl_category in ('global','program')",
                                    params=list(rsf_program_id))
@@ -93,9 +101,9 @@ SELECTED_PROGRAM_VALID_REPORTING_DATES <- eventReactive(c(SELECTED_PROGRAM_ID(),
    select valid_reporting_date
    from p_rsf.rsf_pfcbl_generate_reporting_dates(v_rsf_pfcbl_id => $1::int,
                                                  v_until_date => (select greatest(timeofday()::date,
-                                                                          (select max(reporting_asof_date)
-                                                                          from p_rsf.rsf_pfcbl_reporting rpr
-                                                                          where rpr.rsf_pfcbl_id = $1::int))))",
+                                                                          (select max(ids.deactivated_in_reporting_asof_date)
+                                                                           from p_rsf.rsf_pfcbl_ids ids
+                                                                           where ids.rsf_pfcbl_id = $1::int))))",
                                  params=list(program$rsf_program_id))
   dates <- dates$valid_reporting_date
   return (dates)
@@ -139,7 +147,7 @@ SELECTED_PROGRAM_FACILITIES_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
       nids.id,
       ids.created_in_reporting_asof_date
     having 'LIST' = any(array_agg(fpg.permission_name))
-    order by facility_name",
+    order by ids.pfcbl_category_rank desc,facility_name",
   params=list(selected_program_id,
               USER_ID()))
   
@@ -150,22 +158,36 @@ SELECTED_PROGRAM_FACILITIES_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
   return (facilities)
 }, ignoreNULL=FALSE)
 
-SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST <- eventReactive(c(SELECTED_PROGRAM_ID(),
-                                                                SELECTED_PROGRAM_FACILITIES_LIST()), {
+SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST <- eventReactive(SELECTED_PROGRAM_FACILITIES_LIST(), {
   selected_program_id <- SELECTED_PROGRAM_ID()
   if (!isTruthy(selected_program_id)) return (NULL)
   
   program <- SELECTED_PROGRAM()
   facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
   
-  pf <- rbindlist(list(program[,.(rsf_pfcbl_id,
-                                  rsf_program_id,
-                                  rsf_facility_id=as.numeric(NA),
-                                  nickname=program_nickname)],
+  setorder(facilities,
+           facility_name)
+  
+  pf <- rbindlist(list(
                  facilities[,.(rsf_pfcbl_id,
                                rsf_program_id,
                                rsf_facility_id,
-                               nickname=facility_name)]))
+                               nickname=facility_name,
+                               facility_name,
+                               pfcbl_category,
+                               name,
+                               id,
+                               created_in_reporting_asof_date),
+                            ],
+                 program[,.(rsf_pfcbl_id,
+                            rsf_program_id,
+                            rsf_facility_id=as.numeric(NA),
+                            nickname=paste0("program:",program_nickname),
+                            facility_name=paste0("program:",program_nickname),
+                            pfcbl_category,
+                            name,
+                            id,
+                            created_in_reporting_asof_date)]))
   return (pf)
 }, ignoreNULL = FALSE)
 
@@ -193,8 +215,8 @@ observeEvent(USER_PROGRAMS(), {
 }, ignoreNULL = FALSE, ignoreInit = TRUE)
 
 #Populates select input to filter on client/facility name
-observeEvent(SELECTED_PROGRAM_FACILITIES_LIST(), {
-  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
+observeEvent(SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST(), {
+  facilities <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()
   
   if (is.null(facilities)) {
     updateSelectizeInput(session=session,
@@ -204,8 +226,6 @@ observeEvent(SELECTED_PROGRAM_FACILITIES_LIST(), {
     
   } else {
     
-    setorder(facilities,
-             facility_name)
     
     facility_selected <- "" 
     
@@ -215,12 +235,12 @@ observeEvent(SELECTED_PROGRAM_FACILITIES_LIST(), {
     } else if (as.numeric(input$server_programs__selected_facility) %in% facilities$rsf_pfcbl_id) {
       facility_selected <- as.numeric(input$server_programs__selected_facility)
     } else {
-      facility_selected <- "-1"
+      facility_selected <- "-1" #means "ALL"
     }
     
     facilities_choices <- c(`All Projects`="-1",
                             setNames(facilities$rsf_pfcbl_id,
-                                     facilities$facility_name))
+                                     facilities$nickname))
     
     print(paste0("Loading and rstoring server_programs__selected_facility=",facility_selected))
     

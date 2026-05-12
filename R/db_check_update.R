@@ -54,7 +54,7 @@ db_check_update <- function(pool,
                                        check_formula_title,
                                        formula,
                                        formula_result_message,
-                                       formula_fx_date,
+                                       unit_fx_method,
                                        formula_comments,
                                        auto_resolve)]
     
@@ -66,7 +66,7 @@ db_check_update <- function(pool,
                                          check_formula_title text,
                                          formula text,
                                          formula_result_message text,
-                                         formula_fx_date text,
+                                         unit_fx_method text,
                                          
                                          formula_comments text,
                                          auto_resolve bool default false)
@@ -94,7 +94,7 @@ db_check_update <- function(pool,
                                                    check_pfcbl_category,
                                                    formula,
                                                    formula_result_message,
-                                                   formula_fx_date,
+                                                   unit_fx_method,
                                                    formula_comments,
                                                    auto_resolve)
         select
@@ -104,7 +104,7 @@ db_check_update <- function(pool,
           ic.check_pfcbl_category,
           nullif(tf.formula,''),
           nullif(tf.formula_result_message,''),
-          coalesce(nullif(tf.formula_fx_date,''),'calculation'),
+          coalesce(nullif(tf.unit_fx_method,''),'calculation'),
           nullif(tf.formula_comments,''),
           coalesce(tf.auto_resolve,false)
         from _temp_formulas tf
@@ -114,10 +114,10 @@ db_check_update <- function(pool,
         set check_formula_title = excluded.check_formula_title,
             formula = excluded.formula,
             formula_result_message = excluded.formula_result_message,
-            formula_fx_date = excluded.formula_fx_date,
+            unit_fx_method = excluded.unit_fx_method,
             formula_comments = excluded.formula_comments,
             auto_resolve = excluded.auto_resolve;")
-      
+
       return (new_ids)
     })
   } 

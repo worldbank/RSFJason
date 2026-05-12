@@ -28,13 +28,18 @@ db_indicators_get_labels <- function(pool) {
                               ind.is_periodic_or_flow_reporting,
                               ind.default_subscription,
                               ind.classification,
+                              isc.class,
                               ind.definition,
                               ind.is_required,
+                              ind.unit_fx_method,
+                              ind.unit_fx_source,
+                              ind.unit_fx_indicator_id,
                               exists(select * from p_rsf.indicator_formulas indf
                                      where indf.indicator_id = ind.indicator_id
                                        and indf.overwrite <> 'allow') as is_user_calculatable
                             from p_rsf.indicators ind
-                            inner join p_rsf.rsf_pfcbl_categories rpc1 on rpc1.pfcbl_category = ind.data_category")
+                            inner join p_rsf.rsf_pfcbl_categories rpc1 on rpc1.pfcbl_category = ind.data_category
+                            left join p_rsf.indicator_sys_categories isc on isc.indicator_sys_category = ind.indicator_sys_category")
 
     setDT(indicators)
     

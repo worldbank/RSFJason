@@ -211,7 +211,7 @@ SERVER_DASHBOARD_SELECTED_INDICATORS <- eventReactive(SERVER_DASHBOARD_RUN_OPTIO
         parent_reports <- gsub("^:report:","",parent_reports)
         for (rn in parent_reports) {
           pr_names <- DBPOOL %>% dbGetQuery("select for_indicator_names from
-                                                                p_rsf.reports
+                                                                p_rsf.dashboard_reports
                                                                 where report_title = $1::text",
                                                                 params=list(rn))
           pr_names <- fromJSON(pr_names$for_indicator_names)
@@ -482,7 +482,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
   }
   
   include.rsf_name <- any("rsf_full_name" %in% SERVER_DASHBOARD_RUN_OPTIONS$syscols)
-  include.status <- any(c("reporting_status","reporting_expected","reporting_happened") %in% SERVER_DASHBOARD_RUN_OPTIONS$syscols)
+  include.status <- any(c("reporting_status") %in% SERVER_DASHBOARD_RUN_OPTIONS$syscols)
   fx_concatenate_LCU <- SERVER_DASHBOARD_RUN_OPTIONS$fx_concatenate_LCU
   sys_cols <- SERVER_DASHBOARD_RUN_OPTIONS$syscols
   
@@ -625,7 +625,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
                                                         fx_currency=fx_currency,
                                                         include.sys_name=TRUE,
                                                         include.rsf_name=TRUE,
-                                                        include.status=include.status,
+                                                        #include.status=include.status,
                                                         include.flags=flags_display,
                                                         fx_force_global=fx_force_global,
                                                         fx_reported_date=fx_reported_date,
@@ -839,12 +839,12 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
       rsf_data[!is.na(text) & data_type %in% c("number","percent") &
                  indicator_name %in% rsf_indicators[is.na(indicator_sys_category),indicator_name],
                text:=as.character(
-                 format(round(as.numeric(text),3),big.mark = ",",scientific=F))]
+                 format(round(suppressWarnings(as.numeric(text)),3),big.mark = ",",scientific=F))]
       
       rsf_data[!is.na(text) & data_type=="currency",
                text:=as.character(
                  format(
-                   round(as.numeric(text),2),
+                   round(suppressWarnings(as.numeric(text)),2),
                    big.mark = ",",scientific = F))]
       
       # 
@@ -995,7 +995,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
       all(grepl("^RANK\\d+",rsf_family_data$RSFNAME))) {
     
     ranknames <- rsf_family_data$RSFNAME
-    ranks <- as.numeric(gsub("^RANK(\\d+).*$","\\1",ranknames))
+    ranks <- suppressWarnings(as.numeric(gsub("^RANK(\\d+).*$","\\1",ranknames)))
     ranknames <- gsub("^RANK\\d+","",ranknames)
     
     ranknames <- paste0("RANK",
@@ -1094,10 +1094,16 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
  
  ##name filter
  {
-   nfilter <- as.numeric(dfilters$name_filter)
+   nfilter <- dfilters$name_filter
    
    if (isTruthy(nfilter)) {
-     dashboard_data <- dashboard_data[SYSID %in% nfilter]
+     
+     nfilter <- sapply(dashboard_data$SYSNAME,
+            function(sn,nf) { 
+              any(sapply(nf,grepl,x=sn,ignore.case=T,USE.NAMES=F),na.rm=T)
+       },nf=str_escape(nfilter),USE.NAMES = F)
+     
+     dashboard_data <- dashboard_data[nfilter]
    }
  }
  
@@ -1709,7 +1715,7 @@ observeEvent(input$server_dashboard__reporting_column_priority_lookup, {
 observeEvent(input$server_dashboard__reporting_asof_date, {
   
   if (!isTruthy(input$server_dashboard__reporting_asof_date)) SERVER_DASHBOARD_RUN_OPTIONS$asof_dates <- character(0)
-  else if (!setequal(as.numeric(SERVER_DASHBOARD_RUN_OPTIONS$asof_dates),suppressWarnings(as.numeric(input$server_dashboard__reporting_asof_date)))) {
+  else if (!setequal(suppressWarnings(as.numeric(SERVER_DASHBOARD_RUN_OPTIONS$asof_dates)),suppressWarnings(as.numeric(input$server_dashboard__reporting_asof_date)))) {
     SERVER_DASHBOARD_RUN_OPTIONS$asof_dates <- suppressWarnings(as.numeric(input$server_dashboard__reporting_asof_date))
     SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1)
   }
@@ -1763,13 +1769,14 @@ observeEvent(input$server_dashboard__reporting_filter, {
 observeEvent(input$server_dashboard__name_filter, {
   
   if (setequal(input$server_dashboard__name_filter,SERVER_DASHBOARD_RUN_OPTIONS$name_filter)) return (NULL)
+  SERVER_DASHBOARD_RUN_OPTIONS$name_filter <- unique(input$server_dashboard__name_filter) #if multiple clients selected and filter for "RANK #6" for example.
   
-  if (!isTruthy(as.numeric(unique(input$server_dashboard__name_filter)))) {
-    SERVER_DASHBOARD_RUN_OPTIONS$name_filter <- c()
-  } else {
-    SERVER_DASHBOARD_RUN_OPTIONS$name_filter <- as.numeric(unique(input$server_dashboard__name_filter))
-  }
-})
+  # if (!isTruthy(input$server_dashboard__name_filter)) {
+  #   SERVER_DASHBOARD_RUN_OPTIONS$name_filter <- c()
+  # } else {
+  #   
+  # }
+},ignoreInit=FALSE,ignoreNULL = FALSE)
 
 observeEvent(SERVER_DASHBOARD_SELECTED_INDICATORS(), {
   
@@ -1904,24 +1911,52 @@ observeEvent(SERVER_DASHBOARD_CURRENT_QUERY(), {
   rsf_data <- SERVER_DASHBOARD_CURRENT_QUERY()
   
   if (identical(SERVER_DASHBOARD_RUN_OPTIONS$format_raw,TRUE)) return(NULL)
+  if (empty(rsf_data)) return (NULL)
   
-  if (empty(rsf_data)) {
-    updatePickerInput(session=session,
-                      inputId="server_dashboard__name_filter",
-                      choices="",
-                      selected="")
-  } else {
-    rsf_names <- NULL
-    if (any("RSFNAME" %in% names(rsf_data))) rsf_names <- unique(rsf_data[,.(RSFNAME,SYSID)])[order(RSFNAME)]
-    else rsf_names <- unique(rsf_data[,.(RSFNAME=SYSNAME,SYSID)])[order(RSFNAME)]
+  # if (empty(rsf_data)) {
+  #   browser()
+  #   updatePickerInput(session=session,
+  #                     inputId="server_dashboard__name_filter",
+  #                     #choices="",
+  #                     selected="")
+  # } else 
+  {
+
+    name_tree <- unique(rsf_data[,.(SYSNAME,SYSID)])[order(SYSNAME)]
+    
+    name_tree <- rsf_data[,
+                          .(rsf_name=trimws(unlist(strsplit(x=SYSNAME,split=">",fixed=T),recursive=F))),
+                            by=.(SYSID)
+                          ][,
+                            .(n=.N:1,
+                              rsf_name),
+                            by=.(SYSID)]
+    name_tree[,
+              pfcbl_name:=gsub("^[a-z]+:","",rsf_name)]
+    
     
     selected_names <- ""
-    if (all(SERVER_DASHBOARD_RUN_OPTIONS$name_filter %in% rsf_names$SYSID)) selected_names <- SERVER_DASHBOARD_RUN_OPTIONS$name_filter
+    # if (!isTruthy(input$server_dashboard__name_filter) ||
+    #     !isTruthy(SERVER_DASHBOARD_RUN_OPTIONS$name_filter)) {
+    #   selected_names <- ""
+    #   
+    # } else 
+    #   
+      
+    if (all(SERVER_DASHBOARD_RUN_OPTIONS$name_filter %in% name_tree$pfcbl_name)) {
+      selected_names <- name_tree[pfcbl_name %in% SERVER_DASHBOARD_RUN_OPTIONS$name_filter,pfcbl_name]
+      
+    }
+
+    if (!setequal(SERVER_DASHBOARD_RUN_OPTIONS$name_filter,selected_names)) {
+      SERVER_DASHBOARD_RUN_OPTIONS$name_filter <- selected_names
+    }
     
+    name_tree <- name_tree[n==1]
+
     updatePickerInput(session=session,
                       inputId="server_dashboard__name_filter",
-                      choices=setNames(rsf_names$SYSID,
-                                       rsf_names$RSFNAME),
+                      choices=unique(name_tree$pfcbl_name),
                       selected=selected_names)
   }
 })
@@ -2315,8 +2350,6 @@ output$action_server_dashboard__download <- downloadHandler(
     opts$download_flags <- NULL
     
     report_note <- paste0(sapply(names(opts),function(x) { paste0(x,": ",paste0(as.character(opts[[x]]),collapse=", ")) }),collapse=" & ")
-
-    
 
     savedwb <- withProgress(message=paste0("Generating Excel report.  This may take a few moments...."),value=0.3, {
 

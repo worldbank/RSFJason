@@ -113,7 +113,7 @@ template_process <- function(pool,
                                                      pfcbl_category=="borrower",rsf_borrower_id,
                                                      pfcbl_category=="client",rsf_client_id,
                                                      pfcbl_category=="facility",rsf_facility_id,
-                                                     pfcbl_categroy=="program",rsf_program_id,
+                                                     pfcbl_category=="program",rsf_program_id,
                                                      default=NA),
                                   parent_rsf_pfcbl_id=fcase(pfcbl_category=="loan",rsf_borrower_id,
                                                             pfcbl_category=="borrower",rsf_client_id,
@@ -134,9 +134,74 @@ template_process <- function(pool,
                                  matched_by="defined"),
                             on=.(reporting_template_row_group,
                                  pfcbl_category)]
+        
       }
       
+      if (!empty(template_match_data[is.na(rsf_pfcbl_id) & pfcbl_rank <= template$reporting_import$import_pfcbl_rank])) {
+        import_family_tree <- dbGetQuery(pool,"
+          select 
+            ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id,
+            ft.to_pfcbl_category as pfcbl_category,
+            ft.to_pfcbl_rank as pfcbl_rank,
+            lag(ft.to_family_rsf_pfcbl_id) over(order by ft.to_pfcbl_rank) as parent_rsf_pfcbl_id
+          from p_rsf.view_rsf_pfcbl_id_family_tree ft
+          where ft.from_rsf_pfcbl_id = $1::int 
+            and ft.pfcbl_hierarchy <> 'child'",
+          params=list(template$reporting_import$import_rsf_pfcbl_id))
+        setDT(import_family_tree)
+        import_family_tree[,joincondition:=as.numeric(NA)]
+
+        template_match_data[import_family_tree,
+                            `:=`(rsf_pfcbl_id=i.rsf_pfcbl_id,
+                                 parent_rsf_pfcbl_id=i.parent_rsf_pfcbl_id,
+                                 match_action="update",
+                                 matched_by="defined"),
+                            on=.(rsf_pfcbl_id=joincondition,
+                                 pfcbl_category)]
+        
+      }
       
+      #Since there is a very reliable relationship that one facility has one (and only one) client, and in the absence of client ID/Name info, assume
+      #that the client rsf_pfcbl_id is the facility's only child client entity
+      if (!empty(template_match_data[is.na(rsf_pfcbl_id) & pfcbl_category=="client" & template$reporting_import$import_pfcbl_category=="facility"]) &&
+          empty(template$template_data[data_category=="client" & indicator_sys_category %in% c("id","name")])) {
+
+        import_family_tree <- dbGetQuery(pool,"
+          select 
+            ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id,
+            ft.to_pfcbl_category as pfcbl_category,
+            ft.to_pfcbl_rank as pfcbl_rank,
+            ft.from_rsf_pfcbl_id as parent_rsf_pfcbl_id
+          from p_rsf.view_rsf_pfcbl_id_family_tree ft
+          where ft.from_rsf_pfcbl_id = $1::int 
+            and ft.to_pfcbl_category = 'client'",
+        params=list(template$reporting_import$import_rsf_pfcbl_id))
+        setDT(import_family_tree)
+        
+        if (nrow(import_family_tree) != 1) stop("No client ID or Name parameters in template data and this facility has multiple clients")
+        
+        import_family_tree[,joincondition:=as.numeric(NA)]
+        
+        template_match_data[import_family_tree,
+                            `:=`(rsf_pfcbl_id=i.rsf_pfcbl_id,
+                                 parent_rsf_pfcbl_id=i.parent_rsf_pfcbl_id,
+                                 match_action="update",
+                                 matched_by="defined"),
+                            on=.(rsf_pfcbl_id=joincondition,
+                                 pfcbl_category)]
+        
+      }      
+      if (!empty(template_match_data[is.na(parent_rsf_pfcbl_id) & pfcbl_rank == (template$reporting_import$import_pfcbl_rank+1)])) {
+
+        
+        template_match_data[template$reporting_import[,.(parent_rsf_pfcbl_id=import_rsf_pfcbl_id,
+                                                         joincondition=as.numeric(NA),
+                                                         pfcbl_rank=import_pfcbl_rank+1)],
+                            `:=`(parent_rsf_pfcbl_id=i.parent_rsf_pfcbl_id),
+                            on=.(rsf_pfcbl_id=joincondition,
+                                 pfcbl_rank)]
+        
+      }
       #March 2026: Removed because child-to-parent IDs from the inclusion rank is superior to guessing at parent-to-child where only one child exists
       #and due to error creating new entities when program has only one facilitiy, that creatined 2nd facility failed.  So instead of fixing or adding cases, just removed.
     
@@ -311,669 +376,23 @@ template_process <- function(pool,
       
       status_message(class="info",paste0("Setup template:\n"))
       
-      setup_rsf_program_id <- dbGetQuery(pool,"select rsf_program_id from p_rsf.rsf_pfcbl_ids ids where ids.rsf_pfcbl_id = $1::int",
-                                         params=list(template$reporting_import$import_rsf_pfcbl_id))
-      
-      setup_rsf_program_id <- unlist(setup_rsf_program_id,use.names = F)
+      # setup_rsf_program_id <- dbGetQuery(pool,"select rsf_program_id from p_rsf.rsf_pfcbl_ids ids where ids.rsf_pfcbl_id = $1::int",
+      #                                    params=list(template$reporting_import$import_rsf_pfcbl_id))
+      # 
+      # setup_rsf_program_id <- unlist(setup_rsf_program_id,use.names = F)
       
       
       if (any(template$match_results$match_action=="new",na.rm=T)) {
         status_message(class="info",paste0(" - Setup SYSNAMES\n"))  
         
         create_sysnames <- template$pfcbl_data[rsf_pfcbl_id %in% template$match_results[match_action=="new",rsf_pfcbl_id] &
-                                               indicator_id  %in% template$rsf_indicators[indicator_sys_category %in% c("name","nickname","id","rank_id"),indicator_id]]
+                                               indicator_id  %in% template$rsf_indicators[indicator_sys_category %in% c("name","nickname","id","rank_id","tranche_id"),indicator_id]]
         
         create_sysnames <- db_add_update_data_user(pool=pool,
                                                    import_id=template$reporting_import$import_id,
                                                    upload_data=create_sysnames,
                                                    upload_user_id=template$reporting_user_id,
                                                    rsf_indicators=template$rsf_indicators)
-      }
-     
-      
-      #This is coming here in the template_upload because system is resolving SYSNAME and this requires name and ID data to have been already uploaded.
-      if (!empty(template$setup_data$PROGRAM_INDICATORS)) {
-        status_message(class="info",paste0(" - Setup INDICATORS\n"))  
-        program_indicators <- template$setup_data$PROGRAM_INDICATORS
-        
-        if (!setequal(names(program_indicators),
-                      c("INDID","FRMID","SYSNAME","indicator_name","monitored","formula_title","is_auto_subscribed",
-                        "subscription_comments","comments_user_id","options_group_id","formula_calculation_unit"))) {
-          
-          status_message(class="error",
-                         "Failed to import PROGRAM INDICATORS.  Expected columns: ",paste0(c("INDID","FRMID","SYSNAME","indicator_name","monitored","formula_title","options_group_id","formula_calculation_unit"),collapse=", "))
-        } else {
-          setnames(program_indicators,
-                   old=c("INDID","FRMID"),
-                   new=c("indicator_id","formula_id"))
-          
-          program_indicators[,indicator_id:=as.numeric(indicator_id)]
-          program_indicators[,formula_id:=as.numeric(formula_id)]
-          program_indicators[,monitored:=as.logical(monitored)]
-          program_indicators[,is_auto_subscribed:=as.logical(is_auto_subscribed)]
-          #program_indicators <- program_indicators[is_auto_subscribed==FALSE] #don't setup autosubscriptions (they'll be re-setup automatically again, as needed)
-          #monitored_indicators <- program_indicators[monitored==TRUE] #if there is a misalignment or change, we don't care if they're not monitoring it.
-          
-          bad_indicators <- fsetdiff(program_indicators[,.(indicator_id,indicator_name)],
-                                     template$rsf_indicators[,.(indicator_id,indicator_name)])
-          
-          if (!empty(bad_indicators)) {
-            message(paste0("Template defines monitored indicators but perhaps some have changed names or been deleted? ",
-                           paste0(paste0(bad_indicators$indicator_name," (",bad_indicators$indicator_id,")"),collapse=" & ")))
-          }
-          
-          sysids <- db_get_rsf_pfcbl_id_by_sys_name(pool=pool,
-                                                    sys_names=unique(program_indicators$SYSNAME),
-                                                    rsf_program_id=setup_rsf_program_id,
-                                                    include.global=TRUE,
-                                                    error.if.missing=TRUE)
-          
-          program_indicators[sysids,
-                             rsf_pfcbl_id:=i.rsf_pfcbl_id,
-                             on=.(SYSNAME=lookup_sys_name)]
-          
-          
-          #if it's automatic, then the system will (presumably) do whatever is automatically necessary; so no need to upload automated actions manually as this creates
-          #ambiguity if it's intentionally uploaded and set or if it's automatically so.
-          program_indicators <- program_indicators[is_auto_subscribed==FALSE]
-          sysids <- NULL
-          
-          
-          #conn <- poolCheckout(pool)
-          #dbBegin(conn)
-          #dbRollback(conn)
-          poolWithTransaction(pool,function(conn) { 
-            dbExecute(conn,"create temp table _temp_indicators(rsf_pfcbl_id int,
-                                                           indicator_id int,
-                                                           is_subscribed bool,
-                                                           is_auto_subscribed bool,
-                                                           formula_id int,
-                                                           subscription_comments text,
-                                                           comments_user_id text,
-                                                           options_group_id int,
-                                                           formula_calculation_unit text)
-                  on commit drop;")
-            
-            dbAppendTable(conn,
-                          name="_temp_indicators",
-                          value=program_indicators[,.(rsf_pfcbl_id,
-                                                      indicator_id,
-                                                      is_subscribed=monitored,
-                                                      is_auto_subscribed,
-                                                      formula_id,
-                                                      formula_calculation_unit,
-                                                      options_group_id,
-                                                      subscription_comments,
-                                                      comments_user_id)])
-            
-            dbExecute(conn,"analyze _temp_indicators")
-            
-            dbExecute(conn,"delete from _temp_indicators ti
-                        where exists(select * from p_rsf.indicators ind
-                                     where ind.is_system = true
-                                       and ind.indicator_id = ti.indicator_id)
-                           or not exists(select * from p_rsf.indicators ind
-                                         where ind.indicator_id = ti.indicator_id)")
-
-            dbExecute(conn,"
-                      with bad_formulas as (
-                        select distinct
-                          ti.indicator_id,
-                          ti.formula_id as bad_formula_id,
-                          indd.formula_id as default_formula_id,
-                          indd.formula_title
-                        from _temp_indicators ti
-                        left join p_rsf.indicator_formulas indd on indd.indicator_id = ti.indicator_id
-                                                               and indd.is_primary_default is true
-                        where ti.formula_id is not null
-                          and not exists(select * from p_rsf.indicator_formulas indf 
-                                         where indf.formula_id = ti.formula_id)
-                      )
-                      update _temp_indicators ti
-                      set formula_id = bf.default_formula_id,
-                          subscription_comments = concat('SYSTEM: Setup specifies a formula that does not exist (or has been deleted). Automatically resetting to default \"',
-                                                         bf.formula_title,'\"','\n' || ti.subscription_comments)
-                      from bad_formulas bf
-                      where bf.indicator_id = ti.indicator_id
-                        and bf.bad_formula_id = ti.formula_id
-                      
-                      ")
-            
-            dbExecute(conn,"
-                  insert into p_rsf.rsf_setup_indicators(rsf_pfcbl_id,
-                                                                    indicator_id,
-                                                                    formula_id,
-                                                                    formula_calculation_unit,
-                                                                    options_group_id,
-                                                                    rsf_program_id,
-                                                                    rsf_facility_id,
-                                                                    is_subscribed,
-                                                                    is_auto_subscribed,
-                                                                    subscription_comments,
-                                                                    comments_user_id,
-                                                                    auto_subscribed_by_reporting_cohort_id)
-                  select
-                  x.rsf_pfcbl_id,
-                  x.indicator_id,
-                  x.formula_id,
-                  x.formula_calculation_unit,
-                  x.options_group_id,
-                  x.rsf_program_id,
-                  x.rsf_facility_id,
-                  x.is_subscribed,
-                  x.is_auto_subscribed,
-                  x.subscription_comments,
-                  x.comments_user_id,
-                  (select reporting_cohort_id
-                   from p_rsf.reporting_cohorts rc
-                   where rc.import_id = $2::int
-                   order by is_reported_cohort desc,reporting_cohort_id asc
-                   limit 1) as auto_subscribed_by_reporting_cohort_id
-                  from (                                                                    
-                    select 
-                    ti.rsf_pfcbl_id,
-                    ti.indicator_id,
-                    ti.formula_id,
-                    ti.formula_calculation_unit,
-                    ti.options_group_id,
-                    ids.rsf_program_id,
-                    ids.rsf_facility_id,
-                    ti.is_subscribed,
-                    coalesce(ti.is_auto_subscribed,false) as is_auto_subscribed,
-                    ti.subscription_comments,
-                    ti.comments_user_id
-                    from _temp_indicators ti
-                    inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ti.rsf_pfcbl_id
-                    where ids.rsf_program_id = $1::int --will prevent global from being re-inserted
-                     
-                    except 
-                    
-                    select 
-                      rsf_pfcbl_id,
-                      indicator_id,
-                      formula_id,
-                      formula_calculation_unit,
-                      options_group_id,
-                      rsf_program_id,
-                      rsf_facility_id,
-                      is_subscribed,
-                      is_auto_subscribed,
-                      subscription_comments,
-                      comments_user_id
-                    from p_rsf.rsf_setup_indicators pfi
-                  ) x
-                  order by rsf_pfcbl_id desc -- largest inserted first, ie, facilities before programs.
-                  on conflict(rsf_pfcbl_id,indicator_id)
-                  do nothing",
-                  params=list(setup_rsf_program_id,
-                              template$reporting_import$import_id))
-            
-            #in case triggers have set defaults that aren't set due to on conflict do nothing statements
-            #this is especially likely in the event of a legacy setup file that specifies program-level entries that are cascaded down in upload triggers
-            #that must be over-written at the facility level
-            dbExecute(conn,"
-              update p_rsf.rsf_setup_indicators pfi
-              set is_subscribed = ti.is_subscribed,
-                  is_auto_subscribed = false,
-                  formula_id = ti.formula_id,
-                  formula_calculation_unit = ti.formula_calculation_unit,
-                  subscription_comments = ti.subscription_comments,
-                  comments_user_id = ti.comments_user_id
-              from _temp_indicators ti
-              where pfi.rsf_pfcbl_id = ti.rsf_pfcbl_id
-                and pfi.indicator_id = ti.indicator_id
-                and pfi.is_auto_subscribed is true
-                and ti.is_auto_subscribed is false
-                and (ti.formula_id is distinct from pfi.formula_id
-                     or 
-                     ti.formula_calculation_unit is distinct from pfi.formula_calculation_unit)")
-            
-          })
-        }      
-      }
-      
-      if (!empty(template$setup_data$PROGRAM_CHECKS)) {
-        status_message(class="info",paste0(" - Setup CHECKS\n"))  
-        program_checks <- template$setup_data$PROGRAM_CHECKS
-        if (!setequal(names(program_checks),
-                      c("CHKID","FRMID","SYSNAME","check_name","check_class","check_type","check_formula_title","monitored","is_auto_subscribed",
-                        "subscription_comments","comments_user_id"))) {
-          
-          status_message(class="error",
-                         "Program template does not correctly define checks. Manually import checks. Expecting columns: ",
-                         paste0(c("CHKID","FRMID","SYSNAME","check_name","check_class","check_type","check_formula_title","monitored",
-                                  "subscription_comments","comments_user_id"),collapse=", "))
-          
-        } else {
-          
-          setnames(program_checks,
-                   old=c("CHKID","FRMID"),
-                   new=c("indicator_check_id","check_formula_id"))
-          
-          program_checks[,indicator_check_id:=as.numeric(indicator_check_id)]
-          program_checks[,monitored:=as.logical(monitored)]
-          program_checks[,is_auto_subscribed:=as.logical(monitored)]
-          program_checks[,check_formula_id:=as.numeric(check_formula_id)]
-          
-          
-          sysids <- db_get_rsf_pfcbl_id_by_sys_name(pool=pool,
-                                                    sys_names=unique(program_checks$SYSNAME),
-                                                    rsf_program_id=setup_rsf_program_id,
-                                                    include.global=TRUE,
-                                                    error.if.missing=TRUE)
-          
-          program_checks[sysids,
-                         rsf_pfcbl_id:=i.rsf_pfcbl_id,
-                         on=.(SYSNAME=lookup_sys_name)]
-          
-          program_checks <- program_checks[is_auto_subscribed==FALSE]
-          
-          sysids <- NULL
-          
-          #conn <- poolCheckout(pool)
-          #dbBegin(conn)
-          #dbRollback(conn)
-          poolWithTransaction(pool,function(conn) { 
-            
-            dbExecute(conn,"create temp table _temp_checks(rsf_pfcbl_id int,
-                                                       check_formula_id int,
-                                                       indicator_check_id int,
-                                                       is_subscribed bool,
-                                                       is_auto_subscribed bool,
-                                                       subscription_comments text,
-                                                       comments_user_id text
-                                                       
-                  )
-                  on commit drop;")
-            
-            dbAppendTable(conn,
-                          name="_temp_checks",
-                          value=unique(program_checks[,.(rsf_pfcbl_id,
-                                                         check_formula_id,
-                                                         indicator_check_id,
-                                                         is_subscribed=monitored,
-                                                         is_auto_subscribed,
-                                                         subscription_comments,
-                                                         comments_user_id)]))
-            
-            dbExecute(conn,"analyze _temp_checks")
-            
-            dbExecute(conn,"delete from _temp_checks tc
-                        where not exists(select * from p_rsf.indicator_check_formulas icf
-                                         where icf.check_formula_id = tc.check_formula_id
-                                           and icf.indicator_check_id = tc.indicator_check_id)")
-            
-            dbExecute(conn,"
-                  insert into p_rsf.rsf_setup_checks(rsf_pfcbl_id,
-                                                                 check_formula_id,
-                                                                 indicator_check_id,
-                                                                 rsf_program_id,
-                                                                 rsf_facility_id,
-                                                                 is_subscribed,
-                                                                 is_auto_subscribed,
-                                                                 subscription_comments,
-                                                                 comments_user_id,
-                                                                 auto_subscribed_by_reporting_cohort_id)
-                  select 
-                  x.rsf_pfcbl_id,
-                  x.check_formula_id,
-                  x.indicator_check_id,
-                  x.rsf_program_id,
-                  x.rsf_facility_id,
-                  x.is_subscribed,
-                  x.is_auto_subscribed,
-                  x.subscription_comments,
-                  x.comments_user_id,
-                  (select reporting_cohort_id
-                   from p_rsf.reporting_cohorts rc
-                   where rc.import_id = $2::int
-                   order by is_reported_cohort desc,reporting_cohort_id asc
-                   limit 1) as auto_subscribed_by_reporting_cohort_id
-
-                  from (select
-                    tc.rsf_pfcbl_id,
-                    icf.check_formula_id,
-                    tc.indicator_check_id,
-                    ids.rsf_program_id,
-                    ids.rsf_facility_id,
-                    tc.is_subscribed,
-                    coalesce(tc.is_auto_subscribed,false) as is_auto_subscribed,
-                    tc.subscription_comments,
-                    tc.comments_user_id
-                  from _temp_checks tc
-                  inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = tc.rsf_pfcbl_id
-                  inner join p_rsf.indicator_check_formulas icf on icf.check_formula_id = tc.check_formula_id
-                  where ids.rsf_program_id = $1::int
-                  
-                  except
-                  
-                  select
-                   rsf_pfcbl_id,
-                   check_formula_id,
-                   indicator_check_id,
-                   rsf_program_id,
-                   rsf_facility_id,
-                   is_subscribed,
-                   is_auto_subscribed,
-                   subscription_comments,
-                   comments_user_id
-                  from p_rsf.rsf_setup_checks pfc
-                  ) x 
-                  order by x.rsf_pfcbl_id desc
-                  on conflict
-                  do nothing",
-                  params=list(setup_rsf_program_id,
-                              template$reporting_import$import_id))
-            
-            dbExecute(conn,"
-              update p_rsf.rsf_setup_checks pfc
-              set is_subscribed = tc.is_subscribed,
-                  is_auto_subscribed = false,
-                  subscription_comments = tc.subscription_comments,
-                  comments_user_id = tc.comments_user_id,
-                  auto_subscribed_by_reporting_cohort_id = NULL
-              from _temp_checks tc
-              where tc.rsf_pfcbl_id = pfc.rsf_pfcbl_id
-                and tc.check_formula_id = pfc.check_formula_id
-                and pfc.is_auto_subscribed is true
-                and tc.is_auto_subscribed is false")
-            
-          })
-        }
-      }
-      
-      if (!empty(template$setup_data$RSF_CONFIG_DATA)) {
-        status_message(class="info",paste0(" - Setup Config\n"))  
-        check_config <- template$setup_data$RSF_CONFIG_DATA
-        
-        sysids <- db_get_rsf_pfcbl_id_by_sys_name(pool=pool,
-                                                  sys_names=unique(check_config$SYSNAME),
-                                                  rsf_program_id=setup_rsf_program_id,
-                                                  include.global=TRUE,
-                                                  error.if.missing=TRUE)
-        
-        check_config[sysids,
-                         rsf_pfcbl_id:=i.rsf_pfcbl_id,
-                         on=.(SYSNAME=lookup_sys_name)]
-        sysids <- NULL
-        
-        config <- unique(check_config[,
-                                            .(rsf_pfcbl_id,
-                                              for_indicator_id,
-                                              indicator_check_id,
-                                              config_auto_resolve,
-                                              config_check_class,
-                                              config_threshold,
-                                              config_comments,
-                                              comments_user_id)])
-        
-        #conn <- poolCheckout(pool)
-        #dbBegin(conn)
-        #dbRollback(conn)
-        poolWithTransaction(pool,function(conn) {
-          
-          dbExecute(conn,"create temp table _config(rsf_pfcbl_id int,
-                                                    for_indicator_id int,
-                                                    indicator_check_id int,
-                                                    config_auto_resolve bool,
-                                                    config_check_class text,
-                                                    config_threshold numeric,
-                                                    config_comments text,
-                                                    comments_user_id text)
-                  on commit drop;")  
-          
-          dbAppendTable(conn,
-                        name="_config",
-                        value=config)
-          
-          dbExecute(conn,"insert into p_rsf.rsf_setup_checks_config(rsf_pfcbl_id,
-                                                                    for_indicator_id,
-                                                                    indicator_check_id,
-                                                                    rsf_program_id,
-                                                                    rsf_facility_id,
-                                                                    config_auto_resolve,
-                                                                    config_check_class,
-                                                                    config_threshold,
-                                                                    config_comments,
-                                                                    comments_user_id)
-                  select
-                    cfg.rsf_pfcbl_id,
-                    cfg.for_indicator_id,
-                    cfg.indicator_check_id,
-                    ids.rsf_program_id,
-                    ids.rsf_facility_id,
-                    cfg.config_auto_resolve,
-                    cfg.config_check_class,
-                    cfg.config_threshold,
-                    cfg.config_comments,
-                    cfg.comments_user_id
-                  from _config cfg
-                  inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = cfg.rsf_pfcbl_id
-                  where exists(select * from p_rsf.indicators ind where ind.indicator_id = cfg.for_indicator_id)
-                    and exists(select * from p_rsf.indicator_checks ic where ic.indicator_check_id = cfg.indicator_check_id and ic.is_system is true)
-                  on conflict (rsf_pfcbl_id,for_indicator_id,indicator_check_id)
-                  do nothing;")
-        })
-      }
-      
-      if (!empty(template$setup_data$PROGRAM_TEMPLATE_ACTIONS)) {
-        status_message(class="info",paste0(" - Setup TEMPLATES\n"))  
-        template_actions <- template$setup_data$PROGRAM_TEMPLATE_ACTIONS 
-        col_names <-  c('rsf_pfcbl_id',
-                        'template_id',
-                        'SYSNAME',
-                        'template_name',
-                        'header_id',
-                        'template_header_sheet_name',
-                        'template_header',
-                        'action',
-                        'comment',
-                        'map_indicator_id',
-                        'indicator_name',
-                        'map_formula_id',
-                        'calculation_formula',
-                        'map_check_formula_id',
-                        'check_formula')
-        
-        if (!all(col_names %in% names(template_actions))) {
-          
-          status_message(class="error",
-                         "Failed to import HEADER ACTIONS.  Expected columns: rsf_pfcbl_id, template_id, SYSNAME, template_name, header_id, template_header_sheet_name, template_header, action, comment, map_indicator_id, indicator_name, map_formula_id, calculation_formula, map_check_formula_id, check_formula")
-        } else {
-          setnames(template_actions,
-                   old=c("SYSNAME"),
-                   new=c("sys_name"))
-          
-          #<NA> is not allowed in header, but "NA" is and may be read-in elsewhere and interpreted as <NA>
-          template_actions[is.na(template_header),
-                           template_header:="NA"]
-          
-          template_actions[is.na(template_header_sheet_name),
-                           template_header_sheet_name:=""]
-          
-          
-          sysids <- db_get_rsf_pfcbl_id_by_sys_name(pool=pool,
-                                                    sys_names=unique(template_actions$sys_name),
-                                                    rsf_program_id=setup_rsf_program_id,
-                                                    include.global=TRUE,
-                                                    error.if.missing=TRUE)
-          
-          template_actions[sysids,
-                           rsf_pfcbl_id:=i.rsf_pfcbl_id,
-                           on=.(sys_name=lookup_sys_name)]
-          sysids <- NULL
-          
-          #conn <- poolCheckout(pool)
-          #dbBegin(conn)
-          #dbRollback(conn)
-          poolWithTransaction(pool,function(conn) {
-            
-            dbExecute(conn,"
-            create temp table _temp_actions(rsf_pfcbl_id int,
-                                            header_id int,
-                                            template_id int,
-                                            template_header_sheet_name text,
-                                            template_header text,
-                                            action text,
-                                            comment text,
-                                            map_indicator_id int,
-                                            map_formula_id int,
-                                            map_check_formula_id int)
-            on commit drop;")
-            
-            dbAppendTable(conn,
-                          name="_temp_actions",
-                          value=template_actions[,
-                                                 .(rsf_pfcbl_id,
-                                                   header_id,
-                                                   template_id,
-                                                   template_header_sheet_name,
-                                                   template_header,
-                                                   action,
-                                                   comment,
-                                                   map_indicator_id,
-                                                   map_formula_id,
-                                                   map_check_formula_id)])
-            
-            dbExecute(conn,"
-            with new_headers as (
-              select 
-              tac.header_id
-            from _temp_actions tac
-            where exists(select * from p_rsf.rsf_setup_template_headers fth
-                         where fth.header_id = tac.header_id
-            						   and fth.rsf_pfcbl_id is distinct from tac.rsf_pfcbl_id)
-            )
-            update _temp_actions tac
-            set header_id = nextval('p_rsf.rsf_program_facility_template_headers_header_id_seq'::regclass)
-            from new_headers 
-            where new_headers.header_id = tac.header_id
-               or tac.header_id is null")
-            
-            dbExecute(conn,"
-            insert into p_rsf.rsf_program_facility_template_headers(rsf_pfcbl_id,
-                                                                    rsf_program_id,
-                                                                    rsf_facility_id,
-                                                                    header_id,
-                                                                    template_id,
-                                                                    template_header_sheet_name,
-                                                                    template_header,
-                                                                    action,
-                                                                    comment,
-                                                                    map_indicator_id,
-                                                                    map_formula_id,
-                                                                    map_check_formula_id)
-            
-            select 
-              ids.rsf_pfcbl_id,
-              ids.rsf_program_id,
-              ids.rsf_facility_id,
-              act.header_id,
-              rt.template_id,
-
-              act.template_header_sheet_name,
-              act.template_header,
-              act.action,
-              act.comment,
-              act.map_indicator_id,
-              act.map_formula_id,
-              act.map_check_formula_id
-            from _temp_actions act
-            inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = act.rsf_pfcbl_id
-            inner join p_rsf.reporting_templates rt on rt.template_id = act.template_id
-            where (act.map_indicator_id is NULL or exists(select * from p_rsf.indicators ind where ind.indicator_id = act.map_indicator_id))
-              and (act.map_formula_id is NULL or exists(select * from p_rsf.indicator_formulas indf where indf.formula_id = act.map_formula_id))
-              and (act.map_check_formula_id is NULL or exists(select * from p_rsf.indicator_check_formulas icf where icf.check_formula_id = act.map_check_formula_id))
-              
-            on conflict do nothing;")
-          })
-        }
-      }
-      
-      if (!empty(template$setup_data$PROGRAM_FLAGS)) {
-        status_message(class="info",paste0(" - Setup RESTORE FLAGS\n"))  
-        template_flags <- template$setup_data$PROGRAM_FLAGS
-        
-        expected_headers <- c("ARCID","SYSNAME","INDID","CHKID","check_asof_date","check_status","check_status_user_id","check_status_comment","check_message","data_sys_flags","data_value_unit")
-        tf_headers <- intersect(expected_headers,names(template_flags))
-        template_flags <- template_flags[,..tf_headers]
-        sys_headers <- c("archive_id","sys_name","indicator_id","indicator_check_id","check_asof_date","check_status","check_status_user_id","check_status_comment","check_message","data_sys_flags","data_value_unit")
-        if (!setequal(names(template_flags),
-                      expected_headers)) {
-          status_message(class="error",
-                         "Failed to import PROGARM FLAGS.  Expected columns: ",paste0(expected_headers,collapse=", "))
-        } else {
-          setnames(template_flags,
-                   old=expected_headers,
-                   new=sys_headers)
-          
-          
-          
-          #conn <- poolCheckout(pool)
-          #dbBegin(conn)
-          poolWithTransaction(pool,function(conn) {
-            
-            dbExecute(conn,"
-            create temp table _temp_flags(archive_id int,
-                                          sys_name text,
-                                          indicator_id int,
-                                          indicator_check_id int,
-                                          check_asof_date date,
-                                          check_status text,
-                                          check_status_user_id text,
-                                          check_status_comment text,
-                                          check_message text,
-                                         
-                                          data_sys_flags int,
-                                          data_value_unit text)
-            on commit drop;")
-            
-            dbAppendTable(conn,
-                          name="_temp_flags",
-                          value=template_flags[,
-                                               .(archive_id,
-                                                 sys_name,
-                                                 indicator_id,
-                                                 indicator_check_id,
-                                                 check_asof_date,
-                                                 check_status,
-                                                 check_status_user_id,
-                                                 check_status_comment,
-                                                 check_message,
-                                                 
-                                                 data_sys_flags,
-                                                 data_value_unit)])
-            
-            dbExecute(conn,"
-            insert into p_rsf.rsf_data_checks_archive(archive_id,
-                                                      sys_name,
-                                                      indicator_id,
-                                                      indicator_check_id,
-                                                      check_asof_date,
-                                                      check_status,
-                                                      check_status_user_id,
-                                                      check_status_comment,
-                                                      check_message,
-                                                    
-                                                      data_sys_flags,
-                                                      data_value_unit)
-            select 
-              archive_id,
-              sys_name,
-              indicator_id,
-              indicator_check_id,
-              check_asof_date,
-              check_status,
-              check_status_user_id,
-              check_status_comment,
-              check_message,
-             
-              data_sys_flags,
-              data_value_unit
-            from _temp_flags
-            on conflict do nothing;")
-          })
-        }
       }
     }
     
@@ -1015,6 +434,7 @@ template_process <- function(pool,
       select 
         fis.rsf_pfcbl_id,
         fis.indicator_id,
+        fis.indicator_name,
         fis.is_subscribed,
         fis.is_unsubscribed,
         fis.formula_id,
@@ -1022,7 +442,8 @@ template_process <- function(pool,
         fis.data_type,
         fis.data_category,
         fis.default_unit as default_data_unit,
-        fis.formula_calculation_unit
+        fis.formula_calculation_unit,
+        fis.unit_fx_indicator_id
       from p_rsf.view_rsf_setup_indicator_subscriptions fis
       where fis.rsf_pfcbl_id = $1::int",
     params=list(template$reporting_import$import_rsf_pfcbl_id))
@@ -1066,7 +487,7 @@ template_process <- function(pool,
     template$pfcbl_data[,omit:=FALSE]
     template$pfcbl_data[is.na(indicator_id) |
                         is_unsubscribed==TRUE |
-                        indicator_id %in% template$rsf_indicators[is_system==TRUE &
+                        indicator_id %in% template$rsf_indicators[is_system==TRUE & #ie, omit system indicators (unless user is reporting on "is_active" status)
                                                                   indicator_sys_category != "is_active", #special system indicator: allows manual overwrite by users
                                                                   indicator_id],
                         omit:=TRUE]
@@ -1091,8 +512,7 @@ template_process <- function(pool,
       bad_indicators <- bad_indicators[!(indicator_id %in% template$rsf_indicators[is_system==TRUE,indicator_id])]
 
       if (!empty(bad_headers)) {
-        
-     
+      
         for (ind in unique(bad_headers$indicator_name)) {
           status_message(class="error",paste0("Unknown Indicator: '",ind,"' does not exist.  Ignored.\n"))
         }
@@ -1100,7 +520,7 @@ template_process <- function(pool,
         
         bad_headers <- bad_headers[,
                                    .(message=paste0('[IN SHEET ',sheet_name,'] ',
-                                                    paste0(paste0('"',data_value[1:100],'"'),
+                                                    paste0(paste0('"',head(data_value,100),'"'),
                                                            collapse=' & '))),
                                    by=.(sheet_name)]
         bad_headers <- paste0("Column header not defined recognized.\n  Recommended: either define an indicator or an alias in System Admin; OR, enter these columns in Template Ignore Colmns in Program Setup.\n ",
@@ -1140,7 +560,9 @@ template_process <- function(pool,
                                                       paste0(" ",data_unit)))]
         template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
                                                          unsubscribed_indicators[,.(rsf_pfcbl_id,
-                                                                                    indicator_id=as.numeric(NA),
+                                                                                    indicator_id, #=as.numeric(NA), reverted to use this indicator_id, it creates some unexpected data in rsf_data_flags
+                                                                                                  #with data_id to sys_X_reporting and the indicator_id to another entity/indicator, but it's ok.
+                                                                                                  #as the forein key is on data_id
                                                                                     #indicator_id, #cannot put it on this indicator ID because this data point has been omitted and will never upload
                                                                                                   #must tag sys_X_reporting indicator!
                                                                                     reporting_asof_date,
@@ -1151,16 +573,6 @@ template_process <- function(pool,
     }
   }
   
-  #misalignments 
-  {
-    #misliagnments should never happen... But they could potentially result from accidental or malicious activities.  Eg, user might copy and paste an uploads pfcbl_id
-    #in one row associated with a borrower and borrower-level indicator to a different row associated with a facility-level indicator.
-    #data_integrity_key generally is designed to allow users some flexibility in moving data around, or even the possibility to add a new indicator that's within the existing
-    #set in the template for an existing rsf_pfcbl_id entity in the template without violating the key. But also opens the door for some issues such as misalignment.
-    #Database "instead" insert trigger should deny (and throw error) any misalignments as well--it would be a big problem.
-    template <- template_remove_data_category_misalignments(template=template)
-  
-  }
   
   #Duplicates
   #Check manually reported currency ratios
@@ -1302,177 +714,234 @@ template_process <- function(pool,
       }
     }
     
+    #SET LCU where defined
+    #If we're uploading the currency unit in this report, then it will change to this in the data base insert triggers.  So do it now: both to avoid the work and also to reconcile
+    #unit_fx parameters that may also be present in this upload.
+    #(and where it is not defined...presumably it must have been defined historically and therefore be present in the database)
+    {
+      currency_indicator_ids <- template$rsf_indicators[grepl("currency_unit",indicator_sys_category) & indicator_id %in% unique(template$pfcbl_data$indicator_id),
+                                                        .(indicator_id,data_category)]
+      
+      template$pfcbl_data[template$rsf_indicators,
+                          data_type:=i.data_type,
+                          on=.(indicator_id)]
+      
+      reported_local_currency_units <- template$pfcbl_data[currency_indicator_ids,
+                                                           .(reporting_template_row_group,
+                                                             data_category,
+                                                             indicator_id,
+                                                             reporting_asof_date,
+                                                             data_unit=data_value,
+                                                             data_type="currency"),
+                                                           on=.(indicator_id,
+                                                                data_category)]
+      
+      template$pfcbl_data[reported_local_currency_units,
+                          data_unit:="LCU",
+                          on=.(reporting_template_row_group,
+                               data_category,
+                               reporting_asof_date,
+                               data_unit,
+                               data_type)]
+    }
+
+    #Remap FX defined indicators to the reported indicator IDs (based on the governing indicator_id having been mapped by template column name mapping and by the reported data's unit equal to the
+    #defined unit of the fx_defined_indicator.
+    #Note that when there is ambiguity with are defined indicator's unit is equal to the reporting entity's LCU currency, this will map (incorrectly/unintentionally) from the governing unit
+    #reporting in LCU to a defiend currency metric.  This will be reconciled in the data upload as any time a defined currency unit is reported, it's required that the governing metric be present
+    #in the reported data too.
+    
+    {
+      
+      template$pfcbl_data[template$rsf_indicator_subscriptions[!is.na(unit_fx_indicator_id) & 
+                                                                 is_unsubscribed != TRUE,
+                                                               .(fx_defined_indicator_id=indicator_id,
+                                                                 fx_defined_indicator_name=indicator_name,
+                                                                 data_unit=default_data_unit,
+                                                                 governing_indicator_id=unit_fx_indicator_id)],
+                          `:=`(indicator_id=i.fx_defined_indicator_id,
+                               indicator_name=i.fx_defined_indicator_name),
+                          on=.(indicator_id=governing_indicator_id,
+                               data_unit)]
+    }
+    
     #check for currency data duplicates
     #and if multiple culumns are reported in different currencies!
     {
-      currency_data <- template$pfcbl_data[indicator_id %in% template$rsf_indicators[data_type=="currency",indicator_id]]
-      
-      #should happen, but just in case
-      currency_data[is.na(data_unit),
-                    data_unit:='LCU']
-      
-      currency_data[,
-                    redundancies:=length(unique(paste0(ifelse(is.na(data_value),"0",data_value),data_unit))),
-                    by=.(rsf_pfcbl_id,
-                         indicator_id,
-                         reporting_asof_date,
-                         reporting_template_row_group)]
-      
-      currency_data <- currency_data[redundancies>1][order(indicator_id)]
-      if (!empty(currency_data)) {
-        
-        currency_indicator_ids <- template$rsf_indicators[grepl("currency_unit",indicator_sys_category) & indicator_id %in% unique(template$pfcbl_data$indicator_id),
-                                                 .(indicator_id,data_category)]
-        
-        #if the template is uploading its local currency unit, then no need to download it
-        currency_units <- template$pfcbl_data[indicator_id %in% currency_indicator_ids$indicator_id,
-                                              .(rsf_pfcbl_id,indicator_id,reporting_asof_date,data_category,local_currency_unit=data_value)]
-        currency_data[,
-                      `:=`(local_currency_unit=as.character(NA),       #LCU of the entity (generally loan or facility)
-                           defined_currency_unit=as.character(NA),     #If this metric is defined as _always_ reporting in a specific currency, eg USD (rare)
-                           formula_calculation_unit=as.character(NA))] #Setting-specific for formulas to return values converted into this currency for this facility.
-        
-        #Priority 3: it is assumed to be the local currency
-        currency_data[currency_units,
-                      local_currency_unit:=i.local_currency_unit,
-                      on=.(rsf_pfcbl_id,
-                           reporting_asof_date)]
-        
-        #Priority 2: it is setup to calculate in this currency
-        currency_data[indicator_subscriptions[data_type=="currency" & is.na(formula_calculation_unit)==FALSE],
-                      formula_calculation_unit:=i.formula_calculation_unit,
-                      on=.(indicator_id)]
-        
-        #Priority 1: it must be this currency by definition of the metric
-        currency_data[template$rsf_indicators[data_type=="currency" & data_unit != "LCU"],
-                      defined_currency_unit:=i.data_unit,
-                      on=.(indicator_id)]
-        
-        #So if the Template uploads metric_x as 100EUR and elsewhere metric_x as 120USD: if, forexample, it is set to have a formula calculation unit as EUR
-        #then the metric_x 100EUR will be considered the value of record and 120USD will be the redundancy, even if the facility's base value is USD.
-        
-        #we want everyone's local currency unit to know which is our reference data versus our redundant data. (reference is reported data in the LCU value)
-        missing_lcu <- currency_data[is.na(local_currency_unit)]
-        if (!empty(missing_lcu)) {
-          lcu <- lapply(unique(as.character(missing_lcu$reporting_asof_date)),
-                        FUN=function(asof_date,mlcu) {
-                          lcu <- dbGetQuery(pool,"
-                     select distinct on (lcu.for_rsf_pfcbl_id)
-                       lcu.for_rsf_pfcbl_id as rsf_pfcbl_id,
-    									 lcu.data_unit_value,
-    									 lcu.reporting_asof_date as lcu_current_date
-    								 from p_rsf.rsf_data_current_lcu lcu
-    								 where lcu.for_rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int)
-    									 and lcu.reporting_asof_date <= $1::date
-    								 order by lcu.for_rsf_pfcbl_id,lcu.reporting_asof_date desc",
-                                            params=list(asof_date,
-                                                        paste0(unique(mlcu$rsf_pfcbl_id),collapse=",")))
-                          lcu$reporting_asof_date <- as.Date(asof_date)
-                          lcu
-                        },mlcu=missing_lcu)
-          lcu <- rbindlist(lcu)
-          lcu[,
-              joincondition:=as.character(NA)]
-          currency_data[lcu,
-                        local_currency_unit:=i.data_unit_value,
-                        on=.(rsf_pfcbl_id,
-                             reporting_asof_date)]
-          
-          if (!empty(currency_data[is.na(local_currency_unit)])) {
-            stop("Redundant data reported and failed to resolve local currency units")
-          }
-        }
-        
-        currency_data[data_unit=="LCU",
-                      data_unit:=local_currency_unit]
-        currency_data[,
-                      unit_ratio:=paste0(data_unit,"/",local_currency_unit)]
-        currency_data[,
-                      fx_ratio:=as.numeric(NA)]
-        currency_data[data_unit==local_currency_unit,
-                      fx_ratio:=1]
-        
-        ratios[,joincondition:=as.numeric(NA)]
-        
-        fx_ratios <- rbindlist(list(ratios[,.(reporting_asof_date,data_value=as.numeric(data_value),data_unit)],
-                                    ratios[,.(reporting_asof_date,
-                                              data_value=1/as.numeric(data_value),
-                                              data_unit=paste0(to_currency,"/",from_currency))]))
-        currency_data[fx_ratios,
-                      fx_ratio:=i.data_value,
-                      on=.(reporting_asof_date,
-                           unit_ratio=data_unit)]
-        
-        if (anyNA(currency_data$fx_ratio)) {
-          stop("Soren TODO: lookup fx ratios that are not reported in dataset for comparing redundant reported indicators")
-        }
-        
-        currency_data[,
-                      fx_value:=round(as.numeric(data_value)*fx_ratio,CALCULATIONS_ENVIRONMENT$SIG_DIGITS)]
-        
-        currency_data[,
-                      unredundancies:=length(unique(fx_value)),
-                      by=.(rsf_pfcbl_id,
-                           indicator_id,
-                           reporting_asof_date,
-                           reporting_template_row_group)] #redundancy not restricted to reporting_template_row_group
-        
-        #not redundant at CURRENT FX rates
-        if (any(currency_data$unredundancies==1)) {
-          equal_currency_data <- currency_data[unredundancies==1]
-          
-          equal_currency_data[,
-                              redundancy_priority:=fcase(data_unit==defined_currency_unit,1,
-                                                         data_unit==formula_calculation_unit,2,
-                                                         data_unit==local_currency_unit,3,
-                                                         default=4)]
-          equal_currency_data[,
-                              is_calculated:=FALSE]
-          
-          equal_currency_data[indicator_subscriptions[is_calculated==TRUE],
-                        is_calculated:=TRUE,
-                        on=.(indicator_id)]
-          
-          #given group .by below, will put indicators _in the same row group_ in the order first of refernece_data and then in order of data_id (order of appearance)
-          setorder(equal_currency_data,
-                   is_calculated,   #reported data is priority over calculated data as uncalculated is 0/FALSE and calcualted is 1/TRUE
-                   redundancy_priority,
-                   reporting_template_data_rank)
-          
-          equal_currency_data[,
-                              omit:=(1:.N)>1,
-                              by=.(rsf_pfcbl_id,
-                                   indicator_id,
-                                   reporting_asof_date,
-                                   reporting_template_row_group)]
-          
-          redundancies <- equal_currency_data[,
-                                    .(message=paste0("Multiple values reported ",paste0("{",data_submitted,"}",collapse=" & "),
-                                                     " are equal in current-FX terms. Saving {",data_submitted[omit==FALSE],"} and discarding redundancies")),
-                                    by=.(rsf_pfcbl_id,
-                                         indicator_id,
-                                         reporting_asof_date,
-                                         reporting_template_row_group,
-                                         indicator_name)]
-          
-          template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
-                                                           redundancies[,.(rsf_pfcbl_id,
-                                                                           indicator_id,
-                                                                           reporting_asof_date,
-                                                                           check_name="sys_flag_multiple_data_points_reported",
-                                                                           check_message=message)]))
-          #currency_data[omit==F]
-          #omitting it because it's identical, so no need to flag
-          template$pfcbl_data <- template$pfcbl_data[!(reporting_template_data_rank %in% equal_currency_data[omit==TRUE,reporting_template_data_rank])]  
-          currency_data <- currency_data[unredundancies > 1] #these are not equal at CURRENT FX rates
-          equal_currency_data <- NULL
-        }
-        
-        #TODO: Try again by testing fx rate at parameter's last update FX rate date.
-      }
-      currency_data <- NULL
-    }
-    
+    # if (FALSE) {
+    #   
+    #  
+    #   
+    #   
+    #   
+    #   currency_data <- template$pfcbl_data[indicator_id %in% template$rsf_indicators[data_type=="currency",indicator_id]]
+    #   
+    #   #should happen, but just in case
+    #   currency_data[is.na(data_unit),
+    #                 data_unit:='LCU']
+    #   
+    #   currency_data[,
+    #                 redundancies:=length(unique(paste0(ifelse(is.na(data_value),"0",data_value),data_unit))),
+    #                 by=.(rsf_pfcbl_id,
+    #                      indicator_id,
+    #                      reporting_asof_date,
+    #                      reporting_template_row_group)]
+    #   
+    #   #if there are no redundancies, then the issue is moot.
+    #   currency_data <- currency_data[redundancies>1][order(indicator_id)]
+    #   if (!empty(currency_data)) {
+    #     
+    #   
+    #     
+    #     #if the template is uploading its local currency unit, then no need to download it
+    #     currency_units <- template$pfcbl_data[indicator_id %in% currency_indicator_ids$indicator_id,
+    #                                           .(rsf_pfcbl_id,indicator_id,reporting_asof_date,data_category,local_currency_unit=data_value)]
+    #     currency_data[,
+    #                   `:=`(local_currency_unit=as.character(NA),       #LCU of the entity (generally loan or facility)
+    #                        defined_currency_unit=as.character(NA),     #If this metric is defined as _always_ reporting in a specific currency, eg USD (rare)
+    #                        formula_calculation_unit=as.character(NA))] #Setting-specific for formulas to return values converted into this currency for this facility.
+    #     
+    #     #Priority 3: it is assumed to be the local currency
+    #     currency_data[currency_units,
+    #                   local_currency_unit:=i.local_currency_unit,
+    #                   on=.(rsf_pfcbl_id,
+    #                        reporting_asof_date)]
+    #     
+    #     #Priority 2: it is setup to calculate in this currency
+    #     currency_data[indicator_subscriptions[data_type=="currency" & is.na(formula_calculation_unit)==FALSE],
+    #                   formula_calculation_unit:=i.formula_calculation_unit,
+    #                   on=.(indicator_id)]
+    #     
+    #     #Priority 1: it must be this currency by definition of the metric
+    #     currency_data[template$rsf_indicators[data_type=="currency" & data_unit != "LCU"],
+    #                   defined_currency_unit:=i.data_unit,
+    #                   on=.(indicator_id)]
+    #     
+    #     #So if the Template uploads metric_x as 100EUR and elsewhere metric_x as 120USD: if, forexample, it is set to have a formula calculation unit as EUR
+    #     #then the metric_x 100EUR will be considered the value of record and 120USD will be the redundancy, even if the facility's base value is USD.
+    #     
+    #     #we want everyone's local currency unit to know which is our reference data versus our redundant data. (reference is reported data in the LCU value)
+    #     missing_lcu <- currency_data[is.na(local_currency_unit)]
+    #     if (!empty(missing_lcu)) {
+    #       lcu <- lapply(unique(as.character(missing_lcu$reporting_asof_date)),
+    #                     FUN=function(asof_date,mlcu) {
+    #                       lcu <- dbGetQuery(pool,"
+    #                  select distinct on (lcu.for_rsf_pfcbl_id)
+    #                    lcu.for_rsf_pfcbl_id as rsf_pfcbl_id,
+    # 									 lcu.data_unit_value,
+    # 									 lcu.reporting_asof_date as lcu_current_date
+    # 								 from p_rsf.rsf_data_current_lcu lcu
+    # 								 where lcu.for_rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int)
+    # 									 and lcu.reporting_asof_date <= $1::date
+    # 								 order by lcu.for_rsf_pfcbl_id,lcu.reporting_asof_date desc",
+    #                                         params=list(asof_date,
+    #                                                     paste0(unique(mlcu$rsf_pfcbl_id),collapse=",")))
+    #                       lcu$reporting_asof_date <- as.Date(asof_date)
+    #                       lcu
+    #                     },mlcu=missing_lcu)
+    #       lcu <- rbindlist(lcu)
+    #       lcu[,
+    #           joincondition:=as.character(NA)]
+    #       currency_data[lcu,
+    #                     local_currency_unit:=i.data_unit_value,
+    #                     on=.(rsf_pfcbl_id,
+    #                          reporting_asof_date)]
+    #       
+    #       if (!empty(currency_data[is.na(local_currency_unit)])) {
+    #         stop("Redundant data reported and failed to resolve local currency units")
+    #       }
+    #     }
+    #     
+    #     currency_data[data_unit=="LCU",
+    #                   data_unit:=local_currency_unit]
+    #     currency_data[,
+    #                   unit_ratio:=paste0(data_unit,"/",local_currency_unit)]
+    #     currency_data[,
+    #                   fx_ratio:=as.numeric(NA)]
+    #     currency_data[data_unit==local_currency_unit,
+    #                   fx_ratio:=1]
+    #     
+    #     ratios[,joincondition:=as.numeric(NA)]
+    #     
+    #     fx_ratios <- rbindlist(list(ratios[,.(reporting_asof_date,data_value=as.numeric(data_value),data_unit)],
+    #                                 ratios[,.(reporting_asof_date,
+    #                                           data_value=1/as.numeric(data_value),
+    #                                           data_unit=paste0(to_currency,"/",from_currency))]))
+    #     currency_data[fx_ratios,
+    #                   fx_ratio:=i.data_value,
+    #                   on=.(reporting_asof_date,
+    #                        unit_ratio=data_unit)]
+    #     
+    #     if (anyNA(currency_data$fx_ratio)) {
+    #       stop("Soren TODO: lookup fx ratios that are not reported in dataset for comparing redundant reported indicators")
+    #     }
+    #     
+    #     currency_data[,
+    #                   fx_value:=round(as.numeric(data_value)*fx_ratio,CALCULATIONS_ENVIRONMENT$SIG_DIGITS)]
+    #     
+    #     currency_data[,
+    #                   unredundancies:=length(unique(fx_value)),
+    #                   by=.(rsf_pfcbl_id,
+    #                        indicator_id,
+    #                        reporting_asof_date,
+    #                        reporting_template_row_group)] #redundancy not restricted to reporting_template_row_group
+    #     
+    #     #not redundant at CURRENT FX rates
+    #     if (any(currency_data$unredundancies==1)) {
+    #       equal_currency_data <- currency_data[unredundancies==1]
+    #       
+    #       equal_currency_data[,
+    #                           redundancy_priority:=fcase(data_unit==defined_currency_unit,1,
+    #                                                      data_unit==formula_calculation_unit,2,
+    #                                                      data_unit==local_currency_unit,3,
+    #                                                      default=4)]
+    #       equal_currency_data[,
+    #                           is_calculated:=FALSE]
+    #       
+    #       equal_currency_data[indicator_subscriptions[is_calculated==TRUE],
+    #                     is_calculated:=TRUE,
+    #                     on=.(indicator_id)]
+    #       
+    #       #given group .by below, will put indicators _in the same row group_ in the order first of refernece_data and then in order of data_id (order of appearance)
+    #       setorder(equal_currency_data,
+    #                is_calculated,   #reported data is priority over calculated data as uncalculated is 0/FALSE and calcualted is 1/TRUE
+    #                redundancy_priority,
+    #                reporting_template_data_rank)
+    #       
+    #       equal_currency_data[,
+    #                           omit:=(1:.N)>1,
+    #                           by=.(rsf_pfcbl_id,
+    #                                indicator_id,
+    #                                reporting_asof_date,
+    #                                reporting_template_row_group)]
+    #       
+    #       redundancies <- equal_currency_data[,
+    #                                 .(message=paste0("Multiple values reported ",paste0("{",data_submitted,"}",collapse=" & "),
+    #                                                  " are equal in current-FX terms. Saving {",data_submitted[omit==FALSE],"} and discarding redundancies")),
+    #                                 by=.(rsf_pfcbl_id,
+    #                                      indicator_id,
+    #                                      reporting_asof_date,
+    #                                      reporting_template_row_group,
+    #                                      indicator_name)]
+    #       
+    #       template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
+    #                                                        redundancies[,.(rsf_pfcbl_id,
+    #                                                                        indicator_id,
+    #                                                                        reporting_asof_date,
+    #                                                                        check_name="sys_flag_multiple_data_points_reported",
+    #                                                                        check_message=message)]))
+    #       #currency_data[omit==F]
+    #       #omitting it because it's identical, so no need to flag
+    #       template$pfcbl_data <- template$pfcbl_data[!(reporting_template_data_rank %in% equal_currency_data[omit==TRUE,reporting_template_data_rank])]  
+    #       currency_data <- currency_data[unredundancies > 1] #these are not equal at CURRENT FX rates
+    #       equal_currency_data <- NULL
+    #     }
+    #     
+    #     #TODO: Try again by testing fx rate at parameter's last update FX rate date.
+    #   }
+    #   currency_data <- NULL
+    # }
+  }
     #duplicates per row should fail
     {
       #duplicates due to currency FX will already have been removed
@@ -1589,11 +1058,6 @@ template_process <- function(pool,
       }
 
     }
-    
-    # if (empty(template$pfcbl_data)) {
-    #   print("Template has no new data.  Returning NULL")
-    #   return (NULL)
-    # }
     
     template <- template_set_redundancy_reporting(pool=pool,
                                                   indicator_subscriptions=indicator_subscriptions,

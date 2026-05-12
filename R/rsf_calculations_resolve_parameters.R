@@ -33,12 +33,17 @@ rsf_calculations_resolve_parameters <- function(calculations,
                                    parameter_data_type=i.data_type),
                               on=.(parameter_indicator_name=indicator_name)]
   
-  #For .all, a .timeseries value is resolved.  Which should not be a resolved parameter as it is a list element of .all
+  #For .all or .conflicts, a .timeseries value is resolved.  Which should not be a resolved parameter as it is a list element of .all
   #so resolve parameter requirements based on all
   #but we don't want to automatically include timeries.unit or timeseries.reporteddate since these are present generally for a .all request
-  if (any(request_indicator_variables$parameter_variable=="timeseries",na.rm=T)) {
-    request_indicator_variables <- request_indicator_variables[!(parameter_variable=="timeseries")]
+  if (any(grepl("timeseries$",request_indicator_variables$parameter_variable),na.rm=T)) {
+    request_indicator_variables <- request_indicator_variables[!(grepl("timeseries$",request_indicator_variables$parameter_variable))]
   }
+  
+  
+  # if (any(request_indicator_variables$parameter_variable=="timeseries",na.rm=T)) {
+  #   request_indicator_variables <- request_indicator_variables[!(parameter_variable=="timeseries")]
+  # }
   #Can occur if a formula definition requests a non-existent indicator.  Which can happen if formula simply has mistakes, or if an indicator is renamed
   #or formula_indicator_formula specification has those issues
   if (anyNA(request_indicator_variables$parameter_indicator_id)) {
@@ -69,7 +74,7 @@ rsf_calculations_resolve_parameters <- function(calculations,
                                                             grepl("(current|previous|first)$",parameter_variable)]
     
     request_indicator_variables[parameter_data_type=="currency" &
-                                grepl("all$",parameter_variable),
+                                grepl("all$|conflicts$",parameter_variable),
                                 for_fx:=TRUE]
     
     if (!empty(fx_variable_requirements)) {

@@ -1,10 +1,8 @@
-
-
-
-# reporting_current_date <- '2025-12-31'
-# indicator_id <-  157512
-# rsf_pfcbl_id.family <- 569530
-
+# 
+# reporting_current_date <- '2026-03-31'
+# indicator_id <-  157874
+# rsf_pfcbl_id.family <- 641110 
+#all_parameters <- F
 #x<-rsf_indicators_calculate_do_test(pool,rsf_pfcbl_id.family,indicator_id,reporting_current_date,all_parameters=T)
 
 rsf_indicators_calculate_do_test <- function(pool,
@@ -16,15 +14,17 @@ rsf_indicators_calculate_do_test <- function(pool,
                                              status_message=function(...) {})
 {
   
+  #Ensure nothing is pending
+  rsf_program_calculate(pool=pool,
+                        rsf_indicators=db_indicators_get_labels(pool),
+                        rsf_pfcbl_id.family=rsf_pfcbl_id.family,
+                        for_import_id=NA,
+                        calculate_future=FALSE,
+                        reference_asof_date=reporting_current_date)
   {
     status_message(paste0("Running test for SYSID=",paste0(rsf_pfcbl_id.family,collapse=",")," indicator_id=",indicator_id))
     
-    rsf_program_calculate(pool=pool,
-                          rsf_indicators=db_indicators_get_labels(pool),
-                          rsf_pfcbl_id.family=rsf_pfcbl_id.family,
-                          for_import_id=NA,
-                          calculate_future=FALSE,
-                          reference_asof_date=reporting_current_date)
+    
     
     test_calculation <- dbGetQuery(pool,"
       select 
@@ -59,7 +59,9 @@ rsf_indicators_calculate_do_test <- function(pool,
           end as calculate_indicator_data_unit,
           indf.computation_group,
           indf.formula_id,
-          indf.formula_fx_date,
+          ind.unit_fx_method,
+          ind.unit_fx_source,
+          ind.unit_fx_indicator_id,
           sis.formula_calculation_unit,
           ind.data_type,
           ind.data_unit as default_data_unit,
@@ -105,77 +107,6 @@ rsf_indicators_calculate_do_test <- function(pool,
     if (empty(test_calculation)) {
       stop(paste0("Invalid calculation request and/or no entities in this tree exist asof ",as.character(reporting_current_date)))
     }
-    
-    
-    # set_units <- test_calculation[!is.na(formula_unit_set_by_indicator_id),
-    #                           .(calculate_rsf_pfcbl_id,
-    #                             calculate_indicator_id,
-    #                             calculate_asof_date,
-    #                             formula_unit_set_by_indicator_id)]
-    # if (!empty(set_units)) {
-    #   
-    #   formula_units <- poolWithTransaction(pool,function(conn) {
-    #     
-    #     dbExecute(conn,"create temp table _temp_units(calculate_rsf_pfcbl_id int,
-    #                                                   calculate_indicator_id int,
-    #                                                   calculate_asof_date date,
-    #                                                   formula_unit_set_by_indicator_id int)
-    #                 on commit drop;")
-    #     
-    #     dbAppendTable(conn,
-    #                   name="_temp_units",
-    #                   value=set_units)
-    #     
-    #     dbExecute(conn,"analyze _temp_units")
-    #     dbGetQuery(conn,"
-    #                  with units as (
-    #                    select
-    #                      tu.calculate_rsf_pfcbl_id,
-    #                      tu.calculate_indicator_id,
-    #                      tu.calculate_asof_date,
-    #                      ft.to_family_rsf_pfcbl_id as unit_rsf_pfcbl_id,
-    #                      tu.formula_unit_set_by_indicator_id,
-    #                      ind.is_data_unit
-    #                    from _temp_units tu
-    #                    inner join p_rsf.indicators ind on ind.indicator_id = tu.formula_unit_set_by_indicator_id
-    #                    inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = tu.calculate_rsf_pfcbl_id
-    #                                                                     and ft.to_pfcbl_category = ind.data_category
-    #                  )
-    #                  select 
-    #                    units.calculate_rsf_pfcbl_id,
-    #                    units.calculate_indicator_id,
-    #                    units.calculate_asof_date,
-    #                    unit.data_unit,
-    #                    units.formula_unit_set_by_indicator_id
-    #                  from units
-    #                  inner join lateral (select
-    #                                       case when coalesce(units.is_data_unit,false) = true
-    #                                            then rdc.data_value
-    #                                            else rdc.data_unit
-    #                                       end as data_unit
-    #                                      from p_rsf.rsf_data_current rdc
-    #                                      where rdc.rsf_pfcbl_id = units.unit_rsf_pfcbl_id
-    #                                        and rdc.indicator_id = units.formula_unit_set_by_indicator_id
-    #                                        and rdc.reporting_asof_date <= units.calculate_asof_date
-    #                                      order by
-    #                                        rdc.reporting_asof_date desc
-    #                                      limit 1) as unit on true")
-    #   })
-    #   
-    #   setDT(formula_units)
-    #   formula_units <- formula_units[is.na(data_unit)==FALSE &
-    #                                  data_unit != "LCU"]
-    #   test_calculation[formula_units,
-    #                calculate_indicator_data_unit:=i.data_unit,
-    #                on=.(calculate_rsf_pfcbl_id,
-    #                     calculate_indicator_id,
-    #                     calculate_asof_date,
-    #                     formula_unit_set_by_indicator_id)]
-    #   
-    #   formula_units <- NULL
-    # }
-    
-
   }
   
   {
@@ -222,65 +153,7 @@ rsf_indicators_calculate_do_test <- function(pool,
                                        calculated_data_unit=data_unit,
                                        data_changed)]
 
-    # reporting <- dbGetQuery(pool,"
-    #                                  select 
-    #                                    ids.rsf_pfcbl_id,
-    #                                    coalesce(has.reported,false) as reported,
-    #                                    last.reporting_asof_date as last_reporting_date,
-    #                                    status.*
-    #                                  from p_rsf.rsf_pfcbl_ids ids
-    #                                  inner join lateral p_rsf.get_rsf_pfcbl_id_reporting_status_asof_date(ids.rsf_pfcbl_id,
-    #                                                                                                      ids.pfcbl_category,
-    #                                                                                                      $2::date) status on true
-    #                                  left join lateral (select true as reported
-    #                                                     from p_rsf.rsf_pfcbl_reporting rpr 
-    #                                                     where rpr.rsf_pfcbl_id = ids.rsf_pfcbl_id
-    #                                                       and rpr.reporting_asof_date = $2::date) as has on true
-    #                                  left join lateral (select reporting_asof_date
-    #                                                     from p_rsf.rsf_pfcbl_reporting rpr 
-    #                                                     where rpr.rsf_pfcbl_id = ids.rsf_pfcbl_id
-    #                                                       and rpr.reporting_asof_date <= $2::date
-    #                                                     order by rpr.reporting_asof_date desc
-    #                                                     limit 1) as last on true                                                          
-    #                                  where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-    #                                  ",params=list(paste0(results$rsf_pfcbl_id,collapse=","),
-    #                                                as.character(reporting_current_date)))
-    # 
-    # setDT(reporting)
-    # unexpected <- reporting[reported==FALSE |
-    #                         quarter_reporting_expected==FALSE][results,
-    #                                                            on=.(rsf_pfcbl_id),
-    #                                                            nomatch=NULL]
-    # if (!empty(unexpected)) {
-    #   
-    #   unexpected[,
-    #              flags:=paste0("Warning:System does not expect to calculate asof ",
-    #                            reporting_asof_date,
-    #                            ". Entity is ",quarter_end_reporting_status," and last reported on ",
-    #                            last_reporting_date,". Results may have unexpected values")]
-    #   
-    #   #If multiple formulas are calculated, may include multiple formulas.
-    #   if (any(grepl("\\.previous",calculation$formula))) {
-    #     unexpected[test_calculation,
-    #                formula_id:=i.formula_id,
-    #                on=.(rsf_pfcbl_id=calculate_rsf_pfcbl_id)]
-    #     
-    #     unexpected[calculation,
-    #                flags:=paste0(flags,". Calculation uses .previous -- if entity did not report in previous quarter, results may be unreliable"),
-    #                on=.(formula_id)]
-    #     unexpected[,formula_id:=NULL]
-    #   }
-    #   
-    #   test_results$flags <- rbindlist(list(test_results$flags,
-    #                                        unexpected[,
-    #                                              .(rsf_pfcbl_id,
-    #                                                indicator_id,
-    #                                                reporting_asof_date,
-    #                                                flags)]))
-    #   
-    #   
-    # }
-
+   
     results <- test_results$flags[,
                                    .(flags=paste0(unique(flags),collapse=" AND ALSO ")),
                                    by=.(rsf_pfcbl_id,
@@ -338,7 +211,7 @@ rsf_indicators_calculate_do_test <- function(pool,
     
     for(d in omit_cols) set(inputs,j=d,value=NULL)
     
-    #For .all parameters in formulas
+    #For .all or .conflicts parameters in formulas
     if (any(sapply(inputs,is.list))) {
       list_cols <- names(inputs)[sapply(inputs,is.list)]
       for (col in list_cols) {
@@ -523,7 +396,7 @@ rsf_indicators_calculate_do_test <- function(pool,
   				requirement_indicator_id
   				
           from (
-    				select
+    				select distinct
     				sis.rsf_pfcbl_id,
     				sis.formula_id
     				from p_rsf.view_rsf_setup_indicator_subscriptions sis 
@@ -544,8 +417,8 @@ rsf_indicators_calculate_do_test <- function(pool,
           sis.formula_id
         from requirements req
         inner join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = req.to_parameter_rsf_pfcbl_id
-                                                                   and sis.indicator_id = req.requirement_indicator_id
-        inner join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id																								 
+                                                                   
+        inner join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
         where sis.formula_id is not null
         order by 
           indf.formula_calculation_rank,

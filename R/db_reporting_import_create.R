@@ -20,7 +20,8 @@ db_reporting_import_create <- function(pool,
   auto_delete_imports <- NULL
 
   reporting_entity <- dbGetQuery(pool,"
-    select 
+    select
+      ids.rsf_pfcbl_id,
       ids.pfcbl_category,
       ids.pfcbl_category_rank,
       ids.created_in_reporting_asof_date::text,
@@ -74,7 +75,7 @@ db_reporting_import_create <- function(pool,
     existing_reporting <- dbGetQuery(pool,"
       select
       rt.template_id,
-      rt.template_has_static_row_ids,
+      rt.is_complete_portfolio,
       ri.import_id,
       ri.file_name
       from p_rsf.reporting_templates rt
@@ -82,7 +83,7 @@ db_reporting_import_create <- function(pool,
                                           and ri.reporting_asof_date = $2::date
                                           and ri.template_id = rt.template_id
       where rt.template_id = $3::int
-        and rt.template_has_static_row_ids is TRUE",
+        and rt.is_complete_portfolio is TRUE",
       params=list(import_rsf_pfcbl_id,
                   reporting_asof_date,
                   template_id))
@@ -165,6 +166,11 @@ db_reporting_import_create <- function(pool,
                          params=list(paste0(auto_delete_imports,collapse=","),
                                      import_user_id))
   }
+  setDT(reporting_import)
+  setDT(reporting_entity)
+  reporting_import[reporting_entity,
+                   import_pfcbl_rank:=i.pfcbl_category_rank,
+                   on=.(import_rsf_pfcbl_id=rsf_pfcbl_id)]
   
   return (reporting_import)
 }

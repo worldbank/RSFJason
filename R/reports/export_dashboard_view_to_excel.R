@@ -216,8 +216,8 @@ export_dashboard_view_to_excel <- function(pool,
                                              sheet_data_table_name="RSF_TEMPLATE_DATA",
                                              sheet_data=export_data,
                                              
-                                             program_name=export_cohort$program_name,
-                                             program_image="IFC-CMCO_Horizontal_RGB_TransparentBG-high.png",
+                                             header_name=export_cohort$program_name,
+                                             header_image="IFC-CMCO_Horizontal_RGB_TransparentBG-high.png",
                                              
                                              template_key=TEMPLATE$template_key,     #required
                                              report_key=export_cohort$reporting_key, #optional, but when included, will concatenate template-key with ':'

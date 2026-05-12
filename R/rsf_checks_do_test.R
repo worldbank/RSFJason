@@ -3,9 +3,9 @@
 	
 # check
 
-#  pfcbl_ids.familytree <- 582004;rsf_program_id <- unlist(dbGetQuery(pool,"select rsf_program_id from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id=$1::int",params=list(pfcbl_ids.familytree)))
-# reporting_current_date='2025-12-31';
-# check_formula_id = 106
+#  pfcbl_ids.familytree <- 569531;rsf_program_id <- unlist(dbGetQuery(pool,"select rsf_program_id from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id=$1::int",params=list(pfcbl_ids.familytree)))
+# reporting_current_date='2025-09-30';
+# check_formula_id = 126
 #Revise to take check_id and then check/warn if program is not subscribed to it
 rsf_checks_do_test <- function(pool,
                                rsf_program_id,

@@ -108,7 +108,7 @@ source("./R/db_rsf_reports_list.R")
 
 source("./R/db_export_create.R")
 source("./R/db_export_get_template.R")
-source("./R/db_export_load_report.R")
+source("./R/db_dashboard_load_report.R")
 source("./R/rsf_setup_export_create_entity.R")
 
 source("./R/db_add_update_data_user.R")
@@ -158,7 +158,7 @@ source("./R/rsf_checks_calculate.R")
 source("./R/rsf_checks_do_test.R")
 source("./R/rsf_indicators_calculate.R")
 
-source("./R/reports/export_rsf_setup_files_to_excel.R")
+#source("./R/reports/export_rsf_setup_files_to_excel.R")
 source("./R/rsf_reports_data_integrity_key.R")
 source("./R/rsf_reports_create_excel_sheet.R")
 source("./R/rsf_reports_excel_read_rsf_data.R")
@@ -173,9 +173,6 @@ source('./R/templates/template_set_data_match_rsf_ids.R')
 source('./R/templates/template_set_data_match_pfcbl_ids.R')
 source("./R/templates/template_set_redundancy_reporting.R")
 
-
-
-source("./R/templates/template_remove_data_category_misalignments.R")
 
 source('./R/templates/template_upload.R')
 source('./R/templates/template_process.R')
@@ -198,7 +195,7 @@ source('./R/templates/parse_template_IFC_QR2025.R')
 
 source('./R/templates/parse_template_RSA.R')
 source('./R/templates/parse_template_csv.R')
-source('./R/templates/parse_template_rsf_setup.R')
+#source('./R/templates/parse_template_rsf_setup.R')
 source('./R/templates/parse_template_csv_backup_data.R')
 
 

@@ -6,18 +6,19 @@ SERVER_SETUP_CHECKS_LIST_REFRESH <- reactiveVal(0)
 
 SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
                                                         SERVER_SETUP_CHECKS_LIST_REFRESH(),
+                                                        SERVER_SETUP_INDICATORS_LIST_FILTERED(),
                                                         input$server_programs__selected_facility,
                                                         input$ui_setup__checks_monitoring_filter,
                                                         input$ui_setup__checks_category_filter,
                                                         input$ui_setup__checks_search_filter,
                                                         input$ui_setup__checks_type_filter), {
 
-   if (empty(SELECTED_PROGRAM_FACILITIES_LIST())) return (NULL)
+   if (empty(SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST())) return (NULL)
    if (empty(RSF_CHECKS())) return (NULL)
    
     selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
     if (!isTruthy(selected_rsf_pfcbl_id) ||
-        !selected_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) {
+        !selected_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id) {
       return(NULL)
     } 
     
@@ -59,7 +60,7 @@ SERVER_SETUP_CHECKS__FILTERED_CHECKS <- eventReactive(c(RSF_CHECKS(),
     						  and rdc.check_formula_id is not null) as has on has.rsf_pfcbl_id = scs.rsf_pfcbl_id
     																												  and has.check_formula_id = scs.check_formula_id
     where scs.rsf_pfcbl_id = $1::int 
-    
+      and scs.filter_category_manager is true
     
     union 
     
@@ -267,7 +268,7 @@ observeEvent(input$server_setup_checks__recheck_reset, {
 
   selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
   if (!isTruthy(selected_rsf_pfcbl_id) ||
-      !selected_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) {
+      !selected_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id) {
     return(showNotification(type="error",
                             ui=h3("An error occurred.  Ensure an active project is selected")))
   } 
@@ -295,8 +296,8 @@ observeEvent(input$server_setup_checks__recheck_reset, {
 
 observeEvent(input$server_setup_checks__recheck_run, {
   
-  program <- SELECTED_PROGRAM()
-  facilities <- SELECTED_PROGRAM_FACILITIES_LIST()
+
+  facilities <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()
   
   if (empty(facilities)) return (NULL)
  
@@ -372,7 +373,8 @@ observeEvent(input$server_setup_checks__toggle_subscriptions, {
       selected_formula_id <- as.numeric(toggle[[3]])
       
       subscription_status <- DBPOOL %>% db_program_toggle_check_subscription(rsf_pfcbl_id = selected_rsf_pfcbl_id,
-                                                                             check_formula_id = selected_formula_id)
+                                                                             check_formula_id = selected_formula_id,
+                                                                             user_id=USER_ID())
       results <- c(results,subscription_status)
     }
   })
@@ -382,7 +384,7 @@ observeEvent(input$server_setup_checks__toggle_subscriptions, {
                      ui=h3("Monitoring for this indicator is controlled by the system and cannot be modified")) 
   }
   
-  REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1) #in case we unsubscribed from anything and so old checks will be removed and refreshed
+  IMPORT_LIST__REFRESH(IMPORT_LIST__REFRESH()+1) #in case we unsubscribed from anything and so old checks will be removed and refreshed
   SERVER_SETUP_CHECKS_TOGGLE_SELECTED(c())  
   SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1)
  
@@ -433,7 +435,7 @@ output$server_setup_checks__recheck_pending_UI <- renderText({
   selected_rsf_pfcbl_id <- req(as.numeric(input$server_programs__selected_facility))
   
   if (!isTruthy(selected_rsf_pfcbl_id) ||
-      !selected_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) {
+      !selected_rsf_pfcbl_id %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id) {
     return(showNotification(type="error",
                             ui=h3("An error occurred.  Ensure an active project is selected")))
   } 
@@ -450,59 +452,6 @@ output$server_setup_checks__recheck_pending_UI <- renderText({
   if (!isTruthy(pc)) pc <- "0"
   return (pc)
 })
-
-#This takes a while and isn't very informative
-# output$server_setup_checks__recheck_verified_UI <- renderText({
-#   SELECTED_PROGRAM_ID()
-#   rsf_program_id <- SELECTED_PROGRAM_ID()
-#   
-#   selected_rsf_pfcbl_id <- as.numeric(input$ui_setup__indicator_program_facilities)
-#   if (!isTruthy(selected_rsf_pfcbl_id)) selected_rsf_pfcbl_id <- SELECTED_PROGRAM()$rsf_pfcbl_id
-#   
-#   input$ui_setup__checks_recheck
-#   input$server_setup_checks__recheck
-#   input$server_setup_checks__reset
-#   input$setup_program_recheck_indicators
-#   
-#   tc <- withProgress(message="Counting verified checks takes a minute or two...",
-#                      value=0.5,{
-#   
-#     tc <- DBPOOL %>% dbGetQuery("
-#       with checks as materialized (
-#         select
-#         	tip.to_check_rsf_pfcbl_id,
-#         	tip.to_check_formula_id,
-#         	tip.reporting_asof_date			
-#         from p_rsf.compute_check_triggered_by_parameter tip
-#         where tip.from_parameter_pfcbl_id = any (select ft.to_family_rsf_pfcbl_id
-#         																				 from p_rsf.view_rsf_pfcbl_id_family_tree ft
-#         																				 where ft.from_rsf_pfcbl_id = $1::int)
-#         	and tip.is_calculation_trigger_parameter = true
-#       )
-#       select count(*) as verified_count
-#       from (
-#         select distinct
-#         chk.to_check_rsf_pfcbl_id,
-#         chk.to_check_formula_id,
-#         chk.reporting_asof_date
-#         from checks chk
-#         inner join p_rsf.view_rsf_pfcbl_check_subscriptions pcs on pcs.rsf_pfcbl_id = chk.to_check_rsf_pfcbl_id
-#         																										 and pcs.check_formula_id = chk.to_check_formula_id																										 
-#         where pcs.is_subscribed = true
-#         and chk.to_check_rsf_pfcbl_id = any(select fam.child_rsf_pfcbl_id
-#         																		from p_rsf.rsf_pfcbl_id_family fam
-#         																		where fam.parent_rsf_pfcbl_id = $1::int)
-#         and exists(select * from p_rsf.rsf_pfcbl_reporting rpr
-#         					 where rpr.rsf_pfcbl_id = chk.to_check_rsf_pfcbl_id
-#         						 and rpr.reporting_asof_date = chk.reporting_asof_date)
-#       )",
-#     params=list(selected_rsf_pfcbl_id))
-#   })
-#   
-#   tc <- format(as.numeric(tc$verified_count),big.mark=",")
-#   if (!isTruthy(tc)) tc <- "0"
-#   return (tc)
-# })
 
 observeEvent(input$ui_setup__checks_monitored_table_cell_edit, {
   

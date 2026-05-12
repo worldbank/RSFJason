@@ -8,7 +8,7 @@ db_indicators_get_header_actions <- function(pool,
                                              # patterns of the same term. Whereas for QR template, each section is a list of complete headers that should be fully matched
                                              formatting.function=superTrim,
                                              formatting.strip=NULL) #regexp to strip-out, ie, gsub to "" 
-  {
+{
   
   trimFunc <- NULL
   
@@ -35,10 +35,35 @@ db_indicators_get_header_actions <- function(pool,
                  map_indicator_id := formula_indicator_id]
   
   header_actions[,template_header_position:=as.numeric(NA)]
-  header_actions[,stop:=as.numeric(NA)]
-  header_actions[grepl("^:AFTER:(ROW|COL)\\d+$",template_header),
-                 stop:=as.numeric(gsub("^:AFTER:(ROW|COL)(\\d+)$","\\2",template_header))]
-  stop_actions <- header_actions[is.na(stop)==FALSE & action=="ignore"]
+  
+  #what fx are we reporting in that we could possibly include as a custom template header
+  currency_of_interest <- dbGetQuery(pool,"
+    select fx_unit 
+    from (
+      select distinct formula_calculation_unit as fx_unit
+      from p_rsf.view_rsf_setup_indicator_subscriptions sis
+      where sis.rsf_pfcbl_id = $1::int
+        and data_type='currency'
+        and is_subscribed is true
+      
+      union 
+      
+      select distinct rdc.data_unit as fx_unit
+      from p_rsf.rsf_pfcbl_ids ids
+      inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
+      inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id in (ids.rsf_facility_id,ids.rsf_client_id)
+                                           and rdc.indicator_id = ind.indicator_id
+      where ids.rsf_pfcbl_id = $1::int
+       and ind.data_type = 'currency'
+    ) fx_cu
+    where fx_cu.fx_unit is not null and fx_cu.fx_unit <> 'LCU'
+  ",params=list(rsf_pfcbl_id))
+  currency_of_interest <- unlist(currency_of_interest,use.names = F)
+  # header_actions[,stop:=as.numeric(NA)]
+  # header_actions[grepl("^:AFTER:(ROW|COL)\\d+$",template_header),
+  #                stop:=as.numeric(gsub("^:AFTER:(ROW|COL)(\\d+)$","\\2",template_header))]
+  # 
+  # stop_actions <- header_actions[is.na(stop)==FALSE & action=="ignore"]
   
   #default allows facilities to overwrite program-level setups, for example.
   #header_actions <- header_actions[action != "default"]
@@ -64,14 +89,30 @@ db_indicators_get_header_actions <- function(pool,
  
   rsf_labels <- rbindlist(rsf_indicators$labels)
   
+  
   #use superTrim() over label_normalized
   #all rsf_labels are aliases for enable/map_indicator_id (that's what the labels are for!)
   rsf_labels <- unique(rsf_labels[,.(map_indicator_id=indicator_id,label_key,label=trimFunc(label))])
   
+  currency_labels <- rsf_labels[map_indicator_id %in% rsf_indicators[data_type=="currency" & data_unit=="LCU",indicator_id] & label_key != 'SYS']
+  
+  label_has_unit <- sapply(currency_labels$label,function(l,currency_of_interest) {
+    any(sapply(paste0("\\b",currency_of_interest,"\\b"),grepl,x=l,ignore.case=T,USE.NAMES = F))
+  },currency_of_interest=currency_of_interest,USE.NAMES = F)
+  
+  currency_labels <- currency_labels[-which(label_has_unit)]
+
+  currency_labels <- currency_labels[,.(fx_label=paste0(label," ",tolower(currency_of_interest))),by=.(map_indicator_id,label_key,label)]
+  
+  rsf_labels <- rbindlist(list(rsf_labels,
+                               currency_labels[,.(map_indicator_id,label_key,label=fx_label)]))
+  
+  rsf_labels <- unique(rsf_labels)
   #rsf labels only map to indicators and are the default matching
   rsf_labels[,
              `:=`(header_id=-.I,
                   template_header_section_name=as.character(NA),
+                  template_header_section_index=as.character(NA),
                   template_section_lookup=as.character(NA),
                   template_label_lookup=paste0('^"?',str_escape(label),'"?$'), #ignore quoted headers
                   action="default",
@@ -79,8 +120,7 @@ db_indicators_get_header_actions <- function(pool,
                   map_formula_id=as.numeric(NA),
                   calculation_formula=as.character(NA),
                   map_check_formula_id=as.numeric(NA),
-                  check_formula=as.character(NA),
-                  stop=NA)]
+                  check_formula=as.character(NA))]
   
   
   header_actions[,label_key:="SYS"]
@@ -103,16 +143,6 @@ db_indicators_get_header_actions <- function(pool,
   header_actions[,label:=trimFunc(template_header)] #for this template, use trimmed, not normalized (as parsing values are used and therefore don't normalize {} delimiter!)
   header_actions[,template_label_lookup:=template_header]
   {
-    # #to ignore an entire section.
-    # header_actions[!is.na(template_header_section_name) &
-    #                  grepl("^\\{IGNORE\\}$",template_header,ignore.case=T),
-    #                template_label_lookup:=".*"]
-    
-    #the whole header is punctuation or a * char -- is this really useful?  I think not... 
-    #but system parsing must be specific to a defined section
-    # header_actions[!is.na(template_header_section_name) & 
-    #                grepl("^([[:punct:]]+|\\\\\\*)$",template_label_lookup),
-    #                template_label_lookup:=".*"]
     
     #{indicators inside brackets#units}
     header_actions[!is.na(template_header_section_name) & 
@@ -130,25 +160,10 @@ db_indicators_get_header_actions <- function(pool,
   }
   
   
-  # header_actions[,template_label_lookup:=gsub("\\\\\\{[^\\}]+\\\\\\}",
-  #                                             ".*",
-  #                                             template_label_lookup)]
-  # 
-  # header_actions[,template_label_lookup:=gsub("^([[:punct:]]+|\\\\\\*)$",
-  #                                             ".*",
-  #                                             template_label_lookup)]
-  
   
   #For the label "template_label_lookup"
   header_actions[,template_label_lookup:=paste0("^",str_escape(trimFunc(template_label_lookup)),"$")]
-  # if (detection=="full") {
-  #   
-  #   
-  #   
-  # } else {
-  #   
-  #   header_actions[,template_label_lookup:=paste0("^",str_escape(trimFunc(template_label_lookup)),".*$")]
-  # }
+  
   #...but if we had {system} stuff that are replaced with ".*" str_escape will escape those to literal \\.\\* so undo that!
   header_actions[grepl("(\\\\\\.\\\\\\*)",template_label_lookup),
                  template_label_lookup:=gsub("([[:space:]]*\\\\\\.\\\\\\*[[:space:]]*)",".*",template_label_lookup)]

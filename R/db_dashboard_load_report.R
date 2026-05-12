@@ -1,4 +1,4 @@
-db_export_load_report <- function(pool,
+db_dashboard_load_report <- function(pool,
                                   template_file,
                                   reporting_user_id=NULL,
                                   rsf_data_sheet="RSF_DATA") {
@@ -33,7 +33,7 @@ db_export_load_report <- function(pool,
   #excelwb <- openxlsx::loadWorkbook()
   if (!inherits(excelwb,"Workbook")) stop("Required openxlsx Workbook input")
   
-  #TODO: print("Todo: Enable db_export_load_report to verify upload_user_id is allowed to use specified reporting_template")
+  #TODO: print("Todo: Enable db_dashboard_load_report to verify upload_user_id is allowed to use specified reporting_template")
   
   readRegion <- function(excelwb,namedRegion) { 
       tryCatch({
@@ -117,14 +117,14 @@ db_export_load_report <- function(pool,
                         rt.template_name,
                         rt.is_reportable,
                         rt.is_setup_template,
-                        rt.template_has_static_row_ids,
+                        rt.is_complete_portfolio,
                         ec.exporting_cohort_id,
                         ec.rsf_program_id,
                         ec.exporting_rsf_pfcbl_id,
                         ec.exporting_asof_date,
                         upper(ec.data_integrity_key) = upper($3::text) as data_integrity_validated
                        from p_rsf.reporting_templates rt
-                       left join p_rsf.exporting_cohorts ec on ec.for_reporting_template_id = rt.template_id
+                       left join p_rsf.dashboard_exports ec on ec.for_reporting_template_id = rt.template_id
                                                            and upper(ec.reporting_key) = upper($2::text)
                         where upper(rt.template_key) = upper($1::text)",
                        params=list(template_key,
@@ -322,7 +322,7 @@ db_export_load_report <- function(pool,
   template$template_data_formula_sheet <- formulaSheet
   
   template$template_settings <- list()
-  template$template_settings$template_has_static_row_ids <- export$template_has_static_row_ids
+  template$template_settings$template_is_complete_portfolio <- export$is_complete_portfolio
   template$template_settings$template_is_reportable <- export$is_reportable
   template$template_settings$template_is_setup <- export$is_setup_template
   

@@ -201,7 +201,6 @@ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR <- eventReactive(c(RSF_INDICAT
         indf.formula,
         indf.formula_sort,
         
-        indf.formula_fx_date,
         indf.formula_id,
         indf.formula_title,
         indf.is_primary_default,
@@ -685,6 +684,36 @@ observeEvent(input$server_admin_indicators__save_indicator, {
   definition <- input$admin_system_edit_indicator_definition
   default_subscription <- as.logical(input$admin_system_edit_indicator_default_subscribed)
   
+  unit_fx_method <- input$admin_system_edit_indicator_unit_fx_method #calculation, parameter, fx
+  unit_fx_source <- input$admin_system_edit_indicator_unit_fx_source #facility vs global
+  unit_fx_indicator_id <- as.numeric(input$admin_system_edit_indicator_unit_fx_indicator_id) #for fixed-currency metrics, which parameter controls it.
+  
+  if (data_type=="currency" & data_unit != "LCU") {
+    if (!isTruthy(unit_fx_indicator_id)) {
+      return(showNotification(h3("Save failed: For fixed-currency (non-LCU) indicators, it is required to define a reference indicator that will define the LCU-based value to convert into this metric's ",data_unit," value"),type="error"))
+    }
+  } else if (data_type=="currency" & data_unit == "LCU") {
+    if (isTruthy(unit_fx_indicator_id)) {
+      return(showNotification(h3("Save failed: For LCU-defined currnecy indicators cannot have a reference FX reference indicator (although this LCU metric may be so for another defined currenct metric"),type="error"))
+    }
+    unit_fx_indicator_id <- NA
+  }
+  
+  
+  if (data_type != "currency" & empty(formulas)) { #must define if it has any formula because formula could use a currency and this one may need to know how to convert it.
+    unit_fx_method <- as.character(NA)
+    unit_fx_source <- as.character(NA)
+    unit_fx_indicator_id <- as.character(NA)
+  } else {
+    
+    if (!isTruthy(unit_fx_method) || !unit_fx_method %in% c("calculation","parameter","fx")) {
+      unit_fx_method <- "calculation"
+    } 
+    
+    if (!isTruthy(unit_fx_source) || !unit_fx_source %in% c("defualt","global")) {
+      unit_fx_source <- "default"  
+    }
+  }
   
   indicator_name <- normalizeIndicatorName(x=indicator_name,
                                            category=data_category,
@@ -730,9 +759,8 @@ observeEvent(input$server_admin_indicators__save_indicator, {
     options_allows_blanks <- NA
     options_allows_multi <- NA
   }
-  
+
   success <- withProgress(message="Saving changes...",value=0.3, {
-    
     
     success <- tryCatch({
       
@@ -747,7 +775,10 @@ observeEvent(input$server_admin_indicators__save_indicator, {
                                                           options_group_id=options_id,
                                                           options_group_allows_blanks=options_allows_blanks,
                                                           options_group_allows_multiples=options_allows_multi,
-                                                          definition=definition),
+                                                          definition=definition,
+                                                          unit_fx_method=unit_fx_method,
+                                                          unit_fx_source=unit_fx_source,
+                                                          unit_fx_indicator_id=unit_fx_indicator_id),
                                          labels=labels[,
                                                        .(label_id,
                                                           label_key,
@@ -759,7 +790,6 @@ observeEvent(input$server_admin_indicators__save_indicator, {
                                                              formula,
                                                              formula_sort,
                                                              formula_overwrite,
-                                                             formula_fx_date,
                                                              formula_title,
                                                              formula_notes,
                                                              is_primary_default)],
@@ -865,7 +895,6 @@ observeEvent(input$server_admin_indicators__add_formula, {
                             indicator_id=selected_indicator$indicator_id,
                             formula=as.character(NA),
                             formula_sort=as.character(NA),
-                            formula_fx_date="calculation",
                             formula_id=(-1 * as.numeric(input$server_admin_indicators__add_formula)), #set when saved, pseudo for now.
                             formula_title=as.character(NA),
                             is_primary_default=nrow(SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS())==0,
@@ -1036,7 +1065,8 @@ observeEvent(input$indicator_admin_program_subscription, {
     
     subscription_status <- DBPOOL %>% db_program_toggle_indicator_subscription(rsf_program_id = subscribe_program_id,
                                                                                rsf_pfcbl_id = rsf_pfcbl_id$rsf_pfcbl_id,
-                                                                               indicator_id = indicator$indicator_id)
+                                                                               indicator_id = indicator$indicator_id,
+                                                                               user_id = USER_ID())
     
     if (subscription_status==TRUE) {
       shinyjs::removeClass(selector=paste0("#indicator_admin_program_subscription_",subscribe_program_id),

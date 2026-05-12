@@ -1,25 +1,22 @@
 DATASET_UPLOAD_FILE <- reactiveVal(NA)
 #DATASET_UPLOAD_FILE_RETURN_RESULTS <- reactiveVal(NA)
 
-COHORT_NEW_ID <- reactiveVal(NA)
-#COHORT_TEMPLATES <- reactiveVal(NA)
-
+IMPORT_NEW_ID <- reactiveVal(NA)
 
 UPLOADED_COHORT <- reactive({ 
-  new_cohort_id <- as.numeric(COHORT_NEW_ID())
-  if (!isTruthy(new_cohort_id) || new_cohort_id ==-1) return (NULL)
-  if (!isTruthy(COHORTS_LIST())) return (NULL)
+  new_import_id <- as.numeric(IMPORT_NEW_ID())
+  if (!isTruthy(new_import_id) || new_import_id ==-1) return (NULL)
+  if (!isTruthy(IMPORTS_LIST())) return (NULL)
   
-  uploaded_cohort <- COHORTS_LIST()[reporting_cohort_id==new_cohort_id] 
-  return (uploaded_cohort)
+  upload <- IMPORTS_LIST()[import_id==new_import_id] 
+  return (upload)
 })
 
 observeEvent(input$action_dataset_upload_close, { 
   
   shinyjs::reset(id="dataset_upload_file")
   shinyjs::reset(id="dataset_upload_source_note")
-  COHORT_NEW_ID(NA)
-  #COHORT_TEMPLATES(NA)
+  IMPORT_NEW_ID(NA)
   DATASET_UPLOAD_FILE(NA)
   STATUS_MESSAGE_PANEL$container_id <- "dataset_upload_log_container"
   STATUS_MESSAGE_PANEL$panel_id <- "dataset_upload_log"
@@ -30,7 +27,7 @@ observeEvent(input$action_template_upload_new, {
   
   shinyjs::reset(id="dataset_upload_file")
   shinyjs::reset(id="dataset_upload_source_note")
-  COHORT_NEW_ID(NA)
+  IMPORT_NEW_ID(NA)
   #COHORT_TEMPLATES(NA)
   DATASET_UPLOAD_FILE(NA)
   STATUS_MESSAGE_PANEL$container_id <- "dataset_upload_log_container"
@@ -81,12 +78,7 @@ observeEvent(input$action_template_upload_new, {
                                                label=paste0("Next ",as.character(intToUtf8(0x25BC))),
                                                class="btn-primary")))),
                                   hidden(div(id="dataset_upload_nav2",
-                                    div(style="display:inline-block;",
-                                              actionButton(inputId="modal_dataset_upload_dashboard",
-                                                           class="btn btn-primary btn-success",
-                                                           style="display:inline-block;",
-                                                           disabled="disabled",
-                                                           label="View Dashboard")),
+                                    
                                               actionButton(inputId="modal_dataset_upload_dataset",
                                                            class="btn btn-primary btn-success",
                                                            style="display:inline-block;",
@@ -98,27 +90,12 @@ observeEvent(input$action_template_upload_new, {
   
 },ignoreNULL = TRUE, ignoreInit = TRUE)
 
-observeEvent(input$modal_dataset_upload_dashboard, {
-  
-  new_cohort_id <- COHORT_NEW_ID()
-  
-  if (isTruthy(new_cohort_id) && new_cohort_id >-1) {
 
-    SERVER_DATASETS_COHORT_DASHBOARD(selected_cohort_id=new_cohort_id)
-  }
-  
-  removeModal()
-})
 observeEvent(input$modal_dataset_upload_dataset, {
-  new_cohort_id <- COHORT_NEW_ID()
+  new_import_id <- IMPORT_NEW_ID()
   
-  if (isTruthy(new_cohort_id) && new_cohort_id >-1) {
-    shinyjs::runjs(paste0("Shiny.setInputValue(\"action_cohort_view\",",new_cohort_id,",{priority:\"event\"})"))
-    
-    # updateTabsetPanel(session=session,inputId="datasetsTabset",selected="review")
-    # updateSelectizeInput(inputId="datasets_review_select",
-    #                      session=session,
-    #                      selected=new_cohort_id)
+  if (isTruthy(new_import_id) && new_import_id >-1) {
+    shinyjs::runjs(paste0("Shiny.setInputValue(\"import_action_id_view\",",new_import_id,",{priority:\"event\"})"))
   }
   removeModal()
 })
@@ -126,7 +103,7 @@ observeEvent(input$modal_dataset_upload_dataset, {
 observeEvent(input$modal_dataset_upload_next, {
 
   filename <- DATASET_UPLOAD_FILE() #! May be multiple files uploaded!
-  #new_cohort_id <- COHORT_NEW_ID()
+  
   
   if (!isTruthy(filename)) {
     showNotification(type="error",
@@ -152,7 +129,7 @@ observeEvent(input$modal_dataset_upload_next, {
               anim=TRUE,
               animType = "slide")
   
-  COHORT_NEW_ID(NA)
+  IMPORT_NEW_ID(NA)
   #COHORT_TEMPLATES(NA)
   #DATASET_UPLOAD_FILE_RETURN_RESULTS(NA)
 
@@ -201,10 +178,10 @@ observeEvent(input$modal_dataset_upload_next, {
   
   DATASET_UPLOAD_FILE(NA) #Makes it not Truthy and will re-call this reactive, skipping this block and going into "else if" below
   
-  REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1) #failed cohorts will leave an artifact, generally, which should be viewable.
+  IMPORT_LIST__REFRESH(IMPORT_LIST__REFRESH()+1) #failed cohorts will leave an artifact, generally, which should be viewable.
   
   if (empty(results)) {
-    COHORT_NEW_ID(NA) 
+    IMPORT_NEW_ID(NA) 
     
     #COHORT_TEMPLATES(NA)
   } else {
@@ -237,7 +214,7 @@ observeEvent(input$modal_dataset_upload_next, {
                            selected=as.numeric(import_ids$rsf_program_id))
     }
     
-    COHORT_NEW_ID(last_import_id)
+    IMPORT_NEW_ID(last_import_id)
     
     
     if (!any(as.character(unique(results$reporting_asof_date)) %in% as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))) {

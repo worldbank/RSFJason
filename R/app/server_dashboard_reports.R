@@ -20,7 +20,7 @@ SERVER_DASHBOARD_REPORTS_LIST <- eventReactive(c(LOGGEDIN(),
     coalesce(re.for_indicator_names,'[null]'::jsonb) as for_indicator_names,
     coalesce(re.for_asof_dates,'[null]'::jsonb) as for_asof_dates,
     coalesce(re.report_parameters,'[null]'::jsonb) as report_parameters
-  from p_rsf.reports re 
+  from p_rsf.dashboard_reports re 
   left join p_rsf.view_account_info vai on vai.account_id = re.created_by_user_id
   where exists(select * from p_rsf.rsf_data_current_names_and_ids nai
                where nai.rsf_pfcbl_id = $1::int
@@ -39,7 +39,7 @@ SERVER_DASHBOARD_REPORTS_LIST <- eventReactive(c(LOGGEDIN(),
     coalesce(re.for_indicator_names,'[null]'::jsonb) as for_indicator_names,
     coalesce(re.for_asof_dates,'[null]'::jsonb) as for_asof_dates,
     coalesce(re.report_parameters,'[null]'::jsonb) as report_parameters
-  from p_rsf.reports re 
+  from p_rsf.dashboard_reports re 
   
   left join p_rsf.view_account_info vai on vai.account_id = re.created_by_user_id
   where re.for_program_sys_name is NULL",
@@ -489,7 +489,7 @@ observeEvent(input$server_dashboard_reports__action_save, {
     
   }
 
-  filter_names <- suppressWarnings(as.numeric(input$server_dashboard__name_filter))
+  filter_names <- input$server_dashboard__name_filter
   filter_flags <- input$server_dashboard__flags_filter
   
   if (!isTruthy(input$server_dashboard_reports__save_flags)) filter_flags <- as.character(NA)
@@ -500,7 +500,13 @@ observeEvent(input$server_dashboard_reports__action_save, {
     filter_names <- as.character(NA)
   } else if (isTruthy(input$server_dashboard_reports__save_names)) {
     rsf_data <- SERVER_DASHBOARD_CURRENT_QUERY()
-    filter_names <- rsf_data[SYSID %in% filter_names,SYSNAME]
+    
+    good_name <- sapply(filter_names,function(fn,sys_names) {
+      any(grepl(fn,sys_names))
+    },sys_names=unique(rsf_data$SYSNAME))
+    
+    filter_names <- filter_names[good_name]
+    if (!length(filter_names)) filter_names <- as.character(NA)
   } 
   
   dashboard_settings$filter_names <- filter_names
@@ -520,7 +526,7 @@ observeEvent(input$server_dashboard_reports__action_save, {
 
   versions <- DBPOOL %>% dbGetQuery("
     select count(*) as counts
-    from p_rsf.reports re
+    from p_rsf.dashboard_reports re
     where re.report_title like ($1::text || '%')",
   params=list(report_title))
   
@@ -533,7 +539,7 @@ observeEvent(input$server_dashboard_reports__action_save, {
   
   report_id <- withProgress(message="Saving report...", {
     DBPOOL %>% dbGetQuery("
-    insert into p_rsf.reports(created_by_user_id,
+    insert into p_rsf.dashboard_reports(created_by_user_id,
                               is_public,
                               report_title,
                               report_notes,
@@ -596,7 +602,7 @@ observeEvent(input$server_dashboard_reports__action_edits_save, {
     
     versions <- DBPOOL %>% dbGetQuery("
       select re.report_id
-      from p_rsf.reports re
+      from p_rsf.dashboard_reports re
       where re.report_title like ($1::text || '%')",
       params=list(update_title))
     
@@ -607,7 +613,7 @@ observeEvent(input$server_dashboard_reports__action_edits_save, {
     }
         
     DBPOOL %>% dbGetQuery("
-    update p_rsf.reports re
+    update p_rsf.dashboard_reports re
     set is_public = $1::bool,
         report_title = $2::text,
         report_notes = $3::text
@@ -714,7 +720,7 @@ observeEvent(input$server_dashboard_reports__edit_delete_report, {
                      ui=h3("Reports can only be deleted by the users that created them"))
   } else {
     d <- DBPOOL %>% dbExecute("
-      delete from p_rsf.reports re
+      delete from p_rsf.dashboard_reports re
       where re.report_id = $1::int
         and re.created_by_user_id = $2::text",
       params=list(selected_report_id,

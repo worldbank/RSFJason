@@ -48,7 +48,7 @@ select
     inner join p_rsf.indicators ind on ind.indicator_id = rdc.indicator_id
     where ids.rsf_pfcbl_id = $1::int
       and ind.is_system is false
-      and not exists(select * from p_rsf.view_rsf_setup_indicator_subscriptions sis 
+      and NOT exists(select * from p_rsf.view_rsf_setup_indicator_subscriptions sis 
                      where sis.rsf_pfcbl_id = ids.rsf_pfcbl_id        
                        and sis.indicator_id = ind.indicator_id
                        and sis.filter_matched_pfcbl_indicators is true  

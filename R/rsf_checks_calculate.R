@@ -2,10 +2,10 @@ rsf_checks_calculate <- function(pool,
                                  rsf_indicators,
                                  rsf_data_wide,
                                  checks,
-                                 keep_false_flags=FALSE,
                                  on_fail="sys_checker_failed",
                                  status_message=function(...) {}) #noise useful for test checks functionality and printing status messages
 {
+  #keep_false_flags=FALSE
   
   if (empty(rsf_data_wide) || is.null(rsf_data_wide) || nrow(rsf_data_wide)==0 || all(is.na(rsf_data_wide))) {
     status_message(class="warning","No data available to calculate checks.")
@@ -39,6 +39,13 @@ rsf_checks_calculate <- function(pool,
                            check_formula_id,
                            check_message) {
 
+    if (length(check_asof_date) != 1) stop("Check failed check_asof_date must be a unique date")
+    if (length(check_formula_id) != 1) stop("Check failed check_formula_id must be a unique date")
+    if (length(check_message) != 1) stop("Check failed check_message must be a unique date")
+    
+    rsf_pfcbl_id <- unique(na.omit(unlist(rsf_pfcbl_id)))
+    if (length(rsf_pfcbl_id) == 0) return (NULL)
+    
     all_checks[[length(all_checks)+1]] <<- data.table(rsf_pfcbl_id=rsf_pfcbl_id,
                                                       check_asof_date=check_asof_date,
                                                       check_formula_id=check_formula_id,
@@ -414,7 +421,7 @@ rsf_checks_calculate <- function(pool,
       
       computed_results[,n:=NULL]
 
-      if (keep_false_flags==FALSE) computed_results <- computed_results[flag_status==TRUE]
+      #if (keep_false_flags==FALSE) computed_results <- computed_results[flag_status==TRUE]
       
       if (!empty(computed_results)) {
         computed_results[,

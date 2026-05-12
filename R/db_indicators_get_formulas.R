@@ -5,7 +5,10 @@ db_indicators_get_formulas <- function(pool) {
       indf.formula_id,
       concat(indf.formula,(' {{SORTING BY}} ' || indf.formula_sort)) as formula,
       indf.overwrite,
-      indf.formula_fx_date,
+      ind.unit_fx_method,
+      ind.unit_fx_source,
+      ind.unit_fx_indicator_id,
+
       indf.formula_title,
       indf.formula_notes,
       indf.is_primary_default,

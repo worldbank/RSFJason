@@ -396,7 +396,7 @@ RSF_TEMPLATES <- eventReactive(LOGGEDIN(), {
       template_key,
       description,
       is_reportable,
-      template_has_static_row_ids,
+      is_complete_portfolio,
       is_setup_template,
       file_extension,
       is_system
@@ -426,27 +426,7 @@ observeEvent(RSF_TEMPLATES(), {
                        selected="")
 })
 
-SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE_DATA <- eventReactive(SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE(), {
-  
-  template <- SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE()
-  
-  if (empty(template)) return (NULL)
-  
-  tdata <- DBPOOL %>% dbGetQuery("
-  select * 
-  from
-  p_rsf.view_rsf_setup_template_headers fth
-  where fth.template_id = $1::int
-    and fth.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
-                             from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                             where ft.from_rsf_pfcbl_id = $2::int
-                               and ft.to_pfcbl_rank <= ft.from_pfcbl_rank)",
-  params=list(template$template_id,
-              template$selected_rsf_pfcbl_id))
-  
-  return (tdata)
-  
-},ignoreNULL = FALSE)
+
 
 SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE <- eventReactive(c(input$server_programs__selected_facility,
                                                              input$ui_setup__template_selected), {
@@ -470,6 +450,27 @@ SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE <- eventReactive(c(input$server_progra
   
   return (template)
 })
+
+SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE_DATA <- eventReactive(SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE(), {
+  
+  template <- SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE()
+  
+  if (empty(template)) return (NULL)
+  
+  tdata <- DBPOOL %>% dbGetQuery("
+  select * 
+  from
+  p_rsf.view_rsf_setup_template_headers fth
+  where fth.template_id = $1::int
+    and fth.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+                             from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                             where ft.from_rsf_pfcbl_id = $2::int
+                               and ft.to_pfcbl_rank <= ft.from_pfcbl_rank)",
+                                 params=list(template$template_id,
+                                             template$selected_rsf_pfcbl_id))
+  return (tdata)
+  
+},ignoreNULL = FALSE)
 
 SERVER_SETUP_TEMPLATES__HEADER_ACTIONS <- eventReactive(SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE(), {
   
@@ -583,7 +584,8 @@ observeEvent(input$server_setup_templates__add, {
                                                     
                                                     action,
                                                     
-                                                    comment)
+                                                    comment,
+                                                    created_by_user_id)
       select 
         ids.rsf_pfcbl_id,
         $2::int as template_id,
@@ -594,7 +596,10 @@ observeEvent(input$server_setup_templates__add, {
   
         'default' as template_header_action,
   
-        NULL as comment
+        NULL as comment,
+        $3::text as created_by_user_id
+        
+        
       from p_rsf.rsf_pfcbl_ids ids
       where ids.rsf_pfcbl_id = $1::int
       returning 
@@ -607,7 +612,8 @@ observeEvent(input$server_setup_templates__add, {
         header_id,
         comment",
       params=list(selected_template$selected_rsf_pfcbl_id,
-                  selected_template$template_id))
+                  selected_template$template_id,
+                  USER_ID()))
   },
   warning=function(w) {
     showNotification(ui=h3("Failed to create new header.  Check for duplicate entries? ",conditionMessage(w)))
@@ -629,12 +635,12 @@ observeEvent(input$server_setup_templates__add, {
   #SERVER_SETUP_TEMPLATES__LOAD_HEADERS(SERVER_SETUP_TEMPLATES__LOAD_HEADERS()+1)
 
   ui <- server_setup_template__header_module_ui(id=ns(header$module_id),
-                                          header=header,
-                                          template=SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE(),
-                                          rsf_indicators=RSF_INDICATORS(),
-                                          rsf_indicator_formulas=RSF_INDICATOR_FORMULAS(),
-                                          rsf_check_formulas=RSF_CHECK_FORMULAS(),
-                                          is_static=FALSE)
+                                                header=header,
+                                                template=SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE(),
+                                                rsf_indicators=RSF_INDICATORS(),
+                                                rsf_indicator_formulas=RSF_INDICATOR_FORMULAS(),
+                                                rsf_check_formulas=RSF_CHECK_FORMULAS(),
+                                                is_static=FALSE)
   
   SERVER_SETUP_TEMPLATES__ACTIVE_HEADERS(c(SERVER_SETUP_TEMPLATES__ACTIVE_HEADERS(),header$header_id))
   
@@ -651,196 +657,6 @@ observeEvent(input$server_setup_templates__add, {
            ui=ui)
 })
 
-# observeEvent(input$ui_setup__template_headers_upload, {
-#   
-#   upload <- input$ui_setup__template_headers_upload
-#   if (!isTruthy(upload)) return (NULL)
-#   
-#   filename <- upload$name
-#   datapath <- upload$datapath
-#   
-#   if (!file_ext(filename) %in% c("xlsx")) {
-#     return (showNotification(h1("Error: file must be Excel format .xlsx only (not .xls, .xlsxm or .xlsxb)"),
-#                              closeButton = TRUE,
-#                              duration=8,
-#                              type="error"))
-#   }
-#   
-#   exceldata <- openxlsx::read.xlsx(xlsxFile=datapath,
-#                                  sheet=1)
-#   
-#   names(exceldata) <- tolower(names(exceldata))
-#   
-#   if (!setequal(names(exceldata),
-#                 c("rsf_pfcbl_id",
-#                   "template_id",
-#                   "sysname",
-#                   "template_name",
-#                   "headerid",
-#                   "template_header_sheet_name",
-#                   "template_header","action","comment","map_indicator_id","indicator_name","map_formula_id","calculation_formula","map_check_formula_id","check_formula"))) {
-#     return (showNotification(h1("Error: file column names expected: ",
-#                                 "rsf_pfcbl_id,template_id,SYSNAME,template_name,HEADERID,template_header_sheet_name,template_header,action,comment,map_indicator_id,indicator_name,map_formula_id,calculation_formula,map_check_formula_id,check_formula"),
-#                              closeButton = TRUE,
-#                              duration=8,
-#                              type="error"))
-#   }
-#   
-#   #conn <- poolCheckout(DBPOOL)
-#   #dbBegin(conn)
-#   #dbRollback(conn)
-#   poolWithTransaction(pool=DBPOOL,function(conn) { 
-#     
-#     dbExecute(conn,"
-#       create  table _temp_headers(
-#         rsf_pfcbl_id int,
-#         template_id int,
-#         sysname text,
-#         template_name text,
-#         headerid int,
-#         template_header_sheet_name text,
-#         template_header text,
-#         action text,
-#         comment text,
-#         map_indicator_id int,
-#         indicator_name text,
-#         map_formula_id int,
-#         calculation_formula text,
-#         map_check_formula_id int,
-#         check_formula text) on commit drop
-#     ")
-#     
-#     dbAppendTable(conn,
-#                   name="_temp_headers",
-#                   value=exceldata)
-#     
-#     nx <- dbExecute(conn,"
-#       delete from _temp_headers th
-#       where not exists(select * from p_rsf.reporting_templates rt where rt.template_id = th.template_id and rt.template_Name = th.template_name)
-#     ")
-#     
-#     nx <- dbExecute(conn,"
-#       update _temp_headers th
-#       set rsf_pfcbl_id = nids.rsf_pfcbl_id
-#       from p_rsf.rsf_data_current_names_and_ids nids
-#       where nids.sys_name = th.sysname
-#         and nids.rsf_pfcbl_id is distinct from th.rsf_pfcbl_id")
-#     nx <- dbExecute(conn,"
-#       delete from _temp_headers th
-#       where not exists(select * from p_rsf.rsf_pfcbl_ids ids where ids.rsf_pfcbl_id = th.rsf_pfcbl_id)
-#     ")
-#     
-#     nx <- dbExecute(conn,"
-#       delete from _temp_headers th
-#       where th.map_indicator_id is not null 
-#       and not exists(select * from p_rsf.indicators ind where ind.indicator_id = th.map_indicator_id)
-#     ")
-#     
-#     nx <- dbExecute(conn,"
-#       delete from _temp_headers th
-#       where th.map_formula_id is not null 
-#       and not exists(select * from p_rsf.indicator_formulas indf where indf.formula_id = th.map_formula_id)
-#     ")
-#     
-#     nx <- dbExecute(conn,"
-#       delete from _temp_headers th
-#       where th.map_check_formula_id is not null 
-#       and not exists(select * from p_rsf.indicator_check_formulas icf where icf.check_formula_id = th.map_check_formula_id)
-#     ")
-#     
-#    nx <- dbExecute(conn,"
-#     delete from _temp_headers th
-#     where ((th.map_indicator_id is not null)::int + (th.map_formula_id is not null)::int  + (th.map_check_formula_id is not null)::int) > 1   
-#    ")  
-#    
-#    nx <- dbExecute(conn,"
-#      delete from _temp_headers th
-#      where th.action is null 
-#         or th.action not in ('default'::text,
-#                              'ignore'::text,
-#                              'remap'::text,
-#                              'unmap'::text,
-#                              'check'::text,
-#                              'calculate'::text,
-#                              'parse'::text)")
-#    
-#    dbExecute(conn,"
-#     with headers as (                                
-#       select 
-#         th.rsf_pfcbl_id,
-#         th.template_id,
-#         ids.rsf_program_id,
-#         ids.rsf_facility_id,
-#         th.headerid as header_id,
-#         th.template_header_sheet_name,
-#         th.template_header,
-#         th.action,
-#         th.comment,
-#         th.map_indicator_id,
-#         th.map_formula_id,
-#         th.map_check_formula_id
-#       from _temp_headers th
-#       inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = th.rsf_pfcbl_id
-#       
-#       except
-#       
-#       select  
-#         fth.rsf_pfcbl_id,
-#         fth.template_id,
-#         fth.rsf_program_id,
-#         fth.rsf_facility_id,
-#         fth.header_id,
-#         fth.template_header_sheet_name,
-#         fth.template_header,
-#         fth.action,
-#         fth.comment,
-#         fth.map_indicator_id,
-#         fth.map_formula_id,
-#         fth.map_check_formula_id
-#       from p_rsf.rsf_program_facility_template_headers fth
-#     )
-#     insert into p_rsf.rsf_program_facility_template_headers(rsf_pfcbl_id,
-#                                                             template_id,
-#                                                             rsf_program_id,
-#                                                             rsf_facility_id,
-#                                                             header_id,
-#                                                             template_header_sheet_name,
-#                                                             template_header,
-#                                                             action,
-#                                                             comment,
-#                                                             map_indicator_id,
-#                                                             map_formula_id,
-#                                                             map_check_formula_id)
-#       select
-#         hea.rsf_pfcbl_id,
-#         hea.template_id,
-#         hea.rsf_program_id,
-#         hea.rsf_facility_id,
-#         hea.header_id,
-#         hea.template_header_sheet_name,
-#         hea.template_header,
-#         hea.action,
-#         hea.comment,
-#         hea.map_indicator_id,
-#         hea.map_formula_id,
-#         hea.map_check_formula_id
-#       from headers hea
-#       on conflict(header_id)
-#       do update
-#       set rsf_pfcbl_id = EXCLUDED.rsf_pfcbl_id,
-#           rsf_program_id = EXCLUDED.rsf_program_id,
-#           rsf_facility_id = EXCLUDED.rsf_facility_id,
-#           template_header_sheet_name = EXCLUDED.template_header_sheet_name,
-#           template_header = EXCLUDED.template_header,
-#           action = EXCLUDED.action,
-#           comment = EXCLUDED.comment,
-#           map_indicator_id = EXCLUDED.map_indicator_id,
-#           map_formula_id = EXCLUDED.map_formula_id,
-#           map_check_formula_id = EXCLUDED.map_check_formula_id         
-#   ")
-#    
-#   })
-# })
   
 output$ui_setup__templates_add_mapping_UI <- renderUI({
   selected_template <- SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE()
@@ -878,22 +694,6 @@ output$ui_setup__templates_mapping_UI <- renderUI({
                                                                                     is_static=TRUE)
     }
     ui <- headers_ui
-    
-    # ui <- div(
-    #  
-    #   fluidRow(
-    #     column(12,
-    #            div(headers_ui))),
-      
-      # fluidRow(style="padding-top:15px;",
-      #   column(12,
-      #          align="right",
-      #          
-      #          actionButton(inputId="server_setup_templates__save",
-      #                       label="Save Header Actions",
-      #                       class="btn-success",
-      #                       icon=icon("save")))))
-  
   
   } else {
     ui <- 

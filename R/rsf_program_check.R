@@ -8,8 +8,6 @@ rsf_program_check <- function(pool,
   
   t1 <- Sys.time()
 
-  #rsf_pfcbl_id.family <- 59268
-  
   limit_date <- NA
   if (check_future==FALSE &&
       is.null(reference_asof_date)==FALSE) {
@@ -34,6 +32,9 @@ rsf_program_check <- function(pool,
   check_groups <- sort(unique(stale_checks$check_group))
   
   if (all(is.na(reference_asof_date))) reference_asof_date <- NULL
+  
+  
+  #Errors generally result from changes in the check formula and residual calculations
   
   #group <- 1
   #group <- 10
@@ -114,9 +115,10 @@ rsf_program_check <- function(pool,
       check <- NULL
 
     }
-    
-    computed_checks <- computed_checks[is.na(flag_status) | #so it can be flagged later
-                                       flag_status == TRUE]
+
+    #Keep everything that was done    
+    # computed_checks <- computed_checks[is.na(flag_status) | #so it can be flagged later
+    #                                    flag_status == TRUE]
     perform_checks <- NULL
     
     check_results <- rbindlist(list(check_results,
@@ -132,6 +134,11 @@ rsf_program_check <- function(pool,
   #saveRDS(stale_checks,file="stale_checks.RDS")
   #check_results <- readRDS("check_results.RDS")
   #stale_checks <- readRDS("stale_checks.RDS")
+  
+  errors <- fsetdiff(stale_checks[,
+                                  .(rsf_pfcbl_id=unlist(check_rsf_pfcbl_ids,recursive=F)),
+                                  by=.(check_asof_date,check_formula_id)],
+                     check_results[,.(check_asof_date,check_formula_id,rsf_pfcbl_id)])
   
   #pulled-in later
   check_results[,
@@ -204,77 +211,19 @@ rsf_program_check <- function(pool,
   
   if (!empty(check_results)) {
     
-    #Could be different where NA checks may have been removed
-    if (is.na(limit_date)) {
-      limit_date <- max(check_results$check_asof_date)
-    }
+
     
     dbExecute(pool,"
       delete from p_rsf.rsf_data_check_evaluations dce
       using p_rsf.view_rsf_pfcbl_id_family_tree ft
       where ft.from_rsf_pfcbl_id = $1::int
         and dce.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-        and dce.check_asof_date <= $2::date
+        and dce.check_asof_date <= any(select unnest(string_to_array($2::text,','))::date)
         and dce.check_formula_id = any(select unnest(string_to_array($3::text,','))::int)",
       params=list(rsf_pfcbl_id.family,
-                  as.character(limit_date),
+                  paste0(na.omit(unique(check_results$check_asof_date)),collapse=","),
                   paste0(na.omit(unique(completed_check_formula_ids)),collapse=",")))
   }
-  
-  #This is all unnecessary overkill
-  # expected_checks <- dbGetQuery(pool,"
-  #                               select count(*)::int as pending_evaluations
-  #                               from p_rsf.view_rsf_pfcbl_id_family_tree ft
-  #                               inner join p_rsf.rsf_data_check_evaluations dce on dce.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-  #                               where ft.from_rsf_pfcbl_id = $1::int",
-  #                               params=list(rsf_pfcbl_id.family))
-  # 
-  # expected_checks <- as.numeric(unlist(expected_checks))
-  # if (computed_count==expected_checks) {
-  #   t2 <- Sys.time()
-  #   dbExecute(pool,"
-  #             with ids as MATERIALIZED (
-  #               select ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id
-  #               from p_rsf.view_rsf_pfcbl_id_family_tree ft
-  #               where ft.from_rsf_pfcbl_id = $1::int
-  #             )
-  #             delete from p_rsf.rsf_data_check_evaluations dce
-  #             where dce.rsf_pfcbl_id = any(select rsf_pfcbl_id from ids)",
-  #             params=list(rsf_pfcbl_id.family))
-  #   
-  #   if(SYS_PRINT_TIMING) debugtime("rsf_program_check","Verified done!",expected_checks," in ",format(Sys.time()-t2))
-  # 
-  # } else {
-  #   actual_checks <- poolWithTransaction(pool,function(conn) {
-  #     dbExecute(conn,"create temp table _temp_ids(rsf_pfcbl_id int,
-  #                                                 check_formula_id int,
-  #                                                 check_asof_date date)
-  #                     on commit drop;")
-  #     
-  #     dbAppendTable(conn,
-  #                   name="_temp_ids",
-  #                   value=stale_checks[,
-  #                                      .(rsf_pfcbl_id=unlist(check_rsf_pfcbl_ids,recursive=F)),
-  #                                      by=.(check_formula_id,
-  #                                           check_asof_date)][,.(rsf_pfcbl_id,
-  #                                                                check_formula_id,
-  #                                                                   check_asof_date)])
-  #     
-  #     dbExecute(conn,"alter table _temp_ids add primary key(rsf_pfcbl_id,check_formula_id,check_asof_date)")
-  #     dbExecute(conn,"analyze _temp_ids")
-  #     actual_checks <- dbExecute(conn,"
-  #               delete from p_rsf.rsf_data_check_evaluations dce
-  #               where exists(select * from _temp_ids ids
-  #                             where ids.rsf_pfcbl_id = dce.rsf_pfcbl_id
-  #                               and ids.check_formula_id = dce.check_formula_id
-  #                               and ids.check_asof_date = dce.check_asof_date)")
-  #     actual_checks
-  #   })
-  # }
-  
-  #lobstr::obj_size(checked)
-  #lobstr::obj_size(stale_checks)
-  #chk_dates <- sort(unique(as.character(stale_checks$check_asof_date)))
   
   if(SYS_PRINT_TIMING) debugtime("rsf_program_check","Done!",format(Sys.time()-t1))
 }

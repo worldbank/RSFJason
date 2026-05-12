@@ -80,7 +80,7 @@ SERVER_DASHBOARD_EXPORTS__SELECTED_TEMPLATE_REPORTS <- eventReactive(SERVER_DASH
       exr.table_name,
       rep.report_title
     from p_rsf.export_template_reports exr
-    left join p_rsf.reports rep on rep.report_id = exr.report_id
+    left join p_rsf.dashboard_reports rep on rep.report_id = exr.report_id
     where export_template_id = $1::int
     order by exr.export_template_report_id asc",
     params=list(selected_template$export_template_id))

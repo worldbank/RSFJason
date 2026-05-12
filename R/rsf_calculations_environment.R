@@ -110,7 +110,8 @@
            #There are presently zero calculations that actually use this and allowing this feature requires so much overhead for unlisting 
            #lists, etc.
            #GENERATES A LIST VARIABLE
-           "all"                #data.table object: all updated and/or multiple DATA VALUES reported for the indicator as-of date
+           "all",                #data.table object: all updated and/or multiple DATA VALUES reported for the indicator as-of date
+           "conflicts"           #data.table object: all conflicting data saved in checks where check_has_data is true (for most recently reported such flag!)
          ))
   
   assign(x="hasmatches",
@@ -364,7 +365,9 @@
                         #Filter_by will filter-out only changed/reported "by" values to yield the same dataset as values=by_variable
                         filter_by=TRUE,
                         
-                        rsf_indicators=NULL) {
+                        rsf_indicators=NULL
+                        )
+         {
            #setups
            {
              if (length(fill) != 1 &&
@@ -374,18 +377,28 @@
                            " (number of timeseries columns plus one by column)"))
              }
              
+             
              if (is.null(by) && is.null(values)) stop(paste0("Either 'by' or 'values' must be defined (and not both). ",
                                                              "By=indicator will return data for all requested indicators using the 'by' indicators timeseries dates as ",
                                                              "the reference timeline. ",
                                                              "Values=indicator will return the 'timeseries' data for the requested indicator and is a shortcut for ",
                                                              "indicator.all[[1]]$timeseries"))
   
-             indicator_parameters <- as.character(match.call(expand.dots = T)[-1])
-             all_all <- sapply(indicator_parameters,grepl,pattern="\\.all$|fill$|rsf_indicators$|filter_by$")
+             indicator_parameters <- (match.call(expand.dots = T)[-1])
+             indicator_parameters <- unlist(lapply(indicator_parameters,as.character),use.names = T)
+             indicator_parameters <- indicator_parameters[!(names(indicator_parameters) %in% c("rsf_indicators","fill","filter_by"))]
+             
+             all_all <- sapply(indicator_parameters,grepl,pattern="\\.all$|\\.conflicts$")
+
              if (!all(all_all)) {
-              stop(paste0("Timeseries function takes one or more .all indicator parameter values (and only .all). Bad inputs for: ",paste0(indicator_parameters[!all_all],collapse=", ")))
+              stop(paste0("Timeseries function takes one or more .all indicator parameter values (and only .all or .conflicts). Bad inputs for: ",paste0(indicator_parameters[!all_all],collapse=", ")))
+             }
+             
+             if(length(indicator_parameters) != length(unique(indicator_parameters))) {
+               stop("Timeseries functions expects unique indicator requests (cannot be duplicated) but received: ",paste0(indicator_parameters,collapse=", and "))
              }
            }
+           
            
            vars <- list(...)
            
@@ -424,7 +437,7 @@
           }
            
            if (is.null(by)) stop("by column is required")
-          
+    
         
            #a by variable has been submitted
            #and also other variables whose timelines must be aligned.
@@ -439,12 +452,17 @@
              }
            }
            
+           #browser()
            #Nothing reported: if "by" is nothing, then it's non-existent timeline means all matching vars that may or may not have been passed are also non-existent
            #we return an empty data.table because we don't know how the receiving function is using the information so give it an expected format.
            if (length(by)==0 || all(sapply(by,is.null))) {
              
-             empty_cols <- unlist(lapply(gsub("\\.all$","",indicator_parameters),paste0,
+             empty_cols <- unlist(lapply(gsub("\\.all$|\\.conflicts$","",indicator_parameters),paste0,
                                          c(".timeseries",".timeseries.unit",".timeseries.reporteddate",".timeseries.changed",".timeseries.updated",".timeseries.reportnumber")))
+             
+             empty_cols <- unlist(lapply(unname(indicator_parameters),paste0,
+                                         c(".timeseries",".timeseries.unit",".timeseries.reporteddate",".timeseries.changed",".timeseries.updated",".timeseries.reportnumber")))
+             
              empty_dt <- data.table(matrix(nrow=0,ncol=length(empty_cols)))
              setnames(empty_dt,
                       new=empty_cols)
@@ -460,7 +478,7 @@
              
              rsf_indicators <- dynGet("rsf_indicators",ifnotfound = NULL,inherits=T)
              if (empty(rsf_indicators)) {
-               rsf_indicators <- (dynGet("calc_env",inherits=T))[["rsf_indicators"]]
+               rsf_indicators <- (dynGet("calc_env",inherits=T,ifnotfound = NULL))[["rsf_indicators"]]
                
                if (empty(rsf_indicators)) {
                 stop("When timeseries 'by' has fill=TRUE then 'rsf_indicators' must be passed explicitly (or be avilable within the call stack) as periodic_flow type indicators will report NA/Zero for non-reported periods")               
@@ -468,18 +486,22 @@
              }
            }
            
+           indicator_parameter_by <- indicator_parameters[which(names(indicator_parameters)=="by")]
+           indicator_parameter_vars <- indicator_parameters[-which(names(indicator_parameters)=="by")]
            
            entities <- data.table(entity_id=seq_along(by),
                                   by_timeline=TRUE,
                                   ts=by)[,unlist(ts,recursive = F),by=.(entity_id,by_timeline)]
-           
+           entities[,indicator_name_parameter:=indicator_parameter_by]
            calculation_date <- unique(entities$reporting_current_date)
            
            
            #timeline value may have different class
-           entity_vars <- lapply(vars,function(v) {
-             data.table(entity_id=seq_along(by),
-                        ts=v)[,unlist(ts,recursive = F),by=.(entity_id)]
+           entity_vars <- lapply(seq_along(vars),function(i) {
+             x <- data.table(entity_id=seq_along(by),
+                        ts=vars[[i]])[,unlist(ts,recursive = F),by=.(entity_id)]
+             x[,indicator_name_parameter:=indicator_parameter_vars[[i]]]
+             x
              })
 
            timelines <- entities[timeseries.reporteddate <= calculation_date,
@@ -502,7 +524,11 @@
              
              ent <- entity_vars[[i]]
              ent_name <- ent$indicator_name[[1]]
+             ent_name_p <- ent$indicator_name_parameter[[1]]
              
+             if (!grepl(paste0("^",ent_name,"\\."),ent_name_p)) {
+               stop(paste0("Name and parameter name mismatch: ",ent_name," vs ",ent_name_p))
+             }
              
              if (!all(c("indicator_name",
                         "timeseries.reporteddate",
@@ -566,7 +592,7 @@
              timelines[,reporting_has_NA_value:=NULL]
              setnames(timelines,
                       old=grep("^timeseries",names(ent),value=T),
-                      new=paste0(ent_name,".",grep("^timeseries",names(ent),value=T)))
+                      new=paste0(ent_name_p,".",grep("^timeseries",names(ent),value=T)))
            }
            
            if (filter_by %in% c(TRUE)) {
@@ -611,7 +637,12 @@
          envir=CALCULATIONS_ENVIRONMENT,
          value=function(a,b) {
            if (length(a)==0) return (b)
-           else return(ifelse(is.na(a),b,a))
+           #else return(data.table::fifelse(is.na(a),yes=b,no=a))
+           else {
+
+             if (any(class(a)=="Date") | any(class(b)=="Date")) return(as.Date(ifelse(is.na(a),b,a)))
+             else return(ifelse(is.na(a),b,a))
+           }
          })
   
 

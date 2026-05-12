@@ -29,7 +29,8 @@ div(style="background-color:white;padding:10px;",
                            value="setup_agreement",
                            class="agreement",
                     
-                    div(style="width:90%;margin:0 auto;",
+                    div(id="tabset_setup_agreement_ui",
+                        style="width:90%;margin:0 auto;",
                         tagList(lapply(c("server_setup_agreement__rsa_terms",
                                          "server_setup_agreement__rsa_determination",
                                          "server_setup_agreement__rsa_costs",
@@ -51,6 +52,7 @@ div(style="background-color:white;padding:10px;",
                         textOutput(outputId="setup_agreement__title")
                       
                     ),
+                    
                     tabsetPanel(id="tabset_setup_agreement",
                                 
                                 tabPanel("Terms",
@@ -159,8 +161,8 @@ Each term should be separated by an empty line.")
                                      label="Apply RSA Setup",
                                      icon=icon("gears"),
                                      class="btn-primary"))
-                    ),
-                    fluidRow(column(10,div(style="display:flex;flex-direction:row;padding-top:5px;")))),
+                  ),
+                  fluidRow(column(10,div(style="display:flex;flex-direction:row;padding-top:5px;")))),
 
 
 ################

@@ -476,64 +476,64 @@ parse_template_IFC_QR2025 <- function(pool,
         }
 
         #Denied/Allowed
-        {
-          if (any(list_sheet$indicator_sys_category=="products_undrawn_denied",na.rm=T)) {
-            list_pr <- list_sheet[indicator_sys_category=="products_undrawn_denied"]
-            tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
-            if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
-              stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Undrawn Principal Denied Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
-            }
-            
-            is_true <- sapply(tfproducts,FUN=function(p) {
-              p <- superTrim(p)
-              any(p==superTrim(products),na.rm = T) |
-              any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
-            })
-            
-            list_sheet[indicator_sys_category=="products_undrawn_denied",
-                       reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
-            
-            if (!any(list_sheet$indicator_sys_category=="products_undrawn_allowed",na.rm=T)) {
-              
-              list_pr[,
-                      `:=`(indicator_sys_category="products_undrawn_allowed",
-                           indicator_name=rsf_indicators[indicator_sys_category=="products_undrawn_allowed",indicator_name],
-                           reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
-              
-              list_sheet <- rbindlist(list(list_sheet,
-                                           list_pr))
-            }
-            
-          }
-          
-          if (any(list_sheet$indicator_sys_category=="products_undrawn_allowed",na.rm=T)) {
-            list_pr <- list_sheet[indicator_sys_category=="products_undrawn_allowed"]
-            tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
-            if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
-              stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Revolving Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
-            }
-            
-            is_true <- sapply(tfproducts,FUN=function(p) {
-              p <- superTrim(p)
-              any(p==superTrim(products),na.rm = T) |
-                any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
-            })
-            
-            list_sheet[indicator_sys_category=="products_undrawn_allowed",
-                       reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
-            
-            if (!any(list_sheet$indicator_sys_category=="products_undrawn_denied",na.rm=T)) {
-              
-              list_pr[,
-                      `:=`(indicator_sys_category="products_undrawn_denied",
-                           indicator_name=rsf_indicators[indicator_sys_category=="products_undrawn_denied",indicator_name],
-                           reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
-              
-              list_sheet <- rbindlist(list(list_sheet,
-                                           list_pr))
-            }
-            
-          }
+        { #Deprecated this is now managed through checks.  THe product type is now an arbitrary list, not constraint to CATEGORY-1 and CATEGORY-2, but whatever the RSA decides in a structured non-standard way.
+          # if (any(list_sheet$indicator_sys_category=="products_undrawn_denied",na.rm=T)) {
+          #   list_pr <- list_sheet[indicator_sys_category=="products_undrawn_denied"]
+          #   tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
+          #   if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
+          #     stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Undrawn Principal Denied Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
+          #   }
+          #   
+          #   is_true <- sapply(tfproducts,FUN=function(p) {
+          #     p <- superTrim(p)
+          #     any(p==superTrim(products),na.rm = T) |
+          #     any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
+          #   })
+          #   
+          #   list_sheet[indicator_sys_category=="products_undrawn_denied",
+          #              reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
+          #   
+          #   if (!any(list_sheet$indicator_sys_category=="products_undrawn_allowed",na.rm=T)) {
+          #     
+          #     list_pr[,
+          #             `:=`(indicator_sys_category="products_undrawn_allowed",
+          #                  indicator_name=rsf_indicators[indicator_sys_category=="products_undrawn_allowed",indicator_name],
+          #                  reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
+          #     
+          #     list_sheet <- rbindlist(list(list_sheet,
+          #                                  list_pr))
+          #   }
+          #   
+          # }
+          # 
+          # if (any(list_sheet$indicator_sys_category=="products_undrawn_allowed",na.rm=T)) {
+          #   list_pr <- list_sheet[indicator_sys_category=="products_undrawn_allowed"]
+          #   tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
+          #   if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
+          #     stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Revolving Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
+          #   }
+          #   
+          #   is_true <- sapply(tfproducts,FUN=function(p) {
+          #     p <- superTrim(p)
+          #     any(p==superTrim(products),na.rm = T) |
+          #       any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
+          #   })
+          #   
+          #   list_sheet[indicator_sys_category=="products_undrawn_allowed",
+          #              reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
+          #   
+          #   if (!any(list_sheet$indicator_sys_category=="products_undrawn_denied",na.rm=T)) {
+          #     
+          #     list_pr[,
+          #             `:=`(indicator_sys_category="products_undrawn_denied",
+          #                  indicator_name=rsf_indicators[indicator_sys_category=="products_undrawn_denied",indicator_name],
+          #                  reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
+          #     
+          #     list_sheet <- rbindlist(list(list_sheet,
+          #                                  list_pr))
+          #   }
+          #   
+          # }
         }
         
         #atrisk
@@ -626,6 +626,39 @@ parse_template_IFC_QR2025 <- function(pool,
         x[,header_row:=header_row]
         return(x)
       },label_matches=label_matches))
+      
+      
+      #match preference by exact index (compared to parse_template_IFC_QR2018) this is simpler and doesn't get into the template position matching with double && headers.
+      {
+        
+        label_matches[,selected_exact_index_match:=FALSE]
+        label_matches[rsf_labels[is.na(template_header_section_index)==FALSE,
+                                 .(label_header_id,
+                                   match_rows=suppressWarnings(as.numeric(template_header_section_index)))], #must be a numeric row to match SUMMARY row
+                      selected_exact_index_match:=TRUE,
+                      on=.(match_id=label_header_id,
+                           match_rows)]
+        
+        #if we matched the header_id but DID NOT match the exact match row ID, then omit this header entirely because its ONLY purpose is to match that label on that row number
+        #and cannot introduce amibuity on other rows.
+        label_matches[selected_exact_index_match==FALSE & match_id %in% rsf_labels[is.na(template_header_section_index)==FALSE,label_header_id],
+                      selected_exact_index_match:=NA]
+        
+        label_matches <- label_matches[!is.na(selected_exact_index_match)]
+        
+        label_matches[,selected_preference:=frank(.SD,-selected_exact_index_match,ties.method="dense"),
+                      by=.(match_rows)]
+        
+        label_matches[,
+                      selected:=selected_preference==min(selected_preference),
+                      by=.(match_rows)]
+        
+        label_matches <- label_matches[selected==TRUE]
+        label_matches[,
+                      `:=`(selected=NULL,
+                           selected_preference=NULL,
+                           selected_exact_index_match=NULL)]
+      }
       
       label_matches <- label_matches[rsf_labels[,.(label_header_id,action,map_indicator_id,map_formula_id,map_check_formula_id)],
                                      on=.(match_id=label_header_id),
@@ -740,6 +773,20 @@ parse_template_IFC_QR2025 <- function(pool,
       
       
       #stop_row <- summary_sheet[map_indicator_id %in% rsf_indicators[indicator_sys_category=="template_read_stop",indicator_id],original_row_num]
+      
+      #For defined (but unmatched!) stop row definitions.
+      #It will be unmatched when the template header is set to "" or NA to simply specifiy that, eg, "SUMMARY:100" is the stop row for the template.
+      stop_row <- rsf_labels[is.na(template_header_section_index)==FALSE &
+                             sapply(template_section_lookup,grepl,x="summary",ignore.case=T) & #for summary tab
+                             superTrim(label) %in% c("","na") &                                #for missing/NA labels
+                             map_indicator_id %in% rsf_indicators[indicator_sys_category=="template_read_stop",indicator_id],
+                             suppressWarnings(as.numeric(template_header_section_index))]
+      stop_row <- na.omit(stop_row)
+      if (length(stop_row) > 0) {
+        stop_row <- max(stop_row) #max stop row is used for generic/missing/NA header.
+        summary_sheet[original_row_num > stop_row,
+                      ignore:=TRUE]
+      }
       
       #changed to label_matches versus summary_sheet because the stop row could have matched a row that was removed already (like if stop row matched label is in column A)
       stop_row <- label_matches[map_indicator_id %in% rsf_indicators[indicator_sys_category=="template_read_stop",indicator_id],original_row_num]

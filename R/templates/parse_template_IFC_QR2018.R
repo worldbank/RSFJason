@@ -1,11 +1,11 @@
 
 
 parse_template_IFC_QR2018 <- function(pool,
-                                  template_lookup,
-                                  template_file,
-                                  rsf_indicators,
-                                  status_message,
-                                  CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) 
+                                      template_lookup,
+                                      template_file,
+                                      rsf_indicators,
+                                      status_message,
+                                      CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) 
 {
  
   {
@@ -168,72 +168,72 @@ parse_template_IFC_QR2018 <- function(pool,
                                                      rsf_indicators=rsf_indicators,
                                                      formatting.function=normalizeLabel)
       
-      stop_actions <- rsf_labels[is.na(stop)==FALSE & action=="ignore"]
+      #stop_actions <- rsf_labels[is.na(stop)==FALSE & action=="ignore"]
       #This is now updated
       
       # stop_read_actions <- rsf_labels[rsf_indicators[indicator_sys_category=="template_read_stop",.(indicator_id)],
       #                                on=.(map_indicator_id=indicator_id),
       #                                nomatch=NULL]
-      if (F) {
-      rsf_labels <- rbindlist(rsf_indicators$labels)
-      
-      #use superTrim() over label_normalized
-      rsf_labels <- unique(rsf_labels[,.(map_indicator_id=indicator_id,label_key,label=superTrim(label))])
-      
-      #rsf labels only map to indicators and are the default matching
-      rsf_labels[,
-                 `:=`(template_header_section_name=as.character(NA),
-                      template_section_lookup=as.character(NA),
-                      template_label_lookup=paste0('^"?',str_escape(label),'"?$'), #ignore quoted headers
-                      action="default",
-                      template_header_position=as.numeric(NA),
-                      map_formula_id=as.numeric(NA),
-                      calculation_formula=as.character(NA),
-                      map_check_formula_id=as.numeric(NA),
-                      check_formula=as.character(NA))]
-      
-      header_actions <- db_indicators_get_header_actions(pool=pool,
-                                                         template_id=template_lookup$template_id,
-                                                         rsf_pfcbl_id=rsf_pfcbl_id.facility,
-                                                         formatting.function=superTrim)
-      
-     
-      
-      setDT(header_actions)
-      
-      header_actions[,label_key:="SYS"]
-      header_actions[,label:=superTrim(template_header)] #for this template, use trimmed, not normalized (as parsing values are used and therefore don't normalize {} delimiter!)
-      
-      header_actions[,
-                     label:=normalizeLabel(template_header)] #normalizedLabel calls superTrim(trim.punct=F)
-      
-      # header_actions[label_normalized=="na",
-      #                label_normalized:=as.character(NA)]
-  
-      setnames(header_actions,
-               old="map_indicator_id",
-               new="indicator_id")
-  
-      header_actions <- header_actions[,
-                                       .SD,
-                                       .SDcols = names(rsf_labels)]
-      
-      rsf_labels <- rsf_labels[!(label_normalized %in% header_actions[is.na(template_header_sheet_name),label_normalized])]
-      rsf_labels <- rbindlist(list(rsf_labels,
-                                   header_actions))
-      rsf_labels[,joincondition:=as.character(NA)]
-      setorder(rsf_labels,
-               indicator_header_id,
-               template_header_position,
-               template_header_encounter_index,
-               na.last = TRUE)
-      }
+      # if (F) {
+      # rsf_labels <- rbindlist(rsf_indicators$labels)
+      # 
+      # #use superTrim() over label_normalized
+      # rsf_labels <- unique(rsf_labels[,.(map_indicator_id=indicator_id,label_key,label=superTrim(label))])
+      # 
+      # #rsf labels only map to indicators and are the default matching
+      # rsf_labels[,
+      #            `:=`(template_header_section_name=as.character(NA),
+      #                 template_section_lookup=as.character(NA),
+      #                 template_label_lookup=paste0('^"?',str_escape(label),'"?$'), #ignore quoted headers
+      #                 action="default",
+      #                 template_header_position=as.numeric(NA),
+      #                 map_formula_id=as.numeric(NA),
+      #                 calculation_formula=as.character(NA),
+      #                 map_check_formula_id=as.numeric(NA),
+      #                 check_formula=as.character(NA))]
+      # 
+      # header_actions <- db_indicators_get_header_actions(pool=pool,
+      #                                                    template_id=template_lookup$template_id,
+      #                                                    rsf_pfcbl_id=rsf_pfcbl_id.facility,
+      #                                                    formatting.function=superTrim)
+      # 
+      # 
+      # 
+      # setDT(header_actions)
+      # 
+      # header_actions[,label_key:="SYS"]
+      # header_actions[,label:=superTrim(template_header)] #for this template, use trimmed, not normalized (as parsing values are used and therefore don't normalize {} delimiter!)
+      # 
+      # header_actions[,
+      #                label:=normalizeLabel(template_header)] #normalizedLabel calls superTrim(trim.punct=F)
+      # 
+      # # header_actions[label_normalized=="na",
+      # #                label_normalized:=as.character(NA)]
+      # 
+      # setnames(header_actions,
+      #          old="map_indicator_id",
+      #          new="indicator_id")
+      # 
+      # header_actions <- header_actions[,
+      #                                  .SD,
+      #                                  .SDcols = names(rsf_labels)]
+      # 
+      # rsf_labels <- rsf_labels[!(label_normalized %in% header_actions[is.na(template_header_sheet_name),label_normalized])]
+      # rsf_labels <- rbindlist(list(rsf_labels,
+      #                              header_actions))
+      # rsf_labels[,joincondition:=as.character(NA)]
+      # setorder(rsf_labels,
+      #          indicator_header_id,
+      #          template_header_position,
+      #          template_header_sheet_index,
+      #          na.last = TRUE)
+      # }
     }
   }
   
   data.summary <- {
   
-    
+    #This is a legacy issue of indicators generically defining the Base Currency Unit to "LCU" currency FX without specifing what exactly.
     remap_lcu <- Filter(length,
                         lapply(summary_sheet,
                         grep,
@@ -294,7 +294,8 @@ parse_template_IFC_QR2018 <- function(pool,
         }
       }
     }
-    #new
+    
+    
     {
       label_matches <- lapply(summary_sheet,
                  FUN=function(x,find_sections,find_labels,match_id,match_postion) {
@@ -336,23 +337,69 @@ parse_template_IFC_QR2018 <- function(pool,
         return(x)
       },label_matches=label_matches))
       
-      label_matches[,
-                    `:=`(positions_matched = .N,
-                         all_positions_matched= all(is.na(match_position)) | all(header_row %in% match_position)),
-                    by=.(match_id,match_rows)]
+      #match preference by exact index
+      {
+        label_matches[,selected_exact_index_match:=FALSE]
+        label_matches[rsf_labels[is.na(template_header_section_index)==FALSE,
+                                 .(label_header_id,
+                                   match_rows=suppressWarnings(as.numeric(template_header_section_index)))], #must be a numeric row to match SUMMARY row
+                      selected_exact_index_match:=TRUE,
+                      on=.(match_id=label_header_id,
+                           match_rows)]
       
-      label_matches[rsf_labels[is.na(template_header_position)==F][,.(positions_expected=max(template_header_position)),by=.(label_header_id)],
-                    all_positions_matched:=all_positions_matched & i.positions_expected==positions_matched,
-                    on=.(match_id=label_header_id)]
+        #if we matched the header_id but DID NOT match the exact match row ID, then omit this header entirely because its ONLY purpose is to match that label on that row number
+        #and cannot introduce amibuity on other rows.
+        label_matches[selected_exact_index_match==FALSE & match_id %in% rsf_labels[is.na(template_header_section_index)==FALSE,label_header_id],
+                      selected_exact_index_match:=NA]
+        
+        label_matches <- label_matches[!is.na(selected_exact_index_match)]
+      }
       
-      label_matches <- label_matches[all_positions_matched==T]
+      #match preference by number of positions matched for && columns
+      {
+        label_matches[,
+                      `:=`(positions_matched = .N,
+                           all_positions_matched= all(is.na(match_position)) | all(header_row %in% match_position)),
+                      by=.(match_id,match_rows)]
+        
+        label_matches[rsf_labels[is.na(template_header_position)==F][,.(positions_expected=max(template_header_position)),by=.(label_header_id)],
+                      all_positions_matched:=all_positions_matched & i.positions_expected==positions_matched,
+                      on=.(match_id=label_header_id)]
+  
+        #if the label specifies "this && that" and the template headers are "this && yes" then this header is an anti-match despite the partial match
+        label_matches <- label_matches[all_positions_matched==T]
+        
+        #if there's a double header, eg, "this && that" and the header matches both, then this is a BETTER match than an ambiguous header_id that matches only 1 label
+        label_matches[,
+                      selected_most_positions_matched:=positions_matched==max(positions_matched),
+                      by=.(match_rows)]
+
+        
+        label_matches[,
+                      `:=`(positions_matched=NULL,
+                           all_positions_matched=NULL)]
+        
+        #label_matches <- label_matches[selected_most_positions_matched==TRUE]
+        
+      }
       
-      label_matches[,
-                     selected:=positions_matched==max(positions_matched),
-                     by=.(match_rows)]
-      
-      label_matches <- label_matches[selected==TRUE]
-      label_matches[,selected:=NULL]
+      #Best match
+      {
+        label_matches[,selected_preference:=frank(.SD,-selected_exact_index_match,-selected_most_positions_matched,ties.method="dense"),
+                      by=.(match_rows)]
+        
+        label_matches[,
+                      selected:=selected_preference==min(selected_preference),
+                      by=.(match_rows)]
+        
+        label_matches <- label_matches[selected==TRUE]
+        label_matches[,
+                      `:=`(selected=NULL,
+                           selected_preference=NULL,
+                           selected_most_positions_matched=NULL,
+                           selected_exact_index_match=NULL)]
+        
+      }
       
       label_matches <- label_matches[rsf_labels[,.(label_header_id,action,map_indicator_id,map_formula_id,map_check_formula_id)],
                                      on=.(match_id=label_header_id),
@@ -452,9 +499,18 @@ parse_template_IFC_QR2018 <- function(pool,
                      ignore:=anyNA(action)==FALSE & all(action=="ignore"),
                      by=.(original_row_num)]
 
-      stop_row <- na.omit(stop_actions[grepl("summary",template_header_section_name,ignore.case=T) & is.na(stop)==FALSE,stop])
+      
+      #For defined (but unmatched!) stop row definitions.
+      #It will be unmatched when the template header is set to "" or NA to simply specifiy that, eg, "SUMMARY:100" is the stop row for the template.
+      stop_row <- rsf_labels[is.na(template_header_section_index)==FALSE &
+                             sapply(template_section_lookup,grepl,x="summary",ignore.case=T) & #for summary tab
+                             superTrim(label) %in% c("","na") &                                #for missing/NA labels
+                             map_indicator_id %in% rsf_indicators[indicator_sys_category=="template_read_stop",indicator_id],
+                             suppressWarnings(as.numeric(template_header_section_index))]
+      
+      stop_row <- na.omit(stop_row)
       if (length(stop_row) > 0) {
-        stop_row <- max(stop_row)
+        stop_row <- max(stop_row) #max stop row is used for generic/missing/NA header.
         summary_sheet[original_row_num > stop_row,
                       ignore:=TRUE]
       }
@@ -472,6 +528,7 @@ parse_template_IFC_QR2018 <- function(pool,
       summary_sheet[rsf_indicators,
                     indicator_name:=i.indicator_name,
                     on=.(map_indicator_id=indicator_id)]
+      
       
       #Will fail because its ambiguous
       {

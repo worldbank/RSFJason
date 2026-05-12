@@ -2,7 +2,7 @@ db_export_get_template <- function(pool,
                                    template_name) {
   
   TEMPLATE <- dbGetQuery(pool,
-                         "select template_id,template_name,template_key,is_reportable,template_has_static_row_ids
+                         "select template_id,template_name,template_key,is_reportable,is_complete_portfolio
                                from p_rsf.reporting_templates 
                                where template_name = $1
                                   or template_key ~* $1",params=list(template_name))

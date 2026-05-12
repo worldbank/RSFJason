@@ -27,15 +27,16 @@ db_data_update_flags <- function(pool,
   }    
   
   flags <- flags[!(is.na(check_status_comment_updated) | is.na(check_status_updated))]
-  flags <- flags[check_class != "critical"]
+  flags <- flags[!(check_class == "critical" & is.na(data_sys_flags))]
 
   if (empty(flags)) return (FALSE)
   
   flags <- flags[,
                  .(evaluation_id,
-                    check_status_updated,
-                    check_status_comment_updated,
-                    check_status_user_id=user_id)]
+                   check_status_updated,
+                   check_status_comment_updated,
+                   check_status_user_id=user_id,
+                   data_sys_flags)]
   
   #conn <- poolCheckout(pool)
   #dbBegin(conn)
@@ -47,7 +48,8 @@ db_data_update_flags <- function(pool,
     dbExecute(conn,"create TEMP table _temp_update_flags(evaluation_id int,
                                                          check_status_updated text,
                                                          check_status_comment_updated text,
-                                                         check_status_user_id text)
+                                                         check_status_user_id text,
+                                                         data_sys_flags int)
                     on commit DROP;")
 
     dbAppendTable(conn,
@@ -67,6 +69,15 @@ db_data_update_flags <- function(pool,
                       and (taf.check_status_updated is distinct from rdc.check_status
                            or
                            taf.check_status_comment_updated is distinct from rdc.check_status_comment)")
+    
+    dbExecute(conn,"
+      update p_rsf.rsf_data_checks rdc
+      set data_sys_flags = taf.data_sys_flags
+      from _temp_update_flags taf
+      where rdc.evaluation_id = taf.evaluation_id
+        and taf.data_sys_flags is not NULL
+        and taf.data_sys_flags is distinct from rdc.data_sys_flags")
+    
   
     TRUE
   })

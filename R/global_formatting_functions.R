@@ -101,7 +101,9 @@ normalizeSyscategory_name <- function(x) {
 
 normalizeSyscategory_id <- function(x) {
   x <- paste0(x)
-  nas <- is.na(x) | x=="" | grepl("na|n/a|n\\a|n.a|n.a.",x,ignore.case = T)
+  navalues <- c("na","n/a","n\\a","n\\.a","n\\.a\\.")
+  navalues <- paste0(paste0("^",navalues,"$"),collapse="|")
+  nas <- is.na(x) | x=="" | grepl(navalues,x,ignore.case = T)
   x <- gsub("[[:cntrl:]]+","-",x,perl=T)                  #remove line breaks, eg Excel headers on multiple lines (replace with '-' at least temporarily)
   x <- gsub("[\\+/\\\\;,]+","-",x,perl=T)                 #convert + \ ; and , to -
   x <- gsub("\\((\\d+)\\)$","#\\1",x,perl=T)              #converts parenthetcial numbersm eg (2) to #2 to indicate sequenced IDs

@@ -1,25 +1,30 @@
-COHORTS_SELECTED <- reactiveVal(c())
-#LOAD_IMPORT <- reactiveVal(0)
-REFRESH_SELECTED_COHORT_DATA <- reactiveVal(1)
+IMPORT_IDS_SELECTED <- reactiveVal(c())
+
+IMPORT_LIST__REFRESH <- reactiveVal(1)
 
 #All "reported" cohorts uploaded under the given program
-COHORTS_LIST <- eventReactive(c(REFRESH_SELECTED_COHORT_DATA(),
-                                #LOAD_IMPORT(),
+IMPORTS_LIST <- eventReactive(c(IMPORT_LIST__REFRESH(),
                                 input$server_programs__selected_facility,
                                 input$dataset_review_filter),
 {
 
-  filter_facility_id <- as.numeric(input$server_programs__selected_facility)
+  selected_entity_id <- as.numeric(input$server_programs__selected_facility)
+
   
-  rx1<-REFRESH_SELECTED_COHORT_DATA()
+  rx1<-IMPORT_LIST__REFRESH()
   #load_import_id <- LOAD_IMPORT()
   phrase <- input$dataset_review_filter
   phrase <- trimws(phrase,whitespace="[ \\t\\r\\n\\v\\h\\s]")
   
-  if (!isTruthy(filter_facility_id)) return (NULL)
-  if (filter_facility_id==-1) filter_facility_id <- SELECTED_PROGRAM_ID()
-  if (!filter_facility_id %in% SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id) { return (NULL) }
+  if (!isTruthy(selected_entity_id)) return (NULL)
+  if (empty(SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST())) return (NULL)
   
+  selected_entity <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()[(rsf_pfcbl_id==selected_entity_id) | (selected_entity_id==-1 & pfcbl_category %in% c("global","program"))]
+  selected_category <- selected_entity$pfcbl_category
+
+  if (empty(selected_entity)) return (NULL)
+  if (!length(selected_category) || selected_entity_id==-1) selected_category <- "ALL"
+
   load_by_limit <- as.numeric(NA)
   if (isTruthy(phrase) &&
       any(grepl("recent\\s+\\d+$",phrase))==TRUE) {
@@ -29,7 +34,7 @@ COHORTS_LIST <- eventReactive(c(REFRESH_SELECTED_COHORT_DATA(),
     load_by_limit <- as.numeric(NA)
   }
   
-  cohorts <- DBPOOL %>% dbGetQuery("
+  imports <- DBPOOL %>% dbGetQuery("
     select 
       ids.rsf_program_id,
       ids.rsf_facility_id,
@@ -55,23 +60,28 @@ COHORTS_LIST <- eventReactive(c(REFRESH_SELECTED_COHORT_DATA(),
         where $1::int in (ids.rsf_program_id,
                           ids.rsf_facility_id,
                           ids.rsf_client_id)
+          and case when $2::text = 'global' then $1::int = ids.rsf_pfcbl_id
+                   when $2::text = 'program' then $1::int = ids.rsf_pfcbl_id
+                   when $2::text = 'facility' then $1::int in (ids.rsf_facility_id,ids.rsf_client_id)
+                   else true end
         order by ri.import_id desc
-        limit (NULLIF($2::text,'NA'))::int",
-        params=list(filter_facility_id,
+        limit (NULLIF($3::text,'NA'))::int",
+        params=list(selected_entity$rsf_pfcbl_id,
+                    selected_category,
                     as.character(load_by_limit)))
-    
+  
   #--and rc.rsf_facility_id is not distinct from $2::int
-  if (empty(cohorts)) return (NULL)
-  setDT(cohorts)
+  if (empty(imports)) return (NULL)
+  setDT(imports)
   
-  cohorts[,source_name:=gsub("\\.gz$","",file_name)]
+  imports[,source_name:=gsub("\\.gz$","",file_name)]
   
-  cohorts[,
+  imports[,
           users_name:=sapply(reporting_user_name,format_name_abbreviation)]
   
-  cohorts[,upload_text:=paste0(toupper(format.Date(import_time,"%b%d %Hh%M")))]
+  imports[,upload_text:=paste0(toupper(format.Date(import_time,"%b%d %Hh%M")))]
   
-  cohorts[,
+  imports[,
           `:=`(data_checks_active=0,
                data_checks_critical_active=0,
                data_checks_error_active=0,
@@ -79,47 +89,82 @@ COHORTS_LIST <- eventReactive(c(REFRESH_SELECTED_COHORT_DATA(),
                data_checks_info_active=0)]
   
   counts <- DBPOOL %>% dbGetQuery("
-    select * from p_rsf.view_reporting_imports_data_counts idc
-    where idc.import_id = any(select unnest(string_to_array($1::text,','))::int)",
-  params=list(paste0(unique(cohorts$import_id),collapse=",")))
+    select 
+      idc.reporting_asof_date,
+      idc.import_rsf_pfcbl_id,
+      sum(idc.data_count_reported) as data_count_reported,
+      sum(idc.data_count_calculated) as data_count_calculated,
+      sum(idc.data_current_count_reported) as data_current_count_reported,
+      sum(idc.data_current_count_calculated) as data_current_count_calculated
+    from p_rsf.view_reporting_imports_data_counts idc
+    where idc.import_id = any(select unnest(string_to_array($1::text,','))::int)
+    group by 
+    idc.reporting_asof_date,
+    idc.import_rsf_pfcbl_id",
+  params=list(paste0(unique(imports$import_id),collapse=",")))
+  
+  # counts <- DBPOOL %>% dbGetQuery("
+  #   select * from p_rsf.view_reporting_imports_data_counts idc
+  #   where idc.import_id = any(select unnest(string_to_array($1::text,','))::int)",
+  # params=list(paste0(unique(cohorts$import_id),collapse=",")))
   
   setDT(counts)
-  
+
   flags <- DBPOOL %>% dbGetQuery("
-    select * from p_rsf.view_reporting_imports_data_checks_current_active cca
-    where cca.import_id = any(select unnest(string_to_array($1::text,','))::int)",
-    params=list(paste0(unique(cohorts$import_id),collapse=",")))
+    select 
+      cca.import_rsf_pfcbl_id,
+      cca.check_asof_date as reporting_asof_date,
+      sum(cca.data_checks_active) as data_checks_active,
+      sum(cca.data_checks_critical_active) as data_checks_critical_active,
+      sum(cca.data_checks_error_active) as data_checks_error_active,
+      sum(cca.data_checks_warning_active) as data_checks_warning_active,
+      sum(cca.data_checks_info_active) as data_checks_info_active
+    from p_rsf.view_reporting_imports_data_checks_current_active cca
+    where cca.import_id = any(select unnest(string_to_array($1::text,','))::int)
+    group by
+    cca.import_rsf_pfcbl_id,
+    cca.check_asof_date",
+  params=list(paste0(unique(imports$import_id),collapse=",")))
+  
+  # flags <- DBPOOL %>% dbGetQuery("
+  #   select * from p_rsf.view_reporting_imports_data_checks_current_active cca
+  #   where cca.import_id = any(select unnest(string_to_array($1::text,','))::int)",
+  #   params=list(paste0(unique(cohorts$import_id),collapse=",")))
   
   setDT(flags)
   
-  cohort_dates <- unique(rbindlist(list(unique(cohorts[,
-                                                       .(import_id,cohort_asof_date=reporting_asof_date)]),
-                                        unique(flags[,.(import_id,
-                                                        cohort_asof_date=check_asof_date)]),
-                                        unique(counts[,.(import_id,
-                                                         cohort_asof_date=reporting_asof_date)]))))  
+  # cohort_dates <- unique(rbindlist(list(unique(cohorts[,
+  #                                                      .(import_id,cohort_asof_date=reporting_asof_date)]),
+  #                                       unique(flags[,.(import_id,
+  #                                                       cohort_asof_date=check_asof_date)]),
+  #                                       unique(counts[,.(import_id,
+  #                                                        cohort_asof_date=reporting_asof_date)]))))  
   
   
   #cohort_dates <- cohort_dates[,.(cohort_asof_date=list(cohort_asof_date)),by=.(import_id)]
   
   
-  cohorts <- cohorts[cohort_dates,
-                     on=.(import_id)]
+  # cohorts <- cohorts[cohort_dates,
+  #                    on=.(import_id)]
  
-  cohorts[,
-          is_deletable := reporting_asof_date == cohort_asof_date]
+  # imports[,
+  #         is_deletable := reporting_asof_date == cohort_asof_date]
+
+  imports[,is_deletable:=TRUE]  
   
-  setorder(cohorts,
-           -cohort_asof_date,
+  setorder(imports,
+           -reporting_asof_date,
            -is_deletable,
            -import_id)
   
-  cohorts[,import_cohort_date_group:=1:.N]
+  #date groups, etc are all legacy stuff that doesn't matter but retained because it works.  Only actual user imports are now displayed
+  #and where cross-date cohorts are generated, these are now available in the "collections" review
+  imports[,import_cohort_date_group:=1:.N]
   
-  cohorts[is_deletable==FALSE,
+  imports[is_deletable==FALSE,
           source_name:=paste0("[SYSTEM] ",source_name)]
 
-  cohorts[flags,
+  imports[flags,
           `:=`(data_checks_active=i.data_checks_active,
                data_checks_critical_active=i.data_checks_critical_active,
                data_checks_error_active=i.data_checks_error_active,
@@ -133,81 +178,81 @@ COHORTS_LIST <- eventReactive(c(REFRESH_SELECTED_COHORT_DATA(),
                data_count_calculated=i.data_checks_active,
                data_current_count_reported=0,
                data_current_count_calculated=i.data_checks_active),
-          on=.(import_id,
-               cohort_asof_date=check_asof_date)]
+          on=.(import_rsf_pfcbl_id,
+               reporting_asof_date)]
   
-  cohorts[counts,
+  imports[counts,
           `:=`(data_count_reported=i.data_count_reported,
                data_count_calculated=i.data_count_calculated,
                data_current_count_reported=i.data_current_count_reported,
                data_current_count_calculated=i.data_current_count_calculated),
-          on=.(import_id,
-               cohort_asof_date=reporting_asof_date)]
+          on=.(import_rsf_pfcbl_id,
+               reporting_asof_date)]
   
   #0=Normal cohort reporting
-  cohorts[,cohort_checks:=0]
+  imports[,cohort_checks:=0]
   
   #1=Question mark flag (shouldn't happen)
-  cohorts[(is.na(data_count_reported) | is.na(data_count_calculated)),
+  imports[(is.na(data_count_reported) | is.na(data_count_calculated)),
           cohort_checks:=1]
 
   #2=Didn't report anything
-  cohorts[data_current_count_reported==0 &
+  imports[data_current_count_reported==0 &
           data_current_count_calculated==0,
           cohort_checks:=2]
 
   #3=Only system-calculated data reported (probably means overwrote whatever reported data triggered the calculation)
-  cohorts[
+  imports[
           (data_current_count_reported==0 &
           data_current_count_calculated >0),
           cohort_checks:=3]
   
-  cohorts[(data_current_count_reported >0 |
+  imports[(data_current_count_reported >0 |
           data_current_count_calculated >0) &
           data_checks_active==0,
           cohort_checks:=4]
   
-  cohorts[,reporting_asof_date_label:=format_asof_date_label(cohort_asof_date)]
-  cohorts[,flags:="<div style='display:inline-block;'>"]
+  imports[,reporting_asof_date_label:=format_asof_date_label(reporting_asof_date)]
+  imports[,flags:="<div style='display:inline-block;'>"]
   
-  cohorts[cohort_checks==1,
+  imports[cohort_checks==1,
           flags:=paste0(flags,"<i class='fa-solid fa-circle-question icon-info' title='Dataset may not have uploaded correctly: recommended to delete and try again'></i>")]
   
-  cohorts[cohort_checks==2,
+  imports[cohort_checks==2,
           flags:=paste0(flags,"<i class='fa-solid fa-ban icon-error' title='Dataset has reported nothing: is this a duplicated upload?'></i>")]
 
-  cohorts[cohort_checks==3,
+  imports[cohort_checks==3,
           flags:=paste0(flags,"<i class='fa-solid fa-calculator icon-warning fas' title='Dataset only has calcuated data (no reported data)' ",
                         "data-count='",data_current_count_calculated,"'></i>")]
 
-  cohorts[cohort_checks==4,
+  imports[cohort_checks==4,
           flags:=paste0(flags,"<i class='fa-solid fa-check icon-info' style='font-weight:bold;color:green;' title='Dataset has no active flags' ",
                         "data-count='",(data_current_count_reported+data_current_count_calculated),"'></i>")]
   
-  cohorts[cohort_checks==0 & data_checks_critical_active>0,flags:=paste0(flags,"<i class='fas fa-fire icon-critical' data-count='",data_checks_critical_active,"'></i>")]
-  cohorts[cohort_checks==0 & data_checks_error_active>0,flags:=paste0(flags,"<i class='fas fa-times-circle icon-error' data-count='",data_checks_error_active,"'></i>")]
-  cohorts[cohort_checks==0 & data_checks_warning_active>0,flags:=paste0(flags,"<i class='fas fa-exclamation-triangle icon-warning' data-count='",data_checks_warning_active,"'></i>")]
-  cohorts[cohort_checks==0 & data_checks_info_active>0,flags:=paste0(flags,"<i class='fas fa-info-circle icon-info' data-count='",data_checks_info_active,"'></i>")]
-  cohorts[,flags:=paste0(flags,"</div>")]
+  imports[cohort_checks==0 & data_checks_critical_active>0,flags:=paste0(flags,"<i class='fas fa-fire icon-critical' data-count='",data_checks_critical_active,"'></i>")]
+  imports[cohort_checks==0 & data_checks_error_active>0,flags:=paste0(flags,"<i class='fas fa-times-circle icon-error' data-count='",data_checks_error_active,"'></i>")]
+  imports[cohort_checks==0 & data_checks_warning_active>0,flags:=paste0(flags,"<i class='fas fa-exclamation-triangle icon-warning' data-count='",data_checks_warning_active,"'></i>")]
+  imports[cohort_checks==0 & data_checks_info_active>0,flags:=paste0(flags,"<i class='fas fa-info-circle icon-info' data-count='",data_checks_info_active,"'></i>")]
+  imports[,flags:=paste0(flags,"</div>")]
   
   #https://stackoverflow.com/questions/51145207/r-shiny-datatable-how-to-prevent-row-selection-deselection-in-columns-containing    
   #delete is by individual import_id (delete the whole im port)
-  cohorts[,delete:=paste0("<input type='checkbox' ",
+  imports[,delete:=paste0("<input type='checkbox' ",
                           ifelse(is_deletable==FALSE,"disabled='disabled'",""),
                           " name='cohort_actions' value=",import_id,
-                          " onmousedown='event.stopPropagation();' onclick='Shiny.setInputValue(\"action_cohort_selected\",",
+                          " onmousedown='event.stopPropagation();' onclick='Shiny.setInputValue(\"import_action_id_selected\",",
                           import_id,",{priority:\"event\"})' />")] 
   #View is by pseudo cohort_id that will disaggregate by check_asof_date/reporting_asof_date for the respective import if there are timeseries information in the single import file
-  cohorts[,
+  imports[,
           actions:=paste0("<div style='display:inline-block;'>
 <div onmousedown='event.stopPropagation();'  style='display:inline-block;'>
-<i class='fa fa-eye icon-view pointer' title='View' onclick='Shiny.setInputValue(\"action_cohort_view\",",import_cohort_date_group,",{priority:\"event\"})'></i>
+<i class='fa fa-eye icon-view pointer' title='View' onclick='Shiny.setInputValue(\"import_action_id_view\",",import_id,",{priority:\"event\"})'></i>
 </div>
 </div>")]
   
   {
     
-    if (!isTruthy(phrase) || nchar(phrase) < 3) return (cohorts) 
+    if (!isTruthy(phrase) || nchar(phrase) < 3) return (imports) 
     
     filter <- c()
     words <- unlist(strsplit(phrase,
@@ -225,13 +270,13 @@ COHORTS_LIST <- eventReactive(c(REFRESH_SELECTED_COHORT_DATA(),
     }
     
     matches <- lapply(filter,function(x) {
-      lapply(cohorts[,
+      lapply(imports[,
                      .(import_id,
                        reporting_user_name,
                        file_name,
                        entity_name,
                        import_comments,
-                       cohort_asof_date,
+                       reporting_asof_date,
                        reporting_asof_date_label)],
              grep,pattern=x,ignore.case=TRUE)
     })
@@ -241,7 +286,7 @@ COHORTS_LIST <- eventReactive(c(REFRESH_SELECTED_COHORT_DATA(),
                     file_name=NA,
                     entity_name=NA,
                     import_comments=NA,
-                    cohort_asof_date=NA,
+                    reporting_asof_date=NA,
                     reporting_asof_date_label=NA)
     
     for (i in 1:length(matches)) results <- Map(c,results,matches[[i]])
@@ -256,82 +301,114 @@ COHORTS_LIST <- eventReactive(c(REFRESH_SELECTED_COHORT_DATA(),
     results <- unique(results)
     
     if (length(matches) > 0) {
-      filter_cohorts <- cohorts[results]
-      if (!empty(filter_cohorts)) setorder(filter_cohorts,-cohort_asof_date,import_id)
-      return (filter_cohorts)
+      filter_imports <- imports[results]
+      if (!empty(filter_imports)) setorder(filter_imports,-reporting_asof_date,import_id)
+      return (filter_imports)
       
     } else {
-      filter_cohorts <- parent_cohorts[FALSE]
-      return (filter_cohorts)
+      filter_imports <- parent_cohorts[FALSE]
+      return (filter_imports)
     }
   }
   
-  return (cohorts)
+  return (imports)
 })
 
-#When a user clicks on an icon in the main datasets view panel
-observeEvent(input$cohort_collection_selected_id, {
-  if (identical(as.integer(input$cohort_collection_selected_id),
-                as.integer(input$action_cohort_view)) ||
-      is.na(suppressWarnings(as.numeric(input$cohort_collection_selected_id)))) {
-    return (NULL)
-  } else {
-    shinyjs::runjs(paste0("Shiny.setInputValue(\"action_cohort_view\",",as.integer(input$cohort_collection_selected_id),");"));
-  }
-})
+# #When a user clicks on an icon in the main datasets view panel
+# observeEvent(input$cohort_collection_selected_id, {
+#   if (identical(as.integer(input$cohort_collection_selected_id),
+#                 as.integer(input$import_action_id_view)) ||
+#       is.na(suppressWarnings(as.numeric(input$cohort_collection_selected_id)))) {
+#     return (NULL)
+#   } else {
+#     shinyjs::runjs(paste0("Shiny.setInputValue(\"action_cohort_view\",",as.integer(input$cohort_collection_selected_id),");"));
+#   }
+# })
 
 
-SELECTED_COHORT_ID <- eventReactive(c(input$action_cohort_view,
-                                      COHORTS_LIST()), {
+IMPORT_SELECTED_ID <- eventReactive(c(input$import_action_id_view,
+                                      IMPORTS_LIST()), {
   
-  import_cohort_date_group <- as.numeric(input$action_cohort_view)
-  cohorts <- COHORTS_LIST()
-  if (!isTruthy(import_cohort_date_group)) return (NULL)
-  if (!isTruthy(cohorts)) return (NULL)
-  if (!import_cohort_date_group %in% cohorts$import_cohort_date_group) return (NULL)
-  import_cohort_date_group
+  import_id <- as.numeric(input$import_action_id_view)
+  imports <- IMPORTS_LIST()
+  if (!isTruthy(import_id)) return (NULL)
+  if (!isTruthy(imports)) return (NULL)
+  if (!import_id %in% imports$import_id) return (NULL)
+  import_id
 }, 
 ignoreInit=TRUE,ignoreNULL=FALSE)
 
 
-SELECTED_IMPORT_COHORT_GROUP <- eventReactive(SELECTED_COHORT_ID(), {
+IMPORT_SELECTED <- eventReactive(c(IMPORT_SELECTED_ID(),
+                                   IMPORTS_LIST()), {
   
-  icdg_id <- SELECTED_COHORT_ID()
-  if (!isTruthy(icdg_id)) return (NULL)
-  cohorts <- COHORTS_LIST()
+
+  if (!isTruthy(IMPORT_SELECTED_ID())) return (NULL)
+  imports <- IMPORTS_LIST()
   
-  if (!isTruthy(cohorts)) return (NULL)
-  
-  cohort <- cohorts[import_cohort_date_group==icdg_id]
-  
-  if (empty(cohort)) return (NULL)
-  
-  return (cohort)
+  if (!isTruthy(imports)) return (NULL)
+  selected_import <- imports[import_id==IMPORT_SELECTED_ID()]
+
+  return (selected_import)
   
 }, 
 ignoreNULL=FALSE)
 
+SERVER_DATASETS_FLAGS_DATA_SYS_FLAGS <- eventReactive(LOGGEDIN(), {
+  
+  df <- DBPOOL %>% dbGetQuery("select data_flag_value,data_flag_name,comments from p_rsf.rsf_data_sys_flags")
+  setDT(df)
+  return(df)
+})
 
+SERVER_DATASETS_FLAGS_RSF_CHECKS_CALCULATOR <- eventReactive(LOGGEDIN(), {
+  
+  
+  cchecks <- DBPOOL %>% dbGetQuery("select indicator_check_id,check_name,is_calculator_check from p_rsf.indicator_checks where is_calculator_check is true")
+  setDT(cchecks)
+  
+  ccheck_names <- c("sys_calculator_vs_reported_calculation",      #NOT overwritten. Contains check_data for value that was NOT overwritten by system. CALCULATE tag: forced re-calculate to allow overwrite
+                    "sys_calculator_overwrote_manual_calculation", #OVERWRITTEN. Does not contain check_data. MANUAL tag: soft-deletes overwritten data to allow reported data to be current, tagged to deny future overwrites
+                    "sys_calculator_vs_missing_calculation",       #WRITTEN. Does not contain check_data. MANUAL tag: soft-deleted written data (ie, new for reporting_asof_date) to allow reported data to be current, tagged to deny future overwrites
+                    "sys_calculator_failed")                       #Nothing written due to errors. No tag available. Ideally will prompt formula fix and proceed as normal.
+  
+  if (!setequal(cchecks$check_name,ccheck_names)) {
+    stop("RSF Jason expects to see 4 defined checks used by the system calculator. If a check was deleted or renamed, it should be reverted. The following cannot be found: ",
+         paste0(setdiff(ccheck_names,ccheck$check_name),collapse=", "))
+  }
+  
+  cchecks[,data_flag_value:=as.numeric(NA)]
+  cchecks[check_name=="sys_calculator_vs_reported_calculation",
+          `:=`(data_flag_name="CALCULATE",
+               data_flag_value=SERVER_DATASETS_FLAGS_DATA_SYS_FLAGS()[data_flag_name=="CALCULATE",data_flag_value])]
+  
+  cchecks[check_name=="sys_calculator_overwrote_manual_calculation",
+          `:=`(data_flag_name="MANUAL",
+               data_flag_value=SERVER_DATASETS_FLAGS_DATA_SYS_FLAGS()[data_flag_name=="MANUAL",data_flag_value])]
+  
+  cchecks[check_name=="sys_calculator_vs_missing_calculation",
+          `:=`(data_flag_name="MANUAL",
+               data_flag_value=SERVER_DATASETS_FLAGS_DATA_SYS_FLAGS()[data_flag_name=="MANUAL",data_flag_value])]
+  
+  cchecks <- cchecks[,.(indicator_check_id,is_calculator_check,check_name,data_flag_name,data_flag_value)]
+  
+  return(cchecks)
+  
+  
+},ignoreNULL=FALSE)
 #For the DATASE REVIEW panel: based on 
 #Selected cohort will pull all flags for all cohorts under this selected cohort rsf_client_id
 #Unless the panel is specifically requesting an individiual cohort
-SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_IMPORT_COHORT_GROUP(),
-                                         
-                                         REFRESH_SELECTED_COHORT_DATA()), { 
+IMPORT_FLAGS_SELECTED <- eventReactive(IMPORT_SELECTED(), { 
                                           
-                                          
-  cohort <- SELECTED_IMPORT_COHORT_GROUP()
+  import <- IMPORT_SELECTED()
+  if (empty(import)) return (NULL)
 
-  
-  if (!isTruthy(cohort)) return (NULL)
-  
-  reporting_current_date <- cohort$cohort_asof_date
-  #collection_id <- suppressWarnings(as.numeric(input$cohort_collection_selected_id)) #"all" will return NA
-  
   flags_data <- NULL
   
   flags_data <- DBPOOL %>% dbGetQuery("
       select 
+        rc.import_id,
         rdc.evaluation_id,
         rdc.data_id,
         rdc.rsf_pfcbl_id,
@@ -350,13 +427,17 @@ SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_IMPORT_COHORT_GROUP(),
         ic.check_type,
         coalesce(scc.config_check_class,ic.check_class) as check_class,
         rdc.check_status,
-        
+        (rdc.check_status_comment is NULL)::bool as is_new_status,
         sis.is_subscribed,
         sis.formula_id as indicator_formula_id,
         sis.is_calculated as formula_is_calculated,
         indf.formula_title,
         indf.is_primary_default,
-        indcf.check_formula_title
+        indcf.check_formula_title,
+        rdc.data_sys_flags,
+        dic.data_flag_name,
+        coalesce(dic.data_flag_value,0) & (~coalesce(rdc.data_sys_flags,0)) as data_flag_value
+
       from p_rsf.reporting_cohorts rc
       inner join p_rsf.rsf_data rd on rd.reporting_cohort_id = rc.reporting_cohort_id
       inner join p_rsf.rsf_data_checks rdc on rdc.data_id = rd.data_id      
@@ -374,12 +455,14 @@ SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_IMPORT_COHORT_GROUP(),
                                                      and scc.for_indicator_id = rdc.indicator_id
                                                      and scc.indicator_check_id = rdc.indicator_check_id
                                                      and scc.check_formula_id is not distinct from rdc.check_formula_id
-      where rc.import_id = $1::int 
+      left join p_rsf.view_indicator_checks_data_is_correctable dic on dic.check_formula_id = rdc.check_formula_id -- correctable flags cannot by calculator or sys flags (formula_id required!)
+                                                                   and dic.correctable_indicator_id = rdc.indicator_id
+                                                     
+      where rc.reporting_rsf_pfcbl_id in (select distinct reporting_rsf_pfcbl_id from p_rsf.reporting_cohorts rc where import_id = $1::int)
         and rdc.check_asof_date = $2::date
-        and rdc.check_data_id_is_current = true
-                                      ",
-                                      params=list(cohort$import_id,
-                                                  cohort$cohort_asof_date))
+        and rdc.check_data_id_is_current = true",
+      params=list(import$import_id,
+                  import$reporting_asof_date))
 
   setDT(flags_data)
   
@@ -406,198 +489,205 @@ SELECTED_COHORT_FLAGS <- eventReactive(c(SELECTED_IMPORT_COHORT_GROUP(),
                   indicator_check_id,
                   check_formula_id)]
 
+  
+  flags_data[SERVER_DATASETS_FLAGS_RSF_CHECKS_CALCULATOR(),
+                   `:=`(data_flag_name=i.data_flag_name,
+                        data_flag_value=i.data_flag_value),
+                   on=.(indicator_check_id)]
+  
   return(flags_data)  
 }, ignoreNULL=FALSE)
 
 
 
 #Indicators-level view for cohort review panel: collapsed evaluation_ids by indicator and check
-SELECTED_COHORT_INDICATOR_FLAGS_FILTERS <- eventReactive(c(SELECTED_COHORT_FLAGS(),
-                                                            input$cohort_view_flagged_data,  #ALL/RESOLVED/ACTIVE
-                                                            input$cohort_view_flag_classes,  #error/warning/info  
-                                                            input$cohort_view_flag_types),   
-{
-  cohort_flags <- SELECTED_COHORT_FLAGS()
-  if (is.null(cohort_flags)) return (NULL)
-  
-  if (!isTruthy(cohort_flags) || empty(cohort_flags)) return (NULL)
-  
-  cohort_indicator_flags <- cohort_flags[,
-                                         .(active_count=sum(check_status=="active"),
-                                           resolved_count=sum(check_status=="resolved"),
-                                           evaluation_ids=list(evaluation_id)),
-                                         by=.(indicator_flag_id,
-                                              indicator_id,
-                                              indicator_name,
-                                              data_type,
-                                              data_category,
-                                              indicator_check_id,
-                                              check_name,
-                                              check_class,
-                                              check_type,
-                                              check_formula_id,
-                                              check_formula_title,
-                                              
-                                              indicator_is_system,
-                                              indicator_is_calculated,
-                                              check_is_system,
-                                              check_is_calculator,
-                                              check_rank,
-                                              pfcbl_category_rank,
-                                              formula_is_calculated,
-                                              indicator_formula_id,
-                                              formula_title,
-                                              is_primary_default)]
-  
+IMPORT_FLAGS_SELECTED_SUMMARY <- eventReactive(c(IMPORT_FLAGS_SELECTED(),
+                                                  input$cohort_view_flagged_data,  #ALL/RESOLVED/ACTIVE/NEW
+                                                  input$cohort_view_flag_classes,  #error/warning/info  
+                                                  input$cohort_view_flag_types),   {
+cohort_flags <- IMPORT_FLAGS_SELECTED()
+if (is.null(cohort_flags)) return (NULL)
 
-  view_data_flags <- toupper(input$cohort_view_flagged_data)
-  if (!isTruthy(view_data_flags)) view_data_flags <- ""
-  
-  flagged_filter <- NA
-  
-  if ("ACTIVE" %in% view_data_flags) flagged_filter <- flagged_filter | cohort_indicator_flags$active_count > 0
-  if ("RESOLVED" %in% view_data_flags) flagged_filter <- flagged_filter | cohort_indicator_flags$resolved_count > 0
-  if (all(view_data_flags=="")) flagged_filter <- FALSE
-  
-  cohort_indicator_flags <- cohort_indicator_flags[flagged_filter==TRUE]
-  
-  view_data_classes <- tolower(input$cohort_view_flag_classes)
-  view_data_classes <- intersect(c("critical","error","warning","info"),view_data_classes)
-  if (length(view_data_classes)>0) {
-    cohort_indicator_flags <- cohort_indicator_flags[check_class %in% view_data_classes]
-  }
+if (!isTruthy(cohort_flags) || empty(cohort_flags)) return (NULL)
 
-  rsf_check_types <- RSF_CHECK_TYPES()
-  view_flag_types <- tolower(input$cohort_view_flag_types)
-  
-  if (any(view_flag_types=="nosystem")) {
-    cohort_indicator_flags <- cohort_indicator_flags[check_is_system==FALSE]
-  }
-  
-  if (any(view_flag_types=="nocalculator")) {
-    cohort_indicator_flags <- cohort_indicator_flags[check_is_calculator==FALSE]
-  }
-  
-  view_flag_types <- intersect(c(rsf_check_types$type_class,unique(cohort_indicator_flags$data_category)),view_flag_types)
-  
-  if (length(view_flag_types) >0) {
-    cohort_indicator_flags <- cohort_indicator_flags[check_type %in% rsf_check_types[type_class %in% view_flag_types,check_type] |
-                                                     data_category %in% view_flag_types]
-  }
-  
-  
-  
-  if (empty(cohort_indicator_flags)) { 
-    return(NULL) 
-  }
-  
-  cohort_indicator_flags[,indicator_html:=mapply(format_html_indicator,
-                                                 indicator_name=indicator_name,
-                                                 data_category=data_category,
+cohort_indicator_flags <- cohort_flags[,
+                               .(active_count=sum(check_status=="active"),
+                                 resolved_count=sum(check_status=="resolved"),
+                                 is_new_count=sum(is_new_status),
+                                 evaluation_ids=list(evaluation_id)),
+                               by=.(indicator_flag_id,
+                                    indicator_id,
+                                    indicator_name,
+                                    data_type,
+                                    data_category,
+                                    indicator_check_id,
+                                    check_name,
+                                    check_class,
+                                    check_type,
+                                    check_formula_id,
+                                    check_formula_title,
+                                    
+                                    indicator_is_system,
+                                    indicator_is_calculated,
+                                    check_is_system,
+                                    check_is_calculator,
+                                    check_rank,
+                                    pfcbl_category_rank,
+                                    formula_is_calculated,
+                                    indicator_formula_id,
+                                    formula_title,
+                                    is_primary_default)]
+
+
+view_data_flags <- toupper(input$cohort_view_flagged_data)
+if (!isTruthy(view_data_flags)) view_data_flags <- ""
+
+flagged_filter <- TRUE
+
+if ("ACTIVE" %in% view_data_flags) flagged_filter <- cohort_indicator_flags$active_count > 0
+else if ("RESOLVED" %in% view_data_flags) flagged_filter <- cohort_indicator_flags$resolved_count > 0
+else if ("NEW" %in% view_data_flags) flagged_filter <- (cohort_indicator_flags$is_new_count > 0)
+#if (all(view_data_flags=="")) flagged_filter <- TRUE
+
+cohort_indicator_flags <- cohort_indicator_flags[flagged_filter==TRUE]
+
+view_data_classes <- tolower(input$cohort_view_flag_classes)
+view_data_classes <- intersect(c("critical","error","warning","info"),view_data_classes)
+if (length(view_data_classes)>0) {
+cohort_indicator_flags <- cohort_indicator_flags[check_class %in% view_data_classes]
+}
+
+rsf_check_types <- RSF_CHECK_TYPES()
+view_flag_types <- tolower(input$cohort_view_flag_types)
+
+if (any(view_flag_types=="nosystem")) {
+cohort_indicator_flags <- cohort_indicator_flags[check_is_system==FALSE]
+}
+
+if (any(view_flag_types=="nocalculator")) {
+cohort_indicator_flags <- cohort_indicator_flags[check_is_calculator==FALSE]
+}
+
+view_flag_types <- intersect(c(rsf_check_types$type_class,unique(cohort_indicator_flags$data_category)),view_flag_types)
+
+if (length(view_flag_types) >0) {
+cohort_indicator_flags <- cohort_indicator_flags[check_type %in% rsf_check_types[type_class %in% view_flag_types,check_type] |
+                                           data_category %in% view_flag_types]
+}
+
+
+
+if (empty(cohort_indicator_flags)) { 
+return(NULL) 
+}
+
+cohort_indicator_flags[,indicator_html:=mapply(format_html_indicator,
+                                       indicator_name=indicator_name,
+                                       data_category=data_category,
+                                       data_type=data_type,
+                                       is_system=indicator_is_system,
+                                       is_calculated=indicator_is_calculated)]
+
+cohort_indicator_flags[,check_html:=mapply(format_html_check,
+                                   check_name=check_name,
+                                   check_class=check_class,
+                                   check_type=check_type,
+                                   is_subscribed=!(active_count==0), #to gray-out checks with zero activity; just formatting
+                                   is_system=check_is_system)]
+cohort_indicator_flags[,formula_html:=""]
+cohort_indicator_flags[indicator_is_calculated==TRUE &
+               formula_is_calculated==FALSE,
+               formula_title:="Formula Disabled"]
+
+cohort_indicator_flags[formula_is_calculated==TRUE,
+               formula_html:=mapply(format_html_indicator,
+                                    indicator_name=gsub("'","%39;",formula_title),
+                                    data_category=fcase(is_primary_default==TRUE,"formula",
+                                                        is_primary_default==FALSE,"customformula",
+                                                        default="none"),
+                                    data_type=data_type,
+                                    is_system=FALSE,
+                                    is_calculated=TRUE,
+                                    is_subscribed=TRUE,
+                                    id=indicator_formula_id)]
+
+cohort_indicator_flags[,
+               check_formula_html:=""]
+
+cohort_indicator_flags[is.na(check_formula_id)==FALSE &
+               nchar(check_formula_title)==0,
+               check_formula_title:="Untitled Check Formula"]
+
+cohort_indicator_flags[is.na(check_formula_id)==FALSE,
+               check_formula_html:=mapply(format_html_indicator,
+                                          indicator_name=gsub("'","%39;",check_formula_title),
+                                          data_category="formula",
+                                          data_type="",
+                                          is_system=FALSE,
+                                          is_calculated=FALSE,
+                                          is_subscribed=TRUE,
+                                          id=check_formula_id)]
+cohort_indicator_flags[,
+               check_display_html:=""]
+
+############
+cohort_indicator_flags[is.na(check_formula_id)==FALSE,
+               check_display_html:=mapply(format_html_indicator,
+                                          indicator_name=gsub("'","%39;",check_formula_title),
+                                          data_category=data_category,
+                                          data_type=data_type,
+                                          is_system=FALSE,
+                                          is_calculated=FALSE,
+                                          is_subscribed=TRUE,
+                                          id=check_formula_id)]
+
+#Check must be a system check
+cohort_indicator_flags[is.na(check_formula_id)==TRUE,
+               check_display_html:=mapply(format_html_indicator,
+                                          indicator_name=gsub("'","%39;",indicator_name),
+                                          data_category=data_category,
+                                          data_type=data_type,
+                                          is_system=FALSE,
+                                          is_calculated=FALSE,
+                                          is_subscribed=TRUE,
+                                          id=check_formula_id)]
+
+cohort_indicator_flags[is.na(check_formula_id)==TRUE & formula_is_calculated==TRUE,
+               check_display_html:=paste0(check_display_html,
+                                          mapply(format_html_indicator,
+                                                 indicator_name=gsub("'","%39;",formula_title),
+                                                 data_category=fcase(is_primary_default==TRUE,"formula",
+                                                                     is_primary_default==FALSE,"customformula",
+                                                                     default="none"),
                                                  data_type=data_type,
-                                                 is_system=indicator_is_system,
-                                                 is_calculated=indicator_is_calculated)]
-  
-  cohort_indicator_flags[,check_html:=mapply(format_html_check,
-                                             check_name=check_name,
-                                             check_class=check_class,
-                                             check_type=check_type,
-                                             is_subscribed=!(active_count==0), #to gray-out checks with zero activity; just formatting
-                                             is_system=check_is_system)]
-  cohort_indicator_flags[,formula_html:=""]
-  cohort_indicator_flags[indicator_is_calculated==TRUE &
-                         formula_is_calculated==FALSE,
-                         formula_title:="Formula Disabled"]
-  
-  cohort_indicator_flags[formula_is_calculated==TRUE,
-                         formula_html:=mapply(format_html_indicator,
-                                              indicator_name=gsub("'","%39;",formula_title),
-                                              data_category=fcase(is_primary_default==TRUE,"formula",
-                                                                  is_primary_default==FALSE,"customformula",
-                                                                  default="none"),
-                                              data_type=data_type,
-                                              is_system=FALSE,
-                                              is_calculated=TRUE,
-                                              is_subscribed=TRUE,
-                                              id=indicator_formula_id)]
-  
-  cohort_indicator_flags[,
-                         check_formula_html:=""]
-  
-  cohort_indicator_flags[is.na(check_formula_id)==FALSE &
-                         nchar(check_formula_title)==0,
-                         check_formula_title:="Untitled Check Formula"]
-  
-  cohort_indicator_flags[is.na(check_formula_id)==FALSE,
-                         check_formula_html:=mapply(format_html_indicator,
-                                                    indicator_name=gsub("'","%39;",check_formula_title),
-                                                    data_category="formula",
-                                                    data_type="",
-                                                    is_system=FALSE,
-                                                    is_calculated=FALSE,
-                                                    is_subscribed=TRUE,
-                                                    id=check_formula_id)]
-  cohort_indicator_flags[,
-                         check_display_html:=""]
-  
-  ############
-  cohort_indicator_flags[is.na(check_formula_id)==FALSE,
-                         check_display_html:=mapply(format_html_indicator,
-                                                    indicator_name=gsub("'","%39;",check_formula_title),
-                                                    data_category=data_category,
-                                                    data_type=data_type,
-                                                    is_system=FALSE,
-                                                    is_calculated=FALSE,
-                                                    is_subscribed=TRUE,
-                                                    id=check_formula_id)]
-  
-  #Check must be a system check
-  cohort_indicator_flags[is.na(check_formula_id)==TRUE,
-                         check_display_html:=mapply(format_html_indicator,
-                                                    indicator_name=gsub("'","%39;",indicator_name),
-                                                    data_category=data_category,
-                                                    data_type=data_type,
-                                                    is_system=FALSE,
-                                                    is_calculated=FALSE,
-                                                    is_subscribed=TRUE,
-                                                    id=check_formula_id)]
+                                                 is_system=FALSE,
+                                                 is_calculated=TRUE,
+                                                 is_subscribed=TRUE,
+                                                 id=indicator_formula_id))]                         
+setorder(cohort_indicator_flags,
+ pfcbl_category_rank,
+ check_rank,
+ check_name)
 
-  cohort_indicator_flags[is.na(check_formula_id)==TRUE & formula_is_calculated==TRUE,
-                         check_display_html:=paste0(check_display_html,
-                                                    mapply(format_html_indicator,
-                                                           indicator_name=gsub("'","%39;",formula_title),
-                                                           data_category=fcase(is_primary_default==TRUE,"formula",
-                                                                               is_primary_default==FALSE,"customformula",
-                                                                               default="none"),
-                                                           data_type=data_type,
-                                                           is_system=FALSE,
-                                                           is_calculated=TRUE,
-                                                           is_subscribed=TRUE,
-                                                           id=indicator_formula_id))]                         
-  setorder(cohort_indicator_flags,
-           pfcbl_category_rank,
-           check_rank,
-           check_name)
+cohort_indicator_flags[,action_review:=paste0("<div style='display:inline-block;'>
+<div onmousedown='event.stopPropagation();' style='display:inline-block;'>
+<i class='fas fa-eye icon-view pointer' 
+title='Review Flags' 
+onclick='Shiny.setInputValue(\"action_indicator_flags_review\",\"",indicator_flag_id,"\",{priority:\"event\"})' /></i>
+</div>
+</div")]
 
-  cohort_indicator_flags[,action_review:=paste0("<div style='display:inline-block;'>
-  <div onmousedown='event.stopPropagation();' style='display:inline-block;'>
-  <i class='fas fa-eye icon-view pointer' 
-  title='Review Flags' 
-  onclick='Shiny.setInputValue(\"action_indicator_flags_review\",\"",indicator_flag_id,"\",{priority:\"event\"})' /></i>
-  </div>
-  </div")]
-  
-  cohort_indicator_flags
-  
+cohort_indicator_flags
+
 }, ignoreNULL = FALSE)
 
-SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION <- eventReactive(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS(), {
-  if (is.null(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS())) return (NULL)                                                                    
-  if (empty(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS())) return (data.table(indicator_id=numeric(0),
+IMPORT_FLAGS_SELECTED_CLASSIFICATION <- eventReactive(IMPORT_FLAGS_SELECTED_SUMMARY(), {
+  if (is.null(IMPORT_FLAGS_SELECTED_SUMMARY())) return (NULL)                                                                    
+  if (empty(IMPORT_FLAGS_SELECTED_SUMMARY())) return (data.table(indicator_id=numeric(0),
                                                                            classification=character(0),
                                                                            indicator_name=character(0)))
 
-  flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERS()
+  flags <- IMPORT_FLAGS_SELECTED_SUMMARY()
   
   #will pull-in indicator subscriptions across the full family tree
   classification_indicators <- DBPOOL %>% dbGetQuery("
@@ -618,7 +708,7 @@ SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION <- eventReactive(SELECTED_COHORT_
     where sis.rsf_pfcbl_id = $1::int
       and sis.is_subscribed = true
       and ind.classification is not null",
-    params=list(SELECTED_IMPORT_COHORT_GROUP()$import_rsf_pfcbl_id))
+    params=list(IMPORT_SELECTED()$import_rsf_pfcbl_id))
   
   setDT(classification_indicators)
   
@@ -631,13 +721,13 @@ SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION <- eventReactive(SELECTED_COHORT_
 
 },ignoreNULL=TRUE)
 
-SELECTED_COHORT_INDICATOR_FLAGS_FILTERED <- eventReactive(c(input$cohort_view_flag_indicator_classifications,
-                                                            SELECTED_COHORT_INDICATOR_FLAGS_FILTERS()), {
-  flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERS()
+IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED <- eventReactive(c(input$cohort_view_flag_indicator_classifications,
+                                                  IMPORT_FLAGS_SELECTED_SUMMARY()), {
+  flags <- IMPORT_FLAGS_SELECTED_SUMMARY()
   filter <- input$cohort_view_flag_indicator_classifications
   
   if (isTruthy(filter)) {
-    indicator_classifications <- SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION()
+    indicator_classifications <- IMPORT_FLAGS_SELECTED_CLASSIFICATION()
     
     if (filter=="all") {
       flags <- flags[indicator_id %in% indicator_classifications$indicator_id |
@@ -653,10 +743,10 @@ SELECTED_COHORT_INDICATOR_FLAGS_FILTERED <- eventReactive(c(input$cohort_view_fl
   return (flags)
 })
 
-observeEvent(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS(), {
+observeEvent(IMPORT_FLAGS_SELECTED_SUMMARY(), {
   
-  if (empty(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS()) ||
-      empty(SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION())) {
+  if (empty(IMPORT_FLAGS_SELECTED_SUMMARY()) ||
+      empty(IMPORT_FLAGS_SELECTED_CLASSIFICATION())) {
     updateSelectizeInput(session=session,
                          inputId="cohort_view_flag_indicator_classifications",
                          choices = "",
@@ -664,7 +754,7 @@ observeEvent(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS(), {
                          options=list(placeholder="No priority indicator flags"))
   
   } else {
-    indicators <- SELECTED_COHORT_INDICATOR_FLAGS_CLASSIFICATION()
+    indicators <- IMPORT_FLAGS_SELECTED_CLASSIFICATION()
     indicators <- unique(indicators$indicator_name)
     class_choices <- c("",
                        `All Priority Flags`="all",
@@ -678,44 +768,19 @@ observeEvent(SELECTED_COHORT_INDICATOR_FLAGS_FILTERS(), {
   }
 },ignoreNULL=FALSE)
 
-observeEvent(SELECTED_IMPORT_COHORT_GROUP(), {
+observeEvent(IMPORT_SELECTED(), {
   
-  req(SELECTED_PROGRAM_ID())
-  
-  cohort <- SELECTED_IMPORT_COHORT_GROUP()
-
-  if (empty(cohort)) {
-    hideElement("dataset_review_header")
+  if (empty(IMPORT_SELECTED())) {
     current_panel <- input$datasetsTabset
-    
+    hideElement("dataset_review_header")
     #had selected a cohort and now have changed it (ie, changed by not by user click, but programmatic click)
-    if (isTruthy(current_panel) && current_panel=="review") { # && isTruthy(as.numeric(input$action_cohort_view))) {
-      
-      updateSelectizeInput(session=session,
-                           inputId="cohort_collection_selected_id",
-                           choices="",
-                           selected="")
-      
+    if (isTruthy(current_panel) && current_panel=="review") { 
+
       updateTabsetPanel(session=session,inputId="datasetsTabset",selected="list")
     }
   
   } else {
     showElement("dataset_review_header")
-    
-    cohorts <- COHORTS_LIST()[import_id==cohort$import_id]
- 
-    choices.selected <- cohort$import_cohort_date_group
-
-
-
-    choices <- setNames(cohorts$import_cohort_date_group,
-                        paste0(cohorts$reporting_asof_date_label," ",cohorts$entity_name,": ",cohort$source_name))
-
-    updateSelectizeInput(session=session,
-                         inputId="cohort_collection_selected_id",
-                         choices=choices,
-                         selected=choices.selected)
-    
     current_panel <- input$datasetsTabset
     
     if (!isTruthy(current_panel) || current_panel != "review") {
@@ -726,19 +791,26 @@ observeEvent(SELECTED_IMPORT_COHORT_GROUP(), {
 },ignoreNULL=FALSE,ignoreInit = TRUE,priority=10)
 
 
-observeEvent(SELECTED_COHORT_FLAGS(), {
-  flags_data <- SELECTED_COHORT_FLAGS()
+observeEvent(IMPORT_FLAGS_SELECTED(), {
+  flags_data <- IMPORT_FLAGS_SELECTED()
   
   if (is.null(flags_data)) return (NULL)
 
   {
-    view_data.choices <- c("")
+    view_data.choices <- c(`All`="ALL")
     view_data.selected <- ""
     if (any(flags_data$check_status=="active")) {
+      
       view_data.choices <- c(view_data.choices,`Active`="ACTIVE")
       view_data.selected <- "ACTIVE"
+      
+      if (any(flags_data$is_new_status==FALSE & flags_data$check_status=="active") &
+          !all(flags_data$is_new_status==TRUE)) {
+        view_data.choices <- c(view_data.choices,`New`="NEW")
+      } 
     }
     if (any(flags_data$check_status=="resolved")) view_data.choices <- c(view_data.choices,`Resolved`="RESOLVED")
+    
     if (empty(flags_data)) view_data.choices <- c(view_data.choices,`No Flags`="")
 
     updateSelectizeInput(session = session,
@@ -817,16 +889,23 @@ observeEvent(SELECTED_COHORT_FLAGS(), {
   }  
 }, ignoreNULL=FALSE, priority=100)
 
+observeEvent(IMPORT_LIST__REFRESH(), { 
+  
+  SERVER_SETUP_INDICATORS_LIST_REFRESH(SERVER_SETUP_INDICATORS_LIST_REFRESH()+1) #Datasets can create/affect/auto-subscribed and should be up-to-date
+                                                                                 #Will also trigger checks refresh
+  SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1) #Ensure new data is reflected in any reports.
+  
+},ignoreInit=TRUE)
 
 observeEvent(input$action_dataset_review_filter_clear, {
   
-  shinyjs::runjs(paste0("Shiny.setInputValue('action_cohort_view','',{priority:'event'})"))
+  shinyjs::runjs(paste0("Shiny.setInputValue('import_action_id_view','',{priority:'event'})"))
   
   updateTextInput(session=session,inputId="dataset_review_filter",value="")
 }, ignoreInit = TRUE)
 
 observeEvent(input$action_cohort_delete, {
-  delete_import_ids <- COHORTS_SELECTED()
+  delete_import_ids <- IMPORT_IDS_SELECTED()
   program_id <- SELECTED_PROGRAM_ID()
   
   tryCatch({
@@ -841,6 +920,7 @@ observeEvent(input$action_cohort_delete, {
        
        affected_ids <- DBPOOL %>% dbGetQuery("select distinct 
                                                 ri.import_rsf_pfcbl_id,
+                                                ri.reporting_asof_date,
                                                 ids.pfcbl_category_rank as pfcbl_rank,
                                                 ids.rsf_program_id,
                                                 ids.rsf_facility_id,
@@ -872,6 +952,8 @@ observeEvent(input$action_cohort_delete, {
                             params=list(paste0(delete_import_ids,collapse=","),
                                         USER_ID()))
        
+     
+       
        #If program doesnt exist after delete then it means we've deleted the entire program
        stillexists <- DBPOOL %>% dbGetQuery("select distinct ids.rsf_pfcbl_id as import_rsf_pfcbl_id
                                              from p_rsf.rsf_pfcbl_ids ids
@@ -893,9 +975,25 @@ observeEvent(input$action_cohort_delete, {
          
          
        }
+
+       affected_ids <- affected_ids[exists==TRUE,
+                                    .(limit_date=max(reporting_asof_date),
+                                      pfcbl_name=pfcbl_name[[1]]),
+                                    by=.(import_rsf_pfcbl_id)]
        
-       for (id in unique(affected_ids[exists==TRUE,import_rsf_pfcbl_id])) {
-         who <- unique(affected_ids[import_rsf_pfcbl_id==id,pfcbl_name])
+       for (rnum in 1:nrow(affected_ids)) {
+         
+         who <- affected_ids[rnum]
+         limit_date <- DBPOOL %>% dbGetQuery("select max(reporting_asof_date)::text as limit_date
+                                              from p_rsf.reporting_imports ri
+                                              where ri.import_rsf_pfcbl_id = $1::int
+                                                and ri.reporting_asof_date <= $2::date",
+                                             params=list(who$import_rsf_pfcbl_id,
+                                                         who$limit_date))
+         
+         if (empty(limit_date)) next;
+         
+         limit_date <- ymd(limit_date$limit_date)
          
          progress_status_message <- function(class,...) {
            dots <- list(...)
@@ -905,11 +1003,13 @@ observeEvent(input$action_cohort_delete, {
          }
          
          DBPOOL %>% rsf_program_calculate(rsf_indicators = RSF_INDICATORS(),
-                                          rsf_pfcbl_id.family = id,
+                                          rsf_pfcbl_id.family = who$import_rsf_pfcbl_id,
                                           for_import_id=NA,
+                                          calculate_future=FALSE,
+                                          reference_asof_date=limit_date,
                                           status_message=progress_status_message)
          
-         incProgress(amount=(0.30/length(affected_ids[exists==TRUE,import_rsf_pfcbl_id])),
+         incProgress(amount=(0.30/(1/nrow(affected_ids))),
                      message=paste0("Rechecking affected data . . . "))
 
          progress_status_message <- function(class,...) {
@@ -920,10 +1020,10 @@ observeEvent(input$action_cohort_delete, {
          }
 
          DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
-                                      rsf_pfcbl_id.family=id,
-                                      check_future=TRUE,
+                                      rsf_pfcbl_id.family=who$import_rsf_pfcbl_id,
+                                      check_future=FALSE,
+                                      reference_asof_date=limit_date,
                                       check_consolidation_threshold=NA,
-                                      reference_asof_date=NULL,
                                       status_message= progress_status_message)
        
        }
@@ -945,34 +1045,31 @@ observeEvent(input$action_cohort_delete, {
     
   })
   
-  COHORTS_SELECTED(c())
-  REFRESH_SELECTED_COHORT_DATA(REFRESH_SELECTED_COHORT_DATA()+1)
-  #LOAD_IMPORT(-(LOAD_IMPORT()-1)) #just to force a refresh.
+  IMPORT_IDS_SELECTED(c())
+  IMPORT_LIST__REFRESH(IMPORT_LIST__REFRESH()+1)
   
 },ignoreInit=TRUE,ignoreNULL=TRUE,priority = 100)
 
 #For deleting selected cohorts through checkboxes in datatable
-observeEvent(input$action_cohort_selected, {
-  action <- as.numeric(input$action_cohort_selected)
-  selected <- COHORTS_SELECTED()
+observeEvent(input$import_action_id_selected, {
+  action <- as.numeric(input$import_action_id_selected)
+  selected <- IMPORT_IDS_SELECTED()
   if (action %in% selected) selected <- selected[-which(action==selected)]
   else selected <- c(selected,action)
-  COHORTS_SELECTED(selected)
+  IMPORT_IDS_SELECTED(selected)
   
 },ignoreNULL = FALSE,ignoreInit = TRUE)
 
 
 #Dashboard button in Review Datasets panel
 observeEvent(input$cohort_action_dashboard, {
- 
-  # SERVER_DATASETS_COHORT_DASHBOARD(flags_filter = input$action_indicator_flags_review)
   
-  cohort_group <- SELECTED_IMPORT_COHORT_GROUP()
+  import <- IMPORT_SELECTED()
   
   if (empty(cohort_groupcohor)) return(NULL)
   
   
-  filtered_flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()
+  filtered_flags <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()
  
   for_indicator_names <- unique(filtered_flags$indicator_name)
   for_indicator_names <- c(for_indicator_names,":include:IDs")
@@ -983,14 +1080,14 @@ observeEvent(input$cohort_action_dashboard, {
   #dashboard_parameters$flags_display <- "active"
   dashboard_parameters$format_unchanged <- "black"
   
-  dashboard_parameters$name_filter <- unique(SELECTED_COHORT_FLAGS()[evaluation_id %in% unlist(filtered_flags$evaluation_ids),rsf_pfcbl_id])
+  dashboard_parameters$name_filter <- unique(IMPORT_FLAGS_SELECTED()[evaluation_id %in% unlist(filtered_flags$evaluation_ids),rsf_pfcbl_id])
   dashboard_parameters$format_pivot <- "DATA"
   
   if (length(dashboard_parameters$name_filter) <= length(for_indicator_names)) {
     dashboard_parameters$format_pivot <- "NAME"
   }
   
-  for_facility_sys_names <- SELECTED_PROGRAM_FACILITIES_LIST()[rsf_facility_id %in% cohort_group$rsf_facility_id,
+  for_facility_sys_names <- SELECTED_PROGRAM_FACILITIES_LIST()[rsf_facility_id %in% import$rsf_facility_id,
                                                              rsf_pfcbl_id]
   
   
@@ -1005,261 +1102,204 @@ observeEvent(input$cohort_action_dashboard, {
                                         report_title=ad_hoc_title,
                                         for_facility_sys_names=for_facility_sys_names,
                                         for_indicator_names=for_indicator_names,
-                                        for_asof_dates=cohort_group$cohort_asof_date,
+                                        for_asof_dates=import$reporting_asof_date,
                                         report_parameters=list(dashboard_parameters)))
   
 })
 
 
-#Review panel dataset selection outputs: source title, name, upload info, flag types and totals, download handlers....
-{
-  #Title for datasets review panel in "review tab"
-  output$datasets_review_title <- renderUI({
-    
-    cohort <- SELECTED_IMPORT_COHORT_GROUP()
-    if (!isTruthy(cohort)) return (HTML("Please select a dataset..."))
-    
-    cohort_flags <- SELECTED_COHORT_FLAGS()[check_status=="active"]
-    title_flags <- ""
-    if (!empty(cohort_flags)) {
-      
-      cohort_flags <- cohort_flags[check_rank==min(cohort_flags$check_rank),
-                                   .(checks=.N,
-                                     by=.(check_class))]
-      flag_class <- paste0("icon-",cohort_flags$check_class)
-      data_count <- cohort_flags$checks
-      
-      title_flags <- paste0("<div style='display:inline-block;font-size:12px;padding-left:5px;'><i class='fas fa-flag ",flag_class,"' title='Dataset Flags' data-count='",data_count,"'></i></div")
-    
-    }
-    
-    title <- div(style="display:inline-block;width:100%;padding-right:50px;",
-                 div(style="display:inline-block",paste0(cohort$import_id," ",toupper(cohort$pfcbl_category),": ",
-                                                         cohort$entity_name,
-                                                         " as-of ",cohort$cohort_asof_date)),
-                 div(style="display:inline-block;padding-left:10px;padding-right:10px;","|"),
-                 div(style="display:inline-block;",
-                     paste0('"',cohort$source_name,'"')),
-                 HTML(title_flags))
+#Title for datasets review panel in "review tab"
+output$datasets_review_title <- renderUI({
   
-    return (title)
+  import <- IMPORT_SELECTED()
+  if (!isTruthy(import)) return (HTML("Please select a dataset..."))
+  
+  flags <- IMPORT_FLAGS_SELECTED()[check_status=="active"]
+  title_flags <- ""
+  if (!empty(flags)) {
     
-  })
-  
-  output$cohort_view_reported_flags_active_total <- renderText({
-    #flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()
-    flags <- SELECTED_COHORT_FLAGS()
-    if (!isTruthy(flags) || empty(flags)) return (0)
-    return (nrow(flags[check_status=="active"]))
-  })
-  
-  output$cohort_view_reported_flags_resolved_total <- renderText({
-    flags <- SELECTED_COHORT_FLAGS()
-    if (!isTruthy(flags) || empty(flags)) return (0)
-    return (nrow(flags[check_status=="resolved"]))
-  })
-  
-  output$cohort_view_html_flags_active <- renderUI({
+    flags <- flags[check_rank==min(flags$check_rank),
+                                 .(checks=.N,
+                                   by=.(check_class))]
+    flag_class <- paste0("icon-",flags$check_class)
+    data_count <- flags$checks
     
-    flags <- SELECTED_COHORT_FLAGS()
-    if (is.null(flags) || empty(flags)) return (HTML("<div>0</div>"))
+    title_flags <- paste0("<div style='display:inline-block;font-size:12px;padding-left:5px;'><i class='fas fa-flag ",flag_class,"' title='Dataset Flags' data-count='",data_count,"'></i></div")
+  
+  }
+  
+  title <- div(style="display:inline-block;width:100%;padding-right:50px;",
+               div(style="display:inline-block",paste0(import$import_id," ",toupper(import$pfcbl_category),": ",
+                                                       import$entity_name,
+                                                       " as-of ",import$reporting_asof_date)),
+               div(style="display:inline-block;padding-left:10px;padding-right:10px;","|"),
+               div(style="display:inline-block;",
+                   paste0('"',import$source_name,'"')),
+               HTML(title_flags))
 
-    flags <- flags[check_status=="active"]
-    if (empty(flags)) return (HTML("<div>0</div>"))
-    
-    critical <- nrow(flags[check_class=="critical"])
-    errors <- nrow(flags[check_class=="error"])
-    warnings <- nrow(flags[check_class=="warning"])
-    info <- nrow(flags[check_class=="info"])
-    
-    html_critical <- ifelse(critical > 0,paste0("<i class = 'fas fa-fire icon-critical' data-count='",critical,"'></i>"),"") #only show if there's any
-    html_error <- ifelse(errors > 0,paste0("<i class='fas fa-times-circle icon-error' data-count='",errors,"'></i>"),"") #only show if there's any
-    html_warning <- ifelse(warnings > 0,paste0("<i class='fas fa-exclamation-triangle icon-warning' data-count='",warnings,"'></i>"),"") #only show if there's any
-    html_info <- ifelse(info > 0,paste0("<i class='fas fa-info-circle icon-info' data-count='",info,"'></i>"),"") #only show if there's any
-
-    html_flags <- paste0("
-                  <div style='display:inline-block;'>",
-                         html_critical,
-                         html_error,
-                         html_warning,
-                         html_info,
-                         "</div>")
-    
-    return(HTML(html_flags))
-  })
+  return (title)
   
-  output$cohort_view_html_flags_resolved <- renderUI({
-    
-    flags <- SELECTED_COHORT_FLAGS()
-    if (is.null(flags) || empty(flags)) return (HTML("<div>0</div>"))
-    
-    flags <- flags[check_status=="resolved"]
-    if (empty(flags)) return (HTML("<div>0</div>"))
-    
-    critical <- nrow(flags[check_class=="critical"])
-    errors <- nrow(flags[check_class=="error"])
-    warnings <- nrow(flags[check_class=="warning"])
-    info <- nrow(flags[check_class=="info"])
-    
-    html_critical <- ifelse(critical > 0,paste0("<i class = 'fas fa-fire icon-critical' data-count='",critical,"'></i>"),"") #only show if there's any
-    html_error <- ifelse(errors > 0,paste0("<i class='fas fa-times-circle icon-error' data-count='",errors,"'></i>"),"") #only show if there's any
-    html_warning <- ifelse(warnings > 0,paste0("<i class='fas fa-exclamation-triangle icon-warning' data-count='",warnings,"'></i>"),"") #only show if there's any
-    html_info <- ifelse(info > 0,paste0("<i class='fas fa-info-circle icon-info' data-count='",info,"'></i>"),"") #only show if there's any
-    
-    html_flags <- paste0("
-                  <div style='display:inline-block;'>",
-                         html_critical,
-                         html_error,
-                         html_warning,
-                         html_info,
-                         "</div>")
-    
-    return(HTML(html_flags))
-  })
-  
-  #Download the file that was uploaded
-  output$datasets_review_download_source_action <- downloadHandler(
-    filename = function() {
-     
-     cohort <- SELECTED_IMPORT_COHORT_GROUP()
-     cohort$source_name
-    },
-    content=function(file) {
+})
 
-      tryCatch({
-        cohort <- SELECTED_IMPORT_COHORT_GROUP()
-        withProgress(message="Downloading file",value=0.5, {
+output$cohort_view_reported_flags_active_total <- renderText({
+  
+  flags <- IMPORT_FLAGS_SELECTED()
+  if (!isTruthy(flags) || empty(flags)) return (0)
+  return (nrow(flags[check_status=="active"]))
+})
+
+output$cohort_view_reported_flags_resolved_total <- renderText({
+  flags <- IMPORT_FLAGS_SELECTED()
+  if (!isTruthy(flags) || empty(flags)) return (0)
+  return (nrow(flags[check_status=="resolved"]))
+})
+
+output$cohort_view_html_flags_active <- renderUI({
+  
+  flags <- IMPORT_FLAGS_SELECTED()
+  if (is.null(flags) || empty(flags)) return (HTML("<div>0</div>"))
+
+  flags <- flags[check_status=="active"]
+  if (empty(flags)) return (HTML("<div>0</div>"))
+  
+  critical <- nrow(flags[check_class=="critical"])
+  errors <- nrow(flags[check_class=="error"])
+  warnings <- nrow(flags[check_class=="warning"])
+  info <- nrow(flags[check_class=="info"])
+  
+  html_critical <- ifelse(critical > 0,paste0("<i class = 'fas fa-fire icon-critical' data-count='",critical,"'></i>"),"") #only show if there's any
+  html_error <- ifelse(errors > 0,paste0("<i class='fas fa-times-circle icon-error' data-count='",errors,"'></i>"),"") #only show if there's any
+  html_warning <- ifelse(warnings > 0,paste0("<i class='fas fa-exclamation-triangle icon-warning' data-count='",warnings,"'></i>"),"") #only show if there's any
+  html_info <- ifelse(info > 0,paste0("<i class='fas fa-info-circle icon-info' data-count='",info,"'></i>"),"") #only show if there's any
+
+  html_flags <- paste0("
+                <div style='display:inline-block;'>",
+                       html_critical,
+                       html_error,
+                       html_warning,
+                       html_info,
+                       "</div>")
+  
+  return(HTML(html_flags))
+})
+
+output$cohort_view_html_flags_resolved <- renderUI({
+  
+  flags <- IMPORT_FLAGS_SELECTED()
+  if (is.null(flags) || empty(flags)) return (HTML("<div>0</div>"))
+  
+  flags <- flags[check_status=="resolved"]
+  if (empty(flags)) return (HTML("<div>0</div>"))
+  
+  critical <- nrow(flags[check_class=="critical"])
+  errors <- nrow(flags[check_class=="error"])
+  warnings <- nrow(flags[check_class=="warning"])
+  info <- nrow(flags[check_class=="info"])
+  
+  html_critical <- ifelse(critical > 0,paste0("<i class = 'fas fa-fire icon-critical' data-count='",critical,"'></i>"),"") #only show if there's any
+  html_error <- ifelse(errors > 0,paste0("<i class='fas fa-times-circle icon-error' data-count='",errors,"'></i>"),"") #only show if there's any
+  html_warning <- ifelse(warnings > 0,paste0("<i class='fas fa-exclamation-triangle icon-warning' data-count='",warnings,"'></i>"),"") #only show if there's any
+  html_info <- ifelse(info > 0,paste0("<i class='fas fa-info-circle icon-info' data-count='",info,"'></i>"),"") #only show if there's any
+  
+  html_flags <- paste0("
+                <div style='display:inline-block;'>",
+                       html_critical,
+                       html_error,
+                       html_warning,
+                       html_info,
+                       "</div>")
+  
+  return(HTML(html_flags))
+})
+
+#Download the file that was uploaded
+output$datasets_review_download_source_action <- downloadHandler(
+  filename = function() {
+   
+   import <- IMPORT_SELECTED()
+   import$source_name
+  },
+  content=function(file) {
+
+    tryCatch({
+      import <- IMPORT_SELECTED()
+      withProgress(message="Downloading file",value=0.5, {
+        
+        outpath <- DBPOOL %>% db_import_download_file(import_id=import$import_id)
+        
+        if (!is.null(outpath)) {
+          #file.rename(from=outpath,to=file)
+          #print("Downloading file in output$datasets_review_download_source_action")
           
-          outpath <- DBPOOL %>% db_import_download_file(import_id=SELECTED_IMPORT_COHORT_GROUP()$import_id)
           
-          if (!is.null(outpath)) {
-            #file.rename(from=outpath,to=file)
-            #print("Downloading file in output$datasets_review_download_source_action")
-            
-            
-            file.copy(from=outpath,
-                      to=file,
-                      overwrite = TRUE)
-            
-            if (file.exists(outpath)) file.remove(outpath)
+          file.copy(from=outpath,
+                    to=file,
+                    overwrite = TRUE)
+          
+          if (file.exists(outpath)) file.remove(outpath)
 
-            if (isTruthy(as.logical(input$datasets_review_download_source_insert_flags))) {
+          if (isTruthy(as.logical(input$datasets_review_download_source_insert_flags))) {
+            
+            if (import$template_name=="IFC-QR-TEMPLATE2025") {
               
-              if (cohort$template_name=="IFC-QR-TEMPLATE2025") {
-                
-                flag_details <- SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS(unlist(SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()$evaluation_ids))
-  
-                flag_details <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()[,.(evaluation_id=unlist(evaluation_ids,recursive=FALSE)),
-                                                           by=.(indicator_id,indicator_check_id,check_name,check_class,check_type,check_formula_id,check_formula_title)
-                                                           ][flag_details,
-                                                             on=.(evaluation_id,
-                                                                  indicator_id)]
-                 if (!empty(flag_details)) {
-                   lookup <- db_export_get_template(pool=DBPOOL,
-                                                    template_name="IFC-QR-TEMPLATE2025")
-                   
-                   wbflags <- parse_template_IFC_QR2025(pool=DBPOOL,
-                                                        template_file=file,
-                                                        template_lookup=lookup,
-                                                        rsf_indicators=db_indicators_get_labels(DBPOOL),
-                                                        return.insert_flags=flag_details,
-                                                        return.next_date=NULL,
-                                                        status_message = function(...) {},
-                                                        CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
-                   
-                   wbflags$save(file=file,overwrite=TRUE)
-                 }
-                
-                
-              } else {
-                showNotification(type="error",
-                                 ui=h3("Insert flags is unavailable for this template, version '",cohort$template_name,"'"))
-              }
+              flag_details <- SERVER_DATASETS_REVIEW_FLAGS_QUERY_DETAILS(unlist(IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()$evaluation_ids))
+
+              flag_details <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()[,.(evaluation_id=unlist(evaluation_ids,recursive=FALSE)),
+                                                         by=.(indicator_id,indicator_check_id,check_name,check_class,check_type,check_formula_id,check_formula_title)
+                                                         ][flag_details,
+                                                           on=.(evaluation_id,
+                                                                indicator_id)]
+               if (!empty(flag_details)) {
+                 lookup <- db_export_get_template(pool=DBPOOL,
+                                                  template_name="IFC-QR-TEMPLATE2025")
+                 
+                 wbflags <- parse_template_IFC_QR2025(pool=DBPOOL,
+                                                      template_file=file,
+                                                      template_lookup=lookup,
+                                                      rsf_indicators=db_indicators_get_labels(DBPOOL),
+                                                      return.insert_flags=flag_details,
+                                                      return.next_date=NULL,
+                                                      status_message = function(...) {},
+                                                      CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
+                 
+                 wbflags$save(file=file,overwrite=TRUE)
+               }
+              
+              
+            } else {
+              showNotification(type="error",
+                               ui=h3("Insert flags is unavailable for this template, version '",cohort$template_name,"'"))
             }
-          }        
-          incProgress(amount=1.0,message="Completed")
-        })
-      },
-      error=function(e) { showNotification(type="error",
-                                           ui=h3(conditionMessage(e))); 
-        NULL
-      },
-      warning=function(w) { showNotification(type="error",
-                                             ui=h3(conditionMessage(w)));
-        NULL
+          }
+        }        
+        incProgress(amount=1.0,message="Completed")
       })
-    }
-  )
-  
-  #Download the file that was uploaded: with the flags inserted into the file
-  #WORK IN PROGRESS
-  # output$datasets_review_download_sourceflags_action <- downloadHandler(
-  #   filename = function() {
-  #     #selected_id <- input$cohort_collection_selected_id
-  #     
-  #     cohort <- SELECTED_IMPORT_COHORT_GROUP()
-  #     cohort$source_name
-  #   },
-  #   content=function(file) {
-  #     
-  #     withProgress(message="Downloading file",value=0.5, {
-  #       
-  #       cohort <- SELECTED_IMPORT_COHORT_GROUP()
-  #       
-  #       outpath <- DBPOOL %>% db_cohort_download_file(reporting_cohort_id=cohort$reporting_cohort_id)
-  #       
-  #       if (!is.null(outpath)) {
-  #         #file.rename(from=outpath,to=file)
-  #         #print("Downloading file in output$datasets_review_download_source_action")
-  #         file.copy(from=outpath,
-  #                   to=file,
-  #                   overwrite = TRUE)
-  #         if (file.exists(outpath)) file.remove(outpath)
-  #       } else {
-  #         linked_file <- DBPOOL %>% dbGetQuery("
-  #          select 
-  #           lrc.source_name,
-  #           lrc.reporting_cohort_id,
-  #           lrc.reporting_asof_date
-  #         from p_rsf.reporting_cohorts rc
-  #         inner join p_rsf.reporting_cohorts lrc on lrc.reporting_cohort_id = rc.linked_reporting_cohort_id
-  #         where rc.reporting_cohort_id = $1::int",
-  #                                              params=list(cohort$reporting_cohort_id))
-  #         
-  #         if (!empty(linked_file)) {
-  #           outpath <- DBPOOL %>% db_cohort_download_file(reporting_cohort_id=linked_file$reporting_cohort_id)
-  #           if (!is.null(outpath)) {
-  #             
-  #             file.copy(from=outpath,
-  #                       to=file,
-  #                       overwrite = TRUE)
-  #             if (file.exists(outpath)) file.remove(outpath)
-  #             
-  #           } else {
-  #             outpath <- NULL
-  #           }
-  #         }
-  #       }        
-  #       incProgress(amount=1.0,message="Completed")
-  #     })
-  #   }
-  # )
-  
-}
+    },
+    error=function(e) { showNotification(type="error",
+                                         ui=h3(conditionMessage(e))); 
+      NULL
+    },
+    warning=function(w) { showNotification(type="error",
+                                           ui=h3(conditionMessage(w)));
+      NULL
+    })
+  }
+)
+
 
 ####RENDER DATA TABLES####
 
 ###Summary of flags reported on dataset for bulk flags review and management 
 output$datasets_review_flags_summary <- DT::renderDataTable({
   
-  cohort_indicator_flags <- SELECTED_COHORT_INDICATOR_FLAGS_FILTERED()
+  cohort_indicator_flags <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()
   
   
   
   
   if (!isTruthy(cohort_indicator_flags)) {
     view_flags_data <- input$cohort_view_flagged_data
-    if (empty(SELECTED_COHORT_FLAGS())) {
+    if (empty(IMPORT_FLAGS_SELECTED())) {
       return (DT::datatable(data.frame(`Nothing`=paste0("This selection has no flags (no active and no resolved flags) at all")),
                             rownames=FALSE,
                             fillContainer = TRUE,
@@ -1325,7 +1365,7 @@ output$datasets_review_flags_summary <- DT::renderDataTable({
 
 ###MAIN LISTINGS on "Uploads Tab"
 output$list_reporting_cohorts <- DT::renderDataTable({
-  cohorts <- COHORTS_LIST()
+  cohorts <- IMPORTS_LIST()
   
   if (!isTruthy(cohorts) || all(is.na(cohorts))) return (DT::datatable(data.frame(Error="There is no data to display"),
                                                                        rownames=FALSE,
