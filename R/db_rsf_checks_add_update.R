@@ -97,7 +97,8 @@ db_rsf_checks_add_update <- function(pool,
   #dbBegin(conn);
   #dbRollback(conn);
   #poolReturn(conn)
-
+  
+  
 t20 <- Sys.time()  
   nx <- poolWithTransaction(pool,function(conn) {
     
@@ -291,7 +292,7 @@ t20 <- Sys.time()
             stop("_temp_add_checks failed to resolve data_id to apply flag.  see logs for details.")
           
         }
-    
+        }
           #x<-dbGetQuery(conn,"select tac.*,ind.indicator_name,ind.data_category,ids.pfcbl_category from _temp_add_checks tac inner join p_rsf.indicators ind on ind.indicator_id = tac.for_indicator_id inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = tac.rsf_pfcbl_id");setDT(x)
         {
           dbExecute(conn,"
@@ -356,8 +357,14 @@ t20 <- Sys.time()
             return (0);
           }
           
-          
-          
+        }
+    
+    
+          {
+          #IMPORTANT!
+          #_temp_add_checks variance is alraedy multiplied by 100 so variance of 0.8 is 0.8% not 80%
+          #and setup config variance is NOT multiplied by 100.
+          #Comparing these means config is *100 ONLY
           nx <- dbExecute(conn,"
                           insert into _temp_data_checks(data_id,
                       																	rsf_pfcbl_id,
@@ -394,7 +401,7 @@ t20 <- Sys.time()
                           	
                           	case 
                           	  when coalesce(tac.variance,0) < coalesce(scc.config_threshold,0) 
-                          	  then concat('Variance ',round(100*tac.variance,2),'% below threshold ',round(100*scc.config_threshold,2),'% Resolved [',ssc_vai.users_name,']: ',scc.config_comments)
+                          	  then concat('Variance ',round(tac.variance,2),'% below threshold ',round(scc.config_threshold,2),'% Resolved [',ssc_vai.users_name,']: ',scc.config_comments)
                           	  
                           	  when scc.config_auto_resolve is not null and scc.config_auto_resolve is true 
                           	  then concat('Auto Resolved [',ssc_vai.users_name,']: ',scc.config_comments)
@@ -478,7 +485,7 @@ t20 <- Sys.time()
         }
       
       nx    
-    }
+    
     })
   
   if(SYS_PRINT_TIMING) debugtime("db_rsf_checks_add_update","uploading"," in ",format(Sys.time()-t20))  

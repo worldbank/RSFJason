@@ -649,7 +649,7 @@ rsf_program_perform_calculations <- function(pool,
                                                                                     flags_current_unit,"}",
                                                                       ifelse(!is.na(current_data_sys_flags) &
                                                                                bitwAnd(current_data_sys_flags,SYS_FLAGS_CALCULATE_SYSTEM)==SYS_FLAGS_CALCULATE_SYSTEM,
-                                                                             " was tagged to request system correction",""),
+                                                                             " was tagged to accept this system correction",""),
                                                                       ' -> ',
                                                                       "System: {",ifelse(is.na(data_value),"MISSING",data_value),
                                                                                   flags_unit,"}"),
@@ -1025,6 +1025,8 @@ rsf_program_perform_calculations <- function(pool,
     variance_results[data_type=="date",
                      `:=`(data_value=as.numeric(ymd(data_value)),
                           current_data_value=as.numeric(ymd(current_data_value)))]
+    
+    #MULTIPLY BY 100 to NOW (and pass to checks_add_update)
     variance_results[,
                      variance:=abs(fcase(data_type=="percent",100*(as.numeric(current_data_value)-as.numeric(data_value)),  #Percentage points
                                          data_type=="date",(as.numeric(current_data_value)-as.numeric(data_value)),     #Date variance in days
@@ -1097,7 +1099,7 @@ rsf_program_perform_calculations <- function(pool,
                                              data_check_unit)]
   
     
-   
+    #if (any(calculation_flags$for_indicator_id == 1204,na.rm=T)) { browser() }
     #Moved here to upload flags associated with each round of current calculations
     #This can result in more uploads to rsf_data_checks (in smaller batches)
     #but, importantly, since the conflict data was introduced, we want any conflict data results to be available for formulas that query them on subsequent rounds.

@@ -1,8 +1,8 @@
 # 
-# reporting_current_date <- '2026-03-31'
-# indicator_id <-  157874
-# rsf_pfcbl_id.family <- 641110 
-#all_parameters <- F
+# reporting_current_date <- '2024-12-31'
+# indicator_id <-  43429
+# rsf_pfcbl_id.family <- 581130
+# all_parameters <- F
 #x<-rsf_indicators_calculate_do_test(pool,rsf_pfcbl_id.family,indicator_id,reporting_current_date,all_parameters=T)
 
 rsf_indicators_calculate_do_test <- function(pool,

@@ -539,7 +539,7 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
           (
             (scc.config_auto_resolve is true)
             or
-            (case when var.unit ~* 'days' then var.val::numeric else var.val::numeric/100 end < coalesce(scc.config_threshold,0))
+            (case when var.unit ~* 'days' then var.val::numeric else var.val::numeric end < coalesce(scc.config_threshold,0))
           )
       )
       update p_rsf.rsf_data_checks rdc
@@ -1127,8 +1127,16 @@ observeEvent(input$action_indicator_flags_review_save, {
                                           check_status_comment_updated,
                                           data_sys_flags=data_sys_flags)]
           
-          saved <-  DBPOOL %>% db_data_update_flags(user_id=USER_ID(),
-                                                    flags=update_flags)
+          saved <- tryCatch({
+            saved <-  DBPOOL %>% db_data_update_flags(user_id=USER_ID(),  
+                                                      flags=update_flags)
+          },error = function(e) {
+            showNotification(duration=NULL,ui=h3("This update could not be saved: ",conditionMessage(e)))
+          },warning = function(w) {
+            showNotification(duration=NULL,ui=h3("This update could not be saved: ",conditionMessage(w)))
+          })
+          
+                   
         }
         
         incProgress(amount=1.0,message="Completed")
