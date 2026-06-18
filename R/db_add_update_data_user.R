@@ -125,9 +125,10 @@ db_add_update_data_user <- function(pool,
   #dbBegin(conn)
   #dbRollback(conn)
   #dbExecute(conn,"drop table _temp_upload_rsf_data")
-  ###NEW 2025-10-23: Embedded indicator prioritization and cohort creation
+  
   errors <- NULL
   deleted_rows <- tryCatch({
+    
     poolWithTransaction(pool,function(conn) {
     
     #Create and upload temp tables
@@ -167,17 +168,25 @@ db_add_update_data_user <- function(pool,
         #x<-dbGetQuery(conn,"select * from _temp_upload_rsf_data")
         dbExecute(conn,"analyze _temp_upload_rsf_data")
         
-        dbExecute(conn,"
+        dbExecute(conn,"create index _tmp_seq_idx on _temp_upload_rsf_data(sequence_rank)");
+        
+        #Asign segments
+        {
+          #Reporting SEGMENTS will assign the data to a respective cohort for each reporting_asof_date and data at respective program,facility,client+ levels.
+          dbExecute(conn,"
           with segments as (
             select
-            dense_rank() over(partition by reporting.rsf_pfcbl_id,reporting_asof_date order by urd.reporting_asof_date asc,reporting.rsf_pfcbl_id asc) as reporting_segment,
+            dense_rank() over(partition by reporting.rsf_pfcbl_id,reporting_asof_date 
+                              order by 
+                              urd.reporting_asof_date asc,
+                              reporting.rsf_pfcbl_id asc) as reporting_segment,
             reporting.rsf_pfcbl_id as reporting_rsf_pfcbl_id,
             urd.rsf_pfcbl_id,
             urd.indicator_id,
             urd.reporting_asof_date
             from _temp_upload_rsf_data urd
             inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = urd.rsf_pfcbl_id
-            inner join lateral (select coalesce(ids.rsf_client_id,ids.rsf_facility_id,ids.rsf_program_id) as rsf_pfcbl_id) as reporting on true
+            inner join lateral (select coalesce(ids.rsf_facility_id,ids.rsf_program_id) as rsf_pfcbl_id) as reporting on true
           )
           update _temp_upload_rsf_data urd
           set reporting_segment = rs.reporting_segment,
@@ -186,78 +195,141 @@ db_add_update_data_user <- function(pool,
           where rs.rsf_pfcbl_id = urd.rsf_pfcbl_id
             and rs.indicator_id = urd.indicator_id
             and rs.reporting_asof_date = urd.reporting_asof_date")
-        
-        dbExecute(conn,"create index _tmp_seq_idx on _temp_upload_rsf_data(sequence_rank)");
-      }      
-      
-      #Priority 1: Entity local currency units: template$rsf_indicators[indicator_sys_category=="entity_local_currency_unit",indicator_id] (facility and program defined)
-      #Priority 2: Entity local currency units: template$rsf_indicators[indicator_sys_category=="entity_currency_unit",indicator_id] (generally loan defined, but could be others?)
-      #Priority 3: Everything else
-      
-      
-      
-      #current_sequence <- 1
-      #current_sequence <- 3
-      deletes <- c()
-      for (current_sequence in sort(unique(upload_data$sequence_rank))) {
-        
-        #This is ultimately the driver for sequencing uploads
-        #Currency-unit definitions are uploaded FIRST (and those are NOT "currency" data types).
-        #Therefore, this statement can only be executed for last-priority data
-        #What we're doing here is if an entity uploads, for example, "1000 EUR" and it's base currency unit (inherited or defined) is "EUR"
-        #Then we want to change it from "EUR" to "LCU" (and rsf_data_current will actually change it back again)
-        #This helps ensure the "meaningfully different" analysis works reliably for metrics that provide data units and users may enter "1000" that is normalized to "1000 LCU"
-        #And then alternatively enter "1000 EUR" and this will generate a change entry and updated data timeseries data point of "1000 LCU" and "1000 EUR" whenever the user enters
-        #the value differently.  This helps eliminate unintended timeseries junk data (this is emperically experienced with some frequency).
-        #
-        #This is also if any defined or local currency units CHANGE in the future (which empirically, we know is true), then we want the "1000 LCU" value to inherit
-        #The new base currency at the time of that change.  Eg, if in the future, base currency changes to USD and is reported "1050 USD" then we want to know that it's 
-        #1050 in the newly revised base currency.  (This circumstance happens very rarely....but has been observed).
-        
-        #But if we're uploading new base unit definitions, these must happen a-priori to updating the LCU unit.
-        if (!empty(upload_data[(sequence_rank==current_sequence) & (indicator_id %in% rsf_indicators[data_type %in% "currency",indicator_id])])) {
-          
-          dbExecute(conn,"
-          with updates as (
-            select 
-            urd.rsf_pfcbl_id,
-            urd.indicator_id,
-            urd.reporting_asof_date
-            from _temp_upload_rsf_data urd
-            inner join p_rsf.indicators ind on ind.indicator_id = urd.indicator_id
-            inner join lateral (select * 
-                                from p_rsf.rsf_data_current_lcu lcu
-            					          where lcu.for_rsf_pfcbl_id = urd.rsf_pfcbl_id
-            						          and lcu.reporting_asof_date <= urd.reporting_asof_date
-            					          order by lcu.reporting_asof_date desc
-            					          limit 1) as lcu on lcu.data_unit_value = urd.data_unit
-            where ind.data_type = 'currency'
-              and ind.data_unit = 'LCU'
-            	and urd.data_unit is not null
-            	and urd.data_unit <> 'LCU'
-            	and urd.sequence_rank = $1::int
-          )
-          update _temp_upload_rsf_data urd
-          set data_unit = 'LCU'
-          from updates up 
-          where up.rsf_pfcbl_id = urd.rsf_pfcbl_id
-            and up.indicator_id = urd.indicator_id
-          	and up.reporting_asof_date = urd.reporting_asof_date",
-                    params=list(current_sequence))
           
         }
         
-        dbExecute(conn,"
+        #NEW Update Entity local currency units based on what's been previously reported and waht is GOING to be reported
+        {
+          
+          dbExecute(conn,"
+            with new_currency_units as (
+            
+            -- all currency unit data that IS different than what is uploaded now
+            select 
+            urd.rsf_pfcbl_id,
+            urd.indicator_id,
+            urd.reporting_asof_date,
+            urd.data_value,
+            ind.data_category,
+            ind.pfcbl_rank,
+            ind.indicator_sys_category,
+            ind.indicator_name,
+            ind.indicator_sys_category = 'entity_currency_unit' as is_defined_lcu
+            from _temp_upload_rsf_data urd
+            inner join p_rsf.indicators ind on ind.indicator_id = urd.indicator_id
+            where ind.indicator_sys_category in ('entity_currency_unit','entity_local_currency_unit')
+             and p_rsf.data_value_is_meaningfully_different(input_rsf_pfcbl_id => urd.rsf_pfcbl_id,
+                                                            input_indicator_id => urd.indicator_id,
+                                                            input_reporting_asof_date => urd.reporting_asof_date,
+                                                            input_data_value => urd.data_value,
+                                                            input_data_unit => urd.data_unit,
+                                                            is_user_reporting => true) = true
+            ),
+            all_currency_units as (
+            
+              select 
+                NULL as lcu_unit_data_id,
+                ncu.rsf_pfcbl_id,
+                ncu.reporting_asof_date, -- remember! Some datasets may upload future/historic data that is not the same as template reporting date
+                ncu.data_value,
+                ncu.is_defined_lcu
+              from new_currency_units ncu
+            
+            union all 
+            
+              -- these are existing data already in the database, so query all urd.rsf_pfcbl_ids
+              
+              select 
+                lcu.lcu_unit_data_id,
+                lcu.for_rsf_pfcbl_id as rsf_pfcbl_id,
+                lcu.reporting_asof_date,
+                lcu.data_unit_value as data_value,
+                lcu.is_defined_lcu
+              from p_rsf.rsf_data_current_lcu lcu
+              where exists(select * from _temp_upload_rsf_data urd where urd.rsf_pfcbl_id = lcu.for_rsf_pfcbl_id)
+              
+            ),
+            selected_currency_units as (
+            
+              select distinct on (ids.rsf_pfcbl_id,greatest(acu.reporting_asof_date,ids.created_in_reporting_asof_date))
+                acu.lcu_unit_data_id,
+                ids.rsf_pfcbl_id as for_rsf_pfcbl_id,
+                greatest(acu.reporting_asof_date,ids.created_in_reporting_asof_date) as reporting_asof_date,
+                acu.data_value as data_unit_value,
+                ft.to_pfcbl_rank as data_id_pfcbl_rank,
+                acu.is_defined_lcu
+              from all_currency_units acu
+              inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = acu.rsf_pfcbl_id
+              inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = ids.rsf_pfcbl_id
+              
+              where ft.pfcbl_hierarchy <> 'child'
+                and acu.data_value is distinct from 'LCU'  -- don't include generic LCU, ie, undefined values
+                and acu.data_value is not null             -- dot unclude undefiend values
+              
+              order by 
+                ids.rsf_pfcbl_id, -- unique by entity 
+                greatest(acu.reporting_asof_date,ids.created_in_reporting_asof_date), -- if its before it was created, use created date
+                acu.is_defined_lcu desc, -- prioritize entity defined currency over generic local currency unity (parent)
+                acu.reporting_asof_date desc,  -- if there's no defined unit and there are multiple parent local units, prioritize the most recent one
+                ft.to_pfcbl_rank desc, -- prioritize the most localist ie, facility over program
+                acu.lcu_unit_data_id is null desc -- prioritize new information
+              ),
+            updates as (
+              select 
+                urd.data_unit as reported_unit,
+                ind.data_unit as indicator_unit,
+                lcu.data_unit_value,
+                ind.indicator_name,
+                urd.inserted_row_number
+              from _temp_upload_rsf_data urd
+              inner join p_rsf.indicators ind on ind.indicator_id = urd.indicator_id
+              left join lateral (select scu.data_unit_value
+                                 from selected_currency_units scu
+                                 where scu.for_rsf_pfcbl_id = urd.rsf_pfcbl_id
+                                   and scu.reporting_asof_date <= urd.reporting_asof_date
+                                 order by scu.reporting_asof_date desc
+                                 limit 1) as lcu on true 
+              where ind.data_type = 'currency'
+                and ind.data_unit = 'LCU'
+                --and ind.data_unit is distinct from urd.data_unit
+                and urd.data_unit is distinct from 'LCU'
+                and urd.data_unit is not distinct from lcu.data_unit_value  -- eg, urd.'EUR' is not distct from lcu.'EUR' -> set to 'LCU'
+            )
+            update _temp_upload_rsf_data urd
+            set data_submitted = coalesce(urd.data_submitted,p_rsf.rsf_data_value_unit(urd.data_value,urd.data_unit)),
+                data_unit = 'LCU'
+            from updates
+            where updates.inserted_row_number = urd.inserted_row_number")
+          
+        }
+        
+        #Insert required fx_unit_indicator_id indicators and values when template is not reporting these but only reporting defined currencies
+        {
+          #For example, if there's facility_maximum_risk_amount and facility_maximum_risk_amount_USD
+          #Then the _USD metric is governed by the LCU metric via its unit_fx_indicator_id setting
+          #Here, if the template data upload is reporting on facility_maximum_risk_amount_USD and NOT on facility_maximum_risk_amount
+          #then, add the facility_maximum_risk_amount into the upload to ensure that facility_maximum_risk_amount_USD actually has
+          #its governing metric available to govern its fx.
+          #
+          #Distinct on() to prefer governing indicator to be in LCU terms.  This can be an issue if template is reporting
+          #facility_maximum_risk_amount_USD and facility_maximum_risk_amount_EUR and NOT facility_maximum_risk_amount (governer) but
+          #facility's LCU is in USD. Therefore, we want to insert and subscribe to facility_maximum_risk_amount and we want its value to be the
+          #reported facility_maximum_risk_amount_USD (the LCU term) and not facility_maximum_risk_amount_EUR
+          dbExecute(conn,"
           insert into _temp_upload_rsf_data(sequence_rank,
                                             rsf_pfcbl_id,
-                                            indicator_id,
-                                            reporting_asof_date,
-                                            data_value,
-                                            data_unit,
+                                            indicator_id,           -- inserting the governing indicator_id
+                                            reporting_asof_date,    -- for the same date
+                                            data_value,             -- with the same value
+                                            data_unit,              -- with a unit that preferres LCU but since defined fx indicators must have LCU data unit
+                                                                    -- they are allowed to have any abitrary unit. But if template is submitting repeats of
+                                                                    -- the same metric in different units (which is done with some frequency) then insert
+                                                                    -- the governing value and unit as the LCU value over a defined value.
                                             data_submitted,
                                             reporting_rsf_pfcbl_id,
                                             reporting_cohort_id,
                                             reporting_segment)
+                                            
           select distinct on(urd.rsf_pfcbl_id,
                              fx_defined.unit_fx_indicator_id,
                              urd.reporting_asof_date)
@@ -272,52 +344,117 @@ db_add_update_data_user <- function(pool,
             urd.reporting_cohort_id,
             urd.reporting_segment
           from _temp_upload_rsf_data urd
+          
+          -- get all indicators with an fx_defined indicator_id
           inner join p_rsf.indicators fx_defined on fx_defined.indicator_id = urd.indicator_id
-          left join _temp_upload_rsf_data d_urd on d_urd.rsf_pfcbl_id = urd.rsf_pfcbl_id
-                                               and d_urd.indicator_id = fx_defined.unit_fx_indicator_id
-                                               and d_urd.reporting_asof_date = urd.reporting_asof_date
-                                               and d_urd.reporting_segment = urd.reporting_segment
-          left join lateral (select lcu.data_unit_value
-                             from p_rsf.rsf_data_current_lcu lcu
-                             where lcu.for_rsf_pfcbl_id = urd.rsf_pfcbl_id
-                               and lcu.reporting_asof_date <= urd.reporting_asof_date
-                             order by lcu.reporting_asof_date desc
-                             limit 1) as lcu on true           
-          where urd.sequence_rank = $1::int 
-            and fx_defined.unit_fx_indicator_id is not null
-            and d_urd.inserted_row_number is NULL -- repoted a defined FX indicator but not a value for its governing indicator
+                                                and fx_defined.unit_fx_indicator_id is not null
+
+           -- uploaded data corresponding to fx_unit_indicator IDs that are required.                                                                             
+           -- not exists: repoted a defined FX indicator but not a value for its governing indicator                             
+          where not exists(select true
+                           from _temp_upload_rsf_data d_urd 
+                           where d_urd.rsf_pfcbl_id = urd.rsf_pfcbl_id
+                             and d_urd.indicator_id = fx_defined.unit_fx_indicator_id
+                             and d_urd.reporting_asof_date = urd.reporting_asof_date
+                             and d_urd.reporting_segment = urd.reporting_segment)
           order by 
-            urd.rsf_pfcbl_id,
-            fx_defined.unit_fx_indicator_id,
-            urd.reporting_asof_date,
-            urd.data_unit is not distinct from lcu.data_unit_value desc,
-            urd.inserted_row_number asc",
-          params=list(current_sequence))
+            urd.rsf_pfcbl_id,                 -- for each entity
+            fx_defined.unit_fx_indicator_id,  -- and each defined fx indicator thats missing a governor
+            urd.reporting_asof_date,          -- for each date being reported
+            urd.data_unit is not distinct from 'LCU' desc,  -- prioritize: Data unit equals LCU unit (Remember: we've already set units=LCU where applicable as of this update), 
+                                                            -- eg facility_maximum_risk_amount_USD is reported AND USD is its LCU
+            urd.inserted_row_number asc                     -- prioritize: first come first serve
+          ")
+        }
         
-        current_deletes <- dbGetQuery(conn,"
-                              delete from _temp_upload_rsf_data urd
-                              where urd.sequence_rank = $1::int
-                                and p_rsf.data_value_is_meaningfully_different(input_rsf_pfcbl_id => urd.rsf_pfcbl_id,
-                                                      													input_indicator_id => urd.indicator_id,
-                                                      													input_reporting_asof_date => urd.reporting_asof_date,
-                                                      													input_data_value => urd.data_value,
-                                                                                input_data_unit => urd.data_unit,
-                                                                                is_user_reporting => true) = false
-                              returning inserted_row_number;",
-                             params=list(current_sequence))
+      }      
+     
+      #obsolete!
+      {
+        #Priority 1: Entity local currency units: template$rsf_indicators[indicator_sys_category=="entity_local_currency_unit",indicator_id] (facility and program defined)
+        #Priority 2: Entity local currency units: template$rsf_indicators[indicator_sys_category=="entity_currency_unit",indicator_id] (generally loan defined, but could be others?)
+        #Priority 3: Everything else
         
-        deletes <- c(deletes,unlist(current_deletes,use.names = F))
         
+        
+        #current_sequence <- 1
+        #current_sequence <- 2
+        #current_sequence <- 3
+        
+        #for (current_sequence in sort(unique(upload_data$sequence_rank))) {
+          
+          #This is ultimately the driver for sequencing uploads
+          #Currency-unit definitions are uploaded FIRST (and those are NOT "currency" data types).
+          #Therefore, this statement can only be executed for last-priority data
+          #What we're doing here is if an entity uploads, for example, "1000 EUR" and it's base currency unit (inherited or defined) is "EUR"
+          #Then we want to change it from "EUR" to "LCU" (and rsf_data_current will actually change it back again)
+          #This helps ensure the "meaningfully different" analysis works reliably for metrics that provide data units and users may enter "1000" that is normalized to "1000 LCU"
+          #And then alternatively enter "1000 EUR" and this will generate a change entry and updated data timeseries data point of "1000 LCU" and "1000 EUR" whenever the user enters
+          #the value differently.  This helps eliminate unintended timeseries junk data (this is emperically experienced with some frequency).
+          #
+          #This is also if any defined or local currency units CHANGE in the future (which empirically, we know is true, eg GHANA Cedi to Shillings), 
+          #then we want the "1000 LCU" value to inherit the new base currency at the time of that change.
+          #Eg, if in the future, base currency changes to USD and is reported "1050 USD" then we want to know that it's 
+          #1050 in the newly revised base currency.  (This circumstance happens very rarely....but has been observed).
+          
+          #But if we're uploading new base unit definitions, these must happen a-priori to updating the LCU unit.
+          #NOTE: As of today (2026), this is not observed in the dataset.  Ghana RSFs were retroactively corrected and historically re-uploaded to convert all Cedi to GHS artificially to maintain historical record for management report
+          # if (!empty(upload_data[(sequence_rank==current_sequence) & (indicator_id %in% rsf_indicators[data_type %in% "currency",indicator_id])])) {
+          #   
+          #   dbExecute(conn,"
+          #   with updates as (
+          #     select 
+          #     urd.rsf_pfcbl_id,
+          #     urd.indicator_id,
+          #     urd.reporting_asof_date
+          #     from _temp_upload_rsf_data urd
+          #     inner join p_rsf.indicators ind on ind.indicator_id = urd.indicator_id
+          #     inner join lateral (select * 
+          #                         from p_rsf.rsf_data_current_lcu lcu
+          #     					          where lcu.for_rsf_pfcbl_id = urd.rsf_pfcbl_id
+          #     						          and lcu.reporting_asof_date <= urd.reporting_asof_date
+          #     					          order by lcu.reporting_asof_date desc
+          #     					          limit 1) as lcu on lcu.data_unit_value = urd.data_unit
+          #     where ind.data_type = 'currency'
+          #       and ind.data_unit = 'LCU'
+          #     	and urd.data_unit is not null
+          #     	and urd.data_unit <> 'LCU'
+          #     	and urd.sequence_rank = $1::int
+          #   )
+          #   update _temp_upload_rsf_data urd
+          #   set data_unit = 'LCU'
+          #   from updates up 
+          #   where up.rsf_pfcbl_id = urd.rsf_pfcbl_id
+          #     and up.indicator_id = urd.indicator_id
+          #   	and up.reporting_asof_date = urd.reporting_asof_date",
+          #             params=list(current_sequence))
+          #   
+          # }
+      }        
+      
+      #delete where not meaningfully different 
+      {
+        deletes <- dbGetQuery(conn,"
+          delete from _temp_upload_rsf_data urd
+          where p_rsf.data_value_is_meaningfully_different(input_rsf_pfcbl_id => urd.rsf_pfcbl_id,
+                                  													input_indicator_id => urd.indicator_id,
+                                  													input_reporting_asof_date => urd.reporting_asof_date,
+                                  													input_data_value => urd.data_value,
+                                                            input_data_unit => urd.data_unit,
+                                                            is_user_reporting => true) = false
+          returning inserted_row_number;")
+          
+        deletes <- unlist(deletes,use.names = F)
+          
         has_data <- unlist(dbGetQuery(conn,"
-                                      select exists(select * from _temp_upload_rsf_data urd where sequence_rank = $1::int)::bool as has_data",
-                                      params=list(current_sequence)))
-        
-        if (has_data==FALSE) { next; }
-        
+                                      select exists(select true from _temp_upload_rsf_data urd)::bool as has_data"))
+          
+        if (has_data==FALSE) { return(c()) }
+      }
         #dbGetQuery(conn,"select distinct reporting_cohort_id,sequence_rank from _temp_upload_rsf_data")
         
-        
-        
+      #Insert the data (and add its reporting entity metric)  
+      {
         dbExecute(conn,"
           with reporting as (
             select distinct 
@@ -325,8 +462,7 @@ db_add_update_data_user <- function(pool,
             urd.reporting_asof_date,
             urd.reporting_segment
             from _temp_upload_rsf_data urd
-            where urd.reporting_cohort_id is null -- on sequence 1, all other reporting_rsf_pfcbl_ids of same date will also be updated in other sequences.
-              and urd.sequence_rank = $3::int
+            where urd.reporting_cohort_id is null
             order by reporting_segment
           ),
           cohorts as (
@@ -362,8 +498,7 @@ db_add_update_data_user <- function(pool,
             and urd.reporting_asof_date = cohorts.reporting_asof_date
             and urd.reporting_cohort_id is null",
           params=list(import_id,
-                      upload_user_id,
-                      current_sequence))
+                      upload_user_id))
         
         dbExecute(conn,"
           with reporting as (
@@ -372,14 +507,13 @@ db_add_update_data_user <- function(pool,
               ind.indicator_id,
               urd.reporting_asof_date,
               min(urd.reporting_cohort_id) as reporting_cohort_id,
-              ($2::int)::text as data_value,
-              'Reporting for import #' || $2::int as data_submitted,
+              ($1::int)::text as data_value,
+              'Reporting for import #' || $1::int as data_submitted,
               NULL::text as data_unit
             from _temp_upload_rsf_data urd
             inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = urd.rsf_pfcbl_id
             inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
                                            and ind.indicator_sys_category = 'entity_reporting'
-            where urd.sequence_rank = $1::int
             group by
               urd.rsf_pfcbl_id,
               ind.indicator_id,
@@ -401,7 +535,6 @@ db_add_update_data_user <- function(pool,
             urd.data_submitted,
             urd.data_unit
           from _temp_upload_rsf_data urd
-          where urd.sequence_rank = $1::int
                   
           union all
                   
@@ -413,35 +546,14 @@ db_add_update_data_user <- function(pool,
             rep.data_value,
             rep.data_submitted,
             rep.data_unit
-          from reporting rep
-          where not exists(select * from p_rsf.rsf_data rd
-                           where rd.rsf_pfcbl_id = rep.rsf_pfcbl_id
-                             and rd.indicator_id = rep.indicator_id
-                             and rd.reporting_asof_date = rep.reporting_asof_date
-                             and rd.reporting_cohort_id = rep.reporting_cohort_id) -- min reporting_cohort_id should be static for entire import_id
-                  ",
-          params=list(current_sequence,
-                      import_id))
+          from reporting rep",
+          params=list(import_id))
       }
-  
-      ###############
-      ###RSF_REPORTING
-      ################
-      #This is semi-deprecated and move above to insert each sequence (unless already present)
-      #The reason being there are various data triggers that look at presence in rsf_entity_reporting AND ALSO certain types of data
-      #so we ensure reporting is present for the very first data insert and/or all data inserts so that all data triggers will correctly verify presence.
-      
-      #These are all the entities that are *trying* to report
-      #But recall that Excel templates are just appending new updates and leaving old data.  So it's possible that some entities are reporting
-      #"present" this period with no changes.  But more likely entities with no changes are legacy reporting and should be ignored
-      #But since we don't know yet if any changes are present or not, create a provisional entry with -1 value that will either be updated later to actual 
-      #reported values (or zero).  If not, we'll delete this entity later as an irrelevant legacy entry.
-    
       
       return (deletes)
     }
     
-  })
+    })
   },
   error=function(e) {
     errors <<- e

@@ -202,7 +202,9 @@ rsf_program_check <- function(pool,
                                                          indicator_check_id,
                                                          check_formula_id,
                                                          check_asof_date,
-                                                         check_message)],
+                                                         check_message,
+                                                         variance=check_variance)],
+                             for_import_id=NA, #this is for sys checks related to the specific reporting template; not to the checks triggered by the data itself, here
                              consolidation_threshold=check_consolidation_threshold)
     
   }

@@ -141,15 +141,15 @@ observeEvent(input$indicator_review_facility_list, {
   dates <- NULL
   
   if (isTruthy(facility_ids)) {
-    dates <- DBPOOL %>% dbGetQuery("
-                                    select distinct
-                                      rpr.reporting_asof_date::text
-                                    from p_rsf.rsf_pfcbl_ids ids
-                                    inner join p_rsf.rsf_pfcbl_reporting rpr on rpr.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                    where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                      and rpr.reporting_asof_date <= now()::date",
-                                   params=list(paste0(facility_ids,collapse=",")))
     
+    dates <- DBPOOL %>% dbGetQuery("
+      select distinct
+        dates.valid_reporting_date::text as reporting_asof_date
+      from p_rsf.rsf_pfcbl_ids ids
+      inner join lateral p_rsf.rsf_pfcbl_generate_reporting_dates(v_rsf_pfcbl_id => ids.rsf_pfcbl_id) as dates on true
+      where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
+                                   params=list(paste0(facility_ids,collapse=",")))
+
     dates <- c("",sort(dates$reporting_asof_date))
   } else {
     

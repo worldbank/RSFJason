@@ -227,7 +227,9 @@ export_dashboard_view_to_excel <- function(pool,
                                              reporting_asof_date=export_cohort$exporting_asof_date,
                                              reporting_user=format_name_abbreviation(export_cohort$exporting_users_name),
                                              reporting_time=export_cohort$exporting_time,
-                                             reporting_notes=report_note,
+                                             reporting_notes=ifelse(is.na(export_cohort$export_name),
+                                                                    paste0("Data Extract #",export_cohort$exporting_cohort_id),
+                                                                    paste0(export_cohort$export_name,"#",export_cohort$exporting_cohort_id)),
                                              protect=NA)
   
 

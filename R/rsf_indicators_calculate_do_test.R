@@ -1,7 +1,7 @@
 # 
-# reporting_current_date <- '2024-12-31'
-# indicator_id <-  43429
-# rsf_pfcbl_id.family <- 581130
+# reporting_current_date <- '2026-03-31'
+# indicator_id <-  461
+# rsf_pfcbl_id.family <- 646260
 # all_parameters <- F
 #x<-rsf_indicators_calculate_do_test(pool,rsf_pfcbl_id.family,indicator_id,reporting_current_date,all_parameters=T)
 
@@ -20,7 +20,8 @@ rsf_indicators_calculate_do_test <- function(pool,
                         rsf_pfcbl_id.family=rsf_pfcbl_id.family,
                         for_import_id=NA,
                         calculate_future=FALSE,
-                        reference_asof_date=reporting_current_date)
+                        reference_asof_date=reporting_current_date,
+                        status_message=status_message)
   {
     status_message(paste0("Running test for SYSID=",paste0(rsf_pfcbl_id.family,collapse=",")," indicator_id=",indicator_id))
     

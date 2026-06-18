@@ -29,16 +29,55 @@ template_parse_process_and_upload <- function(pool,
 
     template_files <- paste0(dirname(template_files),.Platform$file.sep,manifest$filename)
     
+  } else if (length(template_files) > 1 && any(file_ext(template_files)=="zip")) {
+    
+    all_results <- NULL
+    template_files <- template_files[order(file_ext(template_files)=="zip",template_files)]
+    
+    for (tfz in template_files) {
+      
+      status_message(paste0("Bulk upload: ",tfz,"\n"))
+      ppu <- template_parse_process_and_upload(pool=pool,
+                                               reporting_user_id=reporting_user_id,
+                                               template_files=tfz,
+                                               source_note=source_note,
+                                               parse_rsf_pfcbl_id=parse_rsf_pfcbl_id,
+                                               email_report=email_report,
+                                               delete_after_upload=delete_after_upload,
+                                               status_message=status_message,
+                                               continue_on_error=FALSE,
+                                               delete_on_error=delete_on_error)
+      if (is.null(ppu)) {
+        
+        status_message(paste0("Successfully uploaded: \n",
+                              paste0(template_files[1:(which(template_files==ftz)-1)],collapse="\n")))
+        stop(paste0("Failed to upload ",tfz))
+      } else {
+        all_results[[length(all_results)+1]] <- ppu
+        ppu <- NULL
+      }
+    }
+    
+    return (rbindlist(all_results))
   }
   
   exists <- file.exists(template_files)
   if (!all(exists)) stop(paste0("File note found: ",template_files[!exists]))
   
-  template_files <- sort(template_files)
+  #if (any(grepl("^[[:punct:]]*\\d+",basename(template_files)))) {
+    ordered_files <- suppressWarnings(as.numeric(gsub("^[[:punct:][:space:]]*([[:digit:]\\.]+).*$","\\1",basename(template_files))))
+    versioned_files <- suppressWarnings(as.numeric(gsub("^.*[[:punct:][:space:]]+v([[:digit:]\\.]+).*$","\\1",basename(template_files))))
+    #subordered <- grepl("^[[:punct:]]*\\d+[[:punct:][:space:]]\\d+",basename(template_files))
+    
+    template_files <- template_files[order(ordered_files,versioned_files,template_files)]
+  #} else {
+    
+  #}
+  #template_files <- sort(template_files)
   ppu_results <- NULL
   
-  
   #tf <- template_files[[1]]
+  
   for (tf in template_files) {
     
     current_import_id <- NULL
@@ -54,6 +93,10 @@ template_parse_process_and_upload <- function(pool,
                             reporting_user_id=reporting_user_id,
                             source_note=source_note,
                             parse_rsf_pfcbl_id=parse_rsf_pfcbl_id,
+
+                            #Nope, changed my mind.  Let the system clean its self up on bulk uploads.  It's what a refresh is all about!                            
+                            # auto_delete_old_versions=(length(template_files)==1), #If we're uploading many files at once, assume its intentional to uplaod them all
+                            #                                                       #Or, alternatively, don't know which is which so don't assume and auto-delete wrong one.
                             status_message=status_message)
       },
       warning = function(w) {
@@ -241,8 +284,7 @@ template_parse_process_and_upload <- function(pool,
     file.remove(template_files)
   }
 
-  poolClose(pool)
-  pool <- NULL
+  
   
   return(ppu_results)
 }

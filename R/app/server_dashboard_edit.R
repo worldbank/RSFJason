@@ -535,12 +535,16 @@ observeEvent(input$action_server_dashboard__edit_save, {
     incProgress(amount=0.10,message="Uploading edits...")
 
     results <- tryCatch({
-      template_parse_process_and_upload(pool=dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]])),
+      ppu <- localPool <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
+      template_parse_process_and_upload(pool=localPool,
                                         reporting_user_id = USER_ID(),
                                         template_files=editing_filename,
                                         source_note="None",
                                         delete_on_error=FALSE,
                                         status_message=progress_status_message)
+      poolClose(localPool)
+      localPool <- NULL
+      ppu
     },
     warning=function(w) {
       showNotification(type="error",

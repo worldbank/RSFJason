@@ -43,7 +43,7 @@ export_dashboard_edits_to_excel <- function(pool,
                                             sheet_data_table_name="RSF_TEMPLATE_DATA",
                                             sheet_data=edits_dt,
                                             
-                                            header_name=export_cohort$program_name,
+                                            header_name=export_cohort$exporting_entity_name,
                                             
                                             template_key=TEMPLATE$template_key,
                                             report_key=export_cohort$reporting_key,
@@ -52,7 +52,9 @@ export_dashboard_edits_to_excel <- function(pool,
                                             reporting_asof_date=export_cohort$exporting_asof_date,
                                             reporting_user=format_name_abbreviation(export_cohort$exporting_users_name),
                                             reporting_time=as.character(export_cohort$exporting_time),
-                                            reporting_notes=report_note)
+                                            reporting_notes=ifelse(is.na(export_cohort$export_name),
+                                                                   paste0("Data Reporting #",export_cohort$exporting_cohort_id),
+                                                                   paste0(export_cohort$export_name,"#",export_cohort$exporting_cohort_id)))
   
   
   

@@ -64,7 +64,7 @@ template_set_data_match_rsf_ids <- function(pool,
       #setup current ranks and match data filters
       {
         #get first required lookup category, from parent-est to child-est
-        ranks <- template_match_data[is.na(rsf_pfcbl_id) | rsf_pfcbl_id <= 0,
+        ranks <- template_match_data[is.na(rsf_pfcbl_id) | rsf_pfcbl_id < 0,
                                      #is.na(match_action), #because match action can be "new" and therefore blank rsf_pfcbl_id
                                      unique(pfcbl_rank)]
         

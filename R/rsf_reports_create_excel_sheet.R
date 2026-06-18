@@ -77,16 +77,35 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
   #header[2,c(1,2)] <- c("Data Integrity Key",data_integrity_key)
   header[2,1] <- c(data_integrity_key)
   
+  
   header[3,c(1,2)] <- c("Entity",reporting_entity)
   header[4,c(1,2)] <- c("Data As-Of Date",reporting_asof_date)
   header[5,c(1,2)] <- c("Created By",reporting_user)
-  header[6,c(1,2)] <- c("Notes",reporting_notes)
+  header[6,c(1,2)] <- c("Reference",reporting_notes)
   header[7,c(1,2)] <- c("Time",reporting_time)
   
   header[1,3] <- header_name
   
   openxlsx::writeData(excelwb,sheet=sheet,x=header,colNames=FALSE,rowNames=FALSE,startCol=1,startRow=1)
+
+  if (grepl("#\\d+$",reporting_notes)) {
+    
+    reporting_id <- gsub("^.*#(\\d+)$","\\1",reporting_notes)
+    link_string <- makeHyperlinkString(
+      sheet = sheet, 
+      #row = 6, 
+      #col = 2,
+      text = reporting_notes, 
+      file = paste0("https://datanalytics-int.worldbank.org/rsf-prod/?report=",reporting_id)
+    )
+    openxlsx::writeFormula(excelwb,
+                           sheet=sheet,
+                           startRow=6,
+                           startCol=2,
+                           x = paste0('=HYPERLINK(\"',paste0("https://datanalytics-int.worldbank.org/rsf-prod/?report=",reporting_id),'\", "',reporting_notes,'")'))
+  } 
   
+    
   # createNamedRegion(excelwb,sheet=sheet,rows=1,cols=2,name=paste0(named_region_prefix,"REPORT_KEY"))
   # createNamedRegion(excelwb,sheet=sheet,rows=2,cols=2,name=paste0(named_region_prefix,"DATA_INTEGRITY_KEY"))
   createNamedRegion(excelwb,sheet=sheet,rows=1,cols=1,name=paste0(named_region_prefix,"REPORT_KEY"))

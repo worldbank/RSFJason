@@ -218,12 +218,16 @@ letters2numbers <- function(x){
   
 }
 
-format_asof_date_label <- function(asof_date) {
+format_asof_date_label <- function(asof_date,
+                                   add_month=T) {
   stopifnot(is.Date(asof_date))
-  
+  adl <- 
   paste0(year(asof_date),
-         'Q',lubridate::quarter(asof_date),
-         '-',as.character(lubridate::month(asof_date,label=T)))
+         'Q',lubridate::quarter(asof_date))
+  if (add_month) adl <- paste0(adl,
+                               '-',as.character(lubridate::month(asof_date,label=T)))
+  
+  adl
 }
 
 

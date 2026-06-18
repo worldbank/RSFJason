@@ -25,43 +25,40 @@ div(style="background-color:white;padding:10px;",
               tabPanel("Uploads List",value="list",
                        fluidRow(column(width=12,
                                        div(style="padding-top:5px;min-width:1200px",
-                                       DT::dataTableOutput(outputId="list_reporting_cohorts",width="100%"))))),
+                                       DT::dataTableOutput(outputId="list_reporting_cohorts",width="100%")))),
+                       fluidRow(column(width=12,
+                                       #shinyjs::hidden(
+                                       # downloadButton(outputId="server_datasets_import_action_id_download",
+                                       #                label="Download Template",
+                                       #                class="btn btn-success",
+                                       #                icon=icon("download"))
+                                       #)
+                                       #doesn't work when hidden.
+                                       
+                                       style="width:100%;display:flex;flex-flow:row wrap;margin-left:10px;margin-right:10px;",
+                                       
+                                       div(style="display:flex;flex-flow:row;",
+                                           div(style="display:flex;flex-flow:row",
+                                               downloadButton(outputId="server_datasets_import_action_id_download",
+                                                      label=NULL,
+                                                      class="btn btn-light btn-outline-light btn-sm",
+                                                      icon=NULL)),
+                                           div(style="display:flex;flex-flow:row;",
+                                               downloadButton(outputId="server_datasets_import_action_id_zeroversion",
+                                                              label=NULL,
+                                                              class="btn btn-light btn-outline-light btn-sm",
+                                                              icon=NULL)))
+                                       ))),
               
               #########################
               tabPanel("Dataset Review",value="review",
-                       # fluidRow(id="dataset_collections_select",
-                       #          style="padding-top:15px;",
-                       #          
-                       #   column(8,
-                       #          selectizeInput(inputId="cohort_collection_selected_id",
-                       #                label="Datasets Collection",
-                       #                choices=NULL,
-                       #                selected=NULL,
-                       #                options=list(placeholder="Select a dataset for review"),
-                       #                width="100%")),
-                       #   column(4,align="right",style="padding-top:25px;float:right;",
-                       #          div(style="display:flex;flex-flow:row nowrap;justify-content:flex-end;",
-                       #              div(style="display:flex;flex-grow:1;justify-content:flex-end;height:34px;padding-right:15px;",
-                       #            downloadButton(outputId="datasets_review_download_source_action",
-                       #                           label="Download Template",
-                       #                           class="btn btn-success",
-                       #                           icon=icon("download"))))
-                       #   )
-                       # ),
                        shinyjs::hidden(
                         fluidRow(id="dataset_review_header",
                           column(12,
-                                 fluidRow(style="background-color:cadetblue;",
-                                          column(8,
-                                                 div(style="width:100%;text-align:center;color:white;font-size:20px;",
-                                                 uiOutput(outputId="datasets_review_title"))),
-                                          column(4,align="right",style="padding-top:25px;float:right;",
-                                                 div(style="display:flex;flex-flow:row nowrap;justify-content:flex-end;",
-                                                     div(style="display:flex;flex-grow:1;justify-content:flex-end;height:34px;padding-right:15px;",
-                                                         downloadButton(outputId="datasets_review_download_source_action",
-                                                                        label="Download Template",
-                                                                        class="btn btn-success",
-                                                                        icon=icon("download")))))),
+                                 fluidRow(style="background-color:none;border-bottom:double black 4px;padding-top:15px;padding-bottom:10px;",
+                                          column(12,
+                                                 div(style="width:100%;text-align:center;color:brown;font-size:20px;",
+                                                 uiOutput(outputId="datasets_review_title")))),
                                  ##FILTERS
                                  fluidRow(style="padding-top:5px;background-color:whitesmoke;",
                                           
@@ -122,24 +119,24 @@ div(style="background-color:white;padding:10px;",
                                        div(style="display:flex;text-align:center;flex-grow:1;flex-flow:row nowrap;",
                                            div(" ")
                                        ),
-                                       div(style="display:flex;min-width:120px;text-align:center;flex-flow:row nowrap;margin-right:10px;",
-                                         div(style="display:flex;text-align:center;flex-flow:column nowrap;",
-                                                     div(tags$label(
-                                                       div(style="display:flex;flex-flow:row nowrap",
-                                                           "Active Flags: ",
-                                                           textOutput(outputId="cohort_view_reported_flags_active_total",inline=TRUE)))),
-                                                     div(style='text-align:center',
-                                                             htmlOutput(outputId="cohort_view_html_flags_active",inline=TRUE)))
-                                       ),
-                                       div(style="display:flex;min-width:120px;text-align:center;flex-flow:row nowrap;margin-right:10px;",
-                                         div(style="display:flex;text-align:center;flex-flow:column nowrap;",
-                                             div(tags$label(
-                                               div(style="display:flex;flex-flow:row nowrap",
-                                                   "Resolved Flags: ",
-                                                   textOutput(outputId="cohort_view_reported_flags_resolved_total",inline=TRUE)))),
-                                            div(style='text-align:center',
-                                                htmlOutput(outputId="cohort_view_html_flags_resolved",inline=TRUE)))
-                                       ),
+                                       # div(style="display:flex;min-width:120px;text-align:center;flex-flow:row nowrap;margin-right:10px;",
+                                       #   div(style="display:flex;text-align:center;flex-flow:column nowrap;",
+                                       #               div(tags$label(
+                                       #                 div(style="display:flex;flex-flow:row nowrap",
+                                       #                     "Active Flags: ",
+                                       #                     textOutput(outputId="cohort_view_reported_flags_active_total",inline=TRUE)))),
+                                       #               div(style='text-align:center',
+                                       #                       htmlOutput(outputId="cohort_view_html_flags_active",inline=TRUE)))
+                                       # ),
+                                       # div(style="display:flex;min-width:120px;text-align:center;flex-flow:row nowrap;margin-right:10px;",
+                                       #   div(style="display:flex;text-align:center;flex-flow:column nowrap;",
+                                       #       div(tags$label(
+                                       #         div(style="display:flex;flex-flow:row nowrap",
+                                       #             "Resolved Flags: ",
+                                       #             textOutput(outputId="cohort_view_reported_flags_resolved_total",inline=TRUE)))),
+                                       #      div(style='text-align:center',
+                                       #          htmlOutput(outputId="cohort_view_html_flags_resolved",inline=TRUE)))
+                                       # ),
                                        
                                        div(style="display:flex;min-width:120px;text-align:center;flex-flow:row nowrap;margin-right:10px;",
                                            div(style="margin-top:25px;",

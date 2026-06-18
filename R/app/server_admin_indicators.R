@@ -192,7 +192,14 @@ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR <- eventReactive(c(RSF_INDICAT
     
     labels <- labels[label_key != "SYS"] #This is the indicator system name, not a label for user purposes.
     
+    currency_affected <- DBPOOL %>% dbGetQuery("
+      select exists(select true from p_rsf.indicator_formula_parameters ifp
+                    inner join p_rsf.indicators pind on pind.indicator_id = ifp.parameter_indicator_id
+                    where pind.data_type = 'currency'
+                      and ifp.indicator_id = $1::int)::bool as is_currency_affected
+    ",params=list(selected_indicator_id))
     
+    selected_indicator[,is_currency_affected:=as.logical(unlist(currency_affected))]
     
     formulas <- DBPOOL %>% dbGetQuery("
       select 
@@ -212,6 +219,7 @@ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR <- eventReactive(c(RSF_INDICAT
       
       from p_rsf.indicator_formulas indf
       inner join p_rsf.indicators ind on ind.indicator_id = indf.indicator_id
+      
       where indf.indicator_id = $1::int",
       params=list(selected_indicator$indicator_id))
     
@@ -246,22 +254,22 @@ indicator_type_unit_choices <- function(indicator_type,current_unit) {
   current_unit <- trimws(toupper(current_unit))
   
   if (indicator_type=="currency") unit_choices <- c(unit_choices,
-                                                    `Currency: LCU`="LCU",
-                                                    `Currency: USD`="USD",
-                                                    `Currency: EUR`="EUR",
-                                                    setNames(current_unit,paste0("Currency: ",current_unit)))
+                                                    `Currency LCU`="LCU",
+                                                    `Currency USD`="USD",
+                                                    `Currency EUR`="EUR",
+                                                    setNames(current_unit,paste0("Currency ",current_unit)))
   
   else if (indicator_type=="currency_ratio") unit_choices <- c(unit_choices,
-                                                               `FX: USD/LCU`="USD/LCU",
-                                                               `FX: EUR/LCU`="EUR/LCU",
-                                                               `FX: EUR/USD`="EUR/USD",
-                                                               setNames(current_unit,paste0("FX: ",current_unit)))
+                                                               `FX USD/LCU`="USD/LCU",
+                                                               `FX EUR/LCU`="EUR/LCU",
+                                                               `FX EUR/USD`="EUR/USD",
+                                                               setNames(current_unit,paste0("FX ",current_unit)))
   
   else if (indicator_type=="number") unit_choices <- c(unit_choices,
-                                                       `Time: Days`="DAYS",
-                                                       `Time: Months`="MONTHS",
-                                                       `Time: Years`="YEARS",
-                                                       setNames(current_unit,paste0("Custom: ",current_unit)))
+                                                       `Time Days`="DAYS",
+                                                       `Time Months`="MONTHS",
+                                                       `Time Years`="YEARS",
+                                                       setNames(current_unit,paste0("Custom ",current_unit)))
   
   unit_choices <- unique(unit_choices)
   
@@ -684,9 +692,9 @@ observeEvent(input$server_admin_indicators__save_indicator, {
   definition <- input$admin_system_edit_indicator_definition
   default_subscription <- as.logical(input$admin_system_edit_indicator_default_subscribed)
   
-  unit_fx_method <- input$admin_system_edit_indicator_unit_fx_method #calculation, parameter, fx
-  unit_fx_source <- input$admin_system_edit_indicator_unit_fx_source #facility vs global
-  unit_fx_indicator_id <- as.numeric(input$admin_system_edit_indicator_unit_fx_indicator_id) #for fixed-currency metrics, which parameter controls it.
+  unit_fx_method <- input$admin_system_edit_indicator__unit_fx_method #calculation, parameter, fx
+  unit_fx_source <- input$admin_system_edit_indicator__unit_fx_source #facility vs global
+  unit_fx_indicator_id <- as.numeric(input$admin_system_edit_indicator__unit_fx_indicator_id) #for fixed-currency metrics, which parameter controls it.
   
   if (data_type=="currency" & data_unit != "LCU") {
     if (!isTruthy(unit_fx_indicator_id)) {
@@ -893,6 +901,10 @@ observeEvent(input$server_admin_indicators__add_formula, {
   if (!isTruthy(selected_indicator)) return (NULL)
  #print(paste0("New formula click #",as.numeric(input$server_admin_indicators__add_formula)))
   
+  if (isTruthy(as.numeric(input$admin_system_edit_indicator__unit_fx_indicator_id))) {
+    return(showNotification(type="error",
+                            ui=h3("Failed to add formula because FX Indicator has been set and this indicator is controlled by that indicator's settings (including its formulas, if any)")))
+  }
   new_formula <- data.table(formula_overwrite="allow",
                             indicator_id=selected_indicator$indicator_id,
                             formula=as.character(NA),
@@ -1047,6 +1059,374 @@ output$admin_system_edit_indicator_default_UI <- renderUI({
   } 
 })
 
+output$admin_system_edit_indicator_fx_UI <- renderUI({ 
+  
+  indicator <- SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR()
+  indicator_type <- as.character(input$admin_system_edit_indicator_type)
+  indicator_unit <- as.character(input$admin_system_edit_indicator_type_unit)
+  unit_fx_indicator_id <- as.numeric(input$admin_system_edit_indicator__unit_fx_indicator_id)
+  
+  ui <- NULL
+  
+  unit_fx_indicator_id_ui <- NULL
+  unit_fx_method_source_ui <- NULL
+  
+  if (empty(indicator)) return (NULL)
+  
+  #Include FX indicator reference field:
+  #Only if it's a non-LCU currency indicator AND it has NO FORMULAS
+  if (isTruthy(indicator_type) && indicator_type=="currency" && isTruthy(indicator_unit) && indicator_unit != "LCU" &&
+      empty(SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS())) {
+    
+    allowed_indicators <- RSF_INDICATORS()[data_type=="currency" & 
+                                           data_unit=="LCU" & 
+                                           indicator_id != indicator$indicator_id &
+                                           data_category == indicator$data_category
+                                           ][order(indicator_name)][,.(indicator_id,indicator_name)]
+    allowed_indicators <- setNames(allowed_indicators$indicator_id,allowed_indicators$indicator_name)
+    unit_fx_indicator_id_ui <- div(style="display:flex;flex-direction:row;flex-grow:1;min-width:300px;padding-right:15px;",
+                                   selectizeInput(inputId="admin_system_edit_indicator__unit_fx_indicator_id",
+                                                  label="FX Indicator",
+                                                  selected=indicator$unit_fx_indicator_id,
+                                                  choices=allowed_indicators))  
+  } else {
+    shinyjs::runjs(paste0("Shiny.setInputValue('admin_system_edit_indicator__unit_fx_indicator_id','')"))
+  }
+  
+  unit_fx_indicator_id_is_calculated <- {
+    if (!isTruthy(unit_fx_indicator_id)) {
+      FALSE
+    } else {
+      has_calculations <- DBPOOL %>% dbGetQuery("select exists(select true from p_rsf.indicator_formulas indf where indf.indicator_id = $1::int)::bool",unit_fx_indicator_id)
+      has_calculations <- as.logical(unlist(has_calculations))
+      has_calculations
+    }
+  }
+  
+  if ( (indicator$is_currency_affected %in% TRUE) || #means is calculated and has parameters that are currency data types
+       (isTruthy(unit_fx_indicator_id) && unit_fx_indicator_id_is_calculated==FALSE) #It's set a unit FX indicator ID and THAT indicator is NOT calculated (if it is, that calculation's settings will apply)
+     ) {
+    unit_fx_method_source_ui <- div(style="display:flex;flex-direction:row;flex-grow:2",
+                                    div(style="display:flex;flex-direction:row;min-width:200px;",
+                                        selectizeInput(inputId="admin_system_edit_indicator__unit_fx_method",
+                                                       label="FX Method",
+                                                       choices=c(`Calculation Date`="calculation",
+                                                                 `Each Parameter's Date`="parameter",
+                                                                 `FX Rate Changed Date`="fx"),
+                                                       selected=indicator$unit_fx_method)),
+                                    div(style="display:flex;flex-direction:row;min-width:125px;padding-left:15px;",
+                                        selectizeInput(inputId="admin_system_edit_indicator__unit_fx_source",
+                                                       label="FX Source",
+                                                       choices=c(Default="default",
+                                                                 Global="global"),
+                                                       selected=indicator$unit_fx_source)))
+  } else {
+    shinyjs::runjs(paste0("Shiny.setInputValue('admin_system_edit_indicator__unit_fx_method','')"))
+    shinyjs::runjs(paste0("Shiny.setInputValue('admin_system_edit_indicator__unit_fx_source','')"))
+  }
+
+  if (!is.null(unit_fx_indicator_id_ui) || !is.null(unit_fx_method_source_ui)) {
+    ui <- fluidRow(column(12,style="width:100%;display:flex;flex-direction:row;flex-wrap:nowrap;",
+                          unit_fx_indicator_id_ui,
+                          unit_fx_method_source_ui))
+  }
+  
+  return (ui)
+  
+})
+
+#MAIN UI
+output$admin_system_edit_indicator <- renderUI({
+  
+  indicator <- req(SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR())
+  formulas <- isolate({ SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS() })    #not reactive: don't want to refresh when modules make updates or add new.
+  labels <- isolate({ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR_LABELS() }) #not reactive: don't want to refresh when modules make updates or add new.
+  pending <- isolate({ SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING() })
+  
+  if (!isTruthy(pending)) pending <- 0
+  
+  #print(paste0("admin_system_edit_indicator called: ",indicator$indicator_id))
+  
+  if (!isTruthy(indicator) || empty(indicator)) return (h2("Please select an indicator to edit"))
+  
+  #If we add/edit/delete labels, we don't want to redraw the UI.  Only redraw when selected system indicator changes.
+  
+  
+  
+  keys_list <- SYSTEM_ALL_LABEL_KEYS_LIST()
+  
+  data_points <- DBPOOL %>% dbGetQuery("select coalesce(count(distinct data_id),0)::int as indicator_data
+                                        from p_rsf.rsf_data rd 
+                                        where rd.indicator_id=$1::int",
+                                       params=list(indicator$indicator_id))
+  
+  data_points <- unlist(data_points)
+  if (length(data_points)==0) data_points <- 0
+  editable <- data_points == 0
+  
+  
+  indicator_name <- indicator$indicator_name
+  indicator_name_label <- paste0("Indicator name may use only: upper and lower-case letters and numbers; and underscore punctiation. Names will be auto-formatted.")
+  secondary_labels <- paste0("One label per line.",
+                             "Enter alternate phrases, (mis)spellings or aliases associated with the primary label.",
+                             "These include permutations found in template files, including misspellings and typos, which the system will recognize and associate with this indicator.",
+                             "Deleting an entry could prevent the system from reading a template correctly. Modify with care.")
+  
+  data_type <- indicator$data_type
+  
+  selected_frequency <- as.logical(indicator$is_periodic_or_flow_reporting)
+  if (!isTruthy(selected_frequency)) selected_frequency <- FALSE
+  
+  selected_monitoring <- as.logical(indicator$default_subscription)
+  if (is.na(selected_monitoring)) selected_monitoring <- TRUE
+  
+  
+  category_choices <- c(Global="global",
+                        Program="program",
+                        Facility="facility",
+                        Client="client",
+                        Borrower="borrower",
+                        Loan="loan")
+  
+  type_choices <- c(Number="number",
+                    Currency="currency",
+                    `Currency Ratio`="currency_ratio",
+                    Percent="percent",
+                    Date="date",
+                    Text="text",
+                    `True/False`="logical")
+  
+  selected_category <- indicator$data_category
+  selected_type <- indicator$data_type
+  
+  options_group_id <- indicator$options_group_id
+  options_group_name <- indicator$options_group_name
+  
+  if (!isTruthy(options_group_id)) options_group_id <- -1
+  if (!isTruthy(options_group_name)) options_group_name <- '{ Not applicable }'
+  
+  selected_options_group_id <- options_group_id
+  
+  selected_unit <- toupper(indicator$data_unit)
+  if (!isTruthy(selected_unit)) selected_unit <- ""
+  
+  unit_choices <- indicator_type_unit_choices(indicator_type=data_type,
+                                              current_unit=selected_unit)
+  
+  addable_choices <- TRUE
+  if (isTruthy(selected_type) && selected_type=="currency" && !empty(formulas)) {
+    unit_choices <- c(`Currency LCU`="LCU")
+    addable_choices <- FALSE
+  }
+  
+  program_subscriptions <- DBPOOL %>% dbGetQuery("
+    select 
+      ids.rsf_program_id,
+      ids.rsf_pfcbl_id,
+      nids.rsf_name as name,
+      coalesce(pfi.is_subscribed,false) as is_subscribed
+    from p_rsf.rsf_pfcbl_ids ids
+    inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
+    left join p_rsf.rsf_setup_indicators pfi on pfi.rsf_pfcbl_id = ids.rsf_pfcbl_id
+    																									 and pfi.indicator_id = $1::int
+    where ids.pfcbl_category in ('global','program')",
+                                                 params=list(indicator$indicator_id))
+  
+  setDT(program_subscriptions)
+  
+  program_subscriptions[,class:="btn "]
+  program_subscriptions[is_subscribed==TRUE,
+                        class:=paste0(class,"btn-success")]
+  
+  program_subscriptions[is_subscribed==FALSE,
+                        class:=paste0(class,"btn-warning")]
+  
+  if (selected_type=="global") {
+    program_subscriptions <- program_subscriptions[rsf_program_id==0]
+  } else {
+    program_subscriptions <- program_subscriptions[rsf_program_id!=0]
+  }
+  
+  ps<-split(program_subscriptions,
+            by="rsf_program_id")
+  
+  ps <- lapply(ps,
+               function(x) {
+                 HTML(paste0('<button 
+                      id="indicator_admin_program_subscription_',x$rsf_program_id,'" 
+                      class="',paste0(x$class," action-button"),'" 
+                      onclick="',paste0("Shiny.setInputValue('indicator_admin_program_subscription',",x$rsf_program_id,",{priority:'event'})"),'">',
+                             x$name,"</button>"))
+               })
+  
+  program_subscriptions <- tagList(fluidRow(column(12,div(tagList(ps)))))
+  
+  definition <- indicator$definition
+  
+  label_headers <- fluidRow(align="left",
+                            column(2,style="width:150px;padding:0 3px 0 15px;",tags$label("For")),
+                            column(4,style="width:375px;padding:0 3px 0 3px;",tags$label("Primary Label")),
+                            column(4,style="width:375px;padding:0 3px 0 3px;",tags$label("Alternative Labels",style='margin:0px;',tags$i(class='fas fa-question icon-question',title=secondary_labels))),
+                            column(2,""))
+  ui_labels <- tagList()
+  ui_labels[[length(ui_labels)+1]] <- label_headers
+  
+  label_keys <- unique(labels$label_key) #Defaults to EN when not available
+
+  for (i in 1:length(label_keys)) {
+    lkey <- label_keys[i]
+    if (lkey=="SYS") next;
+    
+    ind_label <- labels[label_key==lkey] 
+    
+    id <- unique(ind_label$module_id)
+    
+    ui <- module_ui_system_indicator_label(id=ns(id),
+                                           label=ind_label,
+                                           keys_list=keys_list)
+    
+    ui_labels[[length(ui_labels)+1]] <- ui
+    module_session_system_indicator_label(id=ns(id),
+                                          module_id=id,
+                                          INDICATOR_LABELS=SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR_LABELS,
+                                          SERVER_ADMIN_INDICATORS.MODULES=SERVER_ADMIN_INDICATORS.MODULES)
+  }
+  
+  ui_formulas <- tagList()
+  if (!empty(formulas)) {
+    for (i in 1:nrow(formulas)) {
+      formula <- formulas[i]
+      id <- formula$module_id
+      ui <- server_admin_indicator_formulas.module_ui_indicator_formula(id=ns(id),
+                                                                        formula=as.list(formula),
+                                                                        rsf_indicators=RSF_INDICATORS())
+      ui_formulas[[length(ui_formulas)+1]] <- ui
+      
+      server_admin_indicator_formulas.module_session_indicator_formula(id=ns(id),
+                                                                       module_id=id,
+                                                                       pool=DBPOOL,
+                                                                       SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS=SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS,
+                                                                       SERVER_ADMIN_INDICATORS.MODULES=SERVER_ADMIN_INDICATORS.MODULES)
+    }
+  }
+  
+  limited <- NULL
+  if (!editable) limited <- fluidRow(style="padding-bottom:5px;",
+                                     column(12,div(style='padding_left:15px;',
+                                                   icon("exclamation-triangle",class="icon-orange"),
+                                                   paste0("Indicator has ",data_points," data points saved. Editing options that affect existing data are disabled."))))
+  
+  recalculate_pending <- div(id="server_admin_indicators__calculations_pending",
+                             actionButton(inputId="server_admin_indicators__recalculate_pending",
+                                          label=textOutput(outputId="server_admin_indicators__recalculate_count",inline = TRUE),
+                                          icon=icon("calculator"),
+                                          class="btn btn-warning"))
+  
+  if (pending==0) recalculate_pending <- hidden(recalculate_pending)
+  
+  ui <- div(style='width:1000px;background-color:gainsboro;padding:10px;margin: 0 auto;',
+            fluidRow(align="center",style="padding-top:5px;padding-bottom:5px;",column(12,uiOutput(outputId="admin_system_display_indicator_html_name"))),
+            limited,
+            fluidRow(column(12,textInput(inputId="admin_system_edit_indicator_name",
+                                         width="100%",
+                                         label = tags$label("Indicator Name",style='margin:0px;',tags$i(class='fas fa-question icon-question',title=indicator_name_label)),
+                                         value=indicator_name))
+            ),
+            fluidRow(align="center",
+                     column(3,align="left",
+                            enabled(state=editable,
+                                    selectizeInput(inputId="admin_system_edit_indicator_category",
+                                                   label = "Data Category",
+                                                   choices = category_choices,
+                                                   selected = selected_category,
+                                                   options = list(placeholder="Select...")))),
+                     column(2,align="left",
+                            enabled(state=editable,
+                                    selectizeInput(inputId="admin_system_edit_indicator_type",
+                                                   label = "Data Type",
+                                                   choices = type_choices,
+                                                   selected = selected_type,
+                                                   options = list(placeholder="Select...")))),
+                     column(3,align="left",
+                            enabled(state=editable & addable_choices,
+                                    selectizeInput(inputId="admin_system_edit_indicator_type_unit",
+                                                   label = "Data Unit",
+                                                   choices = unit_choices,
+                                                   selected = selected_unit,
+                                                   options = list(placeholder="{ Not applicable }",
+                                                                  create=addable_choices,
+                                                                  persist=TRUE)))),
+                     column(2,align="left",
+                            enabled(state=editable,
+                                    selectizeInput(inputId="admin_system_edit_indicator_data_frequency",
+                                                   label = "Data Frequency",
+                                                   choices = c('Normal'=FALSE,
+                                                               'Periodic'=TRUE),
+                                                   selected = selected_frequency,
+                                                   options = list(placeholder="Normal")))),
+                     column(2,align="left",
+                            selectizeInput(inputId="admin_system_edit_indicator_default_subscribed",
+                                           label="Monitoring",
+                                           selected=selected_monitoring,
+                                           choices=c("Auto"=TRUE,
+                                                     "RSF Setup"=FALSE)))
+            ),
+            uiOutput(outputId = "admin_system_edit_indicator_fx_UI"),
+            fluidRow(align="left",
+                     column(4,align="left",
+                            enabled(state=editable,
+                                    selectizeInput(inputId="admin_system_edit_indicator_options",
+                                                   label = "Choices Group",
+                                                   choices = setNames(options_group_id,options_group_name),
+                                                   selected = selected_options_group_id,
+                                                   options = list(placeholder="{ Not applicable }")))),
+                     column(4,align="left",
+                            uiOutput(outputId="admin_system_edit_indicator_default_UI")),
+                     column(4,align="left",
+                            uiOutput(outputId="admin_system_edit_indicator_options_UI"))
+            ),
+            fluidRow(align="left",style="padding-bottom:5px;",
+                     column(12,
+                            div(style="display:flex;flex-direction:row;",
+                                div(actionButton(inputId="server_admin_indicators__add_formula",
+                                                 label="Add Formula",
+                                                 icon=icon("plus-square"),
+                                                 class="btn btn-primary")),
+                                div(id="server_admin_indicators__quasi_calculation"),
+                                div(style="padding-left:20px;",recalculate_pending)),
+                            
+                            div(id="server_admin_indicators__formulas",style="padding-top:10px;",
+                                ui_formulas))),
+            fluidRow(align="left",
+                     column(12,
+                            textAreaInput(inputId="admin_system_edit_indicator_definition",rows="2",width="937px",label="Definition",value=definition))),
+            fluidRow(align="left",
+                     column(12,
+                            div(actionButton(inputId="server_admin_indicators__add_label",label="Add Label",icon=icon("puzzle-piece"),class="btn-primary btn-sm")),
+                            div(id="location_admin_system_edit_indicator_labels",ui_labels)
+                     )
+            ),
+            fluidRow(align="left",
+                     style='padding-bottom:5px;',
+                     column(12,div(tags$label("Programs monitoring this Indicator (Click to subscribe/unsubscribe)"),
+                                   program_subscriptions))
+            ),
+            #recalculate_ui,
+            fluidRow(style='padding-top:10px;',div(style='border-top:solid gray 1px;margin-left:10px;margin-right:10px;',
+                                                   column(6,align="left",style="padding-top:5px;",
+                                                          actionButton(inputId="server_admin_indicators__delete_prompt",
+                                                                       class="btn-danger",
+                                                                       label="Delete",
+                                                                       icon=icon("minus-circle"))
+                                                   ),
+                                                   column(6,align="right",style="padding-top:5px;",
+                                                          actionButton(inputId="server_admin_indicators__save_indicator",class="btn-success",label="Save",icon=icon("save")))))
+  )  
+  
+  return(ui)
+})
+
+
 observeEvent(input$indicator_admin_program_subscription, {
   
   withProgress(value=0.5,message = "Updating Program Indicator Monitoring...", {
@@ -1160,294 +1540,6 @@ output$server_admin_indicators__recalculate_count <- renderText({
   paste0("Recalculate ",SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING()," Pending")
 })
 
-output$admin_system_edit_indicator <- renderUI({
-  
-  indicator <- req(SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR())
-  formulas <- isolate({ SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS() })    #not reactive: don't want to refresh when modules make updates or add new.
-  labels <- isolate({ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR_LABELS() }) #not reactive: don't want to refresh when modules make updates or add new.
-  pending <- isolate({ SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING() })
-  
-  if (!isTruthy(pending)) pending <- 0
-  
-  #print(paste0("admin_system_edit_indicator called: ",indicator$indicator_id))
-  
-  if (!isTruthy(indicator) || empty(indicator)) return (h2("Please select an indicator to edit"))
-  
-  #If we add/edit/delete labels, we don't want to redraw the UI.  Only redraw when selected system indicator changes.
-  
-  
-  
-  keys_list <- SYSTEM_ALL_LABEL_KEYS_LIST()
-  
-  data_points <- DBPOOL %>% dbGetQuery("select coalesce(count(distinct data_id),0)::int as indicator_data
-                                        from p_rsf.rsf_data rd 
-                                        where rd.indicator_id=$1::int",
-                                       params=list(indicator$indicator_id))
-  
-  data_points <- unlist(data_points)
-  if (length(data_points)==0) data_points <- 0
-  editable <- data_points == 0
-  
-
-  indicator_name <- indicator$indicator_name
-  indicator_name_label <- paste0("Indicator name may use only: upper and lower-case letters and numbers; and underscore punctiation. Names will be auto-formatted.")
-  secondary_labels <- paste0("One label per line.",
-                             "Enter alternate phrases, (mis)spellings or aliases associated with the primary label.",
-                             "These include permutations found in template files, including misspellings and typos, which the system will recognize and associate with this indicator.",
-                             "Deleting an entry could prevent the system from reading a template correctly. Modify with care.")
-  
-  data_type <- indicator$data_type
-  
-  selected_frequency <- as.logical(indicator$is_periodic_or_flow_reporting)
-  if (!isTruthy(selected_frequency)) selected_frequency <- FALSE
-  
-  selected_monitoring <- as.logical(indicator$default_subscription)
-  if (is.na(selected_monitoring)) selected_monitoring <- TRUE
-  
-
-  category_choices <- c(Global="global",
-                        Program="program",
-                        Facility="facility",
-                        Client="client",
-                        Borrower="borrower",
-                        Loan="loan")
-  
-  type_choices <- c(Number="number",
-                    Currency="currency",
-                    `Currency Ratio`="currency_ratio",
-                    Percent="percent",
-                    Date="date",
-                    Text="text",
-                    `True/False`="logical")
-  
-  selected_category <- indicator$data_category
-  selected_type <- indicator$data_type
-  
-  options_group_id <- indicator$options_group_id
-  options_group_name <- indicator$options_group_name
-  
-  if (!isTruthy(options_group_id)) options_group_id <- -1
-  if (!isTruthy(options_group_name)) options_group_name <- '{ Not applicable }'
-  
-  selected_options_group_id <- options_group_id
-  
-  selected_unit <- toupper(indicator$data_unit)
-  if (!isTruthy(selected_unit)) selected_unit <- ""
-  
-  unit_choices <- indicator_type_unit_choices(indicator_type=data_type,
-                                              current_unit=selected_unit)
-  
-  
-  
-  
-  program_subscriptions <- DBPOOL %>% dbGetQuery("
-    select 
-      ids.rsf_program_id,
-      ids.rsf_pfcbl_id,
-      nids.rsf_name as name,
-      coalesce(pfi.is_subscribed,false) as is_subscribed
-    from p_rsf.rsf_pfcbl_ids ids
-    inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
-    left join p_rsf.rsf_setup_indicators pfi on pfi.rsf_pfcbl_id = ids.rsf_pfcbl_id
-    																									 and pfi.indicator_id = $1::int
-    where ids.pfcbl_category in ('global','program')",
-    params=list(indicator$indicator_id))
-  
-  setDT(program_subscriptions)
-  
-  program_subscriptions[,class:="btn "]
-  program_subscriptions[is_subscribed==TRUE,
-                        class:=paste0(class,"btn-success")]
-  
-  program_subscriptions[is_subscribed==FALSE,
-                        class:=paste0(class,"btn-warning")]
-  
-  if (selected_type=="global") {
-    program_subscriptions <- program_subscriptions[rsf_program_id==0]
-  } else {
-    program_subscriptions <- program_subscriptions[rsf_program_id!=0]
-  }
-  
-  ps<-split(program_subscriptions,
-            by="rsf_program_id")
-  
-  ps <- lapply(ps,
-               function(x) {
-                 HTML(paste0('<button 
-                      id="indicator_admin_program_subscription_',x$rsf_program_id,'" 
-                      class="',paste0(x$class," action-button"),'" 
-                      onclick="',paste0("Shiny.setInputValue('indicator_admin_program_subscription',",x$rsf_program_id,",{priority:'event'})"),'">',
-                      x$name,"</button>"))
-               })
-  
-  program_subscriptions <- tagList(fluidRow(column(12,div(tagList(ps)))))
-  
-  definition <- indicator$definition
-  
-  label_headers <- fluidRow(align="left",
-                            column(2,style="width:150px;padding:0 3px 0 15px;",tags$label("For")),
-                            column(4,style="width:375px;padding:0 3px 0 3px;",tags$label("Primary Label")),
-                            column(4,style="width:375px;padding:0 3px 0 3px;",tags$label("Alternative Labels",style='margin:0px;',tags$i(class='fas fa-question icon-question',title=secondary_labels))),
-                            column(2,""))
-  ui_labels <- tagList()
-  ui_labels[[length(ui_labels)+1]] <- label_headers
-  
-  label_keys <- unique(labels$label_key) #Defaults to EN when not available
-  #browser()
-  for (i in 1:length(label_keys)) {
-    lkey <- label_keys[i]
-    if (lkey=="SYS") next;
-    
-    ind_label <- labels[label_key==lkey] 
-    
-    id <- unique(ind_label$module_id)
-
-    ui <- module_ui_system_indicator_label(id=ns(id),
-                                           label=ind_label,
-                                           keys_list=keys_list)
-    
-    ui_labels[[length(ui_labels)+1]] <- ui
-    module_session_system_indicator_label(id=ns(id),
-                                          module_id=id,
-                                          INDICATOR_LABELS=SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR_LABELS,
-                                          SERVER_ADMIN_INDICATORS.MODULES=SERVER_ADMIN_INDICATORS.MODULES)
-  }
-  
-  ui_formulas <- tagList()
-  if (!empty(formulas)) {
-    for (i in 1:nrow(formulas)) {
-      formula <- formulas[i]
-      id <- formula$module_id
-      ui <- server_admin_indicator_formulas.module_ui_indicator_formula(id=ns(id),
-                                                                        formula=as.list(formula),
-                                                                        rsf_indicators=RSF_INDICATORS())
-      ui_formulas[[length(ui_formulas)+1]] <- ui
-      
-      server_admin_indicator_formulas.module_session_indicator_formula(id=ns(id),
-                                                                       module_id=id,
-                                                                       pool=DBPOOL,
-                                                                       SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS=SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS,
-                                                                       SERVER_ADMIN_INDICATORS.MODULES=SERVER_ADMIN_INDICATORS.MODULES)
-    }
-  }
-  
-  limited <- NULL
-  if (!editable) limited <- fluidRow(style="padding-bottom:5px;",
-                                     column(12,div(style='padding_left:15px;',
-                                                   icon("exclamation-triangle",class="icon-orange"),
-                                                   paste0("Indicator has ",data_points," data points saved. Editing options that affect existing data are disabled."))))
-  
-  recalculate_pending <- div(id="server_admin_indicators__calculations_pending",
-                             actionButton(inputId="server_admin_indicators__recalculate_pending",
-                                          label=textOutput(outputId="server_admin_indicators__recalculate_count",inline = TRUE),
-                                          icon=icon("calculator"),
-                                          class="btn btn-warning"))
-  
-  if (pending==0) recalculate_pending <- hidden(recalculate_pending)
-
-  ui <- div(style='width:1000px;background-color:gainsboro;padding:10px;margin: 0 auto;',
-            fluidRow(align="center",style="padding-top:5px;padding-bottom:5px;",column(12,uiOutput(outputId="admin_system_display_indicator_html_name"))),
-            limited,
-            fluidRow(column(12,textInput(inputId="admin_system_edit_indicator_name",
-                                         width="100%",
-                                         label = tags$label("Indicator Name",style='margin:0px;',tags$i(class='fas fa-question icon-question',title=indicator_name_label)),
-                                         value=indicator_name))
-            ),
-            fluidRow(align="center",
-                     column(3,align="left",
-                            enabled(state=editable,
-                                    selectizeInput(inputId="admin_system_edit_indicator_category",
-                                                   label = "Data Category",
-                                                   choices = category_choices,
-                                                   selected = selected_category,
-                                                   options = list(placeholder="Select...")))),
-                     column(2,align="left",
-                            enabled(state=editable,
-                                    selectizeInput(inputId="admin_system_edit_indicator_type",
-                                                   label = "Data Type",
-                                                   choices = type_choices,
-                                                   selected = selected_type,
-                                                   options = list(placeholder="Select...")))),
-                     column(3,align="left",
-                            enabled(state=editable,
-                                    selectizeInput(inputId="admin_system_edit_indicator_type_unit",
-                                                   label = "Data Unit",
-                                                   choices = unit_choices,
-                                                   selected = selected_unit,
-                                                   options = list(placeholder="{ Not applicable }",
-                                                                  create=TRUE,
-                                                                  persist=TRUE)))),
-                     column(2,align="left",
-                            enabled(state=editable,
-                                    selectizeInput(inputId="admin_system_edit_indicator_data_frequency",
-                                                   label = "Data Frequency",
-                                                   choices = c('Normal'=FALSE,
-                                                               'Periodic'=TRUE),
-                                                   selected = selected_frequency,
-                                                   options = list(placeholder="Normal")))),
-                     column(2,align="left",
-                              selectizeInput(inputId="admin_system_edit_indicator_default_subscribed",
-                                             label="Monitoring",
-                                             selected=selected_monitoring,
-                                             choices=c("Auto"=TRUE,
-                                                       "RSF Setup"=FALSE)))
-                     ),
-            fluidRow(align="left",
-                     column(1,align="left"),
-                            
-                     
-                     column(3,align="left",
-                            enabled(state=editable,
-                                    selectizeInput(inputId="admin_system_edit_indicator_options",
-                                                   label = "Choices Group",
-                                                   choices = setNames(options_group_id,options_group_name),
-                                                   selected = selected_options_group_id,
-                                                   options = list(placeholder="{ Not applicable }")))),
-                     column(4,align="left",
-                            uiOutput(outputId="admin_system_edit_indicator_default_UI")),
-                     column(4,align="left",
-                            uiOutput(outputId="admin_system_edit_indicator_options_UI"))
-            ),
-            fluidRow(align="left",style="padding-bottom:5px;",
-                     column(12,
-                            div(style="display:flex;flex-direction:row;",
-                                div(actionButton(inputId="server_admin_indicators__add_formula",
-                                                 label="Add Formula",
-                                                 icon=icon("plus-square"),
-                                                 class="btn btn-primary")),
-                                div(id="server_admin_indicators__quasi_calculation"),
-                                div(style="padding-left:20px;",recalculate_pending)),
-                            
-                            div(id="server_admin_indicators__formulas",style="padding-top:10px;",
-                                ui_formulas))),
-            fluidRow(align="left",
-                     column(12,
-                            textAreaInput(inputId="admin_system_edit_indicator_definition",rows="2",width="937px",label="Definition",value=definition))),
-            fluidRow(align="left",
-                     column(12,
-                            div(actionButton(inputId="server_admin_indicators__add_label",label="Add Label",icon=icon("puzzle-piece"),class="btn-primary btn-sm")),
-                            div(id="location_admin_system_edit_indicator_labels",ui_labels)
-                     )
-            ),
-            fluidRow(align="left",
-                     style='padding-bottom:5px;',
-                     column(12,div(tags$label("Programs monitoring this Indicator (Click to subscribe/unsubscribe)"),
-                                   program_subscriptions))
-            ),
-            #recalculate_ui,
-            fluidRow(style='padding-top:10px;',div(style='border-top:solid gray 1px;margin-left:10px;margin-right:10px;',
-                                                   column(6,align="left",style="padding-top:5px;",
-                                                          actionButton(inputId="server_admin_indicators__delete_prompt",
-                                                                               class="btn-danger",
-                                                                               label="Delete",
-                                                                               icon=icon("minus-circle"))
-                                                   ),
-                                                   column(6,align="right",style="padding-top:5px;",
-                                                          actionButton(inputId="server_admin_indicators__save_indicator",class="btn-success",label="Save",icon=icon("save")))))
-  )  
-  
-  return(ui)
-})
 
 
 output$admin_system_download_indicators <- downloadHandler(

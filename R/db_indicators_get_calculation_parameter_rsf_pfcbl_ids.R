@@ -29,10 +29,6 @@ db_indicators_get_calculation_parameter_rsf_pfcbl_ids <- function(pool,
       where ft.pfcbl_hierarchy = calcs.parameter_pfcbl_hierarchy
         and ft.to_pfcbl_category = calcs.parameter_pfcbl_category
         
-        --moved to materialized subquery below -- we don't need to extract parameters that don't have any data yet
-        --if we're doing an historic update, it would pull-in future entities
-        --and exists(select * from p_rsf.rsf_pfcbl_ids x where x.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_Id and x.created_in_reporting_asof_date <= '2023-12-31'::date)
-        
       union 
       
       select 

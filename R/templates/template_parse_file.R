@@ -3,6 +3,7 @@ template_parse_file <- function(pool,
                                 reporting_user_id,
                                 source_note=NA,
                                 parse_rsf_pfcbl_id=NULL, #For those templates that do not report the entity (like pdf files), this is manually specified at upload
+                                auto_delete_old_versions=TRUE,
                                 status_message=function(...) {}) {
   
 #Setups
@@ -25,6 +26,30 @@ template_parse_file <- function(pool,
     
     status_message(class="none","Parsing template: ",basename(template_file),"\n")
     
+    #Latency check
+    {
+      measure_baseline_latency <- function(pool) {
+        start_time <- Sys.time()
+        
+        # Checkout a connection and execute the lightest possible query
+        poolWithTransaction(pool, function(conn) {
+          dbExecute(conn, "SELECT TRUE;")
+        })
+        
+        end_time <- Sys.time()
+        
+        # Return time difference in milliseconds
+        latency_ms <- as.numeric(difftime(end_time, start_time, units = "secs")) * 1000
+        return(latency_ms)
+      }
+      latency <- measure_baseline_latency(pool=pool)
+      
+      if (latency > 1000) {
+        status_message(class="warning",
+                       paste0("\n\nWARNING: latency between Jason and RSF Database is currently very slow: ",round(latency/1000,2)," seconds\nCheck internet connectivity or try again when internet traffic is less if delays continue\n\n"))
+        Sys.sleep(3)
+      }
+    }    
     
     template <- db_dashboard_load_report(pool=pool,
                                       template_file=template_file,
@@ -80,7 +105,11 @@ template_parse_file <- function(pool,
         
         is_excel <- grepl("\\.xlsx$",template_file,ignore.case = TRUE)
         if (is_excel==TRUE) {   
-          excelwb <- openxlsx2::wb_load(file=template_file)
+          excelwb <- tryCatch({ openxlsx2::wb_load(file=template_file) },
+                              warning=function(w) {
+                                status_message(conditionMessage(w))
+                                suppressWarnings(openxlsx2::wb_load(file=template_file))
+                              })
           
           nregions <- excelwb$get_named_regions()
           snames <- excelwb$sheet_names
@@ -239,7 +268,7 @@ template_parse_file <- function(pool,
           stop(paste0("Failed to parse template for: ",template_file,"/",template_format))
         }
         
-        template$template_source_reference <- "SLGP Template"
+        template$template_source_reference <- "RSF QR2018 Template"
         template$template_ids_method <- "rsf_id"
         
       }
@@ -257,7 +286,7 @@ template_parse_file <- function(pool,
           stop(paste0("Failed to parse template for: ",template_file,"/",template_format))
         }
 
-        template$template_source_reference <- "SLGP Template"
+        template$template_source_reference <- "RSF QR2025 Template"
         template$template_ids_method <- "rsf_id"
         
       }
@@ -498,7 +527,7 @@ template_parse_file <- function(pool,
                                                    rsf_indicators=template$rsf_indicators)
      
       
-      futures <- template$template_data[indicator_sys_category=="entity_creation_date" & !is.na(data_value)][ymd(data_value) > reporting_asof_date]
+      futures <- template$template_data[indicator_sys_category=="entity_creation_date" & !is.na(data_value)][ymd(data_value) > (today()-1)]
       if (!empty(futures)) {
         max_future <- futures[data_value==max(data_value),paste0(unique(indicator_name)," ",unique(as.character(data_value)))]
         futures <- futures[,
@@ -517,6 +546,30 @@ template_parse_file <- function(pool,
       }
       futures <- NULL
       
+      #Fixed currency vs LCU currency redundancies
+      #The templates themselves should filter these out.  But in case they don't...
+      {
+        #unit_fx_indicator_id is the base indicator in LCU
+        unit_fx_indicators <- rsf_indicators[!is.na(unit_fx_indicator_id),.(unit_fx_indicator_id,indicator_id,data_unit,indicator_name)]
+        if (any(unit_fx_indicators$indicator_id %in% unique(template$template_data$indicator_id,na.rm=T))) {
+        
+          template$template_data[,
+                      `:=`(unit_fx_defined=NA,
+                           omit=NA)]
+  
+          template$template_data[unit_fx_indicators,
+                      unit_fx_defined:=mapply(grepl,pattern=i.data_unit,x=data_unit,MoreArgs=list(ignore.case=T)),
+                      on=.(indicator_id)]
+  
+          template$template_data[,
+                      omit:=is.na(unit_fx_defined) & any(!is.na(unit_fx_defined),na.rm=T),
+                      by=.(reporting_template_row_group,reporting_template_data_rank)]
+          
+          #template$template_data[omit==T]
+          template$template_data <- template$template_data[omit==FALSE]
+        }  
+        
+      }
     } 
     
     #Validate template_reporting_row_group: ensures max/min and sorting of reporting_template_row_group are as expected
@@ -552,15 +605,41 @@ template_parse_file <- function(pool,
     
     
     
-    
-    
-    
     } else {
 
-      if (!all(unique(template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)])[,c(1:.N)]==1:nrow(template$template_data))) {
-        stop(paste0("parse_template() function for ",template$template_name," sets reporting_template_row_group and reporting_template_data_rank but these do not uniquely identify all ",
-                   nrow(template$template_data)," rows of data"))
+      
+      #nrow(unique(template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)])) != nrow(template)
+      bad_rows <- c(which(!template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)][,c(1:.N)]==1:nrow(template$template_data)),
+                    template$template_data[,.(n=.N,r=.I),by=.(reporting_template_row_group,reporting_template_data_rank)][n>1,r])
+      if (length(bad_rows)) {
+        
+        status_message(class="error",
+                       paste0("parse_template() function for ",template$template_name," sets reporting_template_row_group and reporting_template_data_rank but these do not uniquely identify all ",
+                   nrow(template$template_data)," rows of data\n:",
+                   paste0(capture.output(template$template_data[bad_rows]),collapse="\n")))
+        
+        template$template_data[,omit:=FALSE]
+        template$template_data[,
+                               `:=`(n=.N,
+                                    omit=.N>1 & (1:.N)>1),
+                               .(reporting_template_row_group,reporting_template_data_rank)]
+        bad_duplicates <- template$template_data[n>1,
+                                                 .(rsf_pfcbl_id=NA,
+                                                   indicator_id,
+                                                   reporting_asof_date,
+                                                   check_name="sys_reporting_data_discarded",
+                                                   check_message=paste0("Template import error resulted in ambiguous data on ",
+                                                                        reporting_template_row_group,"#",reporting_template_data_rank," for: \n",
+                                                                        paste0(paste0("'",indicator_name,"' = ",data_submitted),collapse=" AND \n"),
+                                                                        "System will keep: ",unique(.SD[omit==F,paste0(indicator_name,"=",data_submitted)]),"\n",
+                                                                        "And DSICARD: ",paste0(unique(.SD[omit==T,paste0(indicator_name,"=",data_submitted)]),collapse=" AND \n"))),
+                                                 by=.(reporting_template_row_group,reporting_template_data_rank)]
+        template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
+                                                         bad_duplicates[,.(rsf_pfcbl_id,indicator_id,reporting_asof_date,check_name,check_message)]))
+        template$template_data <-  template$template_data[omit==FALSE]
+        template$template_data[,`:=`(omit=NULL,n=NULL)]
       }
+      
       set(template$template_data,
           j="reporting_template_data_rank",
           value=frank(template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)],ties.method="dense"))
@@ -685,7 +764,7 @@ template_parse_file <- function(pool,
                                                        template_id=template$template_id,
                                                        file_path=template_file,
                                                        import_comments=NA,
-                                                       auto_delete_old_versions=TRUE) 
+                                                       auto_delete_old_versions=auto_delete_old_versions) 
         
         template$reporting_import <- reporting_import
       }  

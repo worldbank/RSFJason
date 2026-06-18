@@ -37,8 +37,20 @@ rsf_reports_excel_read_rsf_data <- function(excelwb,
     cols <- seq(from=cols[1],to=cols[2],by=1)
     max_cols <- max(excelwb$worksheets[[sheetNum]]$sheet_data$cols)
     
+    
     if (max_cols > max(cols) && table_name=="rsf_template_data") {
-      stop(paste0("Excel Data Table 'rsf_template_data' defines ",max(cols)," columns in the range ",range,".  This sheet has data outside the data table in column ",max_cols," that cannot br read-in. Data beyond column ",max(cols)," is not allowed."))
+      
+      tdata <- readWorkbook(excelwb,sheet=sheetNum,startRow=rows[1],rows=rows,colNames=T,skipEmptyCols=F,skipEmptyRows = F,cols=NULL)
+      if (ncol(tdata) > max(cols)) {
+        stop(paste0("Excel Data Table 'rsf_template_data' defines ",max(cols)," columns in the range ",range,
+                    ".  This sheet has data outside the data table in column ",max_cols," that cannot be read-in: value=",
+                    paste0(unlist(tdata[,(max(cols)+1):max_cols]),collapse=", "),
+                    ". Data beyond column ",max(cols),
+                    " is not allowed.  Open this Excel sheet, check the size of the table 'rsf_template_date' and see if data has manually been entered outside cols ",
+                    paste0(cols,collapse=", "),".  It may be necssary to manually resize this table."))
+        
+      }
+
     }
     
     tdata <- readWorkbook(excelwb,sheet=sheetNum,startRow=rows[1],rows=rows,cols=cols,colNames=T)

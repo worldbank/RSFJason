@@ -139,6 +139,9 @@ db_indicators_get_header_actions <- function(pool,
                    template_header:=gsub(formatting.strip,"",template_header)]
   }
 
+  #TESTING
+  #if (any(grepl("\\{",header_actions$template_header ))) { browser() }
+
   
   header_actions[,label:=trimFunc(template_header)] #for this template, use trimmed, not normalized (as parsing values are used and therefore don't normalize {} delimiter!)
   header_actions[,template_label_lookup:=template_header]
@@ -218,3 +221,4 @@ db_indicators_get_header_actions <- function(pool,
   
  return (header_actions)
 }
+ 

@@ -1,14 +1,29 @@
 
 
 parse_template_IFC_QR2018 <- function(pool,
-                                      template_lookup,
                                       template_file,
-                                      rsf_indicators,
+                                      template_lookup=db_export_get_template(pool=pool,template_name="IFC-QR-TEMPLATE2018"),
+                                      rsf_indicators=db_indicators_get_labels(pool),
+                                      return.insert_flags=NULL, #To insert and return current flags tab based on current QR of template_file in system: this is a DATA TABLE of flags exported by UI
+                                      return.next_date=FALSE,    #To automatically create zero-version of next QR based on current QR in system
+                                      reporting_user_id,
                                       status_message,
                                       CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) 
 {
  
   {
+    if (!file.exists(template_file)) stop(paste0("Uh oh! File '",template_file,"' doesn't exist!"))
+    if (!file_ext(template_file) %in% "xlsx") stop("Only .xlsx files using Excel-365 versions or later may use this template")
+    if ((file.info(template_file)$size / 1024^2) > 350) {
+      stop(paste0("Uh oh! This file is ",round(file.info(template_file)$size / 1024^2,2),"MB! This exceeds the 35MB limit (and it surely also exceeds IFC and client email server limits, which will prevent you from communicating this data with the client). ",
+                  "Most likely, your file unnecessarily large and Excel can reduce the size considerably (like deleting unused formats).  Ask Copilot Excel how to ",
+                  "reduce this file size and re-save it or try going to: \n",
+                  "- Review tab \n",
+                  "- Check Performance button \n",
+                  "- Optimize Workbook \n",
+                  "However, if all the data here is truly necessary for upload, re-save as a .csv the quarterly report file and use Jason's csv file upload method instead (",
+                  "the qreport headers need to be on row 1 of the .csv file and the project ID number needs to be in the file name of the .csv file"))
+    }
     ####
     #openxlsx has some bug where it can't read some types of workbooks with pivot tables
     #https://github.com/ycphs/openxlsx/issues/124
@@ -23,6 +38,9 @@ parse_template_IFC_QR2018 <- function(pool,
       suppressWarnings(openxlsx::loadWorkbook(template_file))
     })
   
+    #effort to migrate from openxlsx to openxlsx2 ... slowly.
+    excelwb2 <- suppressWarnings(openxlsx2::wb_load(template_file))
+    
     reporting_flags <- data.table(rsf_pfcbl_id=numeric(0),
                                   indicator_id=numeric(0),
                                   reporting_asof_date=as.Date(numeric(0)),
@@ -32,10 +50,16 @@ parse_template_IFC_QR2018 <- function(pool,
     reporting_asof_date <- {
       snames <- openxlsx::getSheetNames(file=template_file)
       nregions <- openxlsx::getNamedRegions(excelwb)
-    
+      
       summarySheet <- grep("summary",snames,ignore.case=TRUE,value=T)
       dataSheet <-grep("QReport",snames,ignore.case=TRUE,value=T)
     
+      nregions_all <- data.table(name=nregions,
+                                 sheet=attr(nregions,"sheet"),
+                                 position=attr(nregions,"position"))
+      
+      nregions_all[,is_system:=grepl("\\.wvu|^_xlnm",name)]
+      nregions_all <- nregions_all[is_system==FALSE]
       #Note: sheets with external references links can create real issues and also generate sheet names that aren't in the workbook.  Eg, "[1]1. Summary"
       
       nregions_date <- which(nregions %in% c("S_DET","S_QDD"))
@@ -45,15 +69,44 @@ parse_template_IFC_QR2018 <- function(pool,
       nregion_rows <- as.numeric(gsub("[^0-9.]","",nregions_locations))
       nregion_coords <- data.frame(col=nregion_cols,row=nregion_rows,sheet=nregions_sheets)
       
-      if (any(!nregion_coords$sheet %in% snames)) {
-        status_message(class="error","Workbook contains references to Worksheets that do not exists. Check for external links and use Break Links if these exist.\n")
-        status_message(class="error","Important: Workbook may contain links in the 'Name Manager'.  These must be manually deleted: type Ctrl+F3 (or Ctrl+Fn+F3) or navigate to Formulas -> Name Manager\n")
-        status_message(class="info","Attempting to fix sheet....If fix is successful, script will proceed. Otherwise, break links is required.\n")
-        
-    
-        nregion_coords <- nregion_coords[nregion_coords$sheet %in% snames,]
+
+      bad_names <- nregions_all[grepl("#REF",nregions_all$name,ignore.case=T) | (!sheet %in% snames & !grepl("[()]",sheet))]
+      if (!empty(bad_names)) {
+          status_message("\nTemplate has errors in the DEFINED NAMES (type Ctrl+F3 or Ctrl+Fn+F3) or navigate to name manager to review\n")
+        for (i in 1:nrow(bad_names)) {
+          nr <- bad_names[i]
+          status_message(paste0("Defined name #REF error '",nr$name,"' ",nr$sheet,"!",nr$position),"\n")
+          
+        }
+      
       }
       
+      nregions_all[,n:=.N,by=.(name)]
+      dup_names <- nregions_all[n>1]
+      if (!empty(dup_names)) {
+        status_message("\nTemplate has duplicated/ambiguous DEFINED NAMES (type Ctrl+F3 or Ctrl+Fn+F3) or navigate to name manager to review\n")
+        setorder(dup_names,name,sheet,position)
+        for (i in 1:nrow(dup_names)) {
+          nr <- dup_names[i]
+          status_message(paste0("Defined name duplicated x",nr$n," error '",nr$name,"' ",nr$sheet,"!",nr$position),"\n")
+          
+        }
+      }
+      
+      if (!empty(bad_names) | !empty(dup_names)) {
+        Sys.sleep(2)
+      }
+      
+      # if (any(!nregion_coords$sheet %in% snames)) {
+      #   status_message(class="error","Workbook contains references to Worksheets that do not exists. Check for external links and use Break Links if these exist.\n")
+      #   status_message(class="error","Important: Workbook may contain links in the 'Name Manager'.  These must be manually deleted: type Ctrl+F3 (or Ctrl+Fn+F3) or navigate to Formulas -> Name Manager\n")
+      #   status_message(class="info","Attempting to fix sheet....If fix is successful, script will proceed. Otherwise, break links is required.\n")
+      #   
+      # 
+      #   
+      # }
+      # 
+      nregion_coords <- nregion_coords[nregion_coords$sheet %in% snames,]
       dates <- sapply(1:nrow(nregion_coords),
                       function(i) openxlsx::readWorkbook(xlsxFile=excelwb,
                                                          sheet=nregion_coords$sheet[i],
@@ -79,6 +132,10 @@ parse_template_IFC_QR2018 <- function(pool,
         status_message(class="info",paste0("Check sheet=",unique(nregions_sheets)," Cells=",paste0(nregions_locations,collapse=",")," and Named Regions: ensure names S_DET and S_QDD are specified only once, not multiple times."))
         stop("Error: unable to read unique template reporting date from named regions S_DET and S_QDD.")
       }
+      
+      if (reporting_asof_date >= today()) {
+        stop(paste0("Invalid reporting QDD date: ",reporting_asof_date," is in the FUTURE!  This is not possible. Verify the QDD date is correct?"))
+      }
       reporting_asof_date
     }
    
@@ -103,7 +160,31 @@ parse_template_IFC_QR2018 <- function(pool,
         data_formula_matrix <- openxlsx_get_formulas(excelwb=excelwb,
                                                      sheetName=dataSheet,
                                                      truncate_predata_rows = TRUE)
+        
         setDT(data_sheet)
+      }
+      
+      #2018 template doesn't use named variables, so read-in more standard
+      {
+        
+        
+        listSheetName <- grep("lists|template",snames,ignore.case=T,value=T)
+        if (length(listSheetName) != 1) { stop("Failed to find Template sheet (formally Lists)") }
+        
+        # list_sheet <- nregions_table[sheets==listSheetName,.(name,data_value)]
+        # list_sheet <- list_sheet[grepl("^Template_",name)==F] #template defined names are inherently excluded as not relevant for Jason (they're for the template!)
+        list_sheet <- excelwb2$to_df(sheet=listSheetName,
+                                     col_names=F,
+                                     skip_empty_cols=T,
+                                     skip_empty_rows = T)
+        list_sheet[["original_row_num"]] <- row.names(list_sheet)
+        setDT(list_sheet)
+        
+        
+        header_row <- which.max(sapply(data.frame(t(!is.na(list_sheet))),sum))
+        list_sheet <- list_sheet[header_row:nrow(list_sheet),]
+        
+       
       }
     }
     
@@ -157,7 +238,6 @@ parse_template_IFC_QR2018 <- function(pool,
       rsf_pfcbl_id$rsf_pfcbl_id #need this here to return it from the anonamous function
     }
     
-    
     #labels, including facility-specific label mappings
     {
       #why did I do this?...Maybe to turn it into a setting or something later on?  For IFC QR template the headers are such a complete mess, just leave always on.  No use to if() check.
@@ -168,71 +248,320 @@ parse_template_IFC_QR2018 <- function(pool,
                                                      rsf_indicators=rsf_indicators,
                                                      formatting.function=normalizeLabel)
       
-      #stop_actions <- rsf_labels[is.na(stop)==FALSE & action=="ignore"]
-      #This is now updated
       
-      # stop_read_actions <- rsf_labels[rsf_indicators[indicator_sys_category=="template_read_stop",.(indicator_id)],
-      #                                on=.(map_indicator_id=indicator_id),
-      #                                nomatch=NULL]
-      # if (F) {
-      # rsf_labels <- rbindlist(rsf_indicators$labels)
-      # 
-      # #use superTrim() over label_normalized
-      # rsf_labels <- unique(rsf_labels[,.(map_indicator_id=indicator_id,label_key,label=superTrim(label))])
-      # 
-      # #rsf labels only map to indicators and are the default matching
-      # rsf_labels[,
-      #            `:=`(template_header_section_name=as.character(NA),
-      #                 template_section_lookup=as.character(NA),
-      #                 template_label_lookup=paste0('^"?',str_escape(label),'"?$'), #ignore quoted headers
-      #                 action="default",
-      #                 template_header_position=as.numeric(NA),
-      #                 map_formula_id=as.numeric(NA),
-      #                 calculation_formula=as.character(NA),
-      #                 map_check_formula_id=as.numeric(NA),
-      #                 check_formula=as.character(NA))]
-      # 
-      # header_actions <- db_indicators_get_header_actions(pool=pool,
-      #                                                    template_id=template_lookup$template_id,
-      #                                                    rsf_pfcbl_id=rsf_pfcbl_id.facility,
-      #                                                    formatting.function=superTrim)
-      # 
-      # 
-      # 
-      # setDT(header_actions)
-      # 
-      # header_actions[,label_key:="SYS"]
-      # header_actions[,label:=superTrim(template_header)] #for this template, use trimmed, not normalized (as parsing values are used and therefore don't normalize {} delimiter!)
-      # 
-      # header_actions[,
-      #                label:=normalizeLabel(template_header)] #normalizedLabel calls superTrim(trim.punct=F)
-      # 
-      # # header_actions[label_normalized=="na",
-      # #                label_normalized:=as.character(NA)]
-      # 
-      # setnames(header_actions,
-      #          old="map_indicator_id",
-      #          new="indicator_id")
-      # 
-      # header_actions <- header_actions[,
-      #                                  .SD,
-      #                                  .SDcols = names(rsf_labels)]
-      # 
-      # rsf_labels <- rsf_labels[!(label_normalized %in% header_actions[is.na(template_header_sheet_name),label_normalized])]
-      # rsf_labels <- rbindlist(list(rsf_labels,
-      #                              header_actions))
-      # rsf_labels[,joincondition:=as.character(NA)]
-      # setorder(rsf_labels,
-      #          indicator_header_id,
-      #          template_header_position,
-      #          template_header_sheet_index,
-      #          na.last = TRUE)
-      # }
     }
   }
   
+  data.lists <- { 
+    
+    
+    # useless_cols <- sapply(list_sheet[header_row],function(hr) any(sapply(useless_cols,grepl,x=hr,ignore.case=T)))
+    # useful_cols <- names(useless_cols[!useless_cols])
+    # list_sheet <- list_sheet[,..useful_cols]
+
+    #Many spreadsheets "Stack" lists across rows in a checkerboard of overlapping lists.
+    #Here, see if any column data is separated by 3 (or more) consecutive NA values and split into separate columns.
+    #Return a list of data.frames that use the first row as the column header.
+    lists_data <- data.table(reporting_template_row_group=character(0),
+                             reporting_template_data_rank=character(0),
+                             indicator_name=character(0),
+                             reporting_submitted_data_value=character(0),
+                             reporting_submitted_data_unit=character(0),
+                             reporting_submitted_data_formula=character(0))
+    
+    if (!empty(list_sheet)) {
+      
+      lists_data <- lapply(names(list_sheet),function(cn,ls) {
+        if (cn=="original_row_num") return (NULL)
+        
+        col <- ls[[cn]]
+        orn <- ls[["original_row_num"]]
+        nas <- rle(is.na(col))
+        nas$values <- nas$values & nas$lengths>=3
+        split_ids <- cumsum(inverse.rle(nas))
+        result <- split(col[!inverse.rle(nas)], split_ids[!inverse.rle(nas)])
+        resultrow <- split(orn[!inverse.rle(nas)], split_ids[!inverse.rle(nas)])
+        
+        mapply(FUN=function(r,rr,cn) {
+
+          result_label <- r[1]
+          r <- r[-1]
+          r <- r[!is.na(r)]
+          
+          r <- gsub(","," ",r)
+          r <- gsub("\\s+"," ",r)
+          r <- paste0(r,collapse=",")
+          
+          df <- data.frame(original_row_num=rr[[1]],
+                           original_col_num=cn,
+                           data_value=r,
+                           label=result_label)
+          df
+        },
+        r=result,
+        rr=resultrow,
+        MoreArgs = list(cn=cn),
+        SIMPLIFY = F)
+        
+        
+        # #do.call(cbind,result,resultrow)
+        # result_label <- result[1]
+        # result <- result[-1]
+        # result <- result[!is.na(result)]
+        # 
+        # result <- gsub(","," ",result)
+        # result <- gsub("\\s+"," ",result)
+        # result <- paste0(result,collapse=",")
+        # 
+        # df <- data.frame(original_row_num=resultrow[[1]],
+        #                  original_col_num=cn,
+        #                  data_value=result,
+        #                  label=result_label)
+        # df
+        # df <- data.frame(paste0(result[-1],collapse=","),row=min(result_row),col=cn)
+        # 
+       
+        
+        # mapply(FUN=function(a,b,c) { 
+        #   unique(cbind(do.call(data.frame,args=list(data=a,row=min(b))),col=cn)) #min(b) because its' the position of where the table header starts
+        # },a=result,b=resultrow,SIMPLIFY = F)
+        
+      },ls=list_sheet)
+      
+      lists_data <- unlist(lists_data,recursive=F)
+      lists_data <- rbindlist(lists_data)
+      
+      
+      #These are mostly ubiquitious in these templtes -- just ignoring in full without specific template setup.
+      useless_list_labels <- c("QDDs",
+                               "FR",
+                               "row",
+                               "col",
+                               "sheet",
+                               "Translation of other specific cells",
+                               "FR",
+                               "Yes/No",
+                               "sector",
+                               "Reason for partial inclusion","interest type")
+      
+      #sapply(lists_data$label,function(lab) any(sapply(useless_list_labels,grepl,x=lab,ignore.case=T)))
+      lists_data <- lists_data[!sapply(label,function(lab) any(sapply(useless_list_labels,grepl,x=lab,ignore.case=T)))]
+      lists_data[,list_id:=1:.N] #must be set after filtering so list_id matches row number
+    }    
+    
+    #Matches
+    {
+      label_matches <- mapply(labelMatches,
+                              find_sections=tolower(rsf_labels$template_section_lookup),
+                              find_labels=tolower(rsf_labels$template_label_lookup),
+                              match_id=rsf_labels$label_header_id,
+                              match_postion=rsf_labels$template_header_position,
+                              MoreArgs=list(search_sections=rep(x="lists",times=length(lists_data$label)),
+                                            search_labels=normalizeLabel(lists_data$label)),
+                              USE.NAMES = F,
+                              SIMPLIFY = F)
+      
+      label_matches <- rbindlist(label_matches)
+      
+      label_matches <- label_matches[rsf_labels[,.(label_header_id,action,map_indicator_id,map_formula_id,map_check_formula_id,header_id)],
+                                     on=.(match_id=label_header_id),
+                                     nomatch=NULL]
+      
+      #changed all references from: header_ids=list(unique(match_id)) TO header_ids=list(unique(header_id)) 
+      
+      label_matches <- label_matches[,
+                                     .(header_ids=list(unique(header_id))),
+                                     by=.(list_id=match_rows,action,map_indicator_id,map_formula_id,map_check_formula_id)]
+      
+      
+      lists_data <- label_matches[lists_data,
+                                  on=.(list_id)]  
+      
+      #lists_data[rsf_indicators[,.(indicator_name,data_category,indicator_id)],on=.(map_indicator_id=indicator_id),nomatch=NULL]
+    }
+    
+    #Label errors/mismatching
+    {
+      lists_data[,
+                 ignore:=anyNA(action)==FALSE & all(action=="ignore"),
+                 by=.(list_id)]
+      
+      lists_data <- lists_data[ignore==FALSE]
+      
+      lists_data[rsf_indicators,
+                 `:=`(indicator_name=i.indicator_name,
+                      data_category=i.data_category),
+                 on=.(map_indicator_id=indicator_id)]
+      
+      {
+        bad_categories <- lists_data[!is.na(data_category) & !data_category %in% c("client","facility")]
+        
+        if (!empty(bad_categories)) {
+          
+          bad_categories[,
+                         check_message:=paste0("LISTS sheet ",original_col_num,original_row_num," '",
+                         label,"' maps to a ",
+                         toupper(data_category)," level metric '",indicator_name,"' however the LISTS sheet can only have Client and Facility setup data ",
+                         " (lists of acceptable input that can be used in drop-down lists, as defined by the RSA or template). ",
+                         "Since this data cannot be for any specific ",toupper(data_category)," it is being IGNORED.  Consider going to ",
+                         "JASON -> RSF Setup -> Setup Templates -> ",template_lookup$template_name," to remap ",
+                         "this specific label to the appropriate client or facility level metric; or set to ignore it entirely this field is for Excel use only")]
+          
+          status_message(type="error",paste0(bad_categories$check_message,collapse="\n\n"))
+          
+          bad_categories <- bad_categories[,.(rsf_pfcbl_id=NA,
+                                              indicator_id=NA,
+                                              reporting_asof_date=reporting_asof_date,
+                                              check_name="sys_reporting_data_discarded",
+                                              check_message)]
+          
+          reporting_flags <- rbindlist(list(reporting_flags,
+                                            bad_categories))
+          
+          lists_data <- lists_data[is.na(data_category) | data_category %in% c("client","facility")]
+          
+        }
+      }
+      #Will fail because its ambiguous: this shouldn't be possible for defined names? Unless copy-paste errors copy-in multiple defined names??
+      {
+        lists_data[,
+                   mismatch:=anyNA(action)==FALSE & length(unique(map_indicator_id))>1,
+                   by=.(list_id)]
+        
+        mismatch_labels <- lists_data[mismatch==TRUE]
+        if (!empty(mismatch_labels)) {
+          
+          
+          mismatch_labels[,
+                          message:=paste0("List Sheet table/list name \"",label,"\" maps to \"",indicator_name,"\"")]
+          
+          setorder(mismatch_labels,
+                   list_id)
+          
+          message <- paste0(mismatch_labels$message,collapse=" \n")
+          stop(paste0("Mismatched Column Labels:\n",
+                      "Correct the column name(s) in Lists Tab \n",
+                      "Or if this is a Template Requirement map these columns in JASON -> RSF Setup -> Setup Templates -> ",template_lookup$template_name," \n\n",
+                      message))
+        }
+      }    
+      
+      #Unfound: will asign to entity_reporting
+      {
+        lists_data[,
+                   notfound:=all(is.na(action)),
+                   by=.(list_id)]
+        
+        unfound_labels <- lists_data[notfound==TRUE]
+        
+        if (!empty(unfound_labels)) {
+          
+          setorder(unfound_labels,
+                   list_id)
+          
+          unfound_labels[,
+                         `:=`(rsf_pfcbl_id=rsf_pfcbl_id.facility,
+                              indicator_id=as.numeric(NA), #will be auto-assigned to reporting indicator
+                              reporting_asof_date=reporting_asof_date,
+                              check_name="sys_flag_indicator_not_found",
+                              check_message=paste0("Lists Sheet for list with header name \"",label,"\" on ",original_col_num,original_row_num))]
+          
+          unfound_labels <- unfound_labels[,.(rsf_pfcbl_id,
+                                              indicator_id,
+                                              reporting_asof_date,
+                                              check_name,
+                                              check_message)]
+          
+          reporting_flags <- rbindlist(list(reporting_flags,
+                                            unfound_labels))
+        }
+      }
+      
+      lists_data <- lists_data[is.na(action)==FALSE]
+      
+      if (save_headers) {
+        template_headers <- rbindlist(list(template_headers,
+                                           lists_data[!is.na(map_indicator_id),
+                                                      .(label=label,
+                                                        data_source_index=paste0("Lists Sheet ",original_col_num,original_row_num,": ",label),
+                                                        indicator_id=map_indicator_id)]))
+      }
+      
+      
+      lists_data <- lists_data[is.na(map_indicator_id)==FALSE,
+                               .(indicator_name,
+                                 data_unit=as.character(NA),
+                                 data_value,
+                                 original_row_num)]
+    }
+    
+    {
+
+      lists_data[,
+                 `:=`(reporting_submitted_data_unit=data_unit,
+                      reporting_submitted_data_value=data_value)]
+      
+      lists_data[rsf_indicators[!is.na(data_unit),
+                                .(indicator_name,data_unit,joincondition=as.character(NA))],
+                 reporting_submitted_data_unit := i.data_unit,
+                 on=.(indicator_name,
+                      reporting_submitted_data_unit=joincondition)]
+      lists_data[,
+                 reporting_submitted_data_formula:=as.numeric(NA)]
+      
+      lists_data[rsf_indicators,
+                 indicator_sys_category:=i.indicator_sys_category,
+                 on=.(indicator_name)]
+      
+      if (any(lists_data$indicator_sys_category=="products_eligible",na.rm=T)) {
+        products <- unlist(lists_data[indicator_sys_category=="products_eligible",data_value])
+        
+        #Copied from IFC_QR2025...because I was optimistic but none of these obsolete templates track product metadata/classifications.
+      
+      }
+      
+      lists_data[,
+                 reporting_template_row_group:='1LISTS']
+      
+      lists_data[,
+                 reporting_template_data_rank:=1:.N] #1:.N instead of original row number since new data may be added in products
+      
+      
+      
+      
+    }
+    
+    lists_data[,.(reporting_template_row_group,
+                  reporting_template_data_rank,
+                  indicator_name,
+                  reporting_submitted_data_value,
+                  reporting_submitted_data_unit,
+                  reporting_submitted_data_formula=as.character(NA))]
+  }
+  
+  
   data.summary <- {
   
+    summarySheetIndex <- grep("summary",excelwb2$sheet_names,ignore.case = T)
+    
+    #A real pain!
+    #But with tehse 2018 version templates, columns are in English (and French) and then people copy-paste templates
+    #and then the client doesn't speak French and they hide the column (or vice versa) and then they change the columns to something else entirely
+    #and then one language says the data is X and the other says the data is Y and then Jason throws an error and people complain that Jason isn't working.
+    #so, now we're going to test which is a hidden or nearly-hidden column and pick that in the case of an ambiguity.
+    summarySheetXML <- 
+      as.data.table(
+        dplyr::bind_rows(
+          lapply(
+            lapply(
+              (excelwb2$worksheets[[summarySheetIndex]])$cols_attr,
+                xml2::read_xml),
+            xml2::xml_attrs)))
+    
+    summarySheetXML[,excelCol:=openxlsx2::int2col(1:.N)]
+    if (!any(names(summarySheetXML)=="hidden")) summarySheetXML[,hidden:=as.character(NA)]
+    
+    
     #This is a legacy issue of indicators generically defining the Base Currency Unit to "LCU" currency FX without specifing what exactly.
     remap_lcu <- Filter(length,
                         lapply(summary_sheet,
@@ -259,7 +588,8 @@ parse_template_IFC_QR2018 <- function(pool,
                                          match_postion=match_postion,
                                          MoreArgs=list(search_sections=rep(x="summary",times=length(x)),
                                                        search_labels=normalizeLabel(x)),
-                                         USE.NAMES = F)
+                                         USE.NAMES = F,
+                                         SIMPLIFY=F)
                                   
                                 },
                                 find_sections=tolower(rsf_labels[map_indicator_id==bcu$indicator_id]$template_section_lookup),
@@ -306,7 +636,8 @@ parse_template_IFC_QR2018 <- function(pool,
                           match_postion=match_postion,
                           MoreArgs=list(search_sections=rep(x="summary",times=length(x)),
                                         search_labels=normalizeLabel(x)),
-                          USE.NAMES = F)
+                          USE.NAMES = F,
+                          SIMPLIFY=F)
                    
                  },
                  find_sections=tolower(rsf_labels$template_section_lookup),
@@ -322,9 +653,10 @@ parse_template_IFC_QR2018 <- function(pool,
       
       label_cols <- sort(label_cols,decreasing =TRUE)[1:2]
       label_cols_index <- which(names(label_matches) %in% names(label_cols))
+      label_cols_excelnames <- openxlsx2::int2col(label_cols_index)
       
       if (label_cols_index[2]-label_cols_index[1] != 1) {
-        stop(paste0("Label columns are not adjacent.  Template seems to have labels in columns ",paste0(label_cols_index,collapse=" and ")," instead of next to each other?"))
+        stop(paste0("Label columns are not adjacent.  Template seems to have labels in columns ",paste0(label_cols_excelnames,collapse=" and ")," instead of next to each other?"))
       }
       
       label_cols_names <- names(label_matches)[label_cols_index]
@@ -401,11 +733,12 @@ parse_template_IFC_QR2018 <- function(pool,
         
       }
       
-      label_matches <- label_matches[rsf_labels[,.(label_header_id,action,map_indicator_id,map_formula_id,map_check_formula_id)],
+      label_matches <- label_matches[rsf_labels[,.(label_header_id,action,map_indicator_id,map_formula_id,map_check_formula_id,header_id)],
                                      on=.(match_id=label_header_id),
                                      nomatch=NULL]
+      #changed from header_ids=list(unique(match_id)) TO header_ids=list(unique(header_id)) 
       label_matches <- label_matches[,
-                                     .(header_ids=list(unique(match_id))),
+                                     .(header_ids=list(unique(header_id))),
                                      by=.(original_row_num=match_rows,action,map_indicator_id,map_formula_id,map_check_formula_id,header_row)]
       
       data_cols <- names(summary_sheet)[seq(from=min(label_cols_index),length.out=4)]
@@ -526,31 +859,101 @@ parse_template_IFC_QR2018 <- function(pool,
       summary_sheet <- summary_sheet[ignore==FALSE]
       
       summary_sheet[rsf_indicators,
-                    indicator_name:=i.indicator_name,
+                    indicator_name:=i.indicator_name, 
                     on=.(map_indicator_id=indicator_id)]
       
+      #Did we match an indicator and also its unit_fx_indicator_id? Reconcile.
+      {
+        #unit_fx_indicator_id is the base indicator in LCU
+        unit_fx_indicators <- rsf_indicators[!is.na(unit_fx_indicator_id),.(unit_fx_indicator_id,indicator_id,data_unit,indicator_name)]
+        summary_sheet[,
+                    `:=`(unit_fx_defined=NA,
+                         ignore=NA)]
+
+        summary_sheet[unit_fx_indicators,
+                    unit_fx_defined:=mapply(grepl,pattern=i.data_unit,x=label,MoreArgs=list(ignore.case=T)),
+                    on=.(map_indicator_id=indicator_id)]
+
+        summary_sheet[,
+                    ignore:=is.na(unit_fx_defined) & any(!is.na(unit_fx_defined),na.rm=T),
+                    by=.(original_row_num)]
+
+        summary_sheet <- summary_sheet[ignore==FALSE]
+        summary_sheet[,unit_fx_defined:=NULL]
+      }
       
       #Will fail because its ambiguous
       {
         summary_sheet[,
-                       mismatch:=anyNA(action)==FALSE & length(unique(map_indicator_id))>1,
+                       mismatch:=anyNA(action)==FALSE & length(unique(na.omit(map_indicator_id)))>1,
                        by=.(original_row_num)]
         
         mismatch_labels <- summary_sheet[mismatch==TRUE]
         if (!empty(mismatch_labels)) {
           
-         
+          mismatch_labels[data.frame(excelCol=label_cols_excelnames,header_row=seq_along(label_cols_excelnames)),
+                          excelCol:=i.excelCol,
+                          on=.(header_row)]
+          
           mismatch_labels[,
-                          message:=paste0("Summary Sheet Row ",original_row_num," column ",header_row," \"",label,"\" maps to \"",indicator_name,"\"")]
+                          message:=paste0("Summary Sheet Row ",original_row_num," column ",excelCol," \"",label,"\" maps to \"",indicator_name,"\"")]
           setorder(mismatch_labels,
                    original_row_num,
                    header_row)
           
-          message <- paste0(mismatch_labels$message,collapse=" \n")
-          stop(paste0("Mismatched Column Labels:\n",
-                      "Correct the column name(s) in Summary Tab \n",
-                      "Or if this is a Template Requirement map these columns in JASON -> RSF Setup -> Setup Templates -> ",template_lookup$template_name," \n\n",
-                      message))
+          mismatch_labels <- mismatch_labels[summarySheetXML,
+                                             on=.(excelCol),
+                                             nomatch=NULL]
+          
+          mismatch_labels[,hidden:=suppressWarnings(as.numeric(hidden))>0]
+          mismatch_labels[,width:=suppressWarnings(as.numeric(width))]
+          mismatch_labels[is.na(hidden),hidden:=FALSE]
+          mismatch_labels[is.na(width),width:=0]
+          
+          
+          mismatch_labels <- mismatch_labels[,
+                          selected:=fcase(any(hidden) & !all(hidden),as.integer(header_row[which.max(!hidden)]),
+                                          any(length(unique(width))>1),as.integer(header_row[which.max(width)]),
+                                          default=as.integer(1)),
+                          
+                          by=.(original_row_num)]
+          
+          mismatch_labels <- mismatch_labels[,
+                          .(rsf_pfcbl_id=as.numeric(NA),
+                            indicator_id=map_indicator_id[selected],
+                            reporting_asof_date=reporting_asof_date,
+                            check_name="sys_reporting_data_discarded",
+                            check_message=paste0("Excel template defines AMBIGUOUS labels on columns ",paste0(excelCol,collapse=" and "),
+                                          " for value {",unique(data_value)," ",unique(data_unit),"} on: \n",
+                                          paste0(message,collapse=" AND\n "),
+                                          ". System is auto-selecting column ",excelCol[selected]," ",
+                            fcase(any(hidden)," because the other column is hidden (so you probably have a typo or mis-entered label in your template?)",
+                                  length(unique(width))>1," it is the widest width column and therefore assumed to be the focus and primary label?",
+                                  default=" it is the first label and therefore assumed to be the focus and primary label?"),
+                            ". If this assumption is correct, you must fix your template column labels (and the results uploaded for '",
+                            indicator_name[selected],"'={",unique(data_value)," ",unique(data_unit),"} will likely result in errors")),
+                          by=.(original_row_num,selected)]
+          
+          for (ml in mismatch_labels$check_message) { status_message(class="error",ml,"\n") }
+          
+          summary_sheet[mismatch_labels[,.(mismatch=TRUE,
+                                           selected,
+                                           original_row_num)],
+                        mismatch:=!(header_row==selected),
+                        on=.(mismatch,
+                             original_row_num)]
+          
+          summary_sheet <- summary_sheet[mismatch==FALSE]
+          
+          mismatch_labels <- mismatch_labels[,.(rsf_pfcbl_id,
+                                              indicator_id,
+                                              reporting_asof_date,
+                                              check_name,
+                                              check_message)]
+          
+          reporting_flags <- rbindlist(list(reporting_flags,
+                                            mismatch_labels))
+          
         }
       }    
       
@@ -625,7 +1028,43 @@ parse_template_IFC_QR2018 <- function(pool,
         }
       }
       
+      #Unfound: will asign to entity_reporting
+      {
+        summary_sheet[,
+                      mixed:=length(unique(action))>1 & length(unique(map_indicator_id)) > 1 & anyNA(map_indicator_id),
+                      by=.(original_row_num)]
+        mixed_labels <- summary_sheet[mixed==TRUE]
+        
+        if (!empty(mixed_labels)) {
+          
+          setorder(mixed_labels,
+                   original_row_num,
+                   map_indicator_id,
+                   na.last=T)
+          
+          mixed_labels <- mixed_labels[,.(rsf_pfcbl_id=rsf_pfcbl_id.facility,
+                              indicator_id=map_indicator_id[1],
+                              reporting_asof_date=reporting_asof_date,
+                              check_name="sys_flag_indicator_ignored",
+                              check_message=paste0("Summary Tab Row ",original_row_num,
+                                                   paste0(paste0(" Column ",header_row," matches \"",label,"\" to ",
+                                                                 ifelse(action=="ignore",paste0("IGNORE (template header ",paste0(unlist(header_ids),collapse=", "),")"),
+                                                                        paste0(indicator_name," (",action,")"))),collapse=" AND "))),
+                       by=.(original_row_num)]
+          
+          mixed_labels <- mixed_labels[,.(rsf_pfcbl_id,
+                                              indicator_id,
+                                              reporting_asof_date,
+                                              check_name,
+                                              check_message)]
+          
+          reporting_flags <- rbindlist(list(reporting_flags,
+                                            mixed_labels))
+        }
+      }
+      
       summary_sheet <- summary_sheet[is.na(action)==FALSE]
+      summary_sheet <- summary_sheet[(action=="ignore")==FALSE]
       
       #special management for currency ratios and if the currency code is being reported in the label
       {
@@ -653,6 +1092,9 @@ parse_template_IFC_QR2018 <- function(pool,
                                     "\"",ambiguous_units$label_data_unit,"\"",
                                     collapse=" vs ")),collapse=" AND ALSO \n")))
         }
+        
+        
+        
         currency_reporting <- unique(currency_reporting[(is.na(data_unit) |
                                                            grepl("[a-zA-z]{3}/[a-zA-Z]{3}",data_unit)==FALSE) &
                                                           is.na(label_data_unit)==FALSE,
@@ -777,11 +1219,67 @@ parse_template_IFC_QR2018 <- function(pool,
                                      reporting_submitted_data_unit,
                                      reporting_submitted_data_formula)]
     
+    if (!any(summary_sheet$indicator_name %in% rsf_indicators[indicator_sys_category=="template_file" & data_category=="facility",indicator_name])) {
+      
+      next_rank <- max(suppressWarnings(as.numeric(summary_sheet[reporting_template_row_group=="1SUMMARY"]$reporting_template_data_rank)),na.rm=T)
+      if (length(next_rank)==0 || is.infinite(next_rank)) { next_rank <- "1" 
+      } else { next_rank <- as.character(next_rank+1) }
+      
+      tfdata <- data.table(reporting_template_row_group="1SUMMARY",
+                           reporting_template_data_rank=next_rank,
+                           indicator_name=rsf_indicators[indicator_sys_category=="template_file" & data_category=="facility",indicator_name],
+                           reporting_submitted_data_value=basename(template_file),
+                           reporting_submitted_data_unit=as.character(NA),
+                           reporting_submitted_data_formula=as.character(NA))
+      
+      summary_sheet <- rbindlist(list(summary_sheet,
+                                      tfdata))
+    }
+    
     summary_sheet
     
   }
 
   data.quarterly <- {
+    
+    
+    
+    qreportSheetIndex <- grep("qreport",excelwb2$sheet_names,ignore.case = T)
+    
+    #A real pain!
+    #But with tehse 2018 version templates, columns are in English (and French) and then people copy-paste templates
+    #and then the client doesn't speak French and they hide the column (or vice versa) and then they change the columns to something else entirely
+    #and then one language says the data is X and the other says the data is Y and then Jason throws an error and people complain that Jason isn't working.
+    #so, now we're going to test which is a hidden or nearly-hidden column and pick that in the case of an ambiguity.
+    qreportSheetXML <- data.table((excelwb2$worksheets[[qreportSheetIndex]])$sheet_data$row_attr)
+    
+    qreportSheetXML[,excelCol:=openxlsx2::int2col(1:.N)]
+    if (!any(names(qreportSheetXML)=="hidden")) qreportSheetXML[,hidden:=as.character(NA)]
+    if (!any(names(qreportSheetXML)=="collapsed")) qreportSheetXML[,collapsed:=as.character(NA)]
+    
+    qreportSheetXML[,hidden:=as.logical(suppressWarnings(as.numeric(hidden))>0)]
+    qreportSheetXML[is.na(hidden),hidden:=FALSE]
+    #qreportSheetXML[,collapsed:=as.logical(suppressWarnings(as.numeric(collapsed))>0)]
+    #qreportSheetXML[is.na(collapsed),collapsed:=FALSE]
+    qreportSheetXML[,ht:=suppressWarnings(as.numeric(ht))]
+    qreportSheetXML[is.na(ht),ht:=0]
+    qreportSheetXML[,original_row_num:=as.numeric(r)]
+    
+    #openxlsx skipped frist row(s) so we have an offset 
+    if (nrow(data_formula_matrix > 0) &&
+        as.numeric(row.names(data_formula_matrix))[1] != 1) {
+      
+      first_row <-  as.numeric(row.names(data_formula_matrix))[1]
+      
+      qreportSheetXML <- qreportSheetXML[original_row_num >= first_row]
+      qreportSheetXML <- qreportSheetXML[,original_row_num:=1:.N]
+      
+    }
+    # dim(qreportSheetXML)
+    # dim(data_formula_matrix)
+    # dim(data_sheet)
+    #Because openxlsx skips the first blank row (usually)
+    
     
     {
       label_matches <- lapply(as.data.frame(t(data_sheet[1:30])),
@@ -794,7 +1292,8 @@ parse_template_IFC_QR2018 <- function(pool,
                                        match_postion=match_postion,
                                        MoreArgs=list(search_sections=rep(x="qreport",times=length(x)),
                                                      search_labels=normalizeLabel(x)),
-                                       USE.NAMES = F)
+                                       USE.NAMES = F,
+                                       SIMPLIFY=F)
                                 
                               },
                               find_sections=tolower(rsf_labels$template_section_lookup),
@@ -853,6 +1352,7 @@ parse_template_IFC_QR2018 <- function(pool,
       data_sheet <- data_sheet[data_rows]
       data_formulas <- as.data.table(data_formula_matrix[data_rows,
                                                          1:ncol(data_sheet)])
+      
       setnames(data_formulas,
                old=names(data_formulas),
                new=names(data_sheet))
@@ -882,12 +1382,12 @@ parse_template_IFC_QR2018 <- function(pool,
       
       label_matches <- unique(label_matches)
       
-      label_matches <- label_matches[rsf_labels[,.(label_header_id,action,map_indicator_id,map_formula_id,map_check_formula_id)],
+      label_matches <- label_matches[rsf_labels[,.(label_header_id,action,map_indicator_id,map_formula_id,map_check_formula_id,header_id)],
                                      on=.(match_id=label_header_id),
                                      nomatch=NULL]
-      
+      #chaned from header_ids=list(unique(match_id)) TO header_ids=list(unique(header_id)) 
       label_matches <- label_matches[,
-                                     .(header_ids=list(unique(match_id))),
+                                     .(header_ids=list(unique(header_id))),
                                      .(original_col_num=openxlsx::int2col(match_rows),header_row,
                                        action,map_indicator_id,map_formula_id,map_check_formula_id)]
     }
@@ -904,6 +1404,15 @@ parse_template_IFC_QR2018 <- function(pool,
       data_labels <- data_labels[,
                                  ..data_cols_names]
       
+      #data_labels[,original_row_num:=label_rows_index]
+      # melted_data_labels <- melt.data.table(data=data_labels,
+      #                 id="original_row_num",
+      #                 variable.factor = F,
+      #                 value.factor = F,
+      #                 variable.name="header_row",
+      #                 value.name="label")
+
+      #I don't know why I did it this way... just keep it for now...      
       data_labels <- as.data.table(as.data.frame(t(data_labels)),
                                    keep.rownames = T)
       
@@ -923,6 +1432,12 @@ parse_template_IFC_QR2018 <- function(pool,
       
       data_labels[,
                   header_row:=as.numeric(gsub("label","",header_row))]
+      
+      data_labels[data.table(original_row_num=label_rows_index,
+                             header_row=seq_along(label_rows_index)),
+                  original_row_num:=i.original_row_num,
+                  on=.(header_row)]
+      
       
       
       data_labels <- label_matches[data_labels,
@@ -956,6 +1471,26 @@ parse_template_IFC_QR2018 <- function(pool,
       
       data_labels <- data_labels[ignore==FALSE]
       
+      #Did we match an indicator and also its unit_fx_indicator_id? Reconcile.
+      {
+        #unit_fx_indicator_id is the base indicator in LCU
+        unit_fx_indicators <- rsf_indicators[!is.na(unit_fx_indicator_id),.(unit_fx_indicator_id,indicator_id,data_unit,indicator_name)]
+        data_labels[,
+                    `:=`(unit_fx_defined=NA,
+                         ignore=NA)]
+        
+        data_labels[unit_fx_indicators,
+                    unit_fx_defined:=mapply(grepl,pattern=i.data_unit,x=label,MoreArgs=list(ignore.case=T)),
+                    on=.(map_indicator_id=indicator_id)]
+        
+        data_labels[,
+                    ignore:=is.na(unit_fx_defined) & any(!is.na(unit_fx_defined),na.rm=T),
+                    by=.(original_col_num)]
+        
+        data_labels <- data_labels[ignore==FALSE]
+        data_labels[,unit_fx_defined:=NULL]
+      }
+      
       #Will fail because its ambiguous
       {
         data_labels[,
@@ -966,18 +1501,97 @@ parse_template_IFC_QR2018 <- function(pool,
         if (!empty(mismatch_labels)) {
           
           
-          mismatch_labels[,
-                          message:=paste0("QReport Sheet row ",header_row," column ",original_col_num," \"",label,"\" maps to \"",indicator_name,"\"")]
+          mismatch_labels <- mismatch_labels[qreportSheetXML,
+                          on=.(original_row_num),
+                          nomatch=NULL]
           
-          setorder(mismatch_labels,
-                   original_col_num,
-                   header_row)
+          mismatch_labels <- mismatch_labels[,
+                                             selected:=(fcase(any(hidden) & !all(hidden),as.integer(header_row[which.max(!hidden)]),
+                                                             any(length(unique(ht))>1),as.integer(header_row[which.max(ht)]),
+                                                             default=as.integer(1))),
+                                             
+                                             by=.(original_col_num)][order(original_col_num,original_row_num)]
           
-          message <- paste0(mismatch_labels$message,collapse=" \n")
-          stop(paste0("Mismatched Column Labels:\n",
-                      "Correct the column name(s) in QReport Tab \n",
-                      "Or if this is a Template Requirement map these columns in JASON -> RSF Setup -> Setup Templates -> ",template_lookup$template_name," \n\n",
-                      message))
+          
+          
+          mismatch_labels[,n:=.N,
+                          by=.(original_col_num,label,header_row,selected)]
+          
+          #one label matches multiple indicators: should be impossible, can happen due to FX unit issues (which are resolved above)
+          #but just in case someone creates an indicator alias or other mapping that causes too much confusion!
+          #then just pick one.
+          if (any(mismatch_labels$n>1)) {
+            mismatch_labels[n>1,
+                            omit:=map_indicator_id==max(map_indicator_id),
+                            by=.(original_col_num,label,header_row,selected)]
+            mismatch_labels <- mismatch_labels[omit==F]
+          }
+          
+          data_labels[,ignore:=FALSE]
+          data_labels[mismatch_labels[header_row != selected],
+                      ignore:=TRUE,
+                      on=.(map_indicator_id,
+                           original_col_num,
+                           header_row)]
+          #data_labels[ignore==T]
+          
+          data_labels <- data_labels[ignore==F]
+          
+          mismatch_labels[,check_message:=paste0("QReport Column ",original_col_num," label ",
+                                                 paste0(unique(paste0("'",label,"' (row ",original_row_num,")")),collapse=" AND "),
+                                                  " match: ",paste0("'",unique(indicator_name),"'",collapse=" OR "),
+                                                 " Importing COL",original_col_num," into ",paste0(unique(indicator_name[header_row==selected]),collapse=", ")," because ",
+                                                 fcase(any(hidden,na.rm=T),
+                                                       paste0(" because ROW ",paste0(unique(header_row[header_row != selected]),collapse=" & "),
+                                                       " is hidden (so you probably have a typo or mis-entered label in your template?)"),
+                                                       length(unique(ht))>1," it is the highest height row and therefore assumed to be the focus and primary label?",
+                                                       default=" it is the first label row and therefore assumed to be the focus and primary label?"),
+                                                 " If this assumption is not correct, you must fix your template column labels (and the results uploaded for COLUMN ",
+                                                 original_col_num," will likely result in errors)"),
+                          by=.(original_col_num)]
+          
+          mismatch_labels <- mismatch_labels[header_row==selected,
+                                             .(rsf_pfcbl_id=as.numeric(NA),
+                                               indicator_id=map_indicator_id,
+                                               reporting_asof_date=reporting_asof_date,
+                                               check_name="sys_flag_indicator_not_found",
+                                               check_message)]
+                                               
+          mismatch_labels <- unique(mismatch_labels)  
+          reporting_flags <- rbindlist(list(reporting_flags,
+                                            mismatch_labels))
+          # # mismatch_labels <- mismatch_labels[,
+          #                                    .(rsf_pfcbl_id=as.numeric(NA),
+          #                                      indicator_id=map_indicator_id[selected],
+          #                                      reporting_asof_date=reporting_asof_date,
+          #                                      check_name="sys_reporting_data_discarded",
+          # #                                      check_message=paste0("Excel template defines AMBIGUOUS labels on ",original_col_num,paste0(unique(original_row_num),collapse=" and "),
+          # #                                                           ": \n",
+          # #                                                           paste0(
+          # #                                                             unique(paste0("ROW ",original_row_num," is '",label,"' and maps to ",indicator_name)),collapse=" AND\n "),
+          # #                                                           ". System is auto-selecting ROW ",original_row_num[selected]," ",
+          # #                                                           fcase(any(hidden)," because the other row is hidden (so you probably have a typo or mis-entered label in your template?)",
+          # #                                                                 length(unique(ht))>1," it is the highest height row and therefore assumed to be the focus and primary label?",
+          # #                                                                 default=" it is the first label row and therefore assumed to be the focus and primary label?"),
+          # #                                                           ". If this assumption is correct, you must fix your template column labels (and the results uploaded for COLUMN ",
+          # #                                                           original_col_num," will likely result in errors)")),
+          # #                                    by=.(original_col_num,selected)]
+          
+          for (ml in mismatch_labels$check_message) { status_message(class="error",ml,"\n") }
+          
+          
+          # mismatch_labels[,
+          #                 message:=paste0("QReport Sheet row ",header_row," column ",original_col_num," \"",label,"\" maps to \"",indicator_name,"\"")]
+          # 
+          # setorder(mismatch_labels,
+          #          original_col_num,
+          #          header_row)
+          # 
+          # message <- paste0(mismatch_labels$message,collapse=" \n")
+          # stop(paste0("Mismatched Column Labels:\n",
+          #             "Correct the column name(s) in QReport Tab \n",
+          #             "Or if this is a Template Requirement map these columns in JASON -> RSF Setup -> Setup Templates -> ",template_lookup$template_name," \n\n",
+          #             message))
         }
       }    
       
@@ -1343,7 +1957,8 @@ parse_template_IFC_QR2018 <- function(pool,
   
   
   
-  template_data <- rbindlist(list(data.summary,
+  template_data <- rbindlist(list(data.lists,
+                                  data.summary,
                                   data.quarterly))
   
   template_data[,reporting_asof_date:=reporting_asof_date]

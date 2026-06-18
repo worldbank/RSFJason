@@ -149,13 +149,17 @@ observeEvent(input$modal_dataset_upload_next, {
   results <- tryCatch({  
 
     #Template gets its own database pool
-    template_parse_process_and_upload(pool=dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]])),
+    localPool <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
+    ppu <- template_parse_process_and_upload(pool=localPool,
                                       reporting_user_id=USER_ID(),
                                       template_files=filename,
                                       parse_rsf_pfcbl_id=parse_rsf_pfcbl_id,
                                       source_note=source_note,
                                       delete_after_upload=TRUE,
                                       status_message=status_message)
+    poolClose(localPool)
+    localPool <- NULL
+    ppu
   },
   warning=function(war) {
     print(conditionMessage(war));

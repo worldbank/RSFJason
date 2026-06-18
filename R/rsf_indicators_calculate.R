@@ -60,8 +60,8 @@ rsf_indicators_calculate <- function(pool,
       
       data_flags_list[[length(data_flags_list)+1]] <<- data.table(rsf_pfcbl_id=flag_ids,
                                                                  indicator_id=indicator_id,
-                                                                 check_name=check_name,
-                                                                 check_message=check_message,
+                                                                 check_name=as.character(check_name),
+                                                                 check_message=as.character(check_message),
                                                                  formula_id=formula_id)
     }
   }
@@ -338,8 +338,8 @@ rsf_indicators_calculate <- function(pool,
             add_data_flag(rsf_pfcbl_id = unlist(missing_ids$rsf_pfcbl_id),
                           indicator_id=calculation$calculate_indicator_id,
                           check_name=NO_DATA_FAILURE, #This is a pseudo flag that is removed later in this function.
-                                                                       #This is a special type of failure.
-                          check_message=NA,
+                                                      #This is a special type of failure.
+                          check_message=paste0("Nothing exists for: ",paste0(formula_rsf_ids[missing_rsf_ids],collapse=" and ")),
                           formula_id=calculation$formula_id)
           }
           

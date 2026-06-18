@@ -401,8 +401,10 @@ RSF_TEMPLATES <- eventReactive(LOGGEDIN(), {
       file_extension,
       is_system
     from p_rsf.reporting_templates
-    where is_system = false
-    order by template_name;")
+    where (is_system = false OR coalesce($1::int,0) is NOT distinct from 0)
+      and is_reportable is true -- mapping templates that cannot report is not useful!  Plus dashboard demplates have many pseudo columns for fx, audit, etc.
+    order by template_name;",
+    params=list(SELECTED_PROGRAM_ID()))
   
   setDT(templates)
   return (templates)
@@ -433,6 +435,8 @@ SERVER_SETUP_TEMPLATES__SELECTED_TEMPLATE <- eventReactive(c(input$server_progra
   
   selected_template_id <- as.numeric(input$ui_setup__template_selected)
   selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
+  
+  if (!isTruthy(selected_rsf_pfcbl_id) || selected_rsf_pfcbl_id == -1) selected_rsf_pfcbl_id <- SELECTED_PROGRAM_ID()
   
   if (!isTruthy(selected_template_id)) return (NULL)
   if (!isTruthy(selected_rsf_pfcbl_id)) return (NULL)

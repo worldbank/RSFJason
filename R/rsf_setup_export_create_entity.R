@@ -13,16 +13,21 @@ rsf_setup_export_create_entity <- function(pool,
            else NULL
       end as parent_rsf_pfcbl_id,
       ids.pfcbl_category,
+      ids.pfcbl_category_rank,
       ids.created_in_reporting_asof_date,
       ids.created_by_reporting_cohort_id,
       rc.reporting_user_id,
       rc.reporting_time,
       coalesce(nids.id,'00000') as id,
       coalesce(nids.nickname,nids.name) as name,
-      nids.rsf_full_name
+      nids.rsf_full_name,
+      fids.rsf_full_name as facility_full_name,
+      fids.name as facility_name,
+      fids.id as facility_id
     from p_rsf.rsf_pfcbl_ids ids      
     inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = ids.created_by_reporting_cohort_id
     inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
+    left join p_rsf.view_current_entity_names_and_ids fids on fids.rsf_pfcbl_id = ids.rsf_facility_id
     where ids.rsf_pfcbl_id = $1::int",
     params=list(export_rsf_pfcbl_id))
   
@@ -40,6 +45,7 @@ select
       rdc.reporting_asof_date,
       ind.data_category,
       ind.indicator_sys_category,
+      ids.pfcbl_category_rank,
       p_rsf.rsf_data_value_unit(v_data_value => rdc.data_value,
                                 v_data_unit => rdc.data_unit) as data_value
     from p_rsf.rsf_pfcbl_ids ids
@@ -66,6 +72,7 @@ select
       ids.created_in_reporting_asof_date as reporting_asof_date,
       ind.data_category,
       ind.indicator_sys_category,
+      ids.pfcbl_category_rank,
       p_rsf.rsf_data_value_unit(v_data_value => rdc.data_value,
                                 v_data_unit => rdc.data_unit) as data_value
     from p_rsf.rsf_pfcbl_ids ids
@@ -97,10 +104,17 @@ select
                                            reporting_asof_date=entity$created_in_reporting_asof_date,
                                            entity_data=export_data,
                                            exporting_user_id=entity$reporting_user_id)
+  fname <- gsub("[^[:alnum:][:space:]]","",paste0(entity$id," ",entity$name))
+  if (entity$pfcbl_category=="client") {
+    fname <- paste(gsub("[^[:alnum:][:space:]]","",paste0(entity$facility_id," ",entity$facility_name)),
+                   " - ",fname)
+  }
+  fname <- trimws(gsub("\\s+"," ",fname))
   
-  filename <- paste0("#0 ",gsub("[^[:alnum:][:space:]]","",paste0(entity$id," ",entity$name))," - ",
+  filename <- paste0("#0.",entity$pfcbl_category_rank," ",trimws(fname)," - ",
                      format_asof_date_label(entity$created_in_reporting_asof_date)," - ",
-                     "CREATE RSF ",entity$pfcbl_category," - v1.xlsx")
+                     "CREATE RSF ",entity$pfcbl_category,".xlsx")
+  
   
   outpath <- paste0(file_path,"/",filename)
   openxlsx::saveWorkbook(excelwb,

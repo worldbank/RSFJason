@@ -124,7 +124,7 @@ db_add_update_data_system <- function(pool,
         
       
         dbExecute(conn,"update _temp_upload_system_data usd
-                        set reporting_rsf_pfcbl_id = coalesce(ids.rsf_client_id,ids.rsf_facility_id,ids.rsf_program_id)
+                        set reporting_rsf_pfcbl_id = coalesce(ids.rsf_facility_id,ids.rsf_program_id)
                         from p_rsf.rsf_pfcbl_ids ids
                         where ids.rsf_pfcbl_id = usd.rsf_pfcbl_id;")
         

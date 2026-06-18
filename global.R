@@ -309,16 +309,25 @@ labelMatches <- function(find_sections=NA, #match any section if NA, section may
   if (length(search_sections) != length(search_labels)) stop(paste0("seach_sections and search_labels should be equal length vectors to ensure which() returns equivalent indexes: ",
                                                                     length(search_sections)," vs ",length(search_labels)))
   
+  #JUN2026: didn'tknow why "Lists" wasn't working and needed to be "lists" -- spent a while on this!
+  find_sections <- tolower(find_sections)
+  search_sections <- tolower(search_sections)
+  search_labels <- tolower(search_labels)
+  find_labels <- tolower(find_labels)
+  
   if (all(is.na(find_sections)) && all(is.na(find_labels))) return (NULL)
-  add_start_stop <- function(str) {
-    none <- grep("^\\^",str,invert = T)
-    if (any(none)) str[none] <- paste0("^",str[none])
-    
-    none <- grep("\\$$",str,invert = T)
-    if (any(none)) str[none] <- paste0(str[none],"$")
-    
-    return (str)
-  }
+
+ 
+  
+  # add_start_stop <- function(str) {
+  #   none <- grep("^\\^",str,invert = T)
+  #   if (any(none)) str[none] <- paste0("^",str[none])
+  #   
+  #   none <- grep("\\$$",str,invert = T)
+  #   if (any(none)) str[none] <- paste0(str[none],"$")
+  #   
+  #   return (str)
+  # }
   
   if (!is.na(find_sections) && !is.na(find_labels)) {
     

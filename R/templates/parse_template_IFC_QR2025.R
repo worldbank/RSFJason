@@ -4,20 +4,218 @@ parse_template_IFC_QR2025 <- function(pool,
                                       template_file,
                                       template_lookup=db_export_get_template(pool=pool,template_name="IFC-QR-TEMPLATE2025"),
                                       rsf_indicators=db_indicators_get_labels(pool),
-                                      return.insert_flags=NULL,
-                                      return.next_date=NULL,
+                                      return.insert_flags=NULL, #To insert and return current flags tab based on current QR of template_file in system: this is a DATA TABLE of flags exported by UI
+                                      return.next_date=FALSE,    #To automatically create zero-version of next QR based on current QR in system
+                                      reporting_user_id,
                                       status_message,
                                       CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) 
+  
 {
+  
+  clean_up_template <- function(excelwb) {
+    
+    qreport_sheet_num <- grep("QReport$",excelwb$sheet_names,ignore.case=T)
+    qreport_data <- excelwb$to_df(sheet=qreport_sheet_num,col_names = F)
+    
+    last_not_blank <- nrow(qreport_data)
+    if (any( (qreport_data_blank_rows <- rowSums(!is.na(qreport_data))==0)[-(1:QREPORT_startrow)],na.rm=T)) {
+      last_not_blank <- Position(isFALSE,qreport_data_blank_rows,right=TRUE)
+      
+      #allow 5 blank rows
+      if (last_not_blank+5 < nrow(qreport_data) && last_not_blank >QREPORT_startrow) {
+        
+        excelwb$clean_sheet(sheet = qreport_sheet_num, 
+                            dims = paste0("A",(last_not_blank+5),":",openxlsx2::int2col(ncol(qreport_data)),nrow(qreport_data)))
+        
+        
+      }
+    }
+    
+    excelwb$add_data(sheet=qreport_sheet_num,
+                     x=rep("",times=(nrow(qreport_data)+1-QREPORT_startrow)),
+                     dims=paste0("A",QREPORT_startrow,":A",last_not_blank))
+    
+    #remove conditional styles and reset styles on Qreport
+    {
+      
+      #Remove conditional formatting applied to arbitrary cells    
+      if (length(excelwb$worksheets[[qreport_sheet_num]]$conditionalFormatting) &&
+          length(removecf <- grep("\\s+",trimws(excelwb$worksheets[[qreport_sheet_num]]$conditionalFormatting$sqref)))) {
+        excelwb$worksheets[[qreport_sheet_num]]$conditionalFormatting <- excelwb$worksheets[[qreport_sheet_num]]$conditionalFormatting[-removecf,]
+      }
+      
+      #any conditional formual on a row with double-digit row number (ie, more than row 6 start row; simpler than parsing each digit value)
+      if (length(excelwb$worksheets[[qreport_sheet_num]]$conditionalFormatting) && 
+          length(removecf <- grep("\\d{2,}",excelwb$worksheets[[qreport_sheet_num]]$conditionalFormatting$sqref))) {
+        excelwb$worksheets[[qreport_sheet_num]]$conditionalFormatting <- excelwb$worksheets[[qreport_sheet_num]]$conditionalFormatting[-removecf,]
+      }
+      
+      #openxlsx2::wb_save(excelwb,file="C:/Temp/OTP Test2.xlsx",overwrite=T)
+      excelwb$add_fill(sheet=qreport_sheet_num,
+                       dims=paste0("A",QREPORT_startrow,":",openxlsx2::int2col(ncol(qreport_data)),last_not_blank),
+                       color=NULL)
+      
+      excelwb$add_font(sheet=qreport_sheet_num,
+                       dims=paste0("A",QREPORT_startrow,":",openxlsx2::int2col(ncol(qreport_data)),last_not_blank),
+                       update=NULL) 
+      
+      #Using add border as a multi-dimensional range causes an infinite loop inside openxlsx! ???
+      for (excelcol in names(qreport_data)) {
+        excelwb$add_border(sheet=qreport_sheet_num,
+                           dims=paste0(excelcol,QREPORT_startrow,":",excelcol,last_not_blank),
+                           update=NULL)
+      }
+      
+      # target_dims <- openxlsx2::wb_dims(
+      #   x = excelwb$to_df(sheet=qreport_sheet_num,col_names = F),
+      #   from_row = QREPORT_startrow,
+      #   from_col = 1
+      # )
+      
+      
+      excelwb$add_data(sheet=qreport_sheet_num,
+                       x="🏴 ",
+                       dims="A5")
+      
+      excelwb$add_cell_style(sheet=qreport_sheet_num,
+                             dims="A5",
+                             horizontal = "center")
+      
+      #Color of the flag
+      excelwb$add_font(sheet=qreport_sheet_num,
+                       dims="A5",
+                       color=wb_color("gray"))
+    }
+    
+    #Remove custom XML
+    if (length(excelwb$customXml) ||
+        any(grepl("customXml",excelwb$Content_Types)) || 
+        any(grepl("customXml",excelwb$workbook.xml.rels))) {
+      
+      message("Excel file has customXml that will be removed")
+      excelwb$Content_Types <- grep("customXml",excelwb$Content_Types,value=T,invert = T)
+      excelwb$workbook.xml.rels <- grep("customXml",excelwb$workbook.xml.rels,value=T,invert = T)
+      excelwb$customXml <- NULL
+    }
+    
+    
+    
+    defined_names_xml <- rbindlist(lapply(lapply(excelwb$workbook$definedNames,xml2::read_xml),function(x) as.data.frame(as.list(xml2::xml_attrs(x)))),fill=T)
+    if (is.null(defined_names_xml$hidden)) {
+      defined_names_xml[,hidden:=""]
+    }
+    defined_names_xml[,is_hidden:=!is.na(suppressWarnings(as.numeric(hidden))==1)]
+    hidden_dn <- which(defined_names_xml$is_hidden)
+    if (length(hidden_dn)) {
+      for (i in rev(hidden_dn)) {
+        message(paste0("Excel file has hidden named ranges that will be removed: ",defined_names_xml$name[i])) 
+        excelwb$workbook$definedNames <- excelwb$workbook$definedNames[-i]
+      }      
+    }
+    
+    
+    errors <- fsetdiff(nregions_table[is_hidden==F,.(name,value,sheets,coords)],
+                       as.data.table(openxlsx2::wb_get_named_regions(excelwb))[,.(name,value,sheets,coords)])
+    if(!empty(errors)) {
+      stop(paste0("Defined name ranges have gone missing!\n",
+                  paste(capture.output(print(errors)), collapse = "\n")))
+    }
+    # if (any(nregions_table$is_hidden,na.rm=T)) {
+    # #Remove Hidden Named Ranges
+    #   remove_hidden <- nregions_table[is_hidden==T]
+    #   for (i in nrow(remove_hidden):1) {
+    #     rh <- remove_hidden[i]
+    #     target_sheet <- if (is.na(rh$sheets) || rh$sheets == "") { NULL } else { rh$sheets }
+    #     message(paste0("Excel file has hidden named ranges that will be removed: ",rh$name," on ",ifelse(is.null(target_sheet),"GLOBAL",target_sheet)))  
+    #     excelwb$remove_named_region(
+    #       sheet = target_sheet,
+    #       name = rh$name
+    #     )
+    #   }
+    #}
+    # if (any(nchar( (nr<-excelwb$get_named_regions())$hidden) )) {
+    #   
+    #   for (i in 1:nrow(nr)) {
+    #     rng <- nr[i,]
+    #     hnr <- suppressWarnings(as.numeric(rng$hidden))
+    #     if (length(hnr) > 0 && !is.na(hnr) && hnr==1) {
+    #       
+    #       if (any(rng$sheets==excelwb$sheet_names)) {
+    #        
+    #         excelwb$remove_named_region(sheet=rng$sheets,
+    #                                     name=rng$name)
+    #       }
+    #     }
+    #   }
+    # }
+    
+    #Remove existing comments (Legacy comments create issues)
+    if (length(excelwb$comments)) {
+      
+      comments <- rbindlist(lapply(seq_along(excelwb$sheet_names),function(s) { x <- excelwb$get_comment(sheet=s); if (length(x)) cbind(x[,c("ref","cmmt_id")],sheet=s) }))
+      #threads <- rbindlist(lapply(seq_along(excelwb$sheet_names),function(s) { x <- excelwb$get_thread(sheet=s); if (length(x)) cbind(x,sheet=s) }))
+      
+      
+      
+      for (nc in 1:nrow(comments)) excelwb$remove_comment(sheet=comments[nc]$sheet,dims=comments[nc]$ref)
+      #for (nc in 1:nrow(threads)) excelwb$remove_comment(sheet=threads[nc]$sheet,dims=threads[nc]$ref)
+      #if (!empty(comments)) { invisible(pmap(comments[,.(sheet,dims=ref)],excelwb$remove_comment)) }
+      
+      for (i in seq_along(excelwb$vml_rels)) {
+        if (nchar(excelwb$vml_rels[i])==0) excelwb$vml_rels[[i]] <- NULL
+      }
+    }
+    if (length(excelwb$threadComments)) {
+      for (i in seq_along(excelwb$threadComments)) excelwb$threadComments[[i]] <- ""
+    }
+    
+    snames <- wb_get_sheet_names(excelwb)
+    for(sname in snames) {
+      size <- dim(excelwb$to_df(sheet=sname))
+      excelwb$set_sheet_visibility(sheet=sname,value="visible")
+      
+      if (length(size)) {
+        excelwb$remove_row_heights(sheet=sname,
+                                   rows=1:size[1])
+      }
+      
+      ratt <- excelwb[["worksheets"]][[which(sname==snames)]][["sheet_data"]][["row_attr"]]
+      if (any(nchar(ratt$hidden)>0,na.rm=T)) {
+        excelwb[["worksheets"]][[which(sname==snames)]][["sheet_data"]][["row_attr"]][which(nchar(ratt$hidden)>0),"hidden"] <- ""
+      }
+      
+      if (any(nchar(ratt$ht)>0,na.rm=T)) {
+        excelwb[["worksheets"]][[which(sname==snames)]][["sheet_data"]][["row_attr"]][which(nchar(ratt$ht)>0),"ht"] <- ""
+      }
+      
+      excelwb$remove_hyperlink(sheet=sname)
+    }
+    return (excelwb)
+  }
   
   #Read file
   {
+    if (!file.exists(template_file)) stop(paste0("Uh oh! File '",template_file,"' doesn't exist!"))
     if (!file_ext(template_file) %in% "xlsx") stop("Only .xlsx files using Excel-365 versions or later may use this template")
+    if ((file.info(template_file)$size / 1024^2) > 350) {
+      stop(paste0("Uh oh! This file is ",round(file.info(template_file)$size / 1024^2,2),"MB! This exceeds the 35MB limit (and it surely also exceeds IFC and client email server limits, which will prevent you from communicating this data with the client). ",
+                  "Most likely, your file unnecessarily large and Excel can reduce the size considerably (like deleting unused formats).  Ask Copilot Excel how to ",
+                  "reduce this file size and re-save it. ",
+                  "However, if all the data here is truly necessary for upload, re-save as a .csv the quarterly report file and use Jason's csv file upload method instead (",
+                  "the qreport headers need to be on row 1 of the .csv file and the project ID number needs to be in the file name of the .csv file"))
+    }
+    
+    
+    #!very important!
+    #Especially to ensure that we do not read-in checks from a file that is being downloaded!
+    #We only want to read-in checks for uploaded files that are being reported into the system.
+    RETURN.regular <- is.null(return.insert_flags) && !isTRUE(return.next_date)
+    
     ####
     #openxlsx has some bug where it can't read some types of workbooks with pivot tables
     #https://github.com/ycphs/openxlsx/issues/124
     
-    excelwb <- openxlsx2::wb_load(template_file)
+    excelwb <- suppressWarnings(openxlsx2::wb_load(template_file))
     # excelwb <- tryCatch({
     #   openxlsx2::wb_load(template_file)
     # },
@@ -28,7 +226,7 @@ parse_template_IFC_QR2025 <- function(pool,
     #   suppressWarnings(openxlsx2::wb_load(template_file))
     # })
     
-   
+    sheetCURRENTFLAGS <- "Current Flags"
     nregions_table <- openxlsx2::wb_get_named_regions(excelwb)
     setDT(nregions_table)
     
@@ -36,10 +234,97 @@ parse_template_IFC_QR2025 <- function(pool,
     if (is.null(nregions_table$hidden)) {
       nregions_table[,hidden:=""]
     }
-    nregions_table <- nregions_table[nchar(hidden)==0]
+    nregions_table[,is_hidden := suppressWarnings(as.numeric(hidden)) == 1]
+    nregions_table[is.na(is_hidden), is_hidden := FALSE]
+    
+    nregions_table[,data_value:=list()]
+    #128
+    for (i in 1:nrow(nregions_table)) {
+      
+      nr <- nregions_table[i,]
+      
+      if (!grepl("\\d",nr$coords)) next; #_xlnm.Print_Area has coords of D:XFD and this crashes R Studio -- wb_to_df is evidently building a bazillion cell matrix?
+      if (nr$is_hidden) next;
+      
+      coords <- nr$coords
+      if (!grepl("^[A-Z]+[0-9]*(:[A-Z]+[0-9]*)?$",coords)) next;
+      
+      size <- openxlsx2::dims_to_rowcol(nr$coords)
+      if (all(sapply(size,length)>1)) next; #we're not interested in multi-dimensional ranges; tables, etc. Purely reading-in vectors or cells.
+      
+
+      x <- tryCatch({
+        
+        openxlsx2::wb_to_df(excelwb,
+                            sheet=nr$sheets,
+                            named_region=nr$name,
+                            col_names=F,
+                            convert=F,
+                            detect_dates = F)
+ 
+        # x <- openxlsx2::wb_to_df(excelwb,named_region=n)
+        # 
+        # if (nrow(x)==0) {
+        #   dval <- names(x)
+        # 
+        # } else if (ncol(x)==1) {
+        #   
+        #   x <- na.omit(c(names(x),unlist(x)))
+        #   if (any(grepl(",",x))) x <- gsub(","," ",x)
+        #   x <- paste0(x,collapse=",")
+        #   x <- gsub("[[:space:]]{2,}"," ",x)
+        #   dval <- x
+        # }
+      },
+      error=function(e) { data.frame() },
+      warning=function(w) { data.frame() })
+      
+      if (empty(x)) next;
+
+      dval <- as.character(unlist(x))
+      dval <- na.omit(dval)
+      if (!length(dval)) dval <- as.character(NA)
+      # if (any(grepl(",",dval))) dval <- gsub(","," ",dval)
+      # dval <- paste0(dval,collapse=",")
+      # dval <- gsub("[[:space:]]{2,}"," ",dval)
+      # dval
+
+      nregions_table[i,
+                     data_value:=list(as.character(dval))]
+    }
+    
+
+    
     
     snames <- openxlsx2::wb_get_sheet_names(excelwb)
-    
+ 
+    {
+    # 3. Read formulas for all sheets using lapply
+      for (snum in seq_along(snames)) {
+        
+        cc_data <- excelwb$worksheets[[snum]]$sheet_data$cc
+        if (is.null(cc_data) || empty(cc_data)) next;
+        
+        if ("f_attr" %in% names(cc_data)) {
+          # Clear strings containing t="array" or related flags
+          legacy_rows <- grepl('t="array"', cc_data$f_attr)
+          excelwb$worksheets[[snum]]$sheet_data$cc$f_attr[legacy_rows] <- NA_character_
+        }
+        
+        if ("f_t" %in% names(cc_data)) {
+          # Clear the explicit formula type flag if present
+          legacy_type_rows <- cc_data$f_t == "array" & !is.na(cc_data$f_t)
+          excelwb$worksheets[[snum]]$sheet_data$cc$f_t[legacy_type_rows] <- NA_character_
+        }
+      }
+    wb_save(excelwb,"C:/Temp/modified.xlsx",overwrite=T)  
+    excelwb_sheet_data <- lapply(seq_along(snames), function(snum) {
+      sheet_cells <- excelwb$worksheets[[snum]]$sheet_data$cc
+      #formulas <- sheet_cells[!is.na(sheet_cells$f) & nchar(sheet_cells$f) > 0,]
+      sheet_cells[!is.na(sheet_cells$f) & nchar(sheet_cells$f) > 0,]
+    })
+      
+    }
     
   } 
   
@@ -61,6 +346,11 @@ parse_template_IFC_QR2025 <- function(pool,
       }
       
       data_qdd <- as.Date(data_qdd)
+      
+      if (data_qdd >= today()) {
+        stop(paste0("Invalid reporting QDD date: ",data_qdd," is in the FUTURE!  This is not possible. Verify the QDD date is correct?"))
+      }
+      
       data_qdd
     }
    
@@ -104,9 +394,10 @@ parse_template_IFC_QR2025 <- function(pool,
           stop("Failed to find 'QReport' Sheet in Template")
         }
         
-        
         data_sheet <- openxlsx2::read_xlsx(excelwb,sheet=dataSheet,row_names=F,col_names=F,detect_dates=T)
         setDT(data_sheet)
+        
+        QREPORT_data_dims <- dim(data_sheet)
         
         data_formula_matrix <- openxlsx2::wb_to_df(excelwb,sheet=dataSheet,row_names=F,col_names=F,show_formula=T)
         setDT(data_formula_matrix)
@@ -126,36 +417,9 @@ parse_template_IFC_QR2025 <- function(pool,
         setDT(data_sheet)
       }
       
-      
       #Import Named Ranges into summary-level data
       {
-        nregions_table[,data_value:=as.character(NA)]
-        
-        for (i in 1:nrow(nregions_table)) {
-
-            n <- nregions_table[i,name]
-            dval <- as.character(NA)
-            tryCatch({
-              x <- openxlsx2::wb_to_df(excelwb,named_region=n)
-              
-              if (nrow(x)==0) {
-                dval <- names(x)
-
-              } else if (ncol(x)==1) {
-                
-                x <- na.omit(c(names(x),unlist(x)))
-                if (any(grepl(",",x))) x <- gsub(","," ",x)
-                x <- paste0(x,collapse=",")
-                x <- gsub("[[:space:]]{2,}"," ",x)
-                dval <- x
-              }
-            },
-            error=function(e) { },
-            warning=function(w) { })
-            nregions_table[i,
-                     data_value:=dval]
-        }
-        
+       
         
         lsheet <- grep("lists|template",snames,ignore.case=T,value=T)
         if (length(lsheet) != 1) { stop("Failed to find Template sheet (formally Lists)") }
@@ -164,15 +428,143 @@ parse_template_IFC_QR2025 <- function(pool,
         list_sheet <- list_sheet[grepl("^Template_",name)==F] #template defined names are inherently excluded as not relevant for Jason (they're for the template!)
         list_sheet[,original_row_num:=.I]
       }
+      
+      #Current Flags
+      {
+        #unique(nregions_table$sheets)
+        
+        if (any(openxlsx2::wb_get_tables(excelwb)=="rsf_current_flags",na.rm=T) &&
+            RETURN.regular==TRUE) {
+          
+          current_flags <- wb_read(excelwb,named_region="rsf_current_flags")
+          setDT(current_flags)
+
+          #legacy formatting
+          if (any(names(current_flags)=="comment",na.rm=T)) setnames(current_flags,old="comment",new="comments")
+          
+          if (!empty(current_flags)) {
+            
+          
+            setnames(current_flags,
+                     old=names(current_flags),
+                     new=tolower(gsub("\\s+","_",names(current_flags))))
+            
+            current_flag_key_headers <- c("FLAGID","STATUS","Comment")
+            current_flag_headers <- unlist(lapply(current_flag_key_headers,grep,x=names(current_flags),ignore.case=T,value=T))
+
+            
+            if (length(current_flag_headers) < 3) {
+              status_message(class="error",
+                             "Failed to read-in CURRENT FLAGS due to missing/unrecognized headers")
+              
+              current_flags <- NULL
+              
+            } else {
+              
+             
+              current_flags <- current_flags[,
+                                             ..current_flag_headers]
+              
+              if (all(any(grepl("ifc_comments",current_flag_headers,ignore.case=T)) & 
+                      any(grepl("client_comments",current_flag_headers,ignore.case=T)))) {
+                current_flags[,
+                              comments:=as.character(NA)]
+                
+                current_flags[,
+                              ifc_comments:=trimws(gsub("^\\[IFC\\]\\s+","",ifc_comments,ignore.case=T))]
+                
+                current_flags[,
+                              client_comments:=trimws(gsub("^\\[CLIENT\\]\\s+","",client_comments,ignore.case=T))]
+                
+                current_flags[is.na(ifc_comments),
+                              ifc_comments:=""]
+                current_flags[nchar(ifc_comments)>0,
+                              ifc_comments:=paste0("[IFC] ",ifc_comments)]
+                
+
+                current_flags[is.na(client_comments),
+                              client_comments:=""]
+                current_flags[nchar(client_comments)>0,
+                              client_comments:=paste0("[CLIENT] ",client_comments)]
+                
+                current_flags[,
+                              comments:=trimws(paste0(ifc_comments,
+                                               " \n\n",
+                                               client_comments))]
+              }
+              
+              current_flags <- current_flags[!is.na(comments) & nchar(comments) > 0,
+                                             .(flagid,
+                                               status,
+                                               comments)]
+              
+              current_flags[,status:=tolower(status)]
+              current_flags[,status:=fcase(status=="closed","resolved",
+                                           status=="resolved","resolved",
+                                           default="active")]
+              
+              
+              
+              
+              current_flags[,flagid:=suppressWarnings(as.numeric(gsub("^.*#(\\d+)$","\\1",flagid)))]
+              current_flags <- current_flags[!is.na(flagid)]
+              
+            }
+          }
+          
+          if (!empty(current_flags)) {
+            
+            # conn <- poolCheckout(pool)
+            # dbBegin(conn)
+            # dbRollback(conn)
+            poolWithTransaction(pool,function(conn) {
+              
+              dbExecute(conn,"create temp table _temp_flags(flagid int,
+                                                            status text,
+                                                            comment text,
+                                                            username text)
+                              on commit drop")
+              
+              dbAppendTable(conn,
+                            name="_temp_flags",
+                            value=current_flags[,.(flagid,status,comment)])
+              
+              nx <- dbExecute(conn,"
+                update p_rsf.rsf_data_checks rdc
+                set check_status = tf.status,
+                    check_status_comment = tf.comment,
+                    check_status_user_id = $1::text
+                from _temp_flags tf
+                where tf.flagid = rdc.evaluation_id
+                  and tf.comment is distinct from rdc.check_status_comment",
+                        params=list(reporting_user_id))
+              
+              ny <- dbExecute(conn,"
+                update p_rsf.rsf_data_checks_archive dca
+                set check_status = tf.status,
+                    check_status_comment = tf.comment,
+                    check_status_user_id = $1::text
+                from _temp_flags tf
+                where tf.flagid = dca.archive_id
+                  and tf.comment is distinct from dca.check_status_comment",
+                        params=list(reporting_user_id))
+              nx+ny
+            })
+          }
+        }
+      }
     }
     
     #will also omit the first rows above the Facility ID
     rsf_pfcbl_id.facility <- {
       
       
-      ifcpid <- names(openxlsx2::wb_to_df(excelwb, named_region = "IFC_ProjectID"))
+      #ifcpid <- names(openxlsx2::wb_to_df(excelwb, named_region = "IFC_ProjectID"))
       #ifcpid <- nregions_table[range_name=="",range_value]
+      ifcpid <- unlist(nregions_table[grepl("IFC_ProjectID",name,ignore.case=T),data_value])
       project_id <- as.numeric(gsub("[^[:digit:]]+","",ifcpid))
+      
+      
       
       if (length(project_id)==0 || is.na(project_id)) {
         stop(paste0("Failed to identify IFC Project ID number from defined name RSA_IFCProjectID.  Read-in value: ",project_id," from: ",ifcpid))
@@ -192,7 +584,7 @@ parse_template_IFC_QR2025 <- function(pool,
     
     summary_sheet_ID_row <- {
       
-      rid <- nregions_table[name=="IFC_ProjectID",coords]
+      rid <- nregions_table[grepl("IFC_ProjectID",name,ignore.case=T),coords]
       
       
       if (length(rid) !=1) stop(paste0("IFC_ProjectID defined name is defined multiple times for row(s): ",paste0(rid,collapse=" & "),". Please review defined name manager for duplicates"))
@@ -249,9 +641,39 @@ parse_template_IFC_QR2025 <- function(pool,
 
       list_sheet <- list_sheet[ignore==FALSE]
       
+      
       list_sheet[rsf_indicators,
-                    indicator_name:=i.indicator_name,
-                    on=.(map_indicator_id=indicator_id)]
+                 `:=`(indicator_name=i.indicator_name,
+                      data_category=i.data_category),
+                 on=.(map_indicator_id=indicator_id)]
+      
+      {
+        bad_categories <- list_sheet[!is.na(data_category) & !data_category %in% c("client","facility")]
+        
+        if (!empty(bad_categories)) {
+          bad_categories[,
+                         check_message:=paste0("Template Tab defined name '",name,"' maps to a ",
+                                               toupper(data_category)," level metric '",indicator_name,"' however the LISTS sheet can only have Client and Facility setup data ",
+                                               " (lists of acceptable input that can be used in drop-down lists, as defined by the RSA or template). ",
+                                               "Since this data cannot be for any specific ",toupper(data_category)," it is being IGNORED.  Consider going to ",
+                                               "JASON -> RSF Setup -> Setup Templates -> ",template_lookup$template_name," to remap ",
+                                               "this specific label to the appropriate client or facility level metric; or set to ignore it entirely this field is for Excel use only")]
+          
+          status_message(type="error",paste0(bad_categories$check_message,collapse="\n\n"))
+          
+          bad_categories <- bad_categories[,.(rsf_pfcbl_id=NA,
+                                              indicator_id=NA,
+                                              reporting_asof_date=reporting_asof_date,
+                                              check_name="sys_reporting_data_discarded",
+                                              check_message)]
+          
+          reporting_flags <- rbindlist(list(reporting_flags,
+                                            bad_categories))
+          
+          list_sheet <- list_sheet[is.na(data_category) | data_category %in% c("client","facility")]
+          
+        }
+      }
       
       #Will fail because its ambiguous: this shouldn't be possible for defined names? Unless copy-paste errors copy-in multiple defined names??
       {
@@ -327,14 +749,17 @@ parse_template_IFC_QR2025 <- function(pool,
     }
     
     {
-      list_sheet <- unique(list_sheet)
+      #list_sheet <- list_sheet unique(list_sheet,by=.(original_row_num,indicator_name))
       
-      setnames(list_sheet,
-               old=c("data_unit","data_value"),
-               new=c("reporting_submitted_data_unit",
-                     "reporting_submitted_data_value"))
-      
-      list_sheet <- unique(list_sheet)
+      list_sheet[,
+                 `:=`(reporting_submitted_data_unit=data_unit,
+                      reporting_submitted_data_value=sapply(list_sheet$data_value,paste0,collapse=","))]
+      # setnames(list_sheet,
+      #          old=c("data_unit","data_value"),
+      #          new=c("reporting_submitted_data_unit",
+      #                "reporting_submitted_data_value"))
+      # 
+      #list_sheet <- unique(list_sheet)
       
       list_sheet[rsf_indicators[!is.na(data_unit),
                                    .(indicator_name,data_unit,joincondition=as.character(NA))],
@@ -348,17 +773,23 @@ parse_template_IFC_QR2025 <- function(pool,
                  indicator_sys_category:=i.indicator_sys_category,
                  on=.(indicator_name)]
       
-      list_sheet
-      
+      #list_sheet
+      #TEMPLATE product headers:
+      #Allowed Loan Type             -- product name: "products_eligible"
+      #Funded vs Unfunded	           -- YES/NO
+      #Amoritizing/Term Type	       -- YES/NO
+      #Revolver/Demand Type	         -- YES/NO
+      #Commitments at Risk (Billing) -- YES/NO
+      #RSA "Type" Classification     -- open text, usually TYPe1 and TYPe2
+
       if (any(list_sheet$indicator_sys_category=="products_eligible",na.rm=T)) {
-        products <- unlist(str_split(list_sheet[indicator_sys_category=="products_eligible",
-                                                reporting_submitted_data_value],","))
+        products <- unlist(list_sheet[indicator_sys_category=="products_eligible",data_value])
       
         #Funded/Unfunded
         {
           if (any(list_sheet$indicator_sys_category=="products_funded",na.rm=T)) {
             list_pr <- list_sheet[indicator_sys_category=="products_funded"]
-            tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
+            tfproducts <- unlist(list_pr[,data_value])
             if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
               stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Funded Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
             }
@@ -371,10 +802,12 @@ parse_template_IFC_QR2025 <- function(pool,
             list_sheet[indicator_sys_category=="products_funded",
                        reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
             
+            #There shouldn't be! as the list defines funded products
             if (!any(list_sheet$indicator_sys_category=="products_unfunded",na.rm=T)) {
               
               list_pr[,
-                      `:=`(indicator_sys_category="products_unfunded",
+                      `:=`(data_value=list(products[!is_true]),
+                           indicator_sys_category="products_unfunded",
                            indicator_name=rsf_indicators[indicator_sys_category=="products_unfunded",indicator_name],
                            reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
               
@@ -384,41 +817,42 @@ parse_template_IFC_QR2025 <- function(pool,
               
           }
           
-          if (any(list_sheet$indicator_sys_category=="products_unfunded",na.rm=T)) {
-            list_pr <- list_sheet[indicator_sys_category=="products_unfunded"]
-            tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
-            if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
-              stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Ununded Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
-            }
-            
-            is_true <- sapply(tfproducts,FUN=function(p) {
-              p <- superTrim(p)
-              any(p==superTrim(products),na.rm = T) |
-              any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
-            })
-            
-            list_sheet[indicator_sys_category=="products_unfunded",
-                       reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
-            
-            if (!any(list_sheet$indicator_sys_category=="products_funded",na.rm=T)) {
-              
-              list_pr[,
-                      `:=`(indicator_sys_category="products_funded",
-                           indicator_name=rsf_indicators[indicator_sys_category=="products_funded",indicator_name],
-                           reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
-              
-              list_sheet <- rbindlist(list(list_sheet,
-                                           list_pr))
-            }
-            
-          }
+          # if (any(list_sheet$indicator_sys_category=="products_unfunded",na.rm=T)) {
+          #   list_pr <- list_sheet[indicator_sys_category=="products_unfunded"]
+          #   tfproducts <- unlist(list_pr[,data_value])
+          #   if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
+          #     stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Ununded Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
+          #   }
+          #   
+          #   is_true <- sapply(tfproducts,FUN=function(p) {
+          #     p <- superTrim(p)
+          #     any(p==superTrim(products),na.rm = T) |
+          #     any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
+          #   })
+          #   
+          #   list_sheet[indicator_sys_category=="products_unfunded",
+          #              reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
+          #   
+          #   if (!any(list_sheet$indicator_sys_category=="products_funded",na.rm=T)) {
+          #     
+          #     list_pr[,
+          #             `:=`(data_value=paste0(products[!is_true],collapse=","),
+          #                  indicator_sys_category="products_funded",
+          #                  indicator_name=rsf_indicators[indicator_sys_category=="products_funded",indicator_name],
+          #                  reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
+          #     
+          #     list_sheet <- rbindlist(list(list_sheet,
+          #                                  list_pr))
+          #   }
+          #   
+          # }
         }
         
         #Amortizing/Revolving
         {
           if (any(list_sheet$indicator_sys_category=="products_amortizing",na.rm=T)) {
             list_pr <- list_sheet[indicator_sys_category=="products_amortizing"]
-            tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
+            tfproducts <- unlist(list_pr[,data_value])
             if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
               stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Amortizing Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
             }
@@ -432,22 +866,24 @@ parse_template_IFC_QR2025 <- function(pool,
             list_sheet[indicator_sys_category=="products_amortizing",
                        reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
             
-            if (!any(list_sheet$indicator_sys_category=="products_revolving",na.rm=T)) {
-              
-              list_pr[,
-                      `:=`(indicator_sys_category="products_revolving",
-                           indicator_name=rsf_indicators[indicator_sys_category=="products_revolving",indicator_name],
-                           reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
-              
-              list_sheet <- rbindlist(list(list_sheet,
-                                           list_pr))
-            }
+            
+            # if (!any(list_sheet$indicator_sys_category=="products_revolving",na.rm=T)) {
+            #   
+            #   list_pr[,
+            #           `:=`(data_value=paste0(products[!is_true],collapse=","),
+            #                indicator_sys_category="products_revolving",
+            #                indicator_name=rsf_indicators[indicator_sys_category=="products_revolving",indicator_name],
+            #                reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
+            #   
+            #   list_sheet <- rbindlist(list(list_sheet,
+            #                                list_pr))
+            # }
             
           }
           
           if (any(list_sheet$indicator_sys_category=="products_revolving",na.rm=T)) {
             list_pr <- list_sheet[indicator_sys_category=="products_revolving"]
-            tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
+            tfproducts <- unlist(list_pr[,data_value])
             if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
               stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Revolving Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
             }
@@ -461,85 +897,26 @@ parse_template_IFC_QR2025 <- function(pool,
             list_sheet[indicator_sys_category=="products_revolving",
                        reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
             
-            if (!any(list_sheet$indicator_sys_category=="products_amortizing",na.rm=T)) {
-              
-              list_pr[,
-                      `:=`(indicator_sys_category="products_amortizing",
-                           indicator_name=rsf_indicators[indicator_sys_category=="products_amortizing",indicator_name],
-                           reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
-              
-              list_sheet <- rbindlist(list(list_sheet,
-                                           list_pr))
-            }
+            # if (!any(list_sheet$indicator_sys_category=="products_amortizing",na.rm=T)) {
+            #   
+            #   list_pr[,
+            #           `:=`(data_value=paste0(products[!is_true],collapse=","),
+            #                indicator_sys_category="products_amortizing",
+            #                indicator_name=rsf_indicators[indicator_sys_category=="products_amortizing",indicator_name],
+            #                reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
+            #   
+            #   list_sheet <- rbindlist(list(list_sheet,
+            #                                list_pr))
+            # }
             
           }
         }
-
-        #Denied/Allowed
-        { #Deprecated this is now managed through checks.  THe product type is now an arbitrary list, not constraint to CATEGORY-1 and CATEGORY-2, but whatever the RSA decides in a structured non-standard way.
-          # if (any(list_sheet$indicator_sys_category=="products_undrawn_denied",na.rm=T)) {
-          #   list_pr <- list_sheet[indicator_sys_category=="products_undrawn_denied"]
-          #   tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
-          #   if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
-          #     stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Undrawn Principal Denied Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
-          #   }
-          #   
-          #   is_true <- sapply(tfproducts,FUN=function(p) {
-          #     p <- superTrim(p)
-          #     any(p==superTrim(products),na.rm = T) |
-          #     any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
-          #   })
-          #   
-          #   list_sheet[indicator_sys_category=="products_undrawn_denied",
-          #              reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
-          #   
-          #   if (!any(list_sheet$indicator_sys_category=="products_undrawn_allowed",na.rm=T)) {
-          #     
-          #     list_pr[,
-          #             `:=`(indicator_sys_category="products_undrawn_allowed",
-          #                  indicator_name=rsf_indicators[indicator_sys_category=="products_undrawn_allowed",indicator_name],
-          #                  reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
-          #     
-          #     list_sheet <- rbindlist(list(list_sheet,
-          #                                  list_pr))
-          #   }
-          #   
-          # }
-          # 
-          # if (any(list_sheet$indicator_sys_category=="products_undrawn_allowed",na.rm=T)) {
-          #   list_pr <- list_sheet[indicator_sys_category=="products_undrawn_allowed"]
-          #   tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
-          #   if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
-          #     stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Revolving Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
-          #   }
-          #   
-          #   is_true <- sapply(tfproducts,FUN=function(p) {
-          #     p <- superTrim(p)
-          #     any(p==superTrim(products),na.rm = T) |
-          #       any(p==superTrim(c("Yes","Oui","Si","True","Sim","Ja","Da")),na.rm=T)
-          #   })
-          #   
-          #   list_sheet[indicator_sys_category=="products_undrawn_allowed",
-          #              reporting_submitted_data_value:=paste0(products[is_true],collapse=",")]
-          #   
-          #   if (!any(list_sheet$indicator_sys_category=="products_undrawn_denied",na.rm=T)) {
-          #     
-          #     list_pr[,
-          #             `:=`(indicator_sys_category="products_undrawn_denied",
-          #                  indicator_name=rsf_indicators[indicator_sys_category=="products_undrawn_denied",indicator_name],
-          #                  reporting_submitted_data_value=paste0(products[!is_true],collapse=","))]
-          #     
-          #     list_sheet <- rbindlist(list(list_sheet,
-          #                                  list_pr))
-          #   }
-          #   
-          # }
-        }
+        
         
         #atrisk
         if (any(list_sheet$indicator_sys_category=="products_undrawn_atrisk",na.rm=T)) {
           list_pr <- list_sheet[indicator_sys_category=="products_undrawn_atrisk"]
-          tfproducts <- unlist(str_split(list_pr[,reporting_submitted_data_value],","))
+          tfproducts <- unlist(list_pr[,data_value])
           if (length(tfproducts) != length(products) && !all(tfproducts %in% products)) {
             stop(paste0("Eligible products are: [",paste0(products,collapse=","),"] and Undrawn Principal At-Risk Products are: [",paste0(tfproducts,collapse=","),"]. These lists must have equal lengths"))
           }
@@ -1016,6 +1393,24 @@ parse_template_IFC_QR2025 <- function(pool,
                                      reporting_submitted_data_unit,
                                      reporting_submitted_data_formula)]
     
+    if (!any(summary_sheet$indicator_name %in% rsf_indicators[indicator_sys_category=="template_file" & data_category=="facility",indicator_name])) {
+      
+      next_rank <- max(suppressWarnings(as.numeric(summary_sheet[reporting_template_row_group=="1SUMMARY"]$reporting_template_data_rank)),na.rm=T)
+      if (length(next_rank)==0 || is.infinite(next_rank)) { next_rank <- "1" 
+      } else { next_rank <- as.character(next_rank+1) }
+      
+      tfdata <- data.table(reporting_template_row_group="1SUMMARY",
+                           reporting_template_data_rank=next_rank,
+                           indicator_name=rsf_indicators[indicator_sys_category=="template_file" & data_category=="facility",indicator_name],
+                           reporting_submitted_data_value=basename(template_file),
+                           reporting_submitted_data_unit=as.character(NA),
+                           reporting_submitted_data_formula=as.character(NA))
+      
+      summary_sheet <- rbindlist(list(summary_sheet,
+                                      tfdata))
+      
+    }
+    
     summary_sheet
     
   }
@@ -1023,17 +1418,25 @@ parse_template_IFC_QR2025 <- function(pool,
   data.quarterly <- {
     
     {
-      qreport_startrow <- names(openxlsx2::wb_to_df(excelwb,
-                                              named_region = "Template_QReport_StartRow"))
+      QREPORT_startrow <- nregions_table[grepl("Template_QReport_StartRow",name,ignore.case=T),data_value]
+#       QREPORT_startrow <- names(openxlsx2::wb_to_df(excelwb,
+#                                 named_region = "Template_QReport_StartRow"))
+# 
+# #      QREPORT_startrow <- as.numeric(names(openxlsx2::wb_to_df(excelwb, named_region = "Template_QREPORT_startrow")))
 
-#      qreport_startrow <- as.numeric(names(openxlsx2::wb_to_df(excelwb, named_region = "Template_QReport_StartRow")))
+      if (!length(QREPORT_startrow) || 
+          suppressWarnings(is.na(as.numeric(QREPORT_startrow)))) {
+        if (all(grepl("^#",unlist(QREPORT_startrow$data_value)))) {
+          stop(paste0("Template_QReport_StartRow defined name on ",QREPORT_startrow$value,
+                      " is an error value: '",QREPORT_startrow$data_value,"' confirm that template has not been corrupted.  Re-enter the formula if needed to force it to recompute"))
+        } else {
+          stop("Failed to find defined name range Template_qreport_startrow in template. Has template been modified or corrupted?  Ensure automatic calculations are turned ON and saved")
+        }
+      } 
       
-      if (length(qreport_startrow)==0 || 
-          suppressWarnings(is.na(as.numeric(qreport_startrow)))) stop("Failed to find defined name range Template_QReport_StartRow in template. Has template been modified or corrupted?  Ensure automatic calculations are turned ON and saved")
+      QREPORT_startrow <- as.numeric(QREPORT_startrow)
       
-      qreport_startrow <- as.numeric(qreport_startrow)
-      
-      label_matches <- lapply(as.data.frame(t(data_sheet[1:(qreport_startrow-1)])),
+      label_matches <- lapply(as.data.frame(t(data_sheet[1:(QREPORT_startrow-1)])),
                               FUN=function(x,find_sections,find_labels,match_id,match_postion) {
                                 
                                 mapply(labelMatches,
@@ -1055,13 +1458,13 @@ parse_template_IFC_QR2025 <- function(pool,
                            function(x) length(unlist(x)),
                            USE.NAMES = TRUE)
       
-      if (length(label_rows[label_rows > 0]) ==0) stop(paste0("Failed to find any QReport indicator labels in the template (which are expected to be found on QReport sheet row ",(qreport_startrow-1),")"))
+      if (length(label_rows[label_rows > 0]) ==0) stop(paste0("Failed to find any QReport indicator labels in the template (which are expected to be found on QReport sheet row ",(QREPORT_startrow-1),")"))
 
       #Teams can enter bi-lingual headers on other rows, if they like
-      if (which.max(label_rows) != (qreport_startrow-1)) stop(paste0("Template defined name Template_QReport_StartRow specifies QReport headers start on ROW ",(qreport_startrow-1),
+      if (which.max(label_rows) != (QREPORT_startrow-1)) stop(paste0("Template defined name Template_qreport_startrow specifies QReport headers start on ROW ",(QREPORT_startrow-1),
                                                                      ". But most headers are on ROW ",which.max(label_rows),
-                                                                     ". Has the template been modified or corrupted? Otherwise, ensure headers are on ROW ",qreport_startrow-1," and facility ",
-                                                                     "data starts ",qreport_startrow))
+                                                                     ". Has the template been modified or corrupted? Otherwise, ensure headers are on ROW ",QREPORT_startrow-1," and facility ",
+                                                                     "data starts ",QREPORT_startrow))
       
       
       label_rows <- label_rows[label_rows > 0]
@@ -1071,9 +1474,9 @@ parse_template_IFC_QR2025 <- function(pool,
       data_labels <- data_sheet[label_rows_index]
       label_cols_index <- which(!sapply(as.data.frame(is.na(data_labels)),all))
       
-      if (!(qreport_startrow == max(label_rows_index)+1)) {
-        stop(paste0("qreport_startrow defined by named region Template_QReport_StartRow equals ",
-                    qreport_startrow,
+      if (!(QREPORT_startrow == max(label_rows_index)+1)) {
+        stop(paste0("QREPORT_startrow defined by named region Template_qreport_startrow equals ",
+                    QREPORT_startrow,
                     " but max(labels_rows_index)+1 equals ",max(label_rows_index)+1)," and these should be equal")
       }
       
@@ -1224,6 +1627,28 @@ parse_template_IFC_QR2025 <- function(pool,
       data_labels[,semi_missing:=NULL]
       #data_labels[ignore==T]
       data_labels <- data_labels[ignore==FALSE]
+      
+      
+      
+      #Did we match an indicator and also its unit_fx_indicator_id? Reconcile.
+      {
+        #unit_fx_indicator_id is the base indicator in LCU
+        unit_fx_indicators <- rsf_indicators[!is.na(unit_fx_indicator_id),.(unit_fx_indicator_id,indicator_id,data_unit,indicator_name)]
+        data_labels[,
+                    `:=`(unit_fx_defined=NA,
+                         ignore=NA)]
+        
+        data_labels[unit_fx_indicators,
+                    unit_fx_defined:=mapply(grepl,pattern=i.data_unit,x=label,MoreArgs=list(ignore.case=T)),
+                    on=.(map_indicator_id=indicator_id)]
+        
+        data_labels[,
+                    ignore:=is.na(unit_fx_defined) & any(!is.na(unit_fx_defined),na.rm=T),
+                    by=.(original_col_num)]
+        
+        data_labels <- data_labels[ignore==FALSE]
+        data_labels[,unit_fx_defined:=NULL]
+      }
       
       #Will fail because its ambiguous
       {
@@ -1451,7 +1876,7 @@ parse_template_IFC_QR2025 <- function(pool,
     data_formulas <- data_formulas[,
                                    ..data_cols_names]
     
-    #1:.N will be offset equal to qreport_startrow
+    #1:.N will be offset equal to QREPORT_startrow
     data_sheet[,
                reporting_template_row_group:=paste0(1:.N,"QREPORT")] #Fundamental to keep the original row number/order intact since QR template is columnar data.
     
@@ -1606,104 +2031,214 @@ parse_template_IFC_QR2025 <- function(pool,
                                   data.quarterly))
   
   template_data[,reporting_asof_date:=reporting_asof_date]
+
+  
+  
   
   if (!is.null(return.insert_flags)) {
     
-    if (!all(return.insert_flags$check_asof_date==reporting_asof_date)) {
+    excelwb <- clean_up_template(excelwb=excelwb)
+    
+    {
+      
+      excelwb$add_dxfs_style(name="checkStatusReview",
+                             font_color = wb_color(hex = "#006100"),
+                             bg_fill = wb_color(hex = "#C6EFCE"))
+      
+      excelwb$add_dxfs_style(name="checkStatusError",
+                             font_color = wb_color(hex = "#FFC7CE"),
+                             bg_fill = wb_color(hex = "#9C0006"))
+      
+      excelwb$add_dxfs_style(name="checkStatusClosed",
+                             font_color = wb_color(hex = "#333333"),
+                             bg_fill = wb_color(hex = "#E1E1E1"))
+      
+      excelwb$add_dxfs_style(name="checkClassCritical",
+                             font_color = wb_color(hex = "#F4CCCC"),
+                             bg_fill = wb_color(hex = "#800000"))
+      
+      excelwb$add_dxfs_style(name="checkClassError",
+                             font_color = wb_color(hex = "#FCE5CD"),
+                             bg_fill = wb_color(hex = "#CC0000"))
+      
+      excelwb$add_dxfs_style(name="checkClassWarning",
+                             font_color = wb_color(hex = "#FFF2CC"),
+                             bg_fill = wb_color(hex = "#ED7D31"))
+      
+      excelwb$add_dxfs_style(name="checkClassInfo",
+                             font_color = wb_color(hex = "#D9EAD3"),
+                             bg_fill = wb_color(hex = "#1155CC"))
+
+    }
+    
+    if (nrow(return.insert_flags) > 0 && 
+        !all(return.insert_flags$check_asof_date==reporting_asof_date)) {
       stop(paste0("Cannot insert flags for check_asof_date eqaul to ",
                   paste0(unique(return.insert_flags$check_asof_date),collapse=" and "),
                   " when template data is for ",reporting_asof_date))
     }
     
-    add_flag <- function(wb,sheet,flag) {
+    if (!all(
+        (expected<-c("evaluation_id",
+        "entity_name",
+        "rsf_pfcbl_id",
+        "pfcbl_category_rank",
+        "check_rank",
+        "indicator_id",
+        "indicator_name",
+        "formula_title",
+        "check_formula_id",
+        "indicator_check_id",
+        "check_asof_date",
+        "check_name",
+        "check_type",
+        "check_class",
+        "check_formula_title")) %in% names(return.insert_flags))) {
+          stop("Flags submitted with return.insert_flags should submit a data.table with these columns defined: ",
+               paste0(expected,collapse=','),
+               " and is missing: ",
+               paste0(setdiff(expected,names(return.insert_flags)),collapse=","))
+    }
+    
+    add_flag <- function(wb,
+                         sheet,
+                         flag,
+                         styleflag=FALSE,
+                         pid=wb$get_person(name="IFC Risk Sharing")$id) {
 
+      if (is.character(sheet)) stop("Numeric sheet number is required for add_flag")
+      
       check_class <- toupper(flag$check_class)
       
-      pid <- wb$get_person(name=check_class)$id
-      if (!length(pid)) {
-        wb$add_person(name=check_class)
-        pid <- wb$get_person(name=check_class)$id
-      }
+      #write comments?
       
-      has_comment <- length(wb$get_comment(sheet=sheet,dims=flag$ref)) > 0
-      has_thread <- tryCatch({ NROW(wb$get_thread(sheet=sheet,dims=flag$ref)) },error=function(e) { 0 }) > 0
-      
-      if (has_comment && !has_thread) {
-        wb$remove_comment(sheet=sheet,dims=flag$ref)
-        has_comment <- FALSE
-      }
-      
-      if (has_thread==FALSE && flag$ref_n > 1) {
-        has_thread <- TRUE
+        # pid <- wb$get_person(name=check_class)$id
+        # if (!length(pid)) {
+        #   wb$add_person(name=check_class)
+        #   pid <- wb$get_person(name=check_class)$id
+        # }
+        # 
+        
+        has_comment <- length(wb$get_comment(sheet=sheet,dims=flag$ref)) > 0
+        has_thread <- tryCatch({ NROW(wb$get_thread(sheet=sheet,dims=flag$ref)) },error=function(e) { 0 }) > 0
+  
+        if (has_comment) {
+          wb$remove_comment(sheet=sheet,dims=flag$ref)
+          has_comment <- FALSE
+        }
+        
+        # if (has_comment && !has_thread) {
+        #   wb$remove_comment(sheet=sheet,dims=flag$ref)
+        #   has_comment <- FALSE
+        # }
+  
+#        if (has_thread) {
+        # 
+        #   wb$add_thread(sheet=sheet,
+        #                 dims=flag$ref,
+        #                 person_id=pid,
+        #                 comment=NULL)
+        #   has_thread <- FALSE
+        # }
+  
+        # if (has_thread==FALSE && flag$ref_n > 1) {
+        #   has_thread <- TRUE
+        #   wb$add_thread(sheet=sheet,
+        #                 dims=flag$ref,
+        #                 person_id=wb$get_person(name="IFC Risk Sharing")$id,
+        #                 reply=FALSE,
+        #                 resolve=FALSE,
+        #                 comment="Multiple flags are assigned to this cell")
+        # 
+        # }
+  
+        #comment <- paste0(flag$check_message,"\n[",gsub("_"," ",flag$check_name),"]\n[ID:",flag$evaluation_id,"]")
+  
+        comment <- flag$check_message
+        
+        #print(paste0(flag$ref," ",comment))
+        # #ensure XML control characters are escaped#fixed in github
+        comment <- gsub("<","&lt;",comment)
+        comment <- gsub(">","&gt;",comment)
+        commnet <- gsub("'","&apos;",comment)
+        comment <- gsub("&","&amp;",comment)
+        comment <- gsub('"',"&quot;",comment)
+        comment <- gsub("[[:cntrl:]]+"," ",comment)
+        
+        #comment <- "Test comment"
         wb$add_thread(sheet=sheet,
                       dims=flag$ref,
-                      person_id=wb$get_person(name="IFC Risk Sharing")$id,
-                      reply=FALSE,
-                      resolve=FALSE,
-                      comment="Multiple flags are assigned to this cell")
+                      person_id=pid,
+                      reply=has_thread,
+                      resolve=ifelse(flag$check_status=="active",FALSE,TRUE),
+                      comment=comment)
+  
+    
+    
+      if (styleflag==TRUE) {
+        
+        # wb$add_fill(sheet=sheet,
+        #             dims=flag$ref,
+        #             color=wb_color(name=flag$check_color))
+        # 
+        # wb$add_font(sheet=sheet,
+        #             dims=flag$ref,
+        #             color=wb_color(name=flag$check_font))
         
       }
-      
-      comment <- paste0(flag$check_message,"\n[",gsub("_"," ",flag$check_name),"]\n[ID:",flag$evaluation_id,"]")
-      #comment <- "test"
-      #print(paste0(flag$ref," ",comment))
-      # #ensure XML control characters are escaped#fixed in github
-      # comment <- gsub("<","&lt;",comment)
-      # comment <- gsub(">","&gt;",comment)
-      # commnet <- gsub("'","&apos;",comment)
-      # comment <- gsub("&","&amp;",comment)
-      # comment <- gsub('"',"&quot;",comment)
-      
-      wb$add_thread(sheet=sheet,
-                    dims=flag$ref,
-                    person_id=pid,
-                    reply=has_thread,
-                    resolve=ifelse(flag$check_status=="active",FALSE,TRUE),
-                    comment=comment)
     }
     
-    #Remove custom XML
-    if (length(excelwb$customXml) ||
-        any(grepl("customXml",excelwb$Content_Types)) || 
-        any(grepl("customXml",excelwb$workbook.xml.rels))) {
-      
-      message("Excel file has customXml that will be removed")
-      excelwb$Content_Types <- grep("customXml",excelwb$Content_Types,value=T,invert = T)
-      excelwb$workbook.xml.rels <- grep("customXml",excelwb$workbook.xml.rels,value=T,invert = T)
-      excelwb$customXml <- NULL
-    }
+    # #Remove custom XML
+    # if (length(excelwb$customXml) ||
+    #     any(grepl("customXml",excelwb$Content_Types)) || 
+    #     any(grepl("customXml",excelwb$workbook.xml.rels))) {
+    #   
+    #   message("Excel file has customXml that will be removed")
+    #   excelwb$Content_Types <- grep("customXml",excelwb$Content_Types,value=T,invert = T)
+    #   excelwb$workbook.xml.rels <- grep("customXml",excelwb$workbook.xml.rels,value=T,invert = T)
+    #   excelwb$customXml <- NULL
+    # }
+    # 
+    # 
+    # #Remove Hidden Named Ranges
+    # if (any(nchar( (nr<-excelwb$get_named_regions())$hidden) )) {
+    #   
+    #   for (i in 1:nrow(nr)) {
+    #     rng <- nr[i,]
+    #     hnr <- suppressWarnings(as.numeric(rng$hidden))
+    #     if (length(hnr) > 0 && !is.na(hnr) && hnr==1) {
+    #       
+    #       if (any(rng$sheets==excelwb$sheet_names)) {
+    #         message(paste0("Excel file has hidden named ranges that will be removed: ",rng$name))  
+    #         excelwb$remove_named_region(sheet=rng$sheets,
+    #                                     name=rng$name)
+    #       }
+    #     }
+    #   }
+    # }
+    # 
+    # #Remove existing comments (Legacy comments create issues)
+    # if (length(excelwb$comments)) {
+    #   
+    #   comments <- rbindlist(lapply(seq_along(excelwb$sheet_names),function(s) { x <- excelwb$get_comment(sheet=s); if (length(x)) cbind(x[,c("ref","cmmt_id")],sheet=s) }))
+    #   #threads <- rbindlist(lapply(seq_along(excelwb$sheet_names),function(s) { x <- excelwb$get_thread(sheet=s); if (length(x)) cbind(x,sheet=s) }))
+    #   
+    #   
+    #   
+    #   for (nc in 1:nrow(comments)) excelwb$remove_comment(sheet=comments[nc]$sheet,dims=comments[nc]$ref)
+    #   #for (nc in 1:nrow(threads)) excelwb$remove_comment(sheet=threads[nc]$sheet,dims=threads[nc]$ref)
+    #   #if (!empty(comments)) { invisible(pmap(comments[,.(sheet,dims=ref)],excelwb$remove_comment)) }
+    #   
+    #   for (i in seq_along(excelwb$vml_rels)) {
+    #     if (nchar(excelwb$vml_rels[i])==0) excelwb$vml_rels[[i]] <- NULL
+    #   }
+    # }
+    # if (length(excelwb$threadComments)) {
+    #   for (i in seq_along(excelwb$threadComments)) excelwb$threadComments[[i]] <- ""
+    # }
+     
     
-
-    #Remove Hidden Named Ranges
-    if (any(nchar( (nr<-excelwb$get_named_regions())$hidden) )) {
-      
-      for (i in 1:nrow(nr)) {
-        rng <- nr[i,]
-        hnr <- suppressWarnings(as.numeric(rng$hidden))
-        if (length(hnr) > 0 && !is.na(hnr) && hnr==1) {
-          
-          if (any(rng$sheets==excelwb$sheet_names)) {
-            message(paste0("Excel file has hidden named ranges that will be removed: ",rng$name))  
-            excelwb$remove_named_region(sheet=rng$sheets,
-                                        name=rng$name)
-          }
-        }
-      }
-    }
-    
-  
-    #Remove existing comments (Legacy comments create issues)
-    if (length(excelwb$comments)) {
-      
-      comments <- rbindlist(lapply(seq_along(excelwb$sheet_names),function(s) { x <- excelwb$get_comment(sheet=s); if (length(x)) cbind(x[,c("ref","cmmt_id")],sheet=s) }))
-      if (!empty(comments)) { invisible(pmap(comments[,.(sheet,dims=ref)],excelwb$remove_comment)) }
-      
-      for (i in seq_along(excelwb$vml_rels)) {
-        if (nchar(excelwb$vml_rels[i])==0) excelwb$vml_rels[[i]] <- NULL
-      }
-      
-    }
-    
+    #openxlsx2::wb_save(excelwb,file="C:/Temp/test1.xlsx",overwrite=T)
     #summarySheet: set above
     #dataSheet: set above
     
@@ -1730,6 +2265,36 @@ parse_template_IFC_QR2025 <- function(pool,
     flag_data <- flag_data[omit==F]
     flag_data[,omit:=NULL]
     
+    return.insert_flags[,
+                        check_rank:=fcase(check_class=="critical",4,
+                               check_class=="error",3,
+                               check_class=="warning",2,
+                               check_class=="info",1,
+                               default=5)]
+    
+    return.insert_flags[,
+                        `:=`(check_color=fcase(check_status=="resolved","#E1E1E1",
+                                               check_class=="critical","#800000",
+                                               check_class=="error","#CC0000",
+                                               check_class=="warning","#ED7D31",
+                                               check_class=="info","#1155CC",
+                                               default="gray"),
+                             
+                             check_font=fcase(check_status=="resolved","#333333",
+                                              check_class=="critical","#F4CCCC",
+                                              check_class=="error","#FCE5CD",
+                                              check_class=="warning","#FFF2CC",
+                                              check_class=="info","#D9EAD3",
+                                              default="gray"))]
+ 
+    # return.insert_flags[,
+    #         check_color:=fcase(check_status=="resolved","lightgray",
+    #                            check_class=="critical","firebrick",
+    #                            check_class=="error","red",
+    #                            check_class=="warning","orange",
+    #                            check_class=="info","blue",
+    #                            default="gray")]
+    
     #because there's only one indicator per error
     summary <- flag_data[sheet_name=="summary"
                          ][return.insert_flags[pfcbl_category %in% c("facility","client")],
@@ -1747,50 +2312,80 @@ parse_template_IFC_QR2025 <- function(pool,
       #All data is on column E for this template
       summary[,ref:=paste0("E",reporting_template_data_rank)]
       summary[,ref_n:=.N,by=.(ref)]
-      summary <- summary[,.(ref,ref_n,evaluation_id,check_name,check_class,check_type,check_formula_title,check_status,check_status_comment,check_message)]
-      summary[,check_rank:=fcase(check_class=="critical",4,
-                                 check_class=="error",3,
-                                 check_class=="warning",2,
-                                 check_class=="info",1,
-                                 default=5)]
+      summary <- summary[,
+                         .(ref,
+                           ref_n,
+                           evaluation_id,
+                           check_name,
+                           check_class,
+                           check_type,
+                           check_formula_title,
+                           check_status,
+                           check_status_comment,
+                           check_message,
+                           check_rank,
+                           check_color,
+                           check_font)]
+      # summary[,check_rank:=fcase(check_class=="critical",4,
+      #                            check_class=="error",3,
+      #                            check_class=="warning",2,
+      #                            check_class=="info",1,
+      #                            default=5)]
       
       setorder(summary,-check_rank)
       sheet_num <- grep("Summary$",excelwb$sheet_names,ignore.case=T)
-      for (f in 1:nrow(summary)) {
+      sflags <- summary[order(check_rank,decreasing = T),
+                        .(check_rank=check_rank[1],
+                          check_class=check_class[1],
+                          check_color=check_color[1],
+                          check_font=check_font[1],
+                          check_message=paste0(paste0(toupper(check_class),": ",check_message),collapse=" \n\n")),
+                          by=.(ref)]
+      
+      for (f in 1:nrow(sflags)) {
         
         add_flag(wb=excelwb,
                  sheet=sheet_num,
-                 flag=summary[f])
+                 flag=sflags[f],
+                 styleflag = F)
       }
     } else { summary[,ref:=NA] }
     
-    rsf_pfcbl_ids <- dbGetQuery(pool,"
-      select
-        ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
-        max(cni.rank_id) as inclusion_rank
+    #excelwb2 <- excelwb
+    #excelwb <- excelwb2
+    #openxlsx2::wb_save(excelwb,file="C:/Temp/OTP Test2.xlsx",overwrite=T)
+    
+    #wb_save(excelwb,file="c:/temp/test2.xlsx",overwrite = T)
+    
+    {
+      rsf_pfcbl_ids <- dbGetQuery(pool,"
+        select
+          ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
+          max(cni.rank_id) as inclusion_rank
+        
+        from p_rsf.view_rsf_pfcbl_id_family_tree ft
+        inner join p_rsf.rsf_data_current_names_and_ids cni on cni.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+        where cni.reporting_asof_date <= $2::date
+        and ft.pfcbl_hierarchy <> 'parent'
+        and ft.to_pfcbl_category = 'loan'
+        
+        and ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+        group by ft.from_rsf_pfcbl_id",
+        params=list(paste0(return.insert_flags[pfcbl_category %in% c("borrower","loan"),unique(rsf_pfcbl_id)],collapse = ","),
+                    as.character(reporting_asof_date)))
       
-      from p_rsf.view_rsf_pfcbl_id_family_tree ft
-      inner join p_rsf.rsf_data_current_names_and_ids cni on cni.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-      where cni.reporting_asof_date <= $2::date
-      and ft.pfcbl_hierarchy <> 'parent'
-      and ft.to_pfcbl_category = 'loan'
+      setDT(rsf_pfcbl_ids)
       
-      and ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-      group by ft.from_rsf_pfcbl_id",
-      params=list(paste0(return.insert_flags[pfcbl_category %in% c("borrower","loan"),unique(rsf_pfcbl_id)],collapse = ","),
-                  as.character(reporting_asof_date)))
-    
-    setDT(rsf_pfcbl_ids)
-    
-    flag_ranks <- flag_data[sheet_name=="qreport" & indicator_id == rsf_indicators[data_category=="loan" & indicator_sys_category=="rank_id",indicator_id],
-                            .(reporting_template_row_group,inclusion_rank=reporting_submitted_data_value)]
-    
-    flag_ranks <- flag_ranks[rsf_pfcbl_ids,
-                             on=.(inclusion_rank),
-                             nomatch=NULL]
-
-    if (!empty(flag_ranks[,.(n=.N),by=.(rsf_pfcbl_id)][n>1])) {
-      stop("Multiple rsf_pfcbl_ids per reporting_template_row_group")
+      flag_ranks <- flag_data[sheet_name=="qreport" & indicator_id == rsf_indicators[data_category=="loan" & indicator_sys_category=="rank_id",indicator_id],
+                              .(reporting_template_row_group,inclusion_rank=reporting_submitted_data_value)]
+      
+      flag_ranks <- flag_ranks[rsf_pfcbl_ids,
+                               on=.(inclusion_rank),
+                               nomatch=NULL]
+  
+      if (!empty(flag_ranks[,.(n=.N),by=.(rsf_pfcbl_id)][n>1])) {
+        stop("Multiple rsf_pfcbl_ids per reporting_template_row_group")
+      }
     }
     
     qflags <- return.insert_flags[flag_ranks,
@@ -1798,7 +2393,7 @@ parse_template_IFC_QR2025 <- function(pool,
                                    nomatch=NULL]
     
     qflags[!indicator_id %in% unique(flag_data$indicator_id),
-                        indicator_id:=NA]
+           indicator_id:=NA]
     
     
     qflags[is.na(indicator_id) & pfcbl_category=="loan",
@@ -1815,132 +2410,601 @@ parse_template_IFC_QR2025 <- function(pool,
                                 indicator_id),
                            nomatch=NA]
     
+    sheet_num <- grep("QReport$",excelwb$sheet_names,ignore.case=T)
+    qreport_data <- wb_to_df(excelwb,sheet=sheet_num,col_names = F)
+    # 
+    # if (any( (qreport_data_blank_rows <- rowSums(!is.na(qreport_data))==0)[-(1:QREPORT_startrow)],na.rm=T)) {
+    #   last_not_blank <- Position(isFALSE,qreport_data_blank_rows,right=TRUE)
+    #   
+    #   #allow 5 blank rows
+    #   if (last_not_blank+5 < nrow(qreport_data) && last_not_blank >QREPORT_startrow) {
+    #     
+    #     excelwb <- wb_clean_sheet(excelwb, 
+    #                               sheet = sheet_num, 
+    #                               dims = paste0("A",(last_not_blank+5),":",openxlsx2::int2col(ncol(qreport_data)),nrow(qreport_data)))
+    #     
+    #     qreport_data <- qreport_data[1:(last_not_blank+5),]                
+    #   }
+    # }
+    # 
+    # #remove conditional styles and reset styles on Qreport
+    # {
+    # 
+    #   #Remove conditional formatting applied to arbitrary cells    
+    #   if (length(removecf <- grep("\\s+",trimws(excelwb$worksheets[[sheet_num]]$conditionalFormatting$sqref)))) {
+    #     excelwb$worksheets[[sheet_num]]$conditionalFormatting <- excelwb$worksheets[[sheet_num]]$conditionalFormatting[-removecf,]
+    #   }
+    #   
+    #   #any conditional formual on a row with double-digit row number (ie, more than row 6 start row; simpler than parsing each digit value)
+    #   if (length(removecf <- grep("\\d{2,}",excelwb$worksheets[[sheet_num]]$conditionalFormatting$sqref))) {
+    #     excelwb$worksheets[[sheet_num]]$conditionalFormatting <- excelwb$worksheets[[sheet_num]]$conditionalFormatting[-removecf,]
+    #   }
+    #   
+    #   #openxlsx2::wb_save(excelwb,file="C:/Temp/OTP Test2.xlsx",overwrite=T)
+    #   excelwb <- wb_add_fill(wb=excelwb,
+    #                          sheet=sheet_num,
+    #                          dims=paste0("A",QREPORT_startrow,":",openxlsx2::int2col(ncol(qreport_data)),nrow(qreport_data)),
+    #                          color=NULL)
+    #   
+    #   excelwb <- wb_add_font(wb=excelwb,
+    #                          sheet=sheet_num,
+    #                          dims=paste0("A",QREPORT_startrow,":",openxlsx2::int2col(ncol(qreport_data)),nrow(qreport_data)),
+    #                          update=NULL) 
+    #   
+    #   excelwb <- wb_add_border(wb=excelwb,
+    #                            sheet=sheet_num,
+    #                            dims=paste0("A",QREPORT_startrow,":",openxlsx2::int2col(ncol(qreport_data)),nrow(qreport_data)),
+    #                            update=NULL)
+    #   
+    #   excelwb <- wb_add_data(wb=excelwb,
+    #                          sheet=sheet_num,
+    #                          x="🏴 ",
+    #                          dims="A5")
+    #   
+    #   excelwb <- wb_add_cell_style(wb=excelwb,
+    #                                sheet=sheet_num,
+    #                                dims="A5",
+    #                                horizontal = "center")
+    # 
+    #   #Color of the flag
+    #   excelwb <- wb_add_font(wb=excelwb,
+    #                          sheet=sheet_num,
+    #                          dims="A5",
+    #                          color=wb_color(name=fcase(any(qreport$check_class=="critical",na.rm=T),"#800000",
+    #                                                    any(qreport$check_class=="error",na.rm=T),"#CC0000",
+    #                                                    any(qreport$check_class=="warning",na.rm=T),"#ED7D31",
+    #                                                    any(qreport$check_class=="info",na.rm=T),"#1155CC",
+    #                                                    default="gray")))
+    # }
+    
+    #wb_save(excelwb,file="c:/temp/test2.xlsx",overwrite = T)
+    
+    #openxlsx2::wb_save(excelwb,file="C:/Temp/OTP Test2.xlsx",overwrite=T)
+    #Reset flags to blanks
+    # excelwb <- wb_add_data(wb=excelwb,
+    #                        sheet=sheet_num,
+    #                        x=rep("",times=(nrow(qreport_data)+1-QREPORT_startrow)),
+    #                        dims=paste0("A",QREPORT_startrow,":A",nrow(qreport_data)))
+    # 
+    excelwb <- wb_add_cell_style(wb=excelwb,
+                                 sheet=sheet_num,
+                                 dims=paste0("A",QREPORT_startrow,":A",nrow(qreport_data)),
+                                 horizontal = "center")
+
+    excelwb <- wb_add_filter(wb=excelwb,
+                             sheet=sheet_num,
+                             rows=(QREPORT_startrow-1),
+                             cols=1:ncol(qreport_data))
+    
+    #openxlsx2::wb_save(excelwb,file="C:/Temp/NBS Test2.xlsx",overwrite=T)
+    #wb_save(excelwb,file="c:/temp/test3.xlsx",overwrite = T)
+    
     if (!empty(qreport)) {
-      
       
       qreport[is.na(reporting_template_data_rank),
               reporting_template_data_rank:="B"] #B is inclusion rank ID column
 
       #minus 1 because start_row should be first row where data exists; and that should also be reporting_template_row_group line 1
-      qreport[,ref_row:=as.numeric(gsub("[[:alpha:]]+","",reporting_template_row_group))+qreport_startrow-1]
+      qreport[,ref_row:=as.numeric(gsub("[[:alpha:]]+","",reporting_template_row_group))+QREPORT_startrow-1]
       if (anyNA(qreport$ref_row)) {
         stop(paste0("Failed to insert flags due to missing reference row for reporting_template_row_group: ",
              paste0(qreport[is.na(ref_row),unique(reporting_template_row_group)],collapse=", ")))
       }
+
+     
       #All data is on column E for this template
       qreport[,ref:=paste0(reporting_template_data_rank,ref_row)]
       qreport[,ref_n:=.N,by=.(ref)]
-      qreport <- qreport[,.(ref,ref_n,evaluation_id,check_name,check_class,check_type,check_formula_title,check_status,check_status_comment,check_message)]
-      qreport[,check_rank:=fcase(check_class=="critical",4,
-                                 check_class=="error",3,
-                                 check_class=="warning",2,
-                                 check_class=="info",1,
-                                 default=5)]
+      qreport <- qreport[,.(ref,ref_n,evaluation_id,check_name,check_class,check_type,check_formula_title,check_status,check_status_comment,check_message,
+                            check_rank,
+                            check_font,
+                            check_color)]
+      
+      
+      
       
       setorder(qreport,check_rank)
-      sheet_num <- grep("QReport$",excelwb$sheet_names,ignore.case=T)
-      for (f in 1:nrow(qreport)) {
+      
+      qsummary <- qreport[check_status=="active",
+                          .(ref_row=paste0("A",gsub("[A-Z]","",ref)),
+                            check_rank)][,.(row_flag_count=.N,
+                                            row_flag_rank=sort(check_rank,decreasing=T)[1]),
+                                         by=.(ref_row)]
+      setorder(qsummary,ref_row)
+      
+      qsummary[,
+               check_color:=fcase(row_flag_rank==4,"#800000",
+                                  row_flag_rank==3,"#CC0000",
+                                  row_flag_rank==2,"#ED7D31",
+                                  row_flag_rank==1,"#1155CC",
+                                  default="gray")]
+      
+      
+      if (!empty(qsummary)) {
+        for (f in 1:nrow(qsummary)) {
+          excelwb$add_data(sheet=sheet_num,
+                           x=qsummary[f,row_flag_count],
+                           dims=qsummary[f,ref_row])
+          excelwb$add_font(sheet=sheet_num,
+                           dims=qsummary[f,ref_row],
+                           bold=TRUE,
+                           color=wb_color(name=qsummary[f,check_color]))
+        }
+      }
+      
+      #wb_save(excelwb,file="c:/temp/test4.xlsx",overwrite = T)
+      #ACK 1
+      if (!empty(qreport)) {
         
-        add_flag(wb=excelwb,
-                 sheet=sheet_num,
-                 flag=qreport[f])
+        qflags <- qreport[order(check_rank,decreasing = T),
+                          .(check_rank=check_rank[1],
+                            check_class=check_class[1],
+                            check_color=check_color[1],
+                            check_font=check_font[1],
+                            check_message=paste0(paste0(toupper(check_class),": ",check_message),collapse=" \n\n")),
+                          by=.(ref)]
+        
+        for (f in 1:nrow(qflags)) {
+
+          add_flag(wb=excelwb,
+                   sheet=sheet_num,
+                   flag=qflags[f],
+                   styleflag=TRUE)
+        }
       }
     } else { qreport[,ref:=NA] }
+    
+    #ok for save flags.
+    #wb_save(excelwb,file="c:/temp/test.xlsx",overwrite = T)
+    #wb_save(excelwb,file="c:/temp/test5.xlsx",overwrite = T)
     
     refs <- rbindlist(list(summary[,.(ref,evaluation_id,sheet=grep("Summary$",excelwb$sheet_names,value=T,ignore.case=T))],
                            qreport[,.(ref,evaluation_id,sheet=grep("QReport$",excelwb$sheet_names,value=T,ignore.case=T))]))
     
     refs[,ref_n:=.N,by=.(ref,sheet)]
     
-    refs[,sheet:=paste0("'",sheet,"'")]
+    #refs[,sheet:=paste0("'",sheet,"'")]
     refs_flags <- refs[return.insert_flags,
-                            on=.(evaluation_id),
-                            nomatch=NULL]
+                       on=.(evaluation_id),
+                       nomatch=NULL]
     
     refs_flags[,dims:=paste0("B",5+(1:.N))]
     
-    if (any(excelwb$sheet_names=="Current Flags")) {
+    #excelwb2 <- excelwb
+    #wb_save(excelwb,file="c:/temp/test2.xlsx",overwrite = T)
+    #ok
+    if (any(excelwb$sheet_names==sheetCURRENTFLAGS)) {
       
-      excelwb$clean_sheet("Current Flags")
+      excelwb$clean_sheet(sheetCURRENTFLAGS)
       
-      existing_tables <- excelwb$get_tables(sheet="Current Flags")$tab_name
+      existing_tables <- excelwb$get_tables(sheet=sheetCURRENTFLAGS)$tab_name
       if (length(existing_tables)) {
         for (tn in existing_tables) {
           message(paste0(tn," already exists: removing from Current Flags"))
-          excelwb$remove_tables(sheet="Current Flags",table=tn)
+          excelwb$remove_tables(sheet=sheetCURRENTFLAGS,table=tn)
         }
-      }      
-      #excelwb$remove_worksheet(sheet="Current Flags")
+      }
+      
+      excelwb$worksheets[[which(excelwb$sheet_names==sheetCURRENTFLAGS)]][["sheetPr"]] <- xml_node_create(
+        "sheetPr", 
+        xml_children = xml_node_create(
+          "tabColor", 
+          xml_attributes = c(rgb = "FFFF0000")
+        )
+      )
+      
+      #somehow this seems to cause problems, possible it removes the wrong index or doens't upadte index correctly and results in user-defined formulas crapping out
+      #excelwb$remove_worksheet(sheet=sheetCURRENTFLAGS)
+    
     } else {
       
-      excelwb$add_worksheet(sheet="Current Flags",
+      excelwb$add_worksheet(sheet=sheetCURRENTFLAGS,
                             zoom=80,
                             tab_color=wb_color("red"))
     }
     
+    #wb_save(excelwb,file="c:/temp/test6.xlsx",overwrite = T)
+    #Unhide hidden sheets and collapsed rows
+    # snames <- wb_get_sheet_names(excelwb)
+    # for(sname in snames) {
+    #   size <- dim(wb_to_df(excelwb,sheet=sname))
+    #   excelwb <- wb_set_sheet_visibility(excelwb,sheet=sname,value="visible")
+    # 
+    #   if (length(size)) {
+    #     excelwb$remove_row_heights(sheet=sname,
+    #                                rows=1:size[1])
+    #   }
+    #   # excelwb$set_row_heights(sheet=sname,
+    #   #                         rows=1:size[1],
+    #   #                         heights=150,
+    #   #                         hidden=FALSE,
+    #   #                         hide_blanks=FALSE)
+    #   # 
+    #   
+    #   ratt <- excelwb[["worksheets"]][[which(sname==snames)]][["sheet_data"]][["row_attr"]]
+    #   if (any(nchar(ratt$hidden)>0,na.rm=T)) {
+    #     excelwb[["worksheets"]][[which(sname==snames)]][["sheet_data"]][["row_attr"]][which(nchar(ratt$hidden)>0),"hidden"] <- ""
+    #   }
+    #   
+    #   if (any(nchar(ratt$ht)>0,na.rm=T)) {
+    #     excelwb[["worksheets"]][[which(sname==snames)]][["sheet_data"]][["row_attr"]][which(nchar(ratt$ht)>0),"ht"] <- ""
+    #   }
+    #   
+    #   excelwb$remove_hyperlink(sheet=sname)
+    # }
+
+    #wb_save(excelwb,file="c:/temp/test7.xlsx",overwrite = T)
     
-    excelwb$add_data_table(sheet="Current Flags",
-                           table_name="rsf_current_flags",
-                           col_names=TRUE,
-                           dims="B5",
-                           x=refs_flags[,
-                                       .(FLAGID=evaluation_id,           #B
-                                         CHECK_DATE=check_asof_date,     #C
-                                         NAME=entity_name,               #D
-                                         type=check_type,                #E
-                                         class=check_class,              #F 
-                                         MESSAGE=check_message,          #G  
-                                         CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
-                                                                                 check_formula_title)),
-                                         STATUS=check_status,
-                                         comment=check_status_comment,
-                                         user=check_status_users_name)])
-    
-    pwalk(refs_flags[,.(ref,dims,evaluation_id,sheet)],function(ref,dims,evaluation_id,sheet) { 
-      excelwb$add_formula(sheet="Current Flags",
-                          dims=dims,
-                          x=paste0('HYPERLINK("#',sheet,'!',ref,'", "Go to #',evaluation_id,'")'))
+    #wb_save(excelwb,file="c:/temp/test4.xlsx",overwrite = T)
+    #ok
+    if (empty(refs_flags)) {
       
-    })
+     
+      excelwb$add_data_table(sheet=sheetCURRENTFLAGS,
+                             table_name="rsf_current_flags",
+                             col_names=TRUE,
+                             dims="B5",
+                             x=refs_flags[,
+                                          .(FLAGID=NA,           #B
+                                            DATE=reporting_asof_date,
+                                            NAME="[NONE]",
+                                            type=NA,
+                                            class=NA,
+                                            
+                                            CHECK="[NONE]",
+                                            STATUS=NA,
+                                            MESSAGE="There are no checks for this dataset",
+                                            `IFC Comments`="",
+                                            `CLIENT Comments`="")])
     
-   
-    excelwb$add_cell_style(sheet="Current Flags",
-                           dims=paste0("G6:G",length(refs_flags$dims)+5),
-                           wrap_text = TRUE) 
-    
-    excelwb$add_font(sheet="Current Flags",
-                     dims=paste0("B6:B",length(refs_flags$dims)+5),
-                     size=9,
-                     color = wb_color(hex = "#0000FF"), 
-                     underline = "single")
     
     
-    excelwb$set_col_widths(sheet="Current Flags",
+    } else {
+    
+      excelwb$add_data_table(sheet=sheetCURRENTFLAGS,
+                             table_name="rsf_current_flags",
+                             col_names=TRUE,
+                             dims="B5",
+                             x=refs_flags[,
+                                         .(FLAGID=evaluation_id,           #B
+                                           DATE=check_asof_date,           #C
+                                           NAME=entity_name,               #D
+                                           type=check_type,                #E
+                                           class=check_class,              #F 
+                                           CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
+                                                                                   check_formula_title)),
+                                           STATUS=fcase(check_status=="active","Review",
+                                                        check_status=="resolved","Closed",
+                                                        TRUE,check_status),
+                                           MESSAGE=check_message,          #G  
+                                           `IFC Comments`=check_status_comment,
+                                           `CLIENT Comments`="")])
+      
+      refs_flags[,target_cf:=paste0("'Current Flags'!K",5+(1:.N))] #offset to row 5
+      
+      pwalk(refs_flags[,.(ref,dims,evaluation_id,sheet,target_cf,check_color,check_font)],
+            function(ref,dims,evaluation_id,sheet,target_cf,check_color,check_font) { 
+        
+        excelwb$add_formula(sheet=sheetCURRENTFLAGS,
+                            dims=dims,
+                            x=paste0('HYPERLINK("#',paste0("'",sheet,"'"),'!',ref,'", "Go to #',evaluation_id,'")'))
+
+        excelwb$add_hyperlink(sheet=sheet,
+                              dims=ref,
+                              target=target_cf,
+                              tooltip="Click enter comments for this flag",
+                              is_external=F,
+                              col_names=F)
+        
+        if (grepl("Qreport",sheet,ignore.case = T)) {
+          excelwb$add_fill(sheet=sheet,
+                      dims=ref,
+                      color=wb_color(name=check_color))
+          
+          excelwb$add_font(sheet=sheet,
+                      dims=ref,
+                      color=wb_color(name=check_font))
+        }
+      })
+      
+      #FORMATTING and CONDITIONAL FORMATTING
+      {
+        excelwb$add_cell_style(sheet=sheetCURRENTFLAGS,
+                               dims=paste0("G6:G",length(refs_flags$dims)+5),
+                               wrap_text = TRUE) 
+        
+        excelwb$add_cell_style(sheet=sheetCURRENTFLAGS,
+                               dims=paste0("H6:H",length(refs_flags$dims)+5),
+                               wrap_text = TRUE) 
+  
+        excelwb$add_cell_style(sheet=sheetCURRENTFLAGS,
+                               dims=paste0("I6:I",length(refs_flags$dims)+5),
+                               wrap_text = TRUE) 
+        
+        excelwb$add_cell_style(sheet=sheetCURRENTFLAGS,
+                               dims=paste0("J6:J",length(refs_flags$dims)+5),
+                               wrap_text = TRUE) 
+  
+        
+        excelwb$add_font(sheet=sheetCURRENTFLAGS,
+                         dims=paste0("B6:B",length(refs_flags$dims)+5),
+                         size=9,
+                         color = wb_color(hex = "#0000FF"), 
+                         underline = "single")
+        
+        excelwb$add_data_validation(sheet=sheetCURRENTFLAGS,
+                         dims=paste0("H6:H",length(refs_flags$dims)+5),
+                         type="list",
+                         value='"Review,Closed,Past Reporting Error"',
+                         allow_blank=FALSE)
+        
+        excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                           dims=paste0("H6:H",length(refs_flags$dims)+5),
+                                           type = "containsText",
+                                           rule="Review",
+                                           #formula = '',
+                                           style = "checkStatusReview")
+        
+        excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                           dims=paste0("H6:H",length(refs_flags$dims)+5),
+                                           type = "containsText",
+                                           rule = "Closed",
+                                           style = "checkStatusClosed")
+        
+        excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                           dims=paste0("H6:H",length(refs_flags$dims)+5),
+                                           type = "containsText",
+                                           rule = "Past Reporting Error",
+                                           style = "checkStatusError")
+        
+        
+        
+        excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                           dims=paste0("F6:F",length(refs_flags$dims)+5),
+                                           type = "containsText",
+                                           rule = "critical",
+                                           style = "checkClassCritical")
+  
+        excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                           dims=paste0("F6:F",length(refs_flags$dims)+5),
+                                           type = "containsText",
+                                           rule = "error",
+                                           style = "checkClassError")
+  
+        excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                           dims=paste0("F6:F",length(refs_flags$dims)+5),
+                                           type = "containsText",
+                                           rule = "warning",
+                                           style = "checkClassWarning")
+  
+        excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                           dims=paste0("F6:F",length(refs_flags$dims)+5),
+                                           type = "containsText",
+                                           rule = "info",
+                                           style = "checkClassInfo")
+      
+      }
+    }
+    
+    #excelwb2 <- excelwb
+    #wb_save(excelwb,file="c:/temp/cs1.xlsx",overwrite = T)
+    excelwb$add_data(sheet=sheetCURRENTFLAGS,
+                     x=paste0("REPORT: ",today()),
+                     dims="A1")
+    
+    excelwb$set_col_widths(sheet=sheetCURRENTFLAGS,
                            cols=1+c(1,2,3,4,5,6,7,8,9,10), #Col B is +1 offset
-                           widths = c(12,
-                                      13, #check date 
+                           widths = c(12, #Flag ID/Link
+                                      9, #check date 
                                       35, #entity name
                                       17, #check type
                                       10, #check class
-                                      90, #check message
-                                      90, #check
-                                      10,
-                                      10,
-                                      10))
+                                      45, #check 
+                                      9,  #status
+                                      70, #Message
+                                      70, #Comment
+                                      70))#Response
     
-   
-
+    excelwb$set_active_sheet(sheetCURRENTFLAGS)
+    excelwb$set_selected(sheet=sheetCURRENTFLAGS)
+    excelwb$set_sheetview(sheet=sheetCURRENTFLAGS,
+                         top_left_cell = "A1")
     
-    #sorder <- which(excelwb$sheet_names=="Current Flags")
-    #excelwb$set_order(c(sorder,excelwb$sheetOrder[-sorder]))
-    #excelwb$save("test.xlsx",overwrite=T)
-    excelwb$set_active_sheet("Current Flags")
-    excelwb$set_selected(sheet="Current Flags")
+    excelwb$freeze_pane(sheet=sheetCURRENTFLAGS,
+                        first_active_row=6,
+                        first_active_col="C")
     
+    #wb_save(excelwb,file="c:/temp/test4.xlsx",overwrite = T)
+    #browser()
     return (excelwb)
   }
   
   
+  if (isTRUE(return.next_date)) {
+    
+    excelwb <- clean_up_template(excelwb=excelwb)
+    if (any(excelwb$sheet_names==sheetCURRENTFLAGS)) {
+      
+      excelwb$clean_sheet(sheetCURRENTFLAGS)
+      
+      existing_tables <- excelwb$get_tables(sheet=sheetCURRENTFLAGS)$tab_name
+      if (length(existing_tables)) {
+        for (tn in existing_tables) {
+          message(paste0(tn," already exists: removing from Current Flags"))
+          excelwb$remove_tables(sheet=sheetCURRENTFLAGS,table=tn)
+        }
+      }
+      
+      excelwb$worksheets[[which(excelwb$sheet_names==sheetCURRENTFLAGS)]][["sheetPr"]] <- xml_node_create(
+        "sheetPr", 
+        xml_children = xml_node_create(
+          "tabColor", 
+          xml_attributes = c(rgb = "FFC0C0C0")
+        )
+      )
+      
+    } 
+    
+    #Reset quarterly data
+    {
+      quaterly_cols_periodic <- data.quarterly[indicator_name %in% rsf_indicators[is_periodic_or_flow_reporting==T,indicator_name],
+                                               unique(reporting_template_data_rank)]
+      qdata.ranks <- excelwb$to_df(sheet=dataSheet,
+                                   start_row=QREPORT_startrow,
+                                   cols="B")
+      qdata.lastrow <- as.numeric(row.names(qdata.ranks)[Position(x=qdata.ranks[[1]],function(r) !is.na(r),right=T)])
+      
+      if (length(qdata.lastrow) && qdata.lastrow >= QREPORT_startrow) {
+      
+        for (qc in quaterly_cols_periodic) {
+          excelwb$add_data(sheet=dataSheet,
+                           x=rep(NA,times=qdata.lastrow-QREPORT_startrow+1),
+                           dims=paste0(qc,QREPORT_startrow,":",qc,qdata.lastrow),
+                           na="")
+        }
+      }
+      
+      #Testing...Just to check
+      # qdata.periodic <- excelwb$to_df(sheet=dataSheet,
+      #                                 start_row = QREPORT_startrow-1,
+      #                                 cols=quaterly_cols_periodic)
+      # setDT(qdata.periodic)
+    }
+    
+    # ..excelwb2 <- copy(excelwb)
+    #excelwb <- excelwb2 
+    #Migrate history in Summary Data
+    {
+      SUMMARY_history_startrow <- nregions_table[grepl("Template_Summary_HistoryStartRow",name,ignore.case=T)]
+      summary_history_data <- excelwb$to_df(sheet=summarySheet,
+                                            start_row = as.numeric(SUMMARY_history_startrow$data_value)+1,
+                                            start_col = "E",
+                                            col_names=F,
+                                            convert=FALSE)
+      #row.names(summary_history_data)
+      #dims <- openxlsx::col2int(names(summary_history_data))+1
+      for (r in 1:nrow(summary_history_data)) {
+        
+        current_row <- unlist(summary_history_data[r,],use.names = F)
+        allblanks <- Position(x=current_row,f=function(p) !is.na(p),right=T)
+        if (any(allblanks,na.rm=T)) current_row <- current_row[1:allblanks]
+        if (!length(current_row)) next;
+        dimStart <- paste0("F",row.names(summary_history_data[r,]))
+        dimEnd <- paste0(int2col(5+length(current_row)),row.names(summary_history_data[r,]))
+        dim <- paste0(dimStart,":",dimEnd)
+        
+        
+        if (all(is.na(current_row))) {
+          current_row <- ""
+        } else if (all(!is.na(suppressWarnings(as.numeric(na.omit(current_row)))),na.rm=T)) {
+          current_row <- as.numeric(current_row)
+        } else if (all(!is.na(suppressWarnings(lubridate::as_date(na.omit(current_row)))),na.rm=T)) {
+          current_row <- as.Date(current_row)
+        } else {
+          current_row <- as.character(current_row)
+        }
+        source_style <- excelwb$get_cell_style(sheet = summarySheet, dims = dimStart)
+        excelwb$add_data(sheet=summarySheet,
+                         x=current_row,
+                         dims=dim,
+                         col_names=F,
+                         row_names=F,
+                         na="")
+        
+        excelwb$set_cell_style(sheet=summarySheet,
+                               dims=dim,
+                               style=source_style)
+      }
+        
+  
+    }
+    
+    #Zero-out any defined FX rates and the delivery date    
+    {
+      summary_fx_data <- data.summary[indicator_name %in% rsf_indicators[data_type=="currency_ratio",indicator_name]]
+      sdata.fx_cols <- sort(suppressWarnings(as.numeric(summary_fx_data$reporting_template_data_rank)))
+      
+      if (length(na.omit(sdata.fx_cols))) {
+        excelwb$add_data(sheet=summarySheet,
+                         x=rep(0,times=length(sdata.fx_cols)),
+                         dims=paste0("E",sdata.fx_cols[1],":E",sdata.fx_cols[length(sdata.fx_cols)]),
+                         col_names=F,
+                         row_names=F,
+                         na="")
+      }
+      # Testing...Just to check
+      # 
+      # sdata.fx <- excelwb$to_df(sheet=summarySheet,
+      #                           rows = as.numeric(summary_fx_data$reporting_template_data_rank),
+      #                           cols="E")
+      # setDT(qdata.periodic)
+    }
+    
+    #Update the QDD date to the next interval
+    {
+      #excelwb$to_df(sheet="Template",named_region = "List_QDD")
+      nr_list_qdd <- nregions_table[grepl("List_QDD",name,ignore.case=T)]
+      nr_data_qdd <- nregions_table[grepl("Data_QDD",name,ignore.case=T)]
+      
+      if (empty(nr_list_qdd)) stop("Failed to find List_QDD defined name (should be in Templates sheet)")
+      if (empty(nr_data_qdd)) stop("Failed to find Data_QDD defined name (should be in Summary sheet, assigned to QDD drop down menu)")
+      
+      sdata.qdds <- openxlsx2::convert_date(
+        unlist(nr_list_qdd$data_value))
+      
+      sdata.qdd <- openxlsx2::convert_date(unlist(nr_data_qdd$data_value))
+      
+      qdd_now <- which(sdata.qdds==sdata.qdd)
+      if (!length(qdd_now)) {
+        stop(paste0("Failed to identify current Data_QDD='",sdata.qdd,"' in List_QDD='",paste0(sdata.qdds,collapse=", ")))
+      }
+      
+      if (qdd_now==length(sdata.qdds)) {
+        stop(paste0("Current Data_QDD='",sdata.qdd,"' which is the last QDD defined in List_QDD in this Template. If the RSA has been extended, the template and its termination date must be extended"))
+      }
+      
+      qdd_next <- sdata.qdds[qdd_now+1]
+      qdd_next <- openxlsx2::convert_to_excel_date(data.frame(qdd=qdd_next))$qdd
+      
+      excelwb$add_data(sheet=summarySheet,
+                       x=qdd_next,
+                       dims=nr_data_qdd$coords,
+                       col_names=F,
+                       row_names=F,
+                       na="")
+      
+      excelwb$set_active_sheet(summarySheet)
+      excelwb$set_selected(sheet=summarySheet)
+      excelwb$set_sheetview(sheet=summarySheet,
+                            top_left_cell = "A1")
+    }
+    
+    return(excelwb)
+  }  
+  
+  
+  
+  #excelwb$save("C:/Temp/newqr5.xlsx",overwrite=T)
   template <- list(cohort_pfcbl_id=rsf_pfcbl_id.facility,
                    reporting_asof_date=reporting_asof_date,
                    template_data=template_data,
@@ -1950,3 +3014,4 @@ parse_template_IFC_QR2025 <- function(pool,
   status_message(class="info","Success: Completed Parsing File:\n")
   return (template)
 }
+

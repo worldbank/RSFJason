@@ -25,19 +25,21 @@ db_reporting_import_create <- function(pool,
       ids.pfcbl_category,
       ids.pfcbl_category_rank,
       ids.created_in_reporting_asof_date::text,
-      users.rsf_pfcbl_id_validate_permissions($1::text, $2::int, 'WRITE')::bool as has_write
+      users.rsf_pfcbl_id_validate_permissions($1::text, $2::int, 'WRITE')::bool as has_write,
+      ids.rsf_pf_id
     from p_rsf.rsf_pfcbl_ids ids
-    where ids.rsf_pfcbl_id = $2::int",
+    where ids.rsf_pf_id = $2::int
+      and ids.pfcbl_category in ('global','program','facility')",
     params=list(import_user_id,
                 import_rsf_pfcbl_id))
   
   if (empty(reporting_entity)) {
     stop(paste0("Invalid import_rsf_pfcbl_id: ",import_rsf_pfcbl_id,". Reporting entity does not exist"))
   }
-  
-  if (reporting_entity$pfcbl_category_rank > 3) {
-    stop(paste0("Import not allowed.  Only Programs, Facilities and Clients are allowed to create imports"))
-  }
+
+  # if (reporting_entity$pfcbl_category_rank > 3) {
+  #   stop(paste0("Import not allowed.  Only Programs, Facilities and Clients are allowed to create imports"))
+  # }
   
   if (reporting_asof_date < ymd(reporting_entity$created_in_reporting_asof_date)) {
     stop(paste0("Template cannot declare a reporting_asof_date '",as.character(reporting_asof_date),"' that pre-dates the ",

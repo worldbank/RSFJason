@@ -248,9 +248,9 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
                      fluidRow(style="padding-top:10px;",
                               column(3,
                                      selectizeInput(inputId="indicator_check_edit_config__resolving",
-                                                    label="Default Review",
+                                                    label="Flag Status",
                                                     choices=c(`User Review`="FALSE",
-                                                              `Auto-Resolve`="TRUE"),
+                                                              `Always Resolve`="TRUE"),
                                                     selected=toupper(paste0(config$config_auto_resolve)),
                                                     multiple=FALSE,
                                                     width="100%")),
@@ -525,6 +525,7 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
         inner join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
                                             and rdc.indicator_id = scc.for_indicator_id
                                             and rdc.indicator_check_id = scc.indicator_check_id
+                                            and rdc.check_formula_id is not distinct from $4::int
         left join lateral (select ((regexp_match(check_message,'\\(([[:digit:]\\.]+)[:space:]?(%|DAYS) variance\\)$'))[1]) as val,
                                            ((regexp_match(check_message,'\\([[:digit:]\\.]+[:space:]?(.*) variance\\)$'))[1]) as unit) as var 
                                            on rdc.check_message ~ 'variance'
@@ -550,7 +551,50 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
       where res.evaluation_id = rdc.evaluation_id",
        params=list(ids[[1]],
                    ids[[2]],
-                   ids[[3]]))
+                   ids[[3]],
+                   check_formula_id))
+    
+    
+    DBPOOL %>% dbExecute("
+      with resolve as (
+
+        select 
+          dca.archive_id,
+          scc.config_comments,
+          scc.comments_user_id
+        from p_rsf.rsf_setup_checks_config scc
+        inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = scc.rsf_pfcbl_id
+        inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+        inner join p_rsf.rsf_data_checks_archive dca on dca.sys_name = sn.sys_name
+                                                    and dca.indicator_id = scc.for_indicator_id
+                                                    and dca.indicator_check_id = scc.indicator_check_id
+                                                    and dca.check_formula_id is not distinct from $4::int
+        left join lateral (select ((regexp_match(check_message,'\\(([[:digit:]\\.]+)[:space:]?(%|DAYS) variance\\)$'))[1]) as val,
+                                           ((regexp_match(check_message,'\\([[:digit:]\\.]+[:space:]?(.*) variance\\)$'))[1]) as unit) as var 
+                                           on dca.check_message ~ 'variance'
+                                           and var.val is not null
+                                           and public.isnumeric(var.val) is true                                          
+        where scc.rsf_pfcbl_id = $1::int
+          and scc.for_indicator_id = $2::int
+          and scc.indicator_check_id = $3::int
+          and dca.check_status = 'active'
+          and
+          (
+            (scc.config_auto_resolve is true)
+            or
+            (case when var.unit ~* 'days' then var.val::numeric else var.val::numeric end < coalesce(scc.config_threshold,0))
+          )
+      )
+      update p_rsf.rsf_data_checks_archive dca
+      set check_status = 'resolved',
+          check_status_comment = concat('Resolved by Flag Configuration: ',res.config_comments),
+          check_status_user_id = res.comments_user_id
+      from resolve res
+      where res.archive_id = dca.archive_id",
+                         params=list(ids[[1]],
+                                     ids[[2]],
+                                     ids[[3]],
+                                     check_formula_id))
   }
   
   SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1)
@@ -661,11 +705,20 @@ observeEvent(input$action_indicator_flags_review, {
   
 
   placeholder <- "Apply update comment to all marked flags..."
-  if (any(flag_selected$check_class=="critical")) {
-    status.choices <- c(Active="active")
-    status.selected <- "active"
-    #Can always submit "active" with
-    placeholder <- "Critical flags must be resolved by deleting and re-uploading corrected datasets"
+  if (any(flag_selected$check_class=="critical")) { #Allows us to "resolve" 
+    
+    if (!any(flag_selected$check_is_system)) {
+      status.choices <- c(Active="active")
+      status.selected <- "active"
+      #Can always submit "active" with
+      placeholder <- "Critical flags must be resolved by deleting and re-uploading corrected datasets"
+    } else {
+      status.choices <- c(Active="active",
+                          Ignore="resolved")
+      
+      status.selected <- "active"
+      placeholder <- "Ignoring critical flags may result in incorrect data calculations and results reporting. Ignore with caution!"
+    }
   }
   
   if (any(!is.na(flag_evaluations$data_flag_value) & flag_evaluations$data_flag_value > 0)) {
@@ -720,6 +773,7 @@ observeEvent(input$action_indicator_flags_review, {
                              New="new")
 
   filter_selected <- "None"
+ 
   
   if (all(input$cohort_view_flagged_data=="ACTIVE")) {
     filter_selected <- "Active"
@@ -1346,22 +1400,26 @@ output$datasets_review_download_flags_action <- downloadHandler(
   filename = function() {
     
     import <- IMPORT_SELECTED()
-    
+    whentxt <- toupper(format(today(),format="%d%b"))
     f <- import$source_name
-    
-    if (grepl("CHK\\d+",f)) {
-      chk <- as.numeric(gsub("^.*CHK(\\d+).*$","\\1",f,ignore.case = T))
-      if (is.na(chk)) chk <- 0
+    #f <- "#3 51197 - OTP Leasing - 1Q26 - v2.xlsx"
+    #f <- "#3 51197 - OTP Leasing - 1Q26 - CHK18MAY v2.xlsx"
+    if (grepl("CHK\\d+[A-Z]{3}[^[:alnum:]]",f)) {
+      f <- gsub("^(.*CHK)(\\d+[A-Z]{3})([^[:alnum:]].*)$",paste0("\\1",whentxt,"\\3"),f,ignore.case = T)
       
-      f <- gsub("CHK(\\d+)",paste0("CHK",chk+1),f)
+      
+      #f <- gsub("CHK(\\d+)",paste0("CHK",chk+1),f)
     } else {
       
       if (grepl("v\\d",f,ignore.case = T)) {
-        f <- gsub("(v\\d+)","CHK1\\1",f)
+        f <- gsub("(v\\d+)",paste0(" - CHK",whentxt," \\1"),f)
       } else {
-        f <- paste0(file_path_sans_ext(f)," - CHK1.",file_ext(f))
+        f <- paste0(file_path_sans_ext(f)," - CHK",whentxt,".",file_ext(f))
       }
     }
+    f <- gsub("\\s+"," ",f)
+    f <- gsub("\\s+\\.xlsx",".xlsx",f)
+    f <- gsub("\\-\\s?\\-","-",f)
   },
   content=function(file) {
     
@@ -1401,6 +1459,38 @@ output$datasets_review_download_flags_action <- downloadHandler(
         flags <- flags[evaluations,
                        on=.(evaluation_id),
                        nomatch=NULL]
+
+        
+        
+        if (is.null(flags) || empty(flags)) flags <- data.table(evaluation_id=numeric(0),
+                                                                entity_name=character(0),
+                                                                rsf_pfcbl_id=numeric(0),
+                                                                check_asof_date=as.Date(numeric(0)),
+                                                                pfcbl_category_rank=numeric(0),
+                                                                check_rank=numeric(0),
+                                                                indicator_id=numeric(0),
+                                                                indicator_name=character(0),
+                                                                formula_title=character(0),
+                                                                check_formula_id=numeric(0),
+                                                                indicator_check_id=numeric(0),
+                                                                check_name=character(0),
+                                                                check_type=character(0),
+                                                                check_class=character(0),
+                                                                check_formula_title=character(0),
+                                                                check_status=character(0),
+                                                                check_stats_comment=character(0))
+        
+        #Because the IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED filters the SUMMARY object only and the summary object contains all evaluation_ids as a list
+        #regardless of the status.  So need to re-filter on the status selection.
+        view_data_flags <- toupper(input$cohort_view_flagged_data)
+        if (!isTruthy(view_data_flags)) view_data_flags <- ""
+        if (view_data_flags=="ACTIVE") {
+          flags <- flags[check_status=="active"]
+        } else if (view_data_flags=="RESOLVED") {
+          flags <- flags[check_status=="resolved"]
+        } else if (view_data_flags=="NEW") {
+          flags <- flags[check_status=="active" & (is.na(check_status_comment) || nchar(check_stats_comment)==0)]
+        }
         
         setorder(flags,
                  pfcbl_category_rank,
@@ -1412,8 +1502,9 @@ output$datasets_review_download_flags_action <- downloadHandler(
       
       if (empty(flags)) {
         showNotification(type="message",
-                         ui=h3("There are no displayed flags to download"))
-        return (NULL)
+                         ui=h3("There are no displayed flags to download: an empty sheet will be inserted for Current Flags"))
+#        flags <- NULL
+#        return (NULL)
       }
       
       wbflags <- NULL
@@ -1488,8 +1579,8 @@ output$datasets_review_download_flags_action <- downloadHandler(
             
           }
           
-          wbflags$save(file=file,
-                       overwrite=TRUE)
+          openxlsx2::wb_save(wbflags,file=file,overwrite = T)
+          #wbflags$save(file=file,overwrite=TRUE)
         }
       
       
@@ -1553,6 +1644,261 @@ output$datasets_review_download_flags_action <- downloadHandler(
   
       
         
+      
+      
+      incProgress(amount=1.0,message="Completed")
+    })
+  })
+
+
+output$datasets_review_download_zeroversion_action <- downloadHandler(
+  filename = function() {
+    
+    import <- IMPORT_SELECTED()
+    whentxt <- toupper(format(today(),format="%d%b"))
+    f <- import$source_name
+    #f <- "#3 51197 - OTP Leasing - 1Q26 - v2.xlsx"
+    #f <- "#3 51197 - OTP Leasing - 1Q26 - CHK18MAY v2.xlsx"
+    if (grepl("CHK\\d+[A-Z]{3}[^[:alnum:]]",f)) {
+      f <- gsub("^(.*CHK)(\\d+[A-Z]{3})([^[:alnum:]].*)$",paste0("\\1",whentxt,"\\3"),f,ignore.case = T)
+      
+      
+      #f <- gsub("CHK(\\d+)",paste0("CHK",chk+1),f)
+    } else {
+      
+      if (grepl("v\\d",f,ignore.case = T)) {
+        f <- gsub("(v\\d+)",paste0(" - CHK",whentxt," \\1"),f)
+      } else {
+        f <- paste0(file_path_sans_ext(f)," - CHK",whentxt,".",file_ext(f))
+      }
+    }
+    f <- gsub("\\s+"," ",f)
+    f <- gsub("\\s+\\.xlsx",".xlsx",f)
+    f <- gsub("\\-\\s?\\-","-",f)
+  },
+  content=function(file) {
+    
+    import <- IMPORT_SELECTED()
+    withProgress(message="Downloading file",value=0.5, {
+      
+      flags <- {
+        flags <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()[,
+                                                          .(pfcbl_category_rank,
+                                                            check_rank,
+                                                            indicator_id,
+                                                            indicator_name,
+                                                            formula_title,
+                                                            check_formula_id,
+                                                            indicator_check_id,
+                                                            check_name,
+                                                            check_type,
+                                                            check_class,
+                                                            check_formula_title,
+                                                            evaluation_ids)]
+        flags <- flags[,
+                       .(evaluation_id=unlist(evaluation_ids,recursive=F)),
+                       by=.(pfcbl_category_rank,
+                            check_rank,
+                            indicator_id,
+                            indicator_name,
+                            formula_title,
+                            check_formula_id,
+                            indicator_check_id,
+                            check_name,
+                            check_type,
+                            check_class,
+                            check_formula_title)]
+        
+        evaluations <- SERVER_DATASETS_REVIEW_FLAGS_db_EVALUATION_DETAILS(flags$evaluation_id)
+        
+        flags <- flags[evaluations,
+                       on=.(evaluation_id),
+                       nomatch=NULL]
+        
+        
+        
+        if (is.null(flags) || empty(flags)) flags <- data.table(evaluation_id=numeric(0),
+                                                                entity_name=character(0),
+                                                                rsf_pfcbl_id=numeric(0),
+                                                                check_asof_date=as.Date(numeric(0)),
+                                                                pfcbl_category_rank=numeric(0),
+                                                                check_rank=numeric(0),
+                                                                indicator_id=numeric(0),
+                                                                indicator_name=character(0),
+                                                                formula_title=character(0),
+                                                                check_formula_id=numeric(0),
+                                                                indicator_check_id=numeric(0),
+                                                                check_name=character(0),
+                                                                check_type=character(0),
+                                                                check_class=character(0),
+                                                                check_formula_title=character(0),
+                                                                check_status=character(0),
+                                                                check_stats_comment=character(0))
+        
+        #Because the IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED filters the SUMMARY object only and the summary object contains all evaluation_ids as a list
+        #regardless of the status.  So need to re-filter on the status selection.
+        view_data_flags <- toupper(input$cohort_view_flagged_data)
+        if (!isTruthy(view_data_flags)) view_data_flags <- ""
+        if (view_data_flags=="ACTIVE") {
+          flags <- flags[check_status=="active"]
+        } else if (view_data_flags=="RESOLVED") {
+          flags <- flags[check_status=="resolved"]
+        } else if (view_data_flags=="NEW") {
+          flags <- flags[check_status=="active" & (is.na(check_status_comment) || nchar(check_stats_comment)==0)]
+        }
+        
+        setorder(flags,
+                 pfcbl_category_rank,
+                 check_rank,
+                 entity_name,
+                 check_type,
+                 check_name)
+      }
+      
+      if (empty(flags)) {
+        showNotification(type="message",
+                         ui=h3("There are no displayed flags to download: an empty sheet will be inserted for Current Flags"))
+        #        flags <- NULL
+        #        return (NULL)
+      }
+      
+      wbflags <- NULL
+      
+      if (import$file_extension=="xlsx") {
+        
+        outpath <- DBPOOL %>% db_import_download_file(import_id=IMPORT_SELECTED()$import_id)
+        
+        if (!is.null(outpath)) {
+          
+          file.copy(from=outpath,
+                    to=file,
+                    overwrite = TRUE)
+          
+          if (file.exists(outpath)) file.remove(outpath)
+          
+          
+          if (import$template_name=="IFC-QR-TEMPLATE2025") {
+            
+            lookup <- db_export_get_template(pool=DBPOOL,
+                                             template_name="IFC-QR-TEMPLATE2025")
+            
+            wbflags <- parse_template_IFC_QR2025(pool=DBPOOL,
+                                                 template_file=file,
+                                                 template_lookup=lookup,
+                                                 rsf_indicators=db_indicators_get_labels(DBPOOL),
+                                                 return.insert_flags=flags,
+                                                 return.next_date=NULL,
+                                                 status_message = function(...) {},
+                                                 CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
+            
+            
+            
+          } else {
+            
+            wbflags <- openxlsx2::wb_load(file=file)
+            
+            if (any(wbflags$sheet_names=="Current Flags")) {
+              wbflags$remove_worksheet(sheet="Current Flags")
+            }
+            wbflags$add_worksheet(sheet="Current Flags")
+            sorder <- which(wbflags$sheet_names=="Current Flags")
+            wbflags$set_order(c(sorder,wbflags$sheetOrder[-sorder]))
+            wbflags$add_data_table(sheet="Current Flags",
+                                   table_name="RSF_current_flags",
+                                   dims="B1",
+                                   x=flags[,
+                                           .(FLAGID=evaluation_id,
+                                             CHECK_DATE=check_asof_date,
+                                             NAME=entity_name,
+                                             type=check_type,
+                                             class=check_class,
+                                             MESSAGE=check_message,
+                                             CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
+                                                                                     check_formula_title)),
+                                             STATUS=check_status,
+                                             comment=check_status_comment,
+                                             user=check_status_users_name)])
+            wbflags$set_active_sheet(sheet="Current Flags")
+            wbflags$set_col_widths(sheet="Current Flags",
+                                   cols=c(1,2,3,4,5,6,7,8,9,10),
+                                   widths = c(10,
+                                              13, #check date 
+                                              35, #entity name
+                                              17, #check type
+                                              10, #check class
+                                              90, #check message
+                                              90, #check
+                                              10,
+                                              10,
+                                              10))
+            
+          }
+          
+          openxlsx2::wb_save(wbflags,file=file,overwrite = T)
+          #wbflags$save(file=file,overwrite=TRUE)
+        }
+        
+        
+      } else if (import$file_extension %in% c("pdf","txt")) {
+        
+        setorder(flags,
+                 entity_name,
+                 check_status,
+                 indicator_name,
+                 check_name,
+                 check_formula_title,
+                 check_class,
+                 check_message)
+        
+        wbflags <- paste0(flags$entity_name,": ",
+                          flags$indicator_name,": ",ifelse(is.na(flags$check_formula_title),flags$check_name,flags$check_formula_title),
+                          " [",toupper(flags$check_status),":",flags$evaluation_id,"] [",flags$check_type,":",toupper(flags$check_class),"]\n",
+                          flags$check_message,"\n\n")
+        
+        writeLines(text=wbflags,
+                   con=file)
+        
+      }
+      
+      #catch-all 
+      # if (is.null(wbflags)) {
+      #   
+      #   wbflags <- openxlsx2::wb_workbook(creator="RSF Jason")
+      #   wbflags$add_worksheet(sheet="Current Flags")
+      #   wbflags$add_data_table(sheet="Current Flags",
+      #                          table_name="RSF_current_flags",
+      #                          x=flags[,
+      #                                  .(FLAGID=evaluation_id,
+      #                                    CHECK_DATE=check_asof_date,
+      #                                    NAME=entity_name,
+      #                                    type=check_type,
+      #                                    class=check_class,
+      #                                    MESSAGE=check_message,
+      #                                    CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
+      #                                                                            check_formula_title)),
+      #                                    STATUS=check_status,
+      #                                    comment=check_status_comment,
+      #                                    user=check_status_users_name)])
+      #   
+      #   wbflags$set_active_sheet(sheet="Current Flags")
+      #   wbflags$set_col_widths(sheet="Current Flags",
+      #                          cols=c(1,2,3,4,5,6,7,8,9,10),
+      #                          widths = c(10,
+      #                                     13, #check date 
+      #                                     35, #entity name
+      #                                     17, #check type
+      #                                     10, #check class
+      #                                     90, #check message
+      #                                     90, #check
+      #                                     10,
+      #                                     10,
+      #                                     10))
+      #   wbflags$save(file=file,
+      #                overwrite=TRUE)
+      # }
+      
+      
+      
       
       
       incProgress(amount=1.0,message="Completed")

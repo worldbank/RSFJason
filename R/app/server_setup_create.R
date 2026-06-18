@@ -255,12 +255,16 @@ observeEvent(input$setup_program_create_action_button, {
  
         results <- tryCatch({
           #Template gets its own database pool
-          template_parse_process_and_upload(pool=dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]])),
+          localPool <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
+          ppu <- template_parse_process_and_upload(pool=localPool,
                                             reporting_user_id = USER_ID(),
                                             template_files=export_filename,
                                             source_note="None",
                                             delete_on_error=FALSE,
                                             status_message=progress_status_message)
+          poolClose(localPool)
+          localPool <- NULL
+          ppu
         },
         error=function(e) {
           showNotification(type="error",

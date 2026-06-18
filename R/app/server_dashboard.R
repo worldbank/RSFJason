@@ -365,18 +365,22 @@ SERVER_DASHBOARD_VALID_ASOF_DATES <- eventReactive(SERVER_DASHBOARD_RUN_OPTIONS$
     
       select 
       grd.valid_reporting_date::text as text_date,
-      grd.valid_reporting_date > (now()::date) as is_future
+      false as is_future
       from p_rsf.rsf_pfcbl_ids ids
       inner join lateral p_rsf.rsf_pfcbl_generate_reporting_dates(ids.rsf_pfcbl_id) grd on true
       where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
       
       union 
       
-      select 
-      rpr.reporting_asof_date::text as text_date,
-      rpr.reporting_asof_date > (now()::date) as is_future
-      from p_rsf.rsf_pfcbl_reporting rpr
-      where rpr.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+      select
+      rc.reporting_asof_date::text as text_date,
+      true as is_future 
+      from p_rsf.reporting_cohorts rc
+      inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
+      where rc.reporting_asof_date >= now()::date
+        and ft.to_family_rsf_pfcbl_id = any(select unnest(string_to_array('647148,647149,647150'::text,','))::int)
+        and ft.pfcbl_hierarchy <> 'child'
+
     )
     select 
       text_date,
@@ -1142,6 +1146,7 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
         GROUP BY ft.from_rsf_pfcbl_id, rpr.reporting_asof_date;",
        params=list(paste0(unique(dashboard_data$SYSID),collapse=","),
                    d))
+     
      setDT(reporting_dates)
      reporting_dates[,REPORTING_asof_date:=as.Date(d)]
 

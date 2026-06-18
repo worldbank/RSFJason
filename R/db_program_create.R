@@ -240,11 +240,14 @@ db_program_create <- function(pool,
   program_create_indicators[indicator_sys_category=="SYSID",data_value:=as.character(rsf_pfcbl_id)]
   program_create_indicators[!(indicator_sys_category %in% nodefault_setup_indicators),data_value:=default_value]
 
-  if (any(is.na(program_create_indicators[is_setup=="required",data_value]))) {
-    stop(paste0("Failed to create program due to {MISSING} values for required setup indicators: ",
-                paste0(program_create_indicators[is.na(data_value),indicator_name],collapse=" & ")))
-  }
-  
+  # if (any(is.na(program_create_indicators[is_setup=="required",data_value]))) {
+  #   stop(paste0("Failed to create program due to {MISSING} values for required setup indicators: ",
+  #               paste0(program_create_indicators[is.na(data_value),indicator_name],collapse=" & ")))
+  # }
+
+  if (empty(program_create_indicators[indicator_sys_category %in% c("id","nickname","name") & !is.na(data_value)])) {
+    stop("Failed to create program because at least ID, nickname or name must be provided.")
+  }  
   program_create_indicators[,default_value:=NULL]
   
   program_create_indicators[,data_submitted:=data_value]

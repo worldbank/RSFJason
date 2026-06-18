@@ -27,7 +27,7 @@ db_data_update_flags <- function(pool,
   }    
   
   flags <- flags[!(is.na(check_status_comment_updated) | is.na(check_status_updated))]
-  flags <- flags[!(check_class == "critical" & is.na(data_sys_flags))]
+  #flags <- flags[!(check_class == "critical" & is.na(data_sys_flags))]
 
   if (empty(flags)) return (FALSE)
   

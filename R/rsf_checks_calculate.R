@@ -91,7 +91,7 @@ rsf_checks_calculate <- function(pool,
       check_expr <- check$formula  
       check_expr_msg <- check$formula_result_message
       check_for <- check$for_indicator_name
-      
+      check_variance_formula <- check$variance_formula
 
       
       {
@@ -116,6 +116,8 @@ rsf_checks_calculate <- function(pool,
       
       if (is.null(check_expr_msg) || length(check_expr_msg)==0 || is.na(check_expr_msg) || nchar(trimws(check_expr_msg,whitespace="[ \\t\\r\\n\\v\\h\\s]"))==0) check_expr_msg <- NA
       
+      if (is.na(check_variance_formula) || nchar(check_variance_formula)==0 || tolower(check_variance_formula)=="na") check_variance_formula <- as.character(NA)
+      check_variance_formula <- gsub("[[:cntrl:]]+"," ",check_variance_formula)
       #To accommodate line-breaks, etc written into formula form fields
       check_expr <- gsub("[[:cntrl:]]+"," ",check_expr)
       check_subgrouping <- gsub("[[:cntrl:]]+"," ",check_subgrouping)
@@ -134,14 +136,22 @@ rsf_checks_calculate <- function(pool,
       
       #2023-10-31
       #Changed on Halloween!  Let's hope it's not scary :-D
-      check_rsf_group <- switch(check_grouping,
-                                loan="rsf_loan_id",
-                                borrower="rsf_borrower_id",
-                                client="rsf_client_id",
-                                facility="rsf_facility_id",
-                                program="rsf_program_id",
-                                none=check_rsf_pfcbl_id,
-                                NA)
+      # check_rsf_group <- switch(check_grouping,
+      #                           loan="rsf_loan_id",
+      #                           borrower="rsf_borrower_id",
+      #                           client="rsf_client_id",
+      #                           facility="rsf_facility_id",
+      #                           program="rsf_program_id",
+      #                           none=check_rsf_pfcbl_id,
+      #                           NA)
+      
+      check_rsf_group <- fcase(check_grouping=="loan","rsf_loan_id",
+                               check_grouping=="borrower","rsf_borrower_id",
+                               check_grouping=="client","rsf_client_id",
+                               check_grouping=="facility","rsf_facility_id",
+                               check_grouping=="program","rsf_program_id",
+                               check_grouping=="none" & check$check_pfcbl_category=="loan","reporting_current_date",
+                               default=check_rsf_pfcbl_id)
       
       if (all(is.na(check_rsf_group))) {
         
@@ -153,7 +163,7 @@ rsf_checks_calculate <- function(pool,
 
       }
 
-      check_rsf_group <- c("reporting_current_date",check_rsf_group)
+      check_rsf_group <- unique(c("reporting_current_date",check_rsf_group))
       
       check_data_cols <- unique(c(check_rsf_pfcbl_id,
                                   check_rsf_pfcbl_id_cols,
@@ -246,6 +256,7 @@ rsf_checks_calculate <- function(pool,
         #for rounding errors.
         #`%equal%` <- function(e1,e2) { mapply(function(a,b) { isTRUE(base::all.equal(a,b)) },a=e1,b=e2) }
         #`%unequal%` <- function(e1,e2) { mapply(function(a,b) { !isTRUE(base::all.equal(a,b)) },a=e1,b=e2) }
+       
         
         check_expr <- gsub("==","%equal%",check_expr)
         check_expr <- gsub("!=","%unequal%",check_expr)
@@ -258,7 +269,8 @@ rsf_checks_calculate <- function(pool,
                                               check_expr_msg=check_expr_msg,
                                               check_subgrouping=check_subgrouping,
                                               check_data=check_data,
-                                              grouping_cols=grouping_cols),
+                                              grouping_cols=grouping_cols,
+                                              check_variance_formula=check_variance_formula),
                                     parent=CALCULATIONS_ENVIRONMENT)
         
         #For floating point issues
@@ -335,23 +347,33 @@ rsf_checks_calculate <- function(pool,
                                check_data[is.na(flag_status),flag_status:=FALSE]
                                check_data[,check_message:=as.character(NA)]
                                
+                               check_data[,
+                                          check_variance:=as.numeric(NA)]
+                               
                                if (nrow(messages) != 0) {
                                  
                                  #it's a grouped formula, but being being applied at the calculation level
                                  #so don't group the flag messages... unless we're deliberately using "concatenate" function intentionally
                                  if (all(messages$rsf_pfcbl_id %in% check_data$rsf_pfcbl_id) &&
                                      !grepl("concatenate\\(",check_expr_msg)) {
+                                   
                                    messages <- messages[,
                                                         .(rsf_pfcbl_id,
                                                           flag_status,
-                                                          check_message=as.character(eval((parse(text=check_expr_msg))))),
+                                                          check_message=as.character(eval((parse(text=check_expr_msg)))),
+                                                          check_variance=as.numeric(suppressWarnings(
+                                                            eval(parse(text=check_variance_formula))
+                                                          ))),
                                                         by=c(grouping_cols,"rsf_pfcbl_id")]
                                    
                                  } else {
                                    messages <- messages[,
                                                         .(rsf_pfcbl_id,
                                                           flag_status,
-                                                          check_message=as.character(eval((parse(text=check_expr_msg))))),
+                                                          check_message=as.character(eval((parse(text=check_expr_msg)))),
+                                                          check_variance=as.numeric(suppressWarnings(
+                                                            eval(parse(text=check_variance_formula))
+                                                          ))),
                                                         by=grouping_cols]
                                  }
                                  
@@ -361,12 +383,38 @@ rsf_checks_calculate <- function(pool,
                                           by=grouping_cols]
                                  
                                  if (any(messages$n > 1)) {
-                                   messages <- messages[,.(check_message=paste0(check_message,collapse=" & ")),
+                                   messages <- messages[,
+                                                        .(check_message=paste0(check_message,collapse=" & "),
+                                                          check_variance=sort(check_variance,na.last=T,decreasing = T)[1]),
                                                         by=c(grouping_cols,"rsf_pfcbl_id","flag_status")]
                                  }
                                  
+                                 #round numbers to 2 decimals.
+                                 #unless its a highly precise number with preceeding zeros.
+                                 
+                                 if (any(grepl("\\d",messages$check_message))) {
+
+                                   messages[,
+                                            check_message:=gsub("(\\.\\d*?[1-9]\\d)\\d+","\\1",check_message)]
+                                   #insert thousands commas into numbers
+                                   #but not dates.
+                                   #and don't insert commas after decimals (although we should only have two, unelss its highly precise)
+                                   #(?<=\\d)(?=(\\d{3})+(?!\\d)(?![-/]))
+                                   #(\\d)(?=(\\d{3})+(?!\\d)(?![-/]))
+                                   #broken: (?<!\\.\\d{0,10})(?<=\\d{0,5})(?=(\\d{3})+(?![-/\\d]))
+                                   #retry: (?:(?<=[[:space:]+=-])\\d+|\\G\\d+?)\\K(?=(\\d{3})+(?!\\d)(?![-/]))
+                                   messages[,
+                                           check_message:=gsub("(?<=\\d)(?=(\\d{3})+(?!\\d)(?![-/]))", ",", check_message, perl = TRUE)]
+                                   
+                                   if (any(grepl("\\d+,\\d+",messages$check_message))) {
+                                     #(?:(?<=[#\\(\\)])\\d+|\\G\\d+?)\\K,(?=\\d)
+                                     messages[,
+                                              check_message:=gsub("(?:(?<=[#\\(\\)])\\d+|\\G\\d+?)\\K,(?=\\d)", "", check_message, perl = TRUE)]
+                                   }
+                                 }
                                  check_data[messages,
-                                            check_message:=i.check_message,
+                                            `:=`(check_message=i.check_message,
+                                                 check_variance=i.check_variance),
                                             on=.(rsf_pfcbl_id,
                                                  flag_status)]
                                } 
@@ -385,7 +433,8 @@ rsf_checks_calculate <- function(pool,
         unique(check_data[,
                        .(rsf_pfcbl_id,
                          flag_status,   #keeping this for joins later in case keep failed checks is TRUE
-                         check_message)])
+                         check_message,
+                         check_variance=NA)])
       },
       error = function(err) { 
         error_mess <- paste0("Formula error for ",
@@ -398,7 +447,8 @@ rsf_checks_calculate <- function(pool,
         unique(check_data[,
                           .(rsf_pfcbl_id,
                             flag_status,   #keeping this for joins later in case keep failed checks is TRUE
-                            check_message)])
+                            check_message,
+                            check_variance=NA)])
         
       })
       
@@ -413,6 +463,7 @@ rsf_checks_calculate <- function(pool,
         computed_results[n>1,
                       `:=`(check_message=paste0("WARNING: multiple results found: should formula explicitly set a grouping category or use an aggregate function in its formula? Check message: ",
                                             paste0(sort(unique(check_message)),collapse=", ")),
+                           check_variance=sort(check_variance,na.last=T,decreasing = T)[1],
                            flag_status=any(flag_status==TRUE)),
                       by=.(rsf_pfcbl_id)]
         
@@ -432,11 +483,17 @@ rsf_checks_calculate <- function(pool,
                                           check_asof_date,
                                           check_formula_id,
                                           check_message,
+                                          check_variance,
                                           flag_status)]
+        
+        computed_results[!is.na(check_variance) & (is.infinite(check_variance) | is.nan(check_variance)),check_variance:=1]
+        computed_results[!is.na(check_variance),
+                         `:=`(check_message=paste0(check_message," (",round(100*abs(abs(check_variance)-1),2),"% variance)"),
+                              check_variance=100*abs(abs(check_variance)-1))]
         
         
         all_checks[[length(all_checks)+1]] <- computed_results    
-    }
+      }
     }
     
     calc_time <- round(as.numeric(Sys.time() - calc_time,format="sec"),2)

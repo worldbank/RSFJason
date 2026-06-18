@@ -474,7 +474,7 @@ ui_header_IN <- shinydashboardPlus::dashboardHeader(title=div(ifelse(grepl("DEV"
                                                            selected=NULL,
                                                            multiple=FALSE,
                                                            options=list(placeholder="...Loading..."),
-                                                           width="200px"))),
+                                                           width="325px"))),
                                             
                                             ),
                                  tags$li(class = 'dropdown',

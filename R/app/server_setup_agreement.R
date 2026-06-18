@@ -253,7 +253,8 @@ observeEvent(input$server_setup_agreement__apply, {
     
     tryCatch({
     
-      template_parse_process_and_upload(pool=dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]])),
+      localPool <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
+      ppu <- template_parse_process_and_upload(pool=localPool,
                                         reporting_user_id=USER_ID(),
                                         template_files=file_name,
                                         source_note="Agreement settings",
@@ -263,6 +264,9 @@ observeEvent(input$server_setup_agreement__apply, {
                                         status_message=progress_status_message,
                                         continue_on_error=FALSE,
                                         delete_on_error=T)
+      poolClose(localPool)
+      localPool <- NULL
+      ppu
     },
     error=function(e) {
       showNotification(type="error",

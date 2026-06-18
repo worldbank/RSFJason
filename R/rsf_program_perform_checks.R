@@ -27,7 +27,8 @@ rsf_program_perform_checks <- function(pool=pool,
                                ic.subgrouping,
                                icf.formula,
                                icf.formula_result_message,
-                               icf.unit_fx_method
+                               icf.unit_fx_method,
+                               icf.variance_formula
                                from p_rsf.indicator_check_formulas icf
                                inner join p_rsf.indicator_checks ic on ic.indicator_check_id = icf.indicator_check_id
                                where icf.check_formula_id = any(select unnest(string_to_array($1::text,','))::int)
@@ -56,7 +57,8 @@ rsf_program_perform_checks <- function(pool=pool,
                                 subgrouping,
                                 formula,
                                 formula_result_message,
-                                unit_fx_method)]
+                                unit_fx_method,
+                                variance_formula)]
   
  
    checks <- rsf_checks_resolve_parameters(checks=checks,

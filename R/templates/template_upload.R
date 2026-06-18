@@ -169,6 +169,7 @@ template_upload <- function(pool,
             inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rd.rsf_pfcbl_id
             inner join p_rsf.rsf_pfcbl_ids facility on facility.rsf_pfcbl_id = ids.rsf_facility_id
             inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id
+            
             left join lateral (select
                                rdc.data_value,
                                rdc.data_unit,
@@ -182,9 +183,26 @@ template_upload <- function(pool,
             where ri.import_id = $1::int
               and ind.data_category in ('client','facility')
               and ind.is_periodic_or_flow_reporting = false
+              and ind.indicator_sys_category is distinct from 'template_file'
+              and ind.indicator_sys_category is distinct from 'reporting_date'
               and facility.created_in_reporting_asof_date <> rc.reporting_asof_date -- init date isnt an update
               and exists(select * from p_rsf.rsf_data_current rdc where rdc.data_id = rd.data_id) -- wasnt a reversion
               
+              -- its not the first reporting template (where templates always update things)
+              -- And I've reported in the past (ie, not first)
+              -- OR I've reported in the past or present and also reported previous
+              and exists(select true
+                         from p_rsf.view_rsf_pfcbl_id_family_tree ft
+                         inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+                         inner join p_rsf.indicators rrind on rrind.indicator_id = rdc.indicator_id
+                         where ft.from_rsf_pfcbl_id = ri.import_rsf_pfcbl_id
+                           and ft.to_pfcbl_category = 'client'
+                           and rrind.indicator_sys_category = 'reporting_date'
+                           and (
+                                 (rdc.reporting_asof_date < ri.reporting_asof_date) -- and I've reported in the past
+                                 or 
+                                 (previous.reporting_asof_date is NOT NULL AND rdc.reporting_asof_date <= ri.reporting_asof_date)
+                               ))
               -- not a formula and/or subscribed formula
               and not exists (select * from p_rsf.view_rsf_setup_indicator_subscriptions sis
                               where sis.rsf_pfcbl_id = rd.rsf_pfcbl_id

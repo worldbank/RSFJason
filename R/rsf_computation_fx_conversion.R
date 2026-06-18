@@ -173,6 +173,7 @@ rsf_computation_fx_conversion <- function(pool,
       #fx_parameter_dates <- NULL
       
       
+      
       } else if (fx_date_method=="fx") {
         fx_method_cols <- unique(c(fx_unit_id_vars,"rsf_pfcbl_id"))
         fx_computation_date <- unique(fx_data[,..fx_method_cols])

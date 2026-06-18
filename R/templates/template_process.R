@@ -320,7 +320,8 @@ template_process <- function(pool,
                                                     template=template) #function also adds to template: template$match_results
     }
     
-    if (anyNA(template$match_results$rsf_pfcbl_id) | any(template$match_results$rsf_pfcbl_id <=0,na.rm=T)) {
+    
+    if (anyNA(template$match_results$rsf_pfcbl_id) | any(template$match_results$rsf_pfcbl_id < 0,na.rm=T)) {
       status_message(class="none","Matching IDs and creating new entries\n")
       
       template <- template_set_data_match_rsf_ids(pool=pool,
@@ -328,7 +329,7 @@ template_process <- function(pool,
       
     }
     
-    if (anyNA(template$match_results$rsf_pfcbl_id) | any(template$match_results$rsf_pfcbl_id <=0,na.rm=T)) {
+    if (anyNA(template$match_results$rsf_pfcbl_id) | any(template$match_results$rsf_pfcbl_id < 0,na.rm=T)) {
       stop("Failed to match or create entity IDs")
     }
     
@@ -398,6 +399,16 @@ template_process <- function(pool,
     
   }
   
+  #This helps to resolve reporting flags onto correct pfcbl_categories/entities for indicator_not_found which we don't know how to map because we don't know what indicator
+  #it is to know what pfcbl_category to map it to.
+  if (!any(is.na(template$match_results$rsf_pfcbl_id),na.rm=T) &&
+      length(unique(template$match_results$rsf_pfcbl_id)) &&
+      anyNA(template$pfcbl_data$rsf_pfcbl_id)) { 
+    
+    template$pfcbl_data[is.na(rsf_pfcbl_id),
+                        rsf_pfcbl_id:=unique(template$match_results$rsf_pfcbl_id)]
+    
+  }
   #now that we know our rsf_pfcbl_ids we can unnest the data_flags and manage these separately.
   #now we know the rsf_pfcbl_id and it's associated with the specific data_rank that's been asigned
   pfcbl_data_flags <- {
@@ -463,9 +474,9 @@ template_process <- function(pool,
     #these could have been added in parse_data_formats()
     if (!empty(pfcbl_data_flags)) {
       pfcbl_data_flags[indicator_subscriptions,
-                       is_calculated:=i.is_calculated,
-                       on=.(rsf_pfcbl_id,
-                            indicator_id)]
+                       `:=`(is_calculated=i.is_calculated,
+                            unit_fx_indicator_id=i.unit_fx_indicator_id),
+                       on=.(indicator_id)]
       
       pfcbl_data_flags[,
                        omit:=FALSE]
@@ -476,6 +487,8 @@ template_process <- function(pool,
       pfcbl_data_flags[check_name=="sys_flag_unexpected_constant" & is_calculated==FALSE,
                        omit:=TRUE]
       
+      #p_rsf.view_rsf_setup_indicator_subscriptions should now tag unit_fx_indicator_id set metrics as is_calculated=T
+      #pfcbl_data_flags[check_name=="sys_flag_unexpected_formula" & is_calculated==TRUE & !is.na(unit_fx_indicator_id)]
       #pfcbl_data_flags[omit==T]
       pfcbl_data_flags <- pfcbl_data_flags[omit==FALSE]
       pfcbl_data_flags[,
@@ -520,18 +533,21 @@ template_process <- function(pool,
         
         bad_headers <- bad_headers[,
                                    .(message=paste0('[IN SHEET ',sheet_name,'] ',
+                                                    ifelse(is.na(indicator_name),"Unknown Header",
+                                                           paste0('"',indicator_name,'"'))," = ",
                                                     paste0(paste0('"',head(data_value,100),'"'),
                                                            collapse=' & '))),
-                                   by=.(sheet_name)]
-        bad_headers <- paste0("Column header not defined recognized.\n  Recommended: either define an indicator or an alias in System Admin; OR, enter these columns in Template Ignore Colmns in Program Setup.\n ",
-                              paste0(bad_headers$message,collapse=" "))
+                                   by=.(sheet_name,indicator_name,indicator_id,rsf_pfcbl_id)]
         
+        bad_headers[,reporting_asof_date:=template$reporting_import$reporting_asof_date]
+
         template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
-                                                         data.table(rsf_pfcbl_id=as.numeric(NA),
-                                                                    indicator_id=as.numeric(NA),
-                                                                    reporting_asof_date=template$reporting_import$reporting_asof_date,
-                                                                    check_name="sys_flag_indicator_not_found",
-                                                                    check_message=bad_headers)))
+                                                         bad_headers[,.(rsf_pfcbl_id,
+                                                                        indicator_id,
+                                                                        reporting_asof_date=template$reporting_import$reporting_asof_date,
+                                                                        check_name="sys_flag_indicator_not_found",
+                                                                        check_message=paste0(message," \n",
+                                                                                             "Fix in Jason: Setup Templates > ",template$template_name,"; or correct Excel header"))]))
       }
 
       bad_headers <- NULL
@@ -1002,6 +1018,8 @@ template_process <- function(pool,
                                            .(duplicate_value,
                                              data_rank=seq_along(reporting_template_data_rank)),
                                            by=.(reporting_template_row_group,
+                                                rsf_pfcbl_id,
+                                                reporting_asof_date,
                                                 indicator_id,
                                                 indicator_name)]
           
@@ -1022,15 +1040,36 @@ template_process <- function(pool,
           }
             
           ambiguous_data <- unique(ambiguous_data[,
-                                .(indicator_name,labels,duplicate_value)])
+                                .(indicator_name,rsf_pfcbl_id,reporting_asof_date,indicator_id,labels,duplicate_value)])
           
           ambiguous_data <- ambiguous_data[,
-                                       .(message=paste0(indicator_name," is ",duplicate_value," on ",labels,collapse=" \n")),
-                                       by=.(indicator_name)]
+                                       .(
+                                         check_name="sys_reporting_data_discarded",
+                                         check_message=paste0("Ambiguous reporting: same indicator repeated on different rows with different value\n",
+                                                        "Warning: The FIRST VALUE {",duplicate_value[1],"} will be saved for '",indicator_name,"'\n",
+                                                        "And DISCARD ",paste0(duplicate_value[-1],collapse=" & "),"\n. This may result in errors.\n",
+                                                        "Recommended: fix the template and/or ensure the header labels are correct. Or remap these labels in Template Setup.\n",
+                                                        paste0(indicator_name," is ",duplicate_value," on ",labels,collapse=" \n"))),
+                                       by=.(rsf_pfcbl_id,
+                                            indicator_id,
+                                            indicator_name,
+                                            reporting_asof_date)]
+          ambiguous_data[,indicator_name:=NULL]
+          setcolorder(ambiguous_data,
+                      neworder=names(template$pfcbl_reporting_flags))
           
-            stop(paste0("\nAMBIGUOUS REPORTING: Repeat metrics should report the same value, but different values are reported:\n",
-                        "Verify that the labels in the template are correctly entered?\n\n",
-                        paste0(ambiguous_data$message,collapse=" \n")))  
+            template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
+                                                             ambiguous_data))
+            template$pfcbl_data[,omit:=FALSE]
+            template$pfcbl_data[ambiguous_data,
+                                ambiguous:=1,
+                                on=.(rsf_pfcbl_id,indicator_id,reporting_asof_date)]
+            template$pfcbl_data[ambiguous==1,ambiguous:=1:.N,
+                                by=.(rsf_pfcbl_id,indicator_id,reporting_asof_date)]
+            template$pfcbl_data[ambiguous>1,
+                                omit:=TRUE]
+            template$pfcbl_data <- template$pfcbl_data[omit==FALSE]
+            template$pfcbl_data[,omit:=NULL]
         }
         ambiguous_data <- NULL          
         

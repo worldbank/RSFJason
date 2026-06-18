@@ -73,7 +73,7 @@ parse_template_rsf_create_entities <- function(pool,
                 "reporting_template_row_group"))
   
   template$template_data <- report_data
-  template$template_source_reference <- "SLGP Template"
+  template$template_source_reference <- "Create Entity"
   template$template_ids_method <- "pfcbl_id" #Create entities should create all specified entities under the reporting_rsf_pfcbl_id and lookup by name and ID first
   
   #Parent is global and all our indicators are program_
@@ -91,7 +91,7 @@ parse_template_rsf_create_entities <- function(pool,
                                      reporting_user_id=reporting_user_id,
                                      template_id=template$template_id,
                                      program_reporting_frequency="quarter",
-                                     source_name=template$template_source_reference)
+                                     source_name="Initialize Program")
       
     template$cohort_pfcbl_id <- as.numeric(new_program$reporting_rsf_pfcbl_id)
   }

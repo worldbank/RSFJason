@@ -560,7 +560,7 @@ SERVER_DASHBOARD_EXPORTS__DO_MAKE_TEMPLATE <- function(export_file,
                                               sheet_data_table_name=current_export_report$table_name,
                                               sheet_data=current_export_data,
                                               
-                                              program_name=program_name,
+                                              header_name=program_name,
                                               
                                               template_key=TEMPLATE$template_key,
                                               #report_key=export_cohort$reporting_key,

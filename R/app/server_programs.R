@@ -259,9 +259,12 @@ observeEvent(input$server_programs__selected_facility, {
   if (is.null(USER_PROGRAMS()) || is.null(SELECTED_PROGRAM_FACILITIES_LIST())) { return(NULL) }
   
   save_id <- as.numeric(input$server_programs__selected_facility)
-  if (save_id %in% c(-1)) save_id <- SELECTED_PROGRAM_ID()
-    
+  if (is.na(save_id) || save_id %in% c(-1)) save_id <- SELECTED_PROGRAM_ID()
+  
   print(paste0("Saving user setting server_programs__selected_facility=",save_id))
+  
+  if (!isTruthy(save_id)) return (NULL)
+  
   session$userData$server_programs__selected_facility <- save_id
   
   DBPOOL %>% dbExecute("insert into users.user_settings(account_id,setting_name,setting_value)

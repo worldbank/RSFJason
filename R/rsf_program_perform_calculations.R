@@ -339,7 +339,7 @@ rsf_program_perform_calculations <- function(pool,
   }
   
   #Uploads
-  {
+  
     
     #Create current results to compare current data values and the calculated results
     {
@@ -1002,7 +1002,7 @@ rsf_program_perform_calculations <- function(pool,
 
     }
   
-  }
+  
   
   if (!empty(calculation_flags)) {
     #testing
@@ -1087,6 +1087,19 @@ rsf_program_perform_calculations <- function(pool,
                            check_asof_date=reporting_asof_date,
                            variance_tolerance_allowed)]
     
+    #If this is a specific import and that import didn't report any columns related to these calculation overwrites,
+    #then flagging that it overwrote them becomes confusing regardless of the "missing calculation" caveate.
+    if (any(calculation_flags$check_name=="sys_calculator_vs_missing_calculation",na.rm=T) && !is.na(for_import_id)) {
+      reported_columns <- dbGetQuery(pool,"
+        select distinct ith.indicator_id 
+        from p_rsf.reporting_import_template_headers ith
+        where import_id = $1::int",
+      params=list(for_import_id))
+      calculation_flags[,omit:=FALSE]
+      calculation_flags[check_name=="sys_calculator_vs_missing_calculation" & !for_indicator_id %in% reported_columns$indicator_id,
+                        omit:=TRUE]
+      calculation_flags <- calculation_flags[omit==FALSE]
+    }
     calculation_flags <- calculation_flags[,
                                            .(rsf_pfcbl_id,
                                              for_indicator_id,
@@ -1097,20 +1110,21 @@ rsf_program_perform_calculations <- function(pool,
                                              variance,
                                              data_check_value,
                                              data_check_unit)]
-  
     
-    #if (any(calculation_flags$for_indicator_id == 1204,na.rm=T)) { browser() }
+    
     #Moved here to upload flags associated with each round of current calculations
     #This can result in more uploads to rsf_data_checks (in smaller batches)
     #but, importantly, since the conflict data was introduced, we want any conflict data results to be available for formulas that query them on subsequent rounds.
     db_rsf_checks_add_update(pool=pool,
                              data_checks=calculation_flags,
+                             
+                             #No! Because if we submit a data correction, etc, and that template with a correction triggers a cascade across other metrics
+                             #then we want the system to find the most relevant import that upload the data that's being overwritten and not necessarily 
+                             #the import that triggered the changes/overwrites.
+                             #for_import_id=for_import_id, #since data upload matches to import (if provided), flags should be matched, else confusing.
                              consolidation_threshold=NA)
   }
-  # } else {
-  #   calculation_flags <- NULL
-  # }
-  
+
   if(SYS_PRINT_TIMING) debugtime("rsf_program_perform_calculations","Done!",format(Sys.time()-t20))
   return (current_results)
 }

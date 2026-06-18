@@ -48,17 +48,17 @@ server_admin_indicator_formulas.module_ui_indicator_formula <- function(id,
                                                          `If Unchanged`="unchanged",
                                                          `Deny`="deny"),
                                                selected=formula$formula_overwrite)),
-                         column(3,style='padding:0 3px 0 3px;',
-                                selectizeInput(inputId=ns("formula_fx_date"),
-                                               label="FX Date Method",
-                                               choices=c(`Computation Date`="calculation",
-                                                         `Each Parameter's Date`="parameter",
-                                                         `Changed FX Rate Date`='fx',
-                                                         `Parameter's Currency (no FX)`='nofx',
-                                                         `Not applicable`=""),
-                                               selected=formula$formula_fx_date)),
+                         # column(3,style='padding:0 3px 0 3px;',
+                         #        selectizeInput(inputId=ns("formula_fx_date"),
+                         #                       label="FX Date Method",
+                         #                       choices=c(`Computation Date`="calculation",
+                         #                                 `Each Parameter's Date`="parameter",
+                         #                                 `Changed FX Rate Date`='fx',
+                         #                                 `Parameter's Currency (no FX)`='nofx',
+                         #                                 `Not applicable`=""),
+                         #                       selected=formula$formula_fx_date)),
                 
-                         column(2,align="right",style='float:right;',
+                         column(5,align="right",style='float:right;',
                                 actionButton(inputId=ns("formula_test"),
                                              label="Calculate",
                                              icon=icon("flask"),
@@ -112,18 +112,6 @@ server_admin_indicator_formulas.module_ui_indicator_formula <- function(id,
                                 #              icon=icon("tags"))
                                 )
                 ),
-#Nope, bad idea.  Moved out of Formula UI and feature implemented via template header actions                
-#                 hidden(div(id=ns("formula_qualitative_ui"),
-#                     fluidRow(column(12,
-#                                 textAreaInput(inputId=ns("formula_labels"),
-#                                               value=formula_labels,
-#                                               label="Qualitative Formulas (RSA)",
-#                                               placeholder = "Enter qualitative text of formula as written in the RSA.  If multiple formulas are entered, use  #### to separate.  For example:
-# 
-# ####NOTES About Formula#### 
-# 
-#                                               ")
-#                                 )))),
                 fluidRow(align="left",
                          style='padding-bottom:5px;',
                          column(12,div(tags$label("Programs monitoring this Indicator Formula"),"Todo"))),
@@ -348,10 +336,6 @@ server_admin_indicator_formulas.module_session_indicator_formula <- function(id,
       
     })
     
-    # o6 <- observeEvent(input$formula_show_labels, { 
-    #   toggleElement(id="formula_qualitative_ui")
-    # })
-    
     output$box_formula_title <- renderUI({
       #print(this.id())
       #print(SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS())
@@ -381,7 +365,6 @@ server_admin_indicator_formulas.module_session_indicator_formula <- function(id,
     modules[[length(modules)+1]] <- o3
     modules[[length(modules)+1]] <- o4
     modules[[length(modules)+1]] <- o5
-    #modules[[length(modules)+1]] <- o6
     
     SERVER_ADMIN_INDICATORS.MODULES(modules)
   })
