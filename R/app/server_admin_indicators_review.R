@@ -16,8 +16,8 @@ INDICATOR_REVIEW_RESULTS_VIEW <- reactive({
     rsf_pfcbl_ids <- DBPOOL %>% dbGetQuery("
       select distinct ft.to_family_rsf_pfcbl_id
       from p_rsf.view_rsf_pfcbl_id_family_tree ft 
-      where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-    ",params=list(paste0(f_filter,collapse=",")))
+      where ft.from_rsf_pfcbl_id = any($1::int[])
+    ",params=list(dbMakeIntArray(f_filter)))
     
     rsf_pfcbl_ids <- as.numeric(unlist(rsf_pfcbl_ids))
     
@@ -147,8 +147,8 @@ observeEvent(input$indicator_review_facility_list, {
         dates.valid_reporting_date::text as reporting_asof_date
       from p_rsf.rsf_pfcbl_ids ids
       inner join lateral p_rsf.rsf_pfcbl_generate_reporting_dates(v_rsf_pfcbl_id => ids.rsf_pfcbl_id) as dates on true
-      where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
-                                   params=list(paste0(facility_ids,collapse=",")))
+      where ids.rsf_pfcbl_id = any($1::int[])",
+                                   params=list(dbMakeIntArray(facility_ids)))
 
     dates <- c("",sort(dates$reporting_asof_date))
   } else {
@@ -294,8 +294,8 @@ output$indicator_review_formula_text <- renderUI({
       indf.formula,
       indf.formula_title
     from p_rsf.indicator_formulas indf
-    where indf.formula_id = any(select unnest(string_to_array($1::text,','))::int)",
-    params=list(paste0(indicator_formula_ids)))
+    where indf.formula_id = any($1::int[])",
+    params=list(dbMakeIntArray(indicator_formula_ids)))
   
   setDT(formulas)
   
@@ -362,8 +362,8 @@ output$indicator_review_results_download <- downloadHandler(
                                                        else '' end as formula,
                                        formula_id
                                        from p_rsf.indicator_formulas indf
-                                       where indf.formula_id = any(select unnest(string_to_array($1::text,','))::int)",
-                                      params=list(paste0(formula_ids,collapse=",")))
+                                       where indf.formula_id = any($1::int[])",
+                                      params=list(dbMakeIntArray(formula_ids)))
     formula <- paste0(formulas$formula,collapse=" \n")
     
     
@@ -374,9 +374,9 @@ output$indicator_review_results_download <- downloadHandler(
                                              left join lateral unnest(indf.formula_indicator_id_requirements) as required_indicator_id on true
                                              left join p_rsf.indicators pind on pind.indicator_id = required_indicator_id
                                              where indf.formula_indicator_id_requirements is not null
-                                               and indf.formula_id = any(select unnest(string_to_array($1::text,','))::int)
+                                               and indf.formula_id =  any($1::int[])
                                              group by indf.indicator_id",
-                                             params=list(paste0(formula_ids,collapse=",")))
+                                             params=list(dbMakeIntArray(formula_ids)))
     formula_requirements <- NA
     
     headers <- data.frame(`Program Name`=pname,

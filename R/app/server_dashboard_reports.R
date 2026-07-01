@@ -439,8 +439,8 @@ observeEvent(input$server_dashboard_reports__action_save, {
       for_facility_names <- DBPOOL %>% dbGetQuery("
         select sn.sys_name
         from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
-        where sn.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
-        params=list(paste0(dashboard_settings$rsf_pfcbl_ids,collapse=",")))
+        where sn.rsf_pfcbl_id = any($1::int[])",
+        params=list(dbMakeIntArray(dashboard_settings$rsf_pfcbl_ids)))
       for_facility_names <- for_facility_names$sys_name
       if (!isTruthy(for_facility_names)) for_facility_names <- as.character(NA)
     }

@@ -31,8 +31,8 @@ rsf_program_perform_checks <- function(pool=pool,
                                icf.variance_formula
                                from p_rsf.indicator_check_formulas icf
                                inner join p_rsf.indicator_checks ic on ic.indicator_check_id = icf.indicator_check_id
-                               where icf.check_formula_id = any(select unnest(string_to_array($1::text,','))::int)
-                               ",params=list(paste0(unique(perform_checks$check_formula_id),collapse=",")))
+                               where icf.check_formula_id = any($1::int[])
+                               ",params=list(dbMakeIntArray(perform_checks$check_formula_id)))
   setDT(check_formulas)
   
   checks <- perform_checks[,

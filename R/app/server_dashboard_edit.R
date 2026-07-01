@@ -452,8 +452,8 @@ observeEvent(input$action_server_dashboard__edit_save, {
       sn.rsf_pfcbl_id,
       sn.sys_name
     from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
-    where sn.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
-    params=list(paste0(unique(edit_dt$rsf_pfcbl_id),collapse=",")))
+    where sn.rsf_pfcbl_id = any($1::int[])",
+    params=list(dbMakeIntArray(edit_dt$rsf_pfcbl_id)))
   
   setDT(sys_names)
   

@@ -8,8 +8,8 @@ stop("deprecated")
                      check_status_user_id = (select account_id from p_rsf.view_account_info where is_system_account = true and users_name = 'RSF SYS Calculator'),
                      status_time = TIMEOFDAY()::timestamptz
                  where rdc.check_status = 'active'
-                   and rdc.evaluation_id = any(select unnest(string_to_array($1::text,','))::int)",
-            params=list(paste0(unique(evaluation_ids),collapse=",")))
+                   and rdc.evaluation_id = any($1::int[])",
+            params=list(dbMakeIntArray(evaluation_ids)))
   
   dbExecute(pool,"
             update p_rsf.rsf_data_check_evaluations dce
@@ -19,7 +19,7 @@ stop("deprecated")
                 and dce.indicator_id = rdc.indicator_id
                 and dce.check_asof_date = rdc.check_asof_date
                 and dce.indicator_check_id = rdc.indicator_check_id
-                and rdc.evaluation_id = any(select unnest(string_to_array($1::text,','))::int)
+                and rdc.evaluation_id = any($1::int[])
                 and rdc.check_data_id_is_current = true",
-            params=list(paste0(unique(evaluation_ids),collapse=",")))
+            params=list(dbMakeIntArray(evaluation_ids)))
 }

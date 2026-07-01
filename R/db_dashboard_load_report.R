@@ -252,14 +252,14 @@ db_dashboard_load_report <- function(pool,
       sysids <- na.omit(sysids)
       ids_not_in_reporting_family_tree <- dbGetQuery(pool,"
                               
-                              select unnest(string_to_array($1::text,','))::int as rsf_pfcbl_id
+                              select unnest($1::int[])::int as rsf_pfcbl_id
                               
                               except
                               
                               select ft.to_family_rsf_pfcbl_id as rsf_pfcbl_id
                               from p_rsf.view_rsf_pfcbl_id_family_tree ft 
                               where ft.from_rsf_pfcbl_id = $2::int",
-                              params=list(paste0(sysids,collapse=","),
+                              params=list(dbMakeIntArray(sysids),
                                           reporting_rsf_pfcbl_id))
       
       if (!empty(ids_not_in_reporting_family_tree)) {

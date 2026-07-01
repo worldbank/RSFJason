@@ -87,9 +87,9 @@ rsf_program_check <- function(pool,
                                       rdc.rsf_pfcbl_id,
                                       rdc.evaluation_id
                                     from p_rsf.rsf_data_checks rdc
-                                    where rdc.evaluation_id = any(select unnest(string_to_array($1::text,','))::int)
+                                    where rdc.evaluation_id = any($1::int[])
                                       and rdc.check_status = 'active'
-                                   ",params=list(paste0(eids,collapse=",")))
+                                   ",params=list(dbMakeIntArray(eids)))
       setDT(existing_checks)
       obsolete_evaluations <- computed_checks[check_asof_date == check$check_asof_date &
                                               check_formula_id == check$check_formula_id &
@@ -107,8 +107,8 @@ rsf_program_check <- function(pool,
                      check_status_user_id = (select account_id from p_rsf.view_account_info where is_system_account = true and users_name = 'RSF SYS Calculator'),
                      status_time = TIMEOFDAY()::timestamptz
                  where rdc.check_status = 'active'
-                   and rdc.evaluation_id = any(select unnest(string_to_array($1::text,','))::int)",
-                  params=list(paste0(unique(obsolete_evaluations),collapse=",")))
+                   and rdc.evaluation_id = any($1::int[])",
+                  params=list(dbMakeIntArray(obsolete_evaluations)))
       }
       
       existing_checks <- NULL
@@ -221,10 +221,10 @@ rsf_program_check <- function(pool,
       where ft.from_rsf_pfcbl_id = $1::int
         and dce.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
         and dce.check_asof_date <= any(select unnest(string_to_array($2::text,','))::date)
-        and dce.check_formula_id = any(select unnest(string_to_array($3::text,','))::int)",
+        and dce.check_formula_id = any($3::int[])",
       params=list(rsf_pfcbl_id.family,
                   paste0(na.omit(unique(check_results$check_asof_date)),collapse=","),
-                  paste0(na.omit(unique(completed_check_formula_ids)),collapse=",")))
+                  dbMakeIntArray(completed_check_formula_ids)))
   }
   
   if(SYS_PRINT_TIMING) debugtime("rsf_program_check","Done!",format(Sys.time()-t1))

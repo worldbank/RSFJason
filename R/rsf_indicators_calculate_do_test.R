@@ -99,8 +99,8 @@ rsf_indicators_calculate_do_test <- function(pool,
           and $3::date >= sis.created_in_reporting_asof_date
         and sis.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id 
                                    from p_rsf.view_rsf_pfcbl_id_family_tree ft 
-                                   where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int))",
-                                                         params=list(paste0(unique(rsf_pfcbl_id.family),collapse=","),
+                                   where ft.from_rsf_pfcbl_id =  any($1::int[]))",
+                                                         params=list(dbMakeIntArray(rsf_pfcbl_id.family),
                                                                      indicator_id,
                                                                      reporting_current_date))
     
@@ -140,8 +140,8 @@ rsf_indicators_calculate_do_test <- function(pool,
                                 indf.formula_title
                               from p_rsf.indicators ind
                               inner join p_rsf.indicator_formulas indf on indf.indicator_id = ind.indicator_id
-                              where indf.formula_id = any(select unnest(string_to_array($1::text,','))::int)",
-                              params=list(paste0(unique(test_calculation$formula_id),collapse=",")))
+                              where indf.formula_id = any($1::int[])",
+                              params=list(dbMakeIntArray(test_calculation$formula_id)))
 
     results <- test_results$results[,.(rsf_pfcbl_id,
                                        indicator_id,
@@ -247,8 +247,8 @@ rsf_indicators_calculate_do_test <- function(pool,
   {
     sys_names <- dbGetQuery(pool,"select sn.sys_name,sn.rsf_pfcbl_id
                               from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
-                              where sn.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
-                            params=list(paste0(unique(c(results$rsf_pfcbl_id,inputs$SYSID)),collapse=",")))
+                              where sn.rsf_pfcbl_id = any($1::int[])",
+                            params=list(dbMakeIntArray(c(results$rsf_pfcbl_id,inputs$SYSID))))
     setDT(sys_names)
     setnames(sys_names,
              old="sys_name",
@@ -401,8 +401,8 @@ rsf_indicators_calculate_do_test <- function(pool,
     				sis.rsf_pfcbl_id,
     				sis.formula_id
     				from p_rsf.view_rsf_setup_indicator_subscriptions sis 
-    				where sis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-    				  and sis.formula_id = any(select unnest(string_to_array($2::text,','))::int)
+    				where sis.rsf_pfcbl_id = any($1::int[])
+    				  and sis.formula_id = any($2::int[])
   				) as calc
   				inner join p_rsf.indicator_formulas indf on indf.formula_id = calc.formula_id
   				inner join lateral unnest(indf.formula_indicator_id_requirements) as requirement_indicator_id on true
@@ -425,8 +425,8 @@ rsf_indicators_calculate_do_test <- function(pool,
           indf.formula_calculation_rank,
           indf.computation_group,
           indf.formula_id",
-  			params=list(paste0(unique(results$rsf_pfcbl_id),collapse=","),
-  			            paste0(unique(results$formula_id),collapse=",")))
+  			params=list(dbMakeIntArray(results$rsf_pfcbl_id),
+  			            dbMakeIntArray(results$formula_id)))
       
       if (!empty(prerequisites)) {
         setDT(prerequisites)
@@ -461,11 +461,11 @@ rsf_indicators_calculate_do_test <- function(pool,
       inner join p_rsf.indicators ind on ind.data_category = ft.to_pfcbl_category
       inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
                                            and rdc.indicator_id = ind.indicator_id
-      where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+      where ft.from_rsf_pfcbl_id = any($1::int[])
         and ind.indicator_sys_category = 'rank_id'
         and rdc.reporting_asof_date <= $2::date
       order by ft.to_family_rsf_pfcbl_id,rdc.data_value,rdc.reporting_asof_date desc",
-      params=list(paste0(unique(rsf_pfcbl_id.family),collapse=","),
+      params=list(dbMakeIntArray(rsf_pfcbl_id.family),
                   reporting_current_date))
     setDT(rank_ids)
     if (!empty(rank_ids)) {

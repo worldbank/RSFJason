@@ -463,13 +463,13 @@ template_upload <- function(pool,
         										and rdc.indicator_id = ind.indicator_id
         									order by rdc.reporting_asof_date desc
         									limit 1) as rdc on true
-        where sis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+        where sis.rsf_pfcbl_id = any($1::int[])
           and sis.filter_matched_pfcbl_indicators is true
           and ind.is_setup is not null
           and sis.is_subscribed = true
           and sis.is_calculated = false
           and rdc.data_value is null",
-        params=list(paste0(new_ids,collapse=",")))
+        params=list(dbMakeIntArray(new_ids)))
       
       setDT(essential_required)
       
@@ -533,9 +533,9 @@ template_upload <- function(pool,
                                 ind.indicator_id
                               from p_rsf.rsf_pfcbl_ids ids 
                               inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
-                              where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+                              where ids.rsf_pfcbl_id = any($1::int[]) 
                                 and ind.indicator_sys_category = 'entity_reporting'",
-                                params=list(paste0(sys_flags[is.na(indicator_id),unique(rsf_pfcbl_id)],collapse=",")))
+                                params=list(dbMakeIntArray(sys_flags[is.na(indicator_id),unique(rsf_pfcbl_id)])))
         setDT(reporting)
         reporting[,joincondition:=as.numeric(NA)]
         sys_flags[reporting,

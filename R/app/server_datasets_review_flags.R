@@ -46,8 +46,8 @@ SERVER_DATASETS_REVIEW_FLAGS_db_EVALUATION_DETAILS <- function(evaluation_ids) {
     from p_rsf.rsf_data_checks rdc
     inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = rdc.rsf_pfcbl_id
     left join p_rsf.view_account_info vai on vai.account_id = rdc.check_status_user_id
-    where rdc.evaluation_id = any(select unnest(string_to_array($1::text,','))::int)",
-    params=list(evaluation_ids))
+    where rdc.evaluation_id = any($1::int[])",
+    params=list(dbMakeIntArray(evaluation_ids)))
   
   setDT(flag_evaluations)
   
@@ -656,8 +656,8 @@ observeEvent(input$action_indicator_flags_review, {
     select 
       ic.definition
     from p_rsf.indicator_checks ic
-    where ic.indicator_check_id = any(select unnest(string_to_array($1::text,','))::int)",
-    params=list(flag_selected$indicator_check_id))
+    where ic.indicator_check_id = any($1::int[])",
+    params=list(dbMakeIntArray(flag_selected$indicator_check_id)))
   
   check_definition <- unlist(check_definition$definition)
   

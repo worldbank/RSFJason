@@ -1044,12 +1044,12 @@ parse_template_RSA <- function(pool,
     inner join p_rsf.rsf_data rd on rd.data_id = rdc.data_id
     inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
     inner join p_rsf.reporting_imports ri on ri.import_id = rc.import_id
-    where rdc.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-      and rdc.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+    where rdc.rsf_pfcbl_id = any($1::int[])
+      and rdc.indicator_id = any($2::int[])
       and rdc.reporting_asof_date = any(select unnest(string_to_array($3::text,','))::date)
       and rc.is_calculated_cohort is false",
-    params=list(paste0(unique(parsing$SYSID),collapse=","),
-                paste0(unique(parsing$indicator_id),collapse=","),
+    params=list(dbMakeIntArray(parsing$SYSID),
+                dbMakeIntArray(parsing$indicator_id),
                 paste0(unique(parsing$reporting_asof_date,collapse=",")))) 
   
   if (!empty(existing_data)) {

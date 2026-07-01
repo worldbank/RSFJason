@@ -82,13 +82,13 @@ rsf_checks_do_test <- function(pool,
       and ids.created_in_reporting_asof_date <= $3::Date
       and ids.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
                                  from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                                 where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int))
+                                 where ft.from_rsf_pfcbl_id = any($1::int[]))
     group by 
       ids.rsf_program_id,
       icf.check_formula_id,
       icf.computation_group,
     	coalesce(pglcu.data_unit_value,lcu.data_unit_value)",
-   params=list(paste0(pfcbl_ids.familytree,collapse=","),
+   params=list(dbMakeIntArray(pfcbl_ids.familytree),
                check_formula_id,
                reporting_current_date))
   
@@ -150,8 +150,8 @@ rsf_checks_do_test <- function(pool,
                                                                                and scc.for_indicator_id = rdc.indicator_id
                                                                                and scc.indicator_check_id = rdc.indicator_check_id
                                                                                and scc.check_formula_id is not distinct from rdc.check_formula_id
-                                 where rdc.evaluation_id = any(select unnest(string_to_array(NULLIF($1::text,'NA'),','))::int)",
-                               params=list(paste0(eval_ids,collapse=",")))
+                                 where rdc.evaluation_id = any($1::int[])",
+                               params=list(dbMakeIntArray(eval_ids)))
     
     setDT(current_flags)
   }
@@ -231,8 +231,8 @@ rsf_checks_do_test <- function(pool,
   sys_names <- dbGetQuery(pool,"
                           select sn.rsf_pfcbl_id,sn.sys_name
                           from p_rsf.view_rsf_pfcbl_id_current_sys_names sn
-                          where sn.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
-                          params=list(paste0(check_results$rsf_pfcbl_id,collapse=",")))
+                          where sn.rsf_pfcbl_id = any($1::int[])",
+                          params=list(dbMakeIntArray(check_results$rsf_pfcbl_id)))
   
   setDT(sys_names)
   

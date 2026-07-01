@@ -93,7 +93,7 @@ SERVER_ADMIN_USERS_ENTITIES_LIST <- eventReactive(c(USER_PROGRAMS(),
     inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = fpg.rsf_pfcbl_id
     inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = fpg.rsf_pfcbl_id
     where account_id =  $1::text 
-    and fpg.rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int)
+    and fpg.rsf_pfcbl_id = any($2::int[])
     and fpg.permission_name = 'ADMIN'
     
     union all
@@ -113,7 +113,7 @@ SERVER_ADMIN_USERS_ENTITIES_LIST <- eventReactive(c(USER_PROGRAMS(),
       x.rsf_pfcbl_id is not distinct from 0 desc,
       x.sys_name",
     params=list(USER_ID(),
-                paste0(rsf_pfcbl_ids,collapse=",")))
+                dbMakeIntArray(rsf_pfcbl_ids)))
   
   setDT(entities)
   

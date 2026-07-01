@@ -16,8 +16,8 @@ SERVER_ADMIN_CHECKS_REVIEW.VIEW <- reactive({
     rsf_pfcbl_ids <- DBPOOL %>% dbGetQuery("
       select distinct ft.to_family_rsf_pfcbl_id
       from p_rsf.view_rsf_pfcbl_id_family_tree ft 
-      where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-    ",params=list(paste0(fac_filter,collapse=",")))
+      where ft.from_rsf_pfcbl_id = any($1::int[])
+    ",params=list(dbMakeIntArray(fac_filter)))
     
     rsf_pfcbl_ids <- as.numeric(unlist(rsf_pfcbl_ids))
     
@@ -45,8 +45,8 @@ observeEvent(input$server_admin_checks_review__test_facilities_list, {
         dates.valid_reporting_date::text as reporting_asof_date
       from p_rsf.rsf_pfcbl_ids ids
       inner join lateral p_rsf.rsf_pfcbl_generate_reporting_dates(v_rsf_pfcbl_id => ids.rsf_pfcbl_id) as dates on true
-      where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
-      params=list(paste0(test_rsf_pfcbl_ids,collapse=",")))
+      where ids.rsf_pfcbl_id = any($1::int[])",
+      params=list(dbMakeIntArray(test_rsf_pfcbl_ids)))
     
     dates <- c("",sort(dates$reporting_asof_date))
   } else {

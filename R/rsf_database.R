@@ -7,6 +7,17 @@ RSF_MANAGEMENT_APPLICATION_ID <- "4608A309E2E38860DC98FAC53F967CF2"
 account_credentials_rsf_sys_calculator <- yaml.load_file('./credentials/credentials-account-rsf-sys-calculator.yaml')
 account_credentials_rsf_sys_admin <- yaml.load_file('./credentials/credentials-account-rsf-sys-admin.yaml')
 
+dbMakeIntArray <- function(x) {
+  
+  x <- as.integer(suppressWarnings(unique(x)))
+  x <- x[!is.na(x)]
+  
+  if (!length(x)) return("{}")
+  
+  paste0("{", paste0(x, collapse = ","), "}")
+}
+
+
 dbStart <- function(credentials_file,
                     ob_name,
                     drv=DBI::dbDriver("Postgres"),

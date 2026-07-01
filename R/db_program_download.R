@@ -18,8 +18,10 @@ db_program_download <- function(pool,
   
   template_ids <- NULL
   if (!all(is.na(template_filter))) {
-    template_ids <- dbGetQuery(pool,
-                               "select template_id from p_rsf.reporting_templates where template_name = any(select unnest(string_to_array($1::text,','))::text)
+    template_ids <- dbGetQuery(pool,"
+      select template_id 
+      from p_rsf.reporting_templates 
+      where template_name = any(select unnest(string_to_array($1::text,','))::text)
                ",params=list(paste0(template_filter,collapse=",")))
     
   }

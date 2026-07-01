@@ -25,10 +25,10 @@ db_data_get_current <- function(pool,
     from p_rsf.view_rsf_pfcbl_id_family_tree ft
     inner join p_rsf.rsf_data_calculation_evaluations dce on dce.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
     inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ft.from_rsf_pfcbl_id
-    where ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+    where ft.from_rsf_pfcbl_id = any($1::int[])
       and dce.calculation_asof_date <= $2::date
     group by ids.rsf_program_id,ft.from_rsf_pfcbl_id",
-                      params=list(paste0(unique(c(0,rsf_pfcbl_ids.familytree)),collapse=","),
+                      params=list(dbMakeIntArray(c(0,rsf_pfcbl_ids.familytree)),
                                   reporting_current_date))
   
   
@@ -55,8 +55,8 @@ db_data_get_current <- function(pool,
       using p_rsf.view_rsf_pfcbl_id_family_tree ft
       where ft.to_family_rsf_pfcbl_id = dce.rsf_pfcbl_id
         and dce.calculation_asof_date <= $2::date
-        and ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
-        params=list(paste0(unique(c(0,rsf_pfcbl_ids.familytree)),collapse=","),
+        and ft.from_rsf_pfcbl_id = any($1::int[])",
+        params=list(dbMakeIntArray(c(0,rsf_pfcbl_ids.familytree)),
                     reporting_current_date))
   }  
     
@@ -180,9 +180,13 @@ db_data_get_current <- function(pool,
                                                        and scc.for_indicator_id = rdc.indicator_id
                                                        and scc.indicator_check_id = rdc.indicator_check_id
                                                        and scc.check_formula_id is not distinct from rdc.check_formula_id
-        where rdc.evaluation_id = any(select unnest(string_to_array($1::text,','))::int)
-        order by rdc.rsf_pfcbl_id,rdc.check_asof_date,rdc.check_status,coalesce(scc.config_check_class,ic.check_class)",
-                               params=list(flag_ids))
+        where rdc.evaluation_id = any($1::int[])
+        order by 
+          rdc.rsf_pfcbl_id,
+          rdc.check_asof_date,
+          rdc.check_status,
+          coalesce(scc.config_check_class,ic.check_class)",
+                               params=list(dbMakeIntArray(flag_ids)))
       
       setDT(flags_data)
       

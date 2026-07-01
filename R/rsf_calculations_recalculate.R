@@ -25,8 +25,8 @@ rsf_calculations_recalculate <- function(pool,
                         from p_rsf.rsf_pfcbl_ids ids
                         inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
                         where ids.pfcbl_category = 'facility'
-                        and ids.rsf_program_id = any(select unnest(string_to_array($1::text,','))::int)",
-                        params=list(paste0(rsf_program_ids,collapse=",")))
+                        and ids.rsf_program_id = any($1::int[])",
+                        params=list(dbMakeIntArray(rsf_program_ids)))
   
   if (empty(facilities)) return (NULL)
   

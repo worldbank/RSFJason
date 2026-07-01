@@ -17,8 +17,8 @@ db_checks_get_calculation_parameter_rsf_pfcbl_ids <- function(pool,
       cpc.parameter_pfcbl_hierarchy
     from p_rsf.rsf_pfcbl_ids ids,
          p_rsf.compute_check_to_parameter_categories cpc
-    where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-    and cpc.check_formula_id = any(select unnest(string_to_array($2::text,','))::int)
+    where ids.rsf_pfcbl_id = any($1::int[])
+    and cpc.check_formula_id = any($2::int[])
     and cpc.parameter_pfcbl_hierarchy <> 'self'
     ),
     parameter_ids as materialized (
@@ -53,11 +53,11 @@ db_checks_get_calculation_parameter_rsf_pfcbl_ids <- function(pool,
     )
     select rsf_pfcbl_id 
     from parameter_ids
-    where exists(select * from p_rsf.rsf_pfcbl_ids ids
+    where exists(select true from p_rsf.rsf_pfcbl_ids ids
                  where ids.rsf_pfcbl_id = parameter_ids.rsf_pfcbl_id
                    and ids.created_in_reporting_asof_date <= $3::date)
-  ",params=list(paste0(unique(check_rsf_pfcbl_ids),collapse=","),
-                paste0(unique(check_formula_ids),collapse=","),
+  ",params=list(dbMakeIntArray(check_rsf_pfcbl_ids),
+                dbMakeIntArray(check_formula_ids),
                 as.character(check_asof_date)))
   
   

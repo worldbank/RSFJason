@@ -298,33 +298,33 @@ parse_template_IFC_QR2025 <- function(pool,
     
     snames <- openxlsx2::wb_get_sheet_names(excelwb)
  
-    {
-    # 3. Read formulas for all sheets using lapply
-      for (snum in seq_along(snames)) {
-        
-        cc_data <- excelwb$worksheets[[snum]]$sheet_data$cc
-        if (is.null(cc_data) || empty(cc_data)) next;
-        
-        if ("f_attr" %in% names(cc_data)) {
-          # Clear strings containing t="array" or related flags
-          legacy_rows <- grepl('t="array"', cc_data$f_attr)
-          excelwb$worksheets[[snum]]$sheet_data$cc$f_attr[legacy_rows] <- NA_character_
-        }
-        
-        if ("f_t" %in% names(cc_data)) {
-          # Clear the explicit formula type flag if present
-          legacy_type_rows <- cc_data$f_t == "array" & !is.na(cc_data$f_t)
-          excelwb$worksheets[[snum]]$sheet_data$cc$f_t[legacy_type_rows] <- NA_character_
-        }
-      }
-    wb_save(excelwb,"C:/Temp/modified.xlsx",overwrite=T)  
-    excelwb_sheet_data <- lapply(seq_along(snames), function(snum) {
-      sheet_cells <- excelwb$worksheets[[snum]]$sheet_data$cc
-      #formulas <- sheet_cells[!is.na(sheet_cells$f) & nchar(sheet_cells$f) > 0,]
-      sheet_cells[!is.na(sheet_cells$f) & nchar(sheet_cells$f) > 0,]
-    })
-      
-    }
+    # {
+    # # 3. Read formulas for all sheets using lapply
+    #   for (snum in seq_along(snames)) {
+    #     
+    #     cc_data <- excelwb$worksheets[[snum]]$sheet_data$cc
+    #     if (is.null(cc_data) || empty(cc_data)) next;
+    #     
+    #     if ("f_attr" %in% names(cc_data)) {
+    #       # Clear strings containing t="array" or related flags
+    #       legacy_rows <- grepl('t="array"', cc_data$f_attr)
+    #       excelwb$worksheets[[snum]]$sheet_data$cc$f_attr[legacy_rows] <- NA_character_
+    #     }
+    #     
+    #     if ("f_t" %in% names(cc_data)) {
+    #       # Clear the explicit formula type flag if present
+    #       legacy_type_rows <- cc_data$f_t == "array" & !is.na(cc_data$f_t)
+    #       excelwb$worksheets[[snum]]$sheet_data$cc$f_t[legacy_type_rows] <- NA_character_
+    #     }
+    #   }
+    # wb_save(excelwb,"C:/Temp/modified.xlsx",overwrite=T)  
+    # excelwb_sheet_data <- lapply(seq_along(snames), function(snum) {
+    #   sheet_cells <- excelwb$worksheets[[snum]]$sheet_data$cc
+    #   #formulas <- sheet_cells[!is.na(sheet_cells$f) & nchar(sheet_cells$f) > 0,]
+    #   sheet_cells[!is.na(sheet_cells$f) & nchar(sheet_cells$f) > 0,]
+    #   
+    # })
+    # }
     
   } 
   
@@ -368,7 +368,11 @@ parse_template_IFC_QR2025 <- function(pool,
         summary_sheet <- openxlsx2::read_xlsx(excelwb,sheet=summarySheet,row_names=F,col_names=F,detect_dates=T)
         setDT(summary_sheet)
         
-        summary_formula_matrix <- openxlsx2::wb_to_df(excelwb,sheet=summarySheet,row_names=F,col_names=F,show_formula=T)
+        summary_formula_matrix <- openxlsx2::wb_to_df(excelwb,
+                                                      sheet=summarySheet,
+                                                      row_names=F,
+                                                      col_names=F,
+                                                      show_formula=T)
         setDT(summary_formula_matrix)
         
         if (!all(dim(summary_formula_matrix) == dim(summary_sheet))) {
@@ -2369,9 +2373,9 @@ parse_template_IFC_QR2025 <- function(pool,
         and ft.pfcbl_hierarchy <> 'parent'
         and ft.to_pfcbl_category = 'loan'
         
-        and ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+        and ft.from_rsf_pfcbl_id = any($1::int[])
         group by ft.from_rsf_pfcbl_id",
-        params=list(paste0(return.insert_flags[pfcbl_category %in% c("borrower","loan"),unique(rsf_pfcbl_id)],collapse = ","),
+        params=list(dbMakeIntArray(return.insert_flags[pfcbl_category %in% c("borrower","loan"),unique(rsf_pfcbl_id)]),
                     as.character(reporting_asof_date)))
       
       setDT(rsf_pfcbl_ids)

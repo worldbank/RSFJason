@@ -16,8 +16,8 @@ db_indicators_get_calculation_parameter_rsf_pfcbl_ids <- function(pool,
       cpc.parameter_pfcbl_hierarchy
       from p_rsf.view_rsf_setup_indicator_subscriptions sis
       inner join p_rsf.compute_calculation_to_parameter_categories cpc on cpc.calculate_formula_id = sis.formula_id
-      where sis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-        and sis.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+      where sis.rsf_pfcbl_id = any($1::int[])
+        and sis.indicator_id = any($2::int[])
         and cpc.parameter_pfcbl_hierarchy <> 'self' -- because calculate_rsf_pfcbl_ids will be merged-back in afterward.
     ),
     parameter_ids as materialized (
@@ -54,8 +54,8 @@ db_indicators_get_calculation_parameter_rsf_pfcbl_ids <- function(pool,
     where exists(select * from p_rsf.rsf_pfcbl_ids ids
                  where ids.rsf_pfcbl_id = parameter_ids.rsf_pfcbl_id
                    and ids.created_in_reporting_asof_date <= $3::date)",
-    params=list(paste0(unique(calculate_rsf_pfcbl_ids),collapse=","),
-                paste0(unique(calculate_indicator_ids),collapse=","),
+    params=list(dbMakeIntArray(calculate_rsf_pfcbl_ids),
+                dbMakeIntArray(calculate_indicator_ids),
                 as.character(calculate_asof_date)))
   
   return (unique(c(calculate_rsf_pfcbl_ids,parameter_rsf_pfcbl_ids$rsf_pfcbl_id)))

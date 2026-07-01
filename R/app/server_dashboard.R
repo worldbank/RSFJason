@@ -358,7 +358,6 @@ SERVER_DASHBOARD_VALID_ASOF_DATES <- eventReactive(SERVER_DASHBOARD_RUN_OPTIONS$
     return (NULL)
   }
   
-  
   valid_dates <- DBPOOL %>% dbGetQuery("
     
     with dates as (
@@ -368,7 +367,7 @@ SERVER_DASHBOARD_VALID_ASOF_DATES <- eventReactive(SERVER_DASHBOARD_RUN_OPTIONS$
       false as is_future
       from p_rsf.rsf_pfcbl_ids ids
       inner join lateral p_rsf.rsf_pfcbl_generate_reporting_dates(ids.rsf_pfcbl_id) grd on true
-      where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+      where ids.rsf_pfcbl_id = any($1::int[])
       
       union 
       
@@ -378,7 +377,7 @@ SERVER_DASHBOARD_VALID_ASOF_DATES <- eventReactive(SERVER_DASHBOARD_RUN_OPTIONS$
       from p_rsf.reporting_cohorts rc
       inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = rc.reporting_rsf_pfcbl_id
       where rc.reporting_asof_date >= now()::date
-        and ft.to_family_rsf_pfcbl_id = any(select unnest(string_to_array('647148,647149,647150'::text,','))::int)
+        and ft.to_family_rsf_pfcbl_id = any($1::int[])
         and ft.pfcbl_hierarchy <> 'child'
 
     )
@@ -394,8 +393,9 @@ SERVER_DASHBOARD_VALID_ASOF_DATES <- eventReactive(SERVER_DASHBOARD_RUN_OPTIONS$
       'Future Date' as text_date,
       0::int as date_rank,
       array_to_string(array_agg(text_date order by text_date),',') as date_value
-    from dates where is_future = true",
-      params=list(paste0(selected_ids,collapse=",")))
+    from dates where is_future = true
+      and text_date is not null",
+      params=list(dbMakeIntArray(selected_ids)))
   
   setDT(valid_dates)
   
@@ -512,16 +512,16 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
                end) as parameter_id
         from p_rsf.view_rsf_setup_indicator_subscriptions sis -- will pull in subscribed OR default
         inner join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
-        where sis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-          and sis.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+        where sis.rsf_pfcbl_id = any($1::int[])
+          and sis.indicator_id = any($2::int[])
       )
       select
       ind.indicator_id,
       ind.indicator_name
       from p_rsf.indicators ind
       where exists(select * from params where params.parameter_id = ind.indicator_id)",
-      params=list(paste0(selected_client_ids,collapse=","),
-                  paste0(selected_indicators$indicator_id,collapse=","),
+      params=list(dbMakeIntArray(selected_client_ids),
+                  dbMakeIntArray(selected_indicators$indicator_id),
                   deep))
     
     setDT(expand_formulas)
@@ -561,13 +561,13 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
       bool_and(sis.formula_id is NOT NULL AND coalesce(indf.overwrite='allow',false)) as is_calculated --is calculated by all, all the time (ie, overwritten always)
     from p_rsf.view_rsf_setup_indicator_subscriptions sis
     left join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
-    where sis.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-      and sis.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+    where sis.rsf_pfcbl_id = any($1::int[])
+      and sis.indicator_id = any($2::int[])
     group by 
       sis.indicator_id,
       sis.indicator_name",
-    params=list(paste0(selected_client_ids,collapse=","),
-                paste0(selected_indicators$indicator_id,collapse=",")))
+    params=list(dbMakeIntArray(selected_client_ids),
+                dbMakeIntArray(selected_indicators$indicator_id)))
     
     setDT(query_indicators)
     exclude_ids <- c()
@@ -1141,10 +1141,10 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
               ORDER BY rdc.reporting_asof_date DESC
              LIMIT 1) reporting ON true
         WHERE ind.indicator_sys_category::text = 'is_reporting'::text
-        and ft.from_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+        and ft.from_rsf_pfcbl_id = any($1::int[])
         and rpr.reporting_asof_date <= $2::date
         GROUP BY ft.from_rsf_pfcbl_id, rpr.reporting_asof_date;",
-       params=list(paste0(unique(dashboard_data$SYSID),collapse=","),
+       params=list(dbMakeIntArray(dashboard_data$SYSID),
                    d))
      
      setDT(reporting_dates)
@@ -1160,8 +1160,8 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
                                                                   where ind.indicator_sys_category = 'entity_completion_date'
                                                                     and ind.data_category = 'facility')
                                           and rdc.reporting_asof_date <= $2::date
-     where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
-     params=list(paste0(unique(dashboard_data$SYSID),collapse=","),
+     where ids.rsf_pfcbl_id = any($1::int[])",
+     params=list(dbMakeIntArray(dashboard_data$SYSID),
                  d))
      
      setDT(termination_dates)

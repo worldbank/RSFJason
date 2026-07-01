@@ -163,9 +163,9 @@ db_reporting_import_create <- function(pool,
         insert into p_rsf.reporting_imports_deleted_archive(import_id,deleting_user_id)
         select ri.import_id,$2::text
           from p_rsf.reporting_imports ri
-          where ri.import_id = any(select unnest(string_to_array($1::text,','))::int)
+          where ri.import_id = any($1::int[])
         returning import_id",
-                         params=list(paste0(auto_delete_imports,collapse=","),
+                         params=list(dbMakeIntArray(auto_delete_imports),
                                      import_user_id))
   }
   setDT(reporting_import)

@@ -112,12 +112,12 @@ IMPORTS_LIST <- eventReactive(c(IMPORT_LIST__REFRESH(),
       sum(idc.data_current_count_reported) as data_current_count_reported,
       sum(idc.data_current_count_calculated) as data_current_count_calculated
     from p_rsf.view_reporting_imports_data_counts idc
-    where idc.import_id = any(select unnest(string_to_array($1::text,','))::int)
+    where idc.import_id = any($1::int[])
     group by 
     idc.reporting_asof_date,
-    idc.import_rsf_pfcbl_id
-                                  ,idc.import_id",
-  params=list(paste0(unique(imports$import_id),collapse=",")))
+    idc.import_rsf_pfcbl_id,
+                                  idc.import_id",
+  params=list(dbMakeIntArray(imports$import_id)))
   
   # counts <- DBPOOL %>% dbGetQuery("
   #   select * from p_rsf.view_reporting_imports_data_counts idc
@@ -144,13 +144,13 @@ IMPORTS_LIST <- eventReactive(c(IMPORT_LIST__REFRESH(),
       sum(cca.data_checks_info_new) as data_checks_info_new
       
     from p_rsf.view_reporting_imports_data_checks_current_active cca
-    where cca.import_id = any(select unnest(string_to_array($1::text,','))::int)
+    where cca.import_id = any($1::int[])
     group by
     cca.import_rsf_pfcbl_id,
     cca.check_asof_date
                                  
                                  ,cca.import_id",
-  params=list(paste0(unique(imports$import_id),collapse=",")))
+  params=list(dbMakeIntArray(imports$import_id)))
   
   
   setDT(flags)
@@ -1097,8 +1097,8 @@ observeEvent(input$action_cohort_delete, {
                                               from p_rsf.reporting_imports ri
                                               inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ri.import_rsf_pfcbl_id
                                               inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                              where ri.import_id = any(select unnest(string_to_array($1::text,','))::int)",
-                                              params=list(paste0(delete_import_ids,collapse=",")))
+                                              where ri.import_id = any($1::int[])",
+                                              params=list(dbMakeIntArray(delete_import_ids)))
        
        setDT(affected_ids)
 
@@ -1126,8 +1126,8 @@ observeEvent(input$action_cohort_delete, {
        #If program doesnt exist after delete then it means we've deleted the entire program
        stillexists <- DBPOOL %>% dbGetQuery("select distinct ids.rsf_pfcbl_id as import_rsf_pfcbl_id
                                              from p_rsf.rsf_pfcbl_ids ids
-                                             where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)",
-                                             params=list(paste0(unique(affected_ids$import_rsf_pfcbl_id),collapse=",")))
+                                             where ids.rsf_pfcbl_id = any($1::int[])",
+                                             params=list(dbMakeIntArray(affected_ids$import_rsf_pfcbl_id)))
 
        affected_ids[,exists:=FALSE]
        affected_ids[stillexists,

@@ -283,7 +283,7 @@ template_process <- function(pool,
       if (length(template_data_ids) > 0 &&
           !all(template$reporting_import$import_rsf_pfcbl_id %in% template_data_ids)) {
         family_match = dbGetQuery(pool,"
-                                  select unnest(string_to_array($2,','))::int as rsf_pfcbl_id
+                                  select unnest($2::int[]) as rsf_pfcbl_id
                                   
                                   except
                                   
@@ -292,7 +292,7 @@ template_process <- function(pool,
                                   where ft.from_rsf_pfcbl_id = $1::int
                                     and ft.pfcbl_hierarchy <> 'parent'",
                                   params=list(template$reporting_import$import_rsf_pfcbl_id,
-                                              paste0(template_data_ids,collapse=",")))
+                                              dbMakeIntArray(ids)))
         
         if (!empty(family_match)) {
           stop(paste0("Malformed template: for pfcbl_id templates SYSIDs must all be members of the RSF_REPORTING_ENTITY: but the follow SYSIDs are not child entites: ",
@@ -620,12 +620,12 @@ template_process <- function(pool,
                   lcu.for_rsf_pfcbl_id as rsf_pfcbl_id,
                   lcu.data_unit_value
                   from p_rsf.rsf_data_current_lcu lcu
-                  where for_rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int) 
+                  where for_rsf_pfcbl_id = any($1::int[])
                     and lcu.reporting_asof_date <= $2::date
                   order by 
                   lcu.for_rsf_pfcbl_id,
                   lcu.reporting_asof_date desc",
-                            params=list(paste0(ratios[is.na(entity_local_currency_unit)==TRUE,unique(rsf_pfcbl_id)],collapse=","),
+                            params=list(dbMakeIntArray(ratios[is.na(entity_local_currency_unit)==TRUE,unique(rsf_pfcbl_id)]),
                                         template$reporting_import$reporting_asof_date))
           setDT(lcu)
           ratios[lcu,

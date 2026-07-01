@@ -379,11 +379,11 @@ rsf_computation_fx_conversion <- function(pool,
                 coalesce(indf.overwrite,'allow') as overwrite 
               from p_rsf.view_rsf_setup_indicator_subscriptions sis 
               inner join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
-              where sis.rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int)
-                and sis.indicator_id = any(select unnest(string_to_array($1::text,','))::int)
+              where sis.rsf_pfcbl_id = any($1::int[])
+                and sis.indicator_id = any($2::int[])
                 and sis.is_unsubscribed is distinct from false",
-              params=list(paste0(unique(fx_not_defined$fx_indicator_id),collapse=","),
-                          paste0(unique(fx_not_defined$rsf_pfcbl_id),collapse=",")))
+              params=list(dbMakeIntArray(fx_not_defined$rsf_pfcbl_id),
+                          dbMakeIntArray(fx_not_defined$fx_indicator_id)))
             
             # fx_indicators <- dbGetQuery(pool,"
             #  select distinct on (fam.child_rsf_pfcbl_id,indf.formula_id)

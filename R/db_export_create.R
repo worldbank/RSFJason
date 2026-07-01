@@ -39,7 +39,7 @@ db_export_create <- function(pool,
                                   	array_agg(distinct to_family_rsf_pfcbl_id) as rsf_pfcbl_ids,
                                   	count(distinct to_family_rsf_pfcbl_id) as members 
                                   	from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                                  	where from_rsf_pfcbl_id in (select unnest(string_to_array($1::text,','))::int)
+                                  	where ft.from_rsf_pfcbl_id = any($1::int[])
                                   		and to_pfcbl_rank <= 3
                                   		and to_pfcbl_rank <= from_pfcbl_rank
                                   		and to_pfcbl_category <> 'global'
@@ -59,7 +59,7 @@ db_export_create <- function(pool,
                                     ids.pfcbl_category
                                   from p_rsf.rsf_pfcbl_ids ids
                                   where ids.rsf_pfcbl_id = (select rsf_pfcbl_id from parent)",
-                                  params=list(paste0(exporting_pfcbl_ids,collapse=",")))
+                                  params=list(dbMakeIntArray(exporting_pfcbl_ids)))
  
     
     #nothing here.  Probably due to multiple programs being selected in an export.  Otherwise, this shouldn't happen!

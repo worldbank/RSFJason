@@ -29,9 +29,9 @@ db_data_get_fx_ratio <- function(pool,
                                     ids.rsf_facility_id as lookup_rsf_pfcbl_id,
                                     ids.rsf_pfcbl_id
                                    from p_rsf.rsf_pfcbl_ids ids
-                                   where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+                                   where ids.rsf_pfcbl_id = any($1::int[])
                                      and ids.rsf_facility_id is not null",
-                                   params=list(paste0(unique(fx_lookup$rsf_pfcbl_id),collapse=",")))
+                                   params=list(dbMakeIntArray(fx_lookup$rsf_pfcbl_id)))
   
   setDT(pfcbl_ids.facility)  
    

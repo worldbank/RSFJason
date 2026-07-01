@@ -100,8 +100,8 @@ rsf_program_perform_calculations <- function(pool,
                               									from p_rsf.indicator_formula_parameters ifp 
                               									where ifp.formula_id = indf.formula_id) as pids on true
                              
-                             where indf.formula_id = any(select unnest(string_to_array($1::text,','))::int)",
-                           params=list(paste0(unique(na.omit(current_data_indicators$formula_id)),collapse=","))) #NA omit if it's a unit_fx_indicator_id with no formula!
+                             where indf.formula_id = any($1::int[])",
+                           params=list(dbMakeIntArray(current_data_indicators$formula_id))) #NA omit if it's a unit_fx_indicator_id with no formula!
     
     formulas[["formula_pfcbl_id_categories"]] <- lapply(formulas[["formula_pfcbl_id_categories"]],
                                                         function(x) as.character(strsplit(x,split=',',fixed=T)[[1]]))

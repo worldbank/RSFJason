@@ -240,9 +240,9 @@ db_program_get_data  <- function(pool,
       pfcbl_ids <- dbGetQuery(pool,glue(
                               "{pfcbl_sql}
                               where ids.created_in_reporting_asof_date <= $1::date
-                               and ids.rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int)"),
+                               and ids.rsf_pfcbl_id = any($2::int[])"),
                               params=list(reporting_current_date,
-                                          paste0(unique(for_rsf_pfcbl_ids),collapse=",")))
+                                          dbMakeIntArray(for_rsf_pfcbl_ids)))
       
       setDT(pfcbl_ids)
       
@@ -439,10 +439,10 @@ db_program_get_data  <- function(pool,
                                       										order by 
                                       										  rdc.reporting_asof_date desc
                                       										limit 1) end_period on true
-                                      where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                      	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
-                               params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
-                                           paste0(query_indicator_ids,collapse=","),
+                                      where ids.rsf_pfcbl_id = any($1::int[])
+                                      	and ind.indicator_id = any($2::int[])",
+                               params=list(dbMakeIntArray(query_rsf_pfcbl_pfcbl_family_ids),
+                                           dbMakeIntArray(query_indicator_ids),
                                            reporting_current_date))
   
         setDT(query_rsf_data)
@@ -499,10 +499,10 @@ db_program_get_data  <- function(pool,
                                       										order by 
                                       										  rdc.reporting_asof_date desc
                                       										limit 1) end_period on true
-                                      where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                      	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
-                                     params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
-                                                 paste0(query_indicator_ids,collapse=","),
+                                      where ids.rsf_pfcbl_id = any($1::int[])
+                                      	and ind.indicator_id = any($2::int[])",
+                                     params=list(dbMakeIntArray(query_rsf_pfcbl_pfcbl_family_ids),
+                                                 dbMakeIntArray(query_indicator_ids),
                                                  quarter_previous_date))
         
         setDT(query_rsf_data)
@@ -545,8 +545,8 @@ db_program_get_data  <- function(pool,
                                         	min_period.data_value,
                                         	min_period.data_unit
                                         from p_rsf.rsf_data_current min_period
-                                        where min_period.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                        	and min_period.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+                                        where min_period.rsf_pfcbl_id = any($1::int[])
+                                        	and min_period.indicator_id = any($2::int[])
                                           and min_period.reporting_asof_date <= $3::date
                                         order by 
                                           min_period.rsf_pfcbl_id,
@@ -554,8 +554,8 @@ db_program_get_data  <- function(pool,
                                           case when isnumeric(min_period.data_value) then (min_period.data_value::numeric) else NULL end asc nulls last,
                                           min_period.data_value asc nulls last,
                                           min_period.reporting_asof_date asc",
-                                        params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
-                                                    paste0(query_mms_indicators_current[indicator_variable_class=="min.current",unique(indicator_id)],collapse=","),
+                                        params=list(dbMakeIntArray(query_rsf_pfcbl_pfcbl_family_ids),
+                                                    dbMakeIntArray(query_mms_indicators_current[indicator_variable_class=="min.current",unique(indicator_id)]),
                                                     reporting_current_date))
           
             setDT(query_rsf_data)
@@ -576,8 +576,8 @@ db_program_get_data  <- function(pool,
                                         	max_period.data_value,
                                         	max_period.data_unit
                                         from p_rsf.rsf_data_current max_period
-                                        where max_period.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                        	and max_period.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+                                        where max_period.rsf_pfcbl_id = any($1::int[])
+                                        	and max_period.indicator_id = any($2::int[])
                                           and max_period.reporting_asof_date <= $3::date
                                         order by 
                                           max_period.rsf_pfcbl_id,
@@ -585,8 +585,8 @@ db_program_get_data  <- function(pool,
                                           case when isnumeric(max_period.data_value) then (max_period.data_value::numeric) else NULL end desc nulls last,
                                           max_period.data_value desc nulls last,
                                           max_period.reporting_asof_date desc",
-                                        params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
-                                                    paste0(query_mms_indicators_current[indicator_variable_class=="max.current",unique(indicator_id)],collapse=","),
+                                        params=list(dbMakeIntArray(query_rsf_pfcbl_pfcbl_family_ids),
+                                                    dbMakeIntArray(query_mms_indicators_current[indicator_variable_class=="max.current",unique(indicator_id)]),
                                                     reporting_current_date))
             
             setDT(query_rsf_data)
@@ -607,16 +607,16 @@ db_program_get_data  <- function(pool,
                                         	sum(sum_period.data_value::numeric) over(partition by sum_period.rsf_pfcbl_id,sum_period.indicator_id) as data_value,
                                         	sum_period.data_unit
                                         from p_rsf.rsf_data_current sum_period
-                                        where sum_period.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                        	and sum_period.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+                                        where sum_period.rsf_pfcbl_id = any($1::int[])
+                                        	and sum_period.indicator_id = any($2::int[])
                                           and sum_period.reporting_asof_date <= $3::date
                                           and public.isnumeric(sum_period.data_value) = true
                                         order by 
                                           sum_period.rsf_pfcbl_id,
                                           sum_period.indicator_id,
                                           sum_period.reporting_asof_date desc",
-                                        params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
-                                                    paste0(query_mms_indicators_current[indicator_variable_class=="sum.current",unique(indicator_id)],collapse=","),
+                                        params=list(dbMakeIntArray(query_rsf_pfcbl_pfcbl_family_ids),
+                                                    dbMakeIntArray(query_mms_indicators_current[indicator_variable_class=="sum.current",unique(indicator_id)]),
                                                     reporting_current_date))
             
             setDT(query_rsf_data)
@@ -641,8 +641,8 @@ db_program_get_data  <- function(pool,
                                         	min_period.data_value,
                                         	min_period.data_unit
                                         from p_rsf.rsf_data_current min_period
-                                        where min_period.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                        	and min_period.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+                                        where min_period.rsf_pfcbl_id = any($1::int[])
+                                        	and min_period.indicator_id = any($2::int[])
                                           and min_period.reporting_asof_date <= $3::date
                                         order by 
                                           min_period.rsf_pfcbl_id,
@@ -650,8 +650,8 @@ db_program_get_data  <- function(pool,
                                           case when isnumeric(min_period.data_value) then (min_period.data_value::numeric) else NULL end asc nulls last,
                                           min_period.data_value asc nulls last,
                                           min_period.reporting_asof_date asc",
-                                        params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
-                                                    paste0(query_mms_indicators_previous[indicator_variable_class=="min.previous",unique(indicator_id)],collapse=","),
+                                        params=list(dbMakeIntArray(query_rsf_pfcbl_pfcbl_family_ids),
+                                                    dbMakeIntArray(query_mms_indicators_previous[indicator_variable_class=="min.previous",unique(indicator_id)]),
                                                     quarter_previous_date))
             
             setDT(query_rsf_data)
@@ -672,8 +672,8 @@ db_program_get_data  <- function(pool,
                                         	max_period.data_value,
                                         	max_period.data_unit
                                         from p_rsf.rsf_data_current max_period
-                                        where max_period.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                        	and max_period.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+                                        where max_period.rsf_pfcbl_id = any($1::int[])
+                                        	and max_period.indicator_id = any($2::int[])
                                           and max_period.reporting_asof_date <= $3::date
                                         order by 
                                           max_period.rsf_pfcbl_id,
@@ -681,8 +681,8 @@ db_program_get_data  <- function(pool,
                                           case when isnumeric(max_period.data_value) then (max_period.data_value::numeric) else NULL end desc nulls last,
                                           max_period.data_value desc nulls last ,
                                           max_period.reporting_asof_date desc",
-                                        params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
-                                                    paste0(query_mms_indicators_previous[indicator_variable_class=="max.previous",unique(indicator_id)],collapse=","),
+                                        params=list(dbMakeIntArray(query_rsf_pfcbl_pfcbl_family_ids),
+                                                    dbMakeIntArray(query_mms_indicators_previous[indicator_variable_class=="max.previous",unique(indicator_id)]),
                                                     quarter_previous_date))
             
             setDT(query_rsf_data)
@@ -703,16 +703,16 @@ db_program_get_data  <- function(pool,
                                         	sum(sum_period.data_value::numeric) over(partition by sum_period.rsf_pfcbl_id,sum_period.indicator_id) as data_value,
                                         	sum_period.data_unit
                                         from p_rsf.rsf_data_current sum_period
-                                        where sum_period.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                        	and sum_period.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+                                        where sum_period.rsf_pfcbl_id = any($1::int[])
+                                        	and sum_period.indicator_id = any($2::int[])
                                           and sum_period.reporting_asof_date <= $3::date
                                           and public.isnumeric(sum_period.data_value) = true
                                         order by 
                                           sum_period.rsf_pfcbl_id,
                                           sum_period.indicator_id,
                                           sum_period.reporting_asof_date desc",
-                                        params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
-                                                    paste0(query_mms_indicators_previous[indicator_variable_class=="sum.previous",unique(indicator_id)],collapse=","),
+                                        params=list(dbMakeIntArray(query_rsf_pfcbl_pfcbl_family_ids),
+                                                    dbMakeIntArray(query_mms_indicators_previous[indicator_variable_class=="sum.previous",unique(indicator_id)]),
                                                     quarter_previous_date))
             
             setDT(query_rsf_data)
@@ -768,10 +768,10 @@ db_program_get_data  <- function(pool,
                                                             rdc.data_value is not null desc,
                                       										  rdc.reporting_asof_date asc         -- order by asc instead of desc, because first
                                       										limit 1) first_period on true
-                                      where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                      	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
-                                     params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
-                                                 paste0(query_indicator_ids,collapse=","),
+                                      where ids.rsf_pfcbl_id = any($1::int[])
+                                      	and ind.indicator_id = any($2::int[])",
+                                     params=list(dbMakeIntArray(query_rsf_pfcbl_pfcbl_family_ids),
+                                                 dbMakeIntArray(query_indicator_ids),
                                                  reporting_current_date))
         
         setDT(query_rsf_data)
@@ -807,10 +807,10 @@ db_program_get_data  <- function(pool,
                                       inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
                                                                            and rdc.indicator_id = ind.indicator_id
                                                                            and rdc.reporting_asof_date <= $3::date
-                                      where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                      	and ind.indicator_id = any(select unnest(string_to_array($2::text,','))::int)",
-                                     params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
-                                                 paste0(query_indicator_ids,collapse=","),
+                                      where ids.rsf_pfcbl_id = any($1::int[])
+                                      	and ind.indicator_id = any($2::int[])",
+                                     params=list(dbMakeIntArray(query_rsf_pfcbl_pfcbl_family_ids),
+                                                 dbMakeIntArray(query_indicator_ids),
                                                  reporting_current_date))
         
         setDT(query_rsf_data)
@@ -859,8 +859,8 @@ db_program_get_data  <- function(pool,
                                         chk.data_check_value as data_value,
                                       	chk.data_check_unit as data_unit
                                       from p_rsf.rsf_data_checks chk
-                                      where chk.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
-                                      	and chk.indicator_id = any(select unnest(string_to_array($2::text,','))::int)
+                                      where chk.rsf_pfcbl_id = any($1::int[])
+                                      	and chk.indicator_id = any($2::int[])
                                         and chk.check_asof_date <= $3::date
                                         and chk.check_has_data is true
                                       order by
@@ -868,8 +868,8 @@ db_program_get_data  <- function(pool,
                                         chk.indicator_id,
                                         chk.check_asof_date,
                                         chk.evaluation_id desc",
-                                     params=list(paste0(query_rsf_pfcbl_pfcbl_family_ids,collapse=","),
-                                                 paste0(query_indicator_ids,collapse=","),
+                                     params=list(dbMakeIntArray(query_rsf_pfcbl_pfcbl_family_ids),
+                                                 dbMakeIntArray(query_indicator_ids),
                                                  reporting_current_date))
         
         setDT(query_rsf_data)
@@ -958,9 +958,9 @@ db_program_get_data  <- function(pool,
                                 order by
                                 reporting_asof_date desc
                                 limit 1) as nids on true
-              where ids.rsf_pfcbl_id = any(select unnest(string_to_array($1::text,','))::int)
+              where ids.rsf_pfcbl_id = any($1::int[])
                 and ids.created_in_reporting_asof_date <= $2::date",
-                  params=list(paste0(unique(status_ids[data_class %in% c("info.name","info.id","info.rank","info.tranche"),rsf_pfcbl_id]),collapse=","),
+                  params=list(dbMakeIntArray(status_ids[data_class %in% c("info.name","info.id","info.rank","info.tranche"),rsf_pfcbl_id]),
                               reporting_current_date))
             
             setDT(status_data)

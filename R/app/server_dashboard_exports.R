@@ -8,9 +8,7 @@ SERVER_DASHBOARD_EXPORTS_TEMPLATES <- eventReactive(c(SERVER_DASHBOARD_REPORTS_L
   if (!LOGGEDIN()) return (NULL)
                                                         
   reports <- SERVER_DASHBOARD_REPORTS_LIST()
-  report_ids <- paste0(reports$report_id,collapse=",")
-  if (empty(reports)) report_ids <- NA
-  
+
   templates <- DBPOOL %>% dbGetQuery("
     select 
       ext.export_template_id,
@@ -19,13 +17,13 @@ SERVER_DASHBOARD_EXPORTS_TEMPLATES <- eventReactive(c(SERVER_DASHBOARD_REPORTS_L
     where (ext.is_public is true or ext.created_by_user_id = $1::text)
       and (
         exists(select * from p_rsf.export_template_reports etr
-               where etr.report_id = any(select unnest(string_to_array(NULLIF($2::text,'NA'),','))::int))
+               where etr.report_id = any($2::int[]))
         or
         not exists(select * from p_rsf.export_template_reports etr
                    where etr.export_template_id = ext.export_template_id
                      and etr.report_id is not null))",
     params=list(USER_ID(),
-                report_ids))
+                dbMakeIntArray(reports$report_id)))
   
   setDT(templates)
   setorder(templates,
