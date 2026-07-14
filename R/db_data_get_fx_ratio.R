@@ -450,9 +450,34 @@ db_data_get_fx_ratio <- function(pool,
         save_fx <- unique(save_fx) #can have duplicated values due to requested_currency_ratio being inverse
                                    #ensure no duplicates are passed to db_add_update_data_user() else a stop() error will occur
         
-        db_add_update_data_system(pool=pool,
-                                  for_import_id=NA,
-                                  system_upload_data=save_fx)
+        #as we've filtered for GLOBAL above, then only global indicators can be here
+        #but we still should get/verify these indicator's calculation rank(s) (should just be one!)
+        #and the most relevant import_id
+        if (empty(save_fx)) next;
+        
+        formula_calculation_ranks <- dbGetQuery(pool,"
+          select
+            sis.indicator_id,
+            sis.formula_calculation_rank
+          from p_rsf.view_rsf_setup_indicator_subscriptions sis
+          where sis.rsf_pfcbl_id = $1::int
+            and sis.indicator_id = any($2::int[])",
+          params=list(unique(save_fx$rsf_pfcbl_id)),
+                      dbMakeIntArray(save_fx$indicator_id))
+        
+        setDT(for_formula_calculation_ranks)
+        
+        #this really should only be a single value ... but maybe (maybe?) some internal change could
+        #see two ranks for this?  if so, will generate an error...
+        
+        for (for_formula_calculation_rank in  unique(formula_calculation_ranks$formula_calculation_rank)) {
+          sfx <- save_fx[indicator_id %in% formula_calculation_ranks[formula_calculation_rank==for_formula_calculation_rank,
+                                                                     indicator_id]]
+          db_add_update_data_system(pool=pool,
+                                    for_import_id=NA, #function will auto-assign import_id
+                                    for_formula_calculation_ranks=for_formula_calculation_rank,
+                                    system_upload_data=sfx)
+        }
       }
     }
   }

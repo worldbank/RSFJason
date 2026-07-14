@@ -474,7 +474,8 @@ db_add_update_data_user <- function(pool,
                                                 reporting_type,
                                                 is_reported_cohort,
                                                 is_calculated_cohort,
-                                                data_asof_date)
+                                                data_asof_date,
+                                                reporting_calculation_rank)
             select 
             $1::int as import_id,
             reporting.reporting_rsf_pfcbl_id,
@@ -484,7 +485,8 @@ db_add_update_data_user <- function(pool,
             1 as reporting_type, -- 1=User import
             true as is_reported_cohort,
             false as is_calculated_cohort,
-            reporting.reporting_asof_date as data_asof_date
+            reporting.reporting_asof_date as data_asof_date,
+            0 as reporting_calculation_rank
             from reporting
             returning 
               reporting_cohorts.reporting_cohort_id,

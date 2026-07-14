@@ -1,5 +1,6 @@
 db_add_update_data_system <- function(pool,
-                                      for_import_id=NA,
+                                      for_import_id,
+                                      for_formula_calculation_rank,
                                       system_upload_data,
                                       calculator_user_id=CALCULATIONS_ENVIRONMENT$SYSTEM_CALCULATOR_ACCOUNT)
 {
@@ -28,13 +29,14 @@ db_add_update_data_system <- function(pool,
   #if(SYS_PRINT_TIMING)  debugtime("db_add_update_data_system","start")  
   #system_upload_data <<- as.data.frame(system_upload_data)
   #setDT(system_upload_data)
-  system_upload_data <- system_upload_data[,.(current_data_id,
-                                              rsf_pfcbl_id,
-                                              indicator_id,
-                                              reporting_asof_date,
-                                              data_unit,
-                                              data_value,
-                                              flagged)]
+  system_upload_data <- system_upload_data[,
+                                           .(current_data_id,
+                                             rsf_pfcbl_id,
+                                             indicator_id,
+                                             reporting_asof_date,
+                                             data_unit,
+                                             data_value,
+                                             flagged)]
   
   #browser()
   #conn <- poolCheckout(pool)
@@ -276,7 +278,8 @@ db_add_update_data_system <- function(pool,
                                                   reporting_type,
                                                   is_reported_cohort,
                                                   is_calculated_cohort,
-                                                  data_asof_date)
+                                                  data_asof_date,
+                                                  reporting_calculation_rank)
                 select 
                 ci.for_import_id,
                 ci.reporting_rsf_pfcbl_id,
@@ -286,7 +289,8 @@ db_add_update_data_system <- function(pool,
                 2 as reporting_type, -- 2=Calculated data
                 false as is_reported_cohort,
                 true as is_calculated_cohort,
-                ci.reporting_asof_date as data_asof_date
+                ci.reporting_asof_date as data_asof_date,
+                $2::int2 as reporting_calculation_rank
                 from (select distinct
                       usd.for_import_id,
                       usd.reporting_rsf_pfcbl_id,
@@ -305,7 +309,8 @@ db_add_update_data_system <- function(pool,
               and usd.reporting_rsf_pfcbl_id = cohorts.reporting_rsf_pfcbl_id
               and usd.reporting_asof_date = cohorts.reporting_asof_date
               and usd.calculated_cohort_id is null",
-          params=list(calculator_user_id))
+          params=list(calculator_user_id,
+                      for_formula_calculation_rank))
       }
     
       {

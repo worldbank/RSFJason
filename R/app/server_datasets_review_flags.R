@@ -28,7 +28,7 @@ SERVER_DATASETS_REVIEW_FLAGS_SELECTED_FLAG_EVALUATIONS <- eventReactive(c(IMPORT
 #This is to avoid downloading potentially a lot of text data for entity names, check comments and status messages in IMPORT_FLAGS_SELECTED()
 SERVER_DATASETS_REVIEW_FLAGS_db_EVALUATION_DETAILS <- function(evaluation_ids) {
   
-  evaluation_ids <- paste0(unique(evaluation_ids),collapse=",")
+  #evaluation_ids <- paste0(unique(evaluation_ids),collapse=",")
   flag_evaluations <- DBPOOL %>% dbGetQuery("select 
     rdc.evaluation_id,
     rdc.rsf_pfcbl_id,
@@ -50,8 +50,6 @@ SERVER_DATASETS_REVIEW_FLAGS_db_EVALUATION_DETAILS <- function(evaluation_ids) {
     params=list(dbMakeIntArray(evaluation_ids)))
   
   setDT(flag_evaluations)
-  
- 
   
   return (flag_evaluations)
 }

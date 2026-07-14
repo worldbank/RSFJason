@@ -90,6 +90,7 @@ rsf_program_perform_calculations <- function(pool,
                               indf.formula_sort,
                               indf.perform_calculation_by_row,
                               indf.formula_grouping_pfcbl_rank,
+                              coalesce(indf.formula_calculation_rank,0) as formula_calculation_rank,
                               'rsf_' || grouping.pfcbl_category || '_id' as formula_grouping_rsf_id,
                               array_to_string(pids.pfcbl_id_categories,',') as formula_pfcbl_id_categories,
                               indf.overwrite as formula_overwrite
@@ -107,6 +108,11 @@ rsf_program_perform_calculations <- function(pool,
                                                         function(x) as.character(strsplit(x,split=',',fixed=T)[[1]]))
     setDT(formulas)
     
+    for_formula_calculation_rank <- unique(formulas$formula_calculation_rank)
+    if (length(for_formula_calculation_rank) != 1) {
+      stop(paste0("Each perform calculations can only process a single formula calculation rank and this request received: ",
+                  paste0(for_formula_calculation_rank,collapse=", ")))
+    }
     #left join in case any NA formula_ids from unit_fx_indicator_id
     #calculations[is.na(formula)]
     calculations <- formulas[current_data_indicators,
@@ -837,6 +843,7 @@ rsf_program_perform_calculations <- function(pool,
         
         db_add_update_data_system(pool=pool,
                                   for_import_id=for_import_id,
+                                  for_formula_calculation_rank=for_formula_calculation_rank,
                                   system_upload_data=system_upload_data)
         
       }

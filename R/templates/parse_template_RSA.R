@@ -554,7 +554,8 @@ parse_template_RSA <- function(pool,
                                           is_calculated_cohort,
                                           is_reported_cohort,
                                           data_asof_date,
-                                          reporting_type)
+                                          reporting_type,
+                                          reporting_calculation_rank)
       select 
         ri.import_id,
         ri.reporting_asof_date,
@@ -564,7 +565,8 @@ parse_template_RSA <- function(pool,
         false,
         false,
         ri.reporting_asof_date,
-        0
+        0,
+        0 as reporting_calculation_rank
       from p_rsf.reporting_imports ri
       where ri.import_id = $1::int
       returning reporting_cohort_id",

@@ -174,7 +174,8 @@ db_program_create <- function(pool,
                                             is_reported_cohort,
                                             data_asof_date,
                                             import_id,
-                                            reporting_type)
+                                            reporting_type,
+                                            reporting_calculation_rank)
         select
           $2::int as reporting_cohort_id,
           ri.import_rsf_pfcbl_id,
@@ -185,7 +186,8 @@ db_program_create <- function(pool,
           false,
           ri.reporting_asof_date,
           ri.import_id,
-          0 as reporting_type
+          0 as reporting_type,
+          0 as reporting_calculation_rank
         from p_rsf.reporting_imports ri
         where ri.import_id = $1::int
         returning *",

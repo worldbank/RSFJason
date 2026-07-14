@@ -160,7 +160,8 @@ db_create_new_rsf_ids <- function(pool,
                                               is_reported_cohort,
                                               is_calculated_cohort,
                                               import_id,
-                                              reporting_type)
+                                              reporting_type,
+                                              reporting_calculation_rank)
             select 
               ri.import_rsf_pfcbl_id as reporting_rsf_pfcbl_id,
               $2::date as reporting_asof_date,
@@ -170,7 +171,8 @@ db_create_new_rsf_ids <- function(pool,
               false as is_reported_cohort,
               false as is_calculated_cohort,
               ri.import_id,
-              0 as reporting_type
+              0 as reporting_type,
+              0 as reporting_calculation_rank
             from p_rsf.reporting_imports ri
             inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ri.import_rsf_pfcbl_id
             where ri.import_id = $1::int

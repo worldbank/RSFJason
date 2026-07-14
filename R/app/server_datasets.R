@@ -641,7 +641,7 @@ IMPORT_FLAGS_SELECTED <- eventReactive(IMPORT_SELECTED(), {
                    `:=`(data_flag_name=i.data_flag_name,
                         data_flag_value=i.data_flag_value),
                    on=.(indicator_check_id)]
-  
+
   return(flags_data)  
 }, ignoreNULL=FALSE)
 
