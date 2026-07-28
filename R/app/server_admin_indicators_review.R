@@ -194,7 +194,7 @@ observeEvent(input$action_indicator_review_start, {
   disable(id="indicator_review_reporting_date")
 
   result <- tryCatch({
-    result <- DBPOOL %>% rsf_indicators_calculate_do_test(rsf_pfcbl_id.family=ifelse(all(is.na(review_rsf_pfcbl_id),na.rm=T),
+    result <- DBPOOL %>% rsf_indicators_calculate_do_test(rsf_pf_id=ifelse(all(is.na(review_rsf_pfcbl_id),na.rm=T),
                                                                                      rsf_program_id,
                                                                                      review_rsf_pfcbl_id),
                                                           indicator_id=review_indicator_id,

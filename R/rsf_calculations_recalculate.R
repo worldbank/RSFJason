@@ -20,6 +20,7 @@ rsf_calculations_recalculate <- function(pool,
                         select 
                         ids.rsf_program_id,
                         ids.rsf_pfcbl_id,
+                        ids.rsf_pf_id,
                         nids.rsf_name as facility_name
                         
                         from p_rsf.rsf_pfcbl_ids ids
@@ -32,6 +33,7 @@ rsf_calculations_recalculate <- function(pool,
   
   facilities <- facilities[,.(rsf_program_id,
                               rsf_pfcbl_id,
+                              rsf_pf_id,
                               facility_name)]
   
   rsf_indicators <- db_indicators_get_labels(pool=pool)
@@ -39,6 +41,7 @@ rsf_calculations_recalculate <- function(pool,
   if (SELECTED_PROGRAM_ID() != 0) {
     facilities <- rbindlist(list(data.table(rsf_program_id=0,
                                          rsf_pfcbl_id=0,
+                                         rsf_pf_id=0,
                                          client_name="GLOBAL"),
                                  facilities))
   }
@@ -55,7 +58,7 @@ rsf_calculations_recalculate <- function(pool,
                                  message=paste0("Recalculating ",fac$facility_name,": ",dots))
                    }
                    DBPOOL %>% rsf_program_calculate(rsf_indicators=rsf_indicators,
-                                                    rsf_pfcbl_id.family=fac$rsf_pfcbl_id,
+                                                    rsf_pf_id=fac$rsf_pf_id,
                                                     status_message=progress_status_message)
                  })
   }

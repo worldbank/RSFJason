@@ -1120,32 +1120,47 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
   
    dd_dates <- as.character(unique(dashboard_data$REPORTING_asof_date))
    for (d in dd_dates) {
+
      reporting_dates <- DBPOOL %>% dbGetQuery("
        select distinct
-        ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
-        rpr.reporting_asof_date,
+        ids.rsf_pfcbl_id,
+        $2::date as reporting_asof_date,
         
-            bool_or(
-                CASE
-                    WHEN reporting.data_value IS NULL THEN true
-                    WHEN reporting.data_value = 'TRUE'::text THEN true
-                    ELSE false
-                END) AS is_reporting
-        from p_rsf.view_rsf_pfcbl_id_family_tree ft
-        inner join p_rsf.rsf_pfcbl_reporting rpr ON rpr.rsf_pfcbl_id = ft.from_rsf_pfcbl_id
-        inner join p_rsf.indicators ind on ind.data_category::text = ft.to_pfcbl_category
-         LEFT JOIN LATERAL ( SELECT rdc.data_value
-               FROM p_rsf.rsf_data_current rdc
-              WHERE rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id 
-              AND rdc.indicator_id = ind.indicator_id AND rdc.reporting_asof_date <= rpr.reporting_asof_date
-              ORDER BY rdc.reporting_asof_date DESC
-             LIMIT 1) reporting ON true
-        WHERE ind.indicator_sys_category::text = 'is_reporting'::text
-        and ft.from_rsf_pfcbl_id = any($1::int[])
-        and rpr.reporting_asof_date <= $2::date
-        GROUP BY ft.from_rsf_pfcbl_id, rpr.reporting_asof_date;",
-       params=list(dbMakeIntArray(dashboard_data$SYSID),
-                   d))
+        ids.created_in_reporting_asof_date <= $2 
+        and 
+        (ids.deactivated_in_reporting_asof_date is NULL or ids.deactivated_in_reporting_asof_date >= $2::date)
+        as is_reporting
+
+        where ids.rsf_pfcbl_id = any($1::int[])",
+        params=list(dbMakeIntArray(dashboard_data$SYSID),
+                    d))
+     
+     # reporting_dates <- DBPOOL %>% dbGetQuery("
+     #   select distinct
+     #    ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
+     #    rpr.reporting_asof_date,
+     #    
+     #        bool_or(
+     #            CASE
+     #                WHEN reporting.data_value IS NULL THEN true
+     #                WHEN reporting.data_value = 'TRUE'::text THEN true
+     #                ELSE false
+     #            END) AS is_reporting
+     #    from p_rsf.view_rsf_pfcbl_id_family_tree ft
+     #    inner join p_rsf.rsf_pfcbl_reporting rpr ON rpr.rsf_pfcbl_id = ft.from_rsf_pfcbl_id
+     #    inner join p_rsf.indicators ind on ind.data_category::text = ft.to_pfcbl_category
+     #     LEFT JOIN LATERAL ( SELECT rdc.data_value
+     #           FROM p_rsf.rsf_data_current rdc
+     #          WHERE rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id 
+     #          AND rdc.indicator_id = ind.indicator_id AND rdc.reporting_asof_date <= rpr.reporting_asof_date
+     #          ORDER BY rdc.reporting_asof_date DESC
+     #         LIMIT 1) reporting ON true
+     #    WHERE ind.indicator_sys_category::text = 'is_reporting'::text
+     #    and ft.from_rsf_pfcbl_id = any($1::int[])
+     #    and rpr.reporting_asof_date <= $2::date
+     #    GROUP BY ft.from_rsf_pfcbl_id, rpr.reporting_asof_date;",
+     #   params=list(dbMakeIntArray(dashboard_data$SYSID),
+     #               d))
      
      setDT(reporting_dates)
      reporting_dates[,REPORTING_asof_date:=as.Date(d)]

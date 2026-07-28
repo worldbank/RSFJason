@@ -425,8 +425,7 @@ IMPORT_SELECTED <- eventReactive(c(IMPORT_SELECTED_ID(),
     stale <- DBPOOL %>% dbGetQuery("
       select exists(select true
                     from p_rsf.rsf_data_calculation_evaluations dce
-                    inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.to_family_rsf_pfcbl_id = dce.rsf_pfcbl_id
-                    where ft.from_rsf_pfcbl_id = $1::int
+                    where dce.rsf_pf_id = $1::int
                       and dce.calculation_asof_date <= $2::date)::bool",
       params=list(selected_import$import_rsf_pfcbl_id,
                   selected_import$reporting_asof_date))
@@ -443,7 +442,7 @@ IMPORT_SELECTED <- eventReactive(c(IMPORT_SELECTED_ID(),
         incProgress(amount=0.25,message="Recalculating data...")
         
         DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
-                                         rsf_pfcbl_id.family=selected_import$import_rsf_pfcbl_id,
+                                         rsf_pf_id=selected_import$import_rsf_pfcbl_id,
                                          for_import_id=selected_import$import_id,
                                          calculate_future=FALSE,
                                          reference_asof_date=selected_import$reporting_asof_date,
@@ -1087,18 +1086,34 @@ observeEvent(input$action_cohort_delete, {
                                  h3("Bad selection: reporting cohorts do not exist or may have already been deleted")))
        }
        
-       affected_ids <- DBPOOL %>% dbGetQuery("select distinct 
-                                                ri.import_rsf_pfcbl_id,
-                                                ri.reporting_asof_date,
-                                                ids.pfcbl_category_rank as pfcbl_rank,
-                                                ids.rsf_program_id,
-                                                ids.rsf_facility_id,
-                                                sn.pfcbl_name
-                                              from p_rsf.reporting_imports ri
-                                              inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ri.import_rsf_pfcbl_id
-                                              inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                              where ri.import_id = any($1::int[])",
-                                              params=list(dbMakeIntArray(delete_import_ids)))
+       affected_ids <- DBPOOL %>% dbGetQuery("
+       select distinct
+         pf.rsf_pf_id,
+         sn.rsf_pfcbl_id,
+         sn.pfcbl_name
+       from p_rsf.reporting_imports ri
+       inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ri.import_rsf_pfcbl_id
+       cross join lateral (values (ids.rsf_facility_id),
+                                  (ids.rsf_program_id)) as pf(rsf_pf_id)
+       inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = pf.rsf_pf_id
+       inner join p_rsf.rsf_pfcbl_categories rpc on rpc.pfcbl_category = sn.pfcbl_category       
+       where ri.import_id = any($1::int[])
+       order by rpc.pfcbl_rank desc",
+       params=list(dbMakeIntArray(delete_import_ids)))                                              
+       
+       # affected_ids <- DBPOOL %>% dbGetQuery("select distinct 
+       #                                          ri.import_rsf_pfcbl_id,
+       #                                          ri.reporting_asof_date,
+       #                                          ids.pfcbl_category_rank as pfcbl_rank,
+       #                                          ids.rsf_program_id,
+       #                                          ids.rsf_facility_id,
+       #                                          sn.pfcbl_name
+       #                                        from p_rsf.reporting_imports ri
+       #                                        inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ri.import_rsf_pfcbl_id
+       #                                        inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ids.rsf_pfcbl_id
+       #                                        where ri.import_id = any($1::int[])",
+       #                                        params=list(dbMakeIntArray(delete_import_ids)))
+       # 
        
        setDT(affected_ids)
 
@@ -1113,6 +1128,9 @@ observeEvent(input$action_cohort_delete, {
        
        incProgress(amount=0.20,message="Deleting datasets . . . ")
        
+       #Inserting into archive triggers the delete statement via a database trigger
+       #Done this way so that imports can be manually deleted without triggering an archive, for testing, maintenance or other purposes.
+       #But deletes via application layer will always generate an archive via here
        DBPOOL %>% dbExecute("insert into p_rsf.reporting_imports_deleted_archive(import_id,
                                                                                  deleting_user_id)
                              select
@@ -1122,18 +1140,19 @@ observeEvent(input$action_cohort_delete, {
                                         USER_ID()))
        
      
+       # all_ids <- na.omit(unlist(unique(affected_ids[,.(import_rsf_pfcbl_id,
+       #                                                  rsf_program_id,
+       #                                                  rsf_facility_id)])))
        
        #If program doesnt exist after delete then it means we've deleted the entire program
-       stillexists <- DBPOOL %>% dbGetQuery("select distinct ids.rsf_pfcbl_id as import_rsf_pfcbl_id
+       stillexists <- DBPOOL %>% dbGetQuery("select distinct ids.rsf_pfcbl_id
                                              from p_rsf.rsf_pfcbl_ids ids
-                                             where ids.rsf_pfcbl_id = any($1::int[])",
-                                             params=list(dbMakeIntArray(affected_ids$import_rsf_pfcbl_id)))
+                                             where ids.rsf_pfcbl_id = any($1::int[])
+                                               and ids.pfcbl_category_rank <= 2",
+                                             params=list(dbMakeIntArray(affected_ids$rsf_pfcbl_id)))
 
-       affected_ids[,exists:=FALSE]
-       affected_ids[stillexists,
-                    exists:=TRUE,
-                    on=.(import_rsf_pfcbl_id)]
-       
+       affected_ids[rsf_pfcbl_id %in% stillexists$rsf_pfcbl_id]
+
        if (!any(affected_ids$exists==TRUE,na.rm=T)) {
          LOAD_PROGRAM_ID((-program_id))
          
@@ -1145,24 +1164,26 @@ observeEvent(input$action_cohort_delete, {
          
        }
 
-       affected_ids <- affected_ids[exists==TRUE,
-                                    .(limit_date=max(reporting_asof_date),
-                                      pfcbl_name=pfcbl_name[[1]]),
-                                    by=.(import_rsf_pfcbl_id)]
+       # affected_ids <- affected_ids[exists==TRUE,
+       #                              .(limit_date=max(reporting_asof_date),
+       #                                pfcbl_name=pfcbl_name[[1]]),
+       #                              by=.(import_rsf_pfcbl_id)]
        
        for (rnum in 1:nrow(affected_ids)) {
          
          who <- affected_ids[rnum]
-         limit_date <- DBPOOL %>% dbGetQuery("select max(reporting_asof_date)::text as limit_date
-                                              from p_rsf.reporting_imports ri
-                                              where ri.import_rsf_pfcbl_id = $1::int
-                                                and ri.reporting_asof_date <= $2::date",
-                                             params=list(who$import_rsf_pfcbl_id,
-                                                         who$limit_date))
          
-         if (empty(limit_date)) next;
-         
-         limit_date <- ymd(limit_date$limit_date)
+
+         # limit_date <- DBPOOL %>% dbGetQuery("select max(reporting_asof_date)::text as limit_date
+         #                                      from p_rsf.reporting_imports ri
+         #                                      where ri.import_rsf_pfcbl_id = $1::int
+         #                                        and ri.reporting_asof_date <= $2::date",
+         #                                     params=list(who$import_rsf_pfcbl_id,
+         #                                                 who$limit_date))
+         # 
+         # if (empty(limit_date)) next;
+         # 
+         # limit_date <- ymd(limit_date$limit_date)
          
          progress_status_message <- function(class,...) {
            dots <- list(...)
@@ -1172,7 +1193,7 @@ observeEvent(input$action_cohort_delete, {
          }
          
          DBPOOL %>% rsf_program_calculate(rsf_indicators = RSF_INDICATORS(),
-                                          rsf_pfcbl_id.family = who$import_rsf_pfcbl_id,
+                                          rsf_pf_id = who$rsf_pf_id,
                                           for_import_id=NA,
                                           calculate_future=FALSE,
                                           reference_asof_date=limit_date,
@@ -1189,7 +1210,7 @@ observeEvent(input$action_cohort_delete, {
          }
 
          DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
-                                      rsf_pfcbl_id.family=who$import_rsf_pfcbl_id,
+                                      rsf_pfcbl_id.family=who$rsf_pf_id,
                                       check_future=FALSE,
                                       reference_asof_date=limit_date,
                                       check_consolidation_threshold=NA,

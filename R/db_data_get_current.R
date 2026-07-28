@@ -19,15 +19,18 @@ db_data_get_current <- function(pool,
   stale <- dbGetQuery(pool,"
     select 
       ids.rsf_program_id,
+      ids.rsf_pf_id,
       ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
       min(calculation_asof_date) as calculation_asof_date,
       count(*) as calculations
     from p_rsf.view_rsf_pfcbl_id_family_tree ft
-    inner join p_rsf.rsf_data_calculation_evaluations dce on dce.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-    inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ft.from_rsf_pfcbl_id
+    inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+    inner join p_rsf.rsf_data_calculation_evaluations dce on dce.rsf_pf_id = ids.rsf_pf_id
     where ft.from_rsf_pfcbl_id = any($1::int[])
+      and ft.pfcbl_hierarchy <> 'child'
       and dce.calculation_asof_date <= $2::date
-    group by ids.rsf_program_id,ft.from_rsf_pfcbl_id",
+    group by ids.rsf_program_id,ft.from_rsf_pfcbl_id,ids.pfcbl_category_rank
+    order by ids.pfcbl_category_rank desc",
                       params=list(dbMakeIntArray(c(0,rsf_pfcbl_ids.familytree)),
                                   reporting_current_date))
   
@@ -44,18 +47,21 @@ db_data_get_current <- function(pool,
       
       rsf_program_calculate(pool=pool,
                             rsf_indicators=rsf_indicators,
-                            rsf_pfcbl_id.family=stale[i,rsf_pfcbl_id],
+                            rsf_pf_id=stale[i,rsf_pf_id],
                             for_import_id=NA,
                             calculate_future=TRUE,
                             reference_asof_date=NULL)
     }
     
+    #rsf program calculation should clean-up after itself quite nicely.
+    #this is here because sometimes, rarely, a calculation can "get stuck" for evaluation such as if a user changes an indicator from a previously
+    #defined calculation formula to decide it should be manually reported data with no calculation -- and then the calculator will pick-up the evaluation
+    #and find there's no formula and not be able to compute it and leave it hanging.  This too should clean up after itself; but just in case as there's 
+    #little overhead.
     dbExecute(pool,"
       delete from p_rsf.rsf_data_calculation_evaluations dce
-      using p_rsf.view_rsf_pfcbl_id_family_tree ft
-      where ft.to_family_rsf_pfcbl_id = dce.rsf_pfcbl_id
-        and dce.calculation_asof_date <= $2::date
-        and ft.from_rsf_pfcbl_id = any($1::int[])",
+      where dce.rsf_pf_id = any($1::int[])
+        and dce.calculation_asof_date <= $2::date",
         params=list(dbMakeIntArray(c(0,rsf_pfcbl_ids.familytree)),
                     reporting_current_date))
   }  

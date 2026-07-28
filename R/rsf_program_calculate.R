@@ -1,6 +1,6 @@
 rsf_program_calculate <- function(pool,
                                   rsf_indicators,
-                                  rsf_pfcbl_id.family,
+                                  rsf_pf_id,
                                   for_import_id=NA,
                                   calculate_future=TRUE,
                                   reference_asof_date=NULL,
@@ -57,7 +57,7 @@ rsf_program_calculate <- function(pool,
       #
         
         required_calculations <- db_program_get_stale_calculations(pool=pool,
-                                                                   rsf_pfcbl_id.family = rsf_pfcbl_id.family,
+                                                                   rsf_pf_id = rsf_pf_id,
                                                                    limit_future=limit_date)
         
         
@@ -65,7 +65,7 @@ rsf_program_calculate <- function(pool,
         
         
         #using_calculations_cohort_id <- using_reporting_cohort_id
-        #if (any(required_calculations$calculate_indicator_id %in% c(1204))) { browser() }
+        #if (any(required_calculations$calculate_indicator_id %in% c(157358))) { browser() }
         #if(any(required_calculations$calculate_indicator_id %in% c(157542))) { stop("Found!") }
         #if (any(required_calculations$calculate_asof_date > ymd('2025-06-30'))) { stop(">2025-06-30")}
         #required_calculations[rsf_indicators,on=.(calculate_indicator_id=indicator_id),nomatch=NULL][,.(indicator_name=sort(unique(indicator_name)))][indicator_name=="client_risk_sharing_fee_billing_period_DAYS"]
@@ -164,7 +164,7 @@ rsf_program_calculate <- function(pool,
             }
           }
         }
-        
+         
         #perform calculations
         {
           #Note: if there's an indicator filter, then we might have more than the needed parmeters -- meaning more than necessary data may be pulled.
@@ -172,6 +172,7 @@ rsf_program_calculate <- function(pool,
           #flags <- 
             
             results <- rsf_program_perform_calculations(pool=pool,
+                                                        rsf_pf_id=rsf_pf_id,
                                                         current_data=required_calculations,
                                                         rsf_indicators=rsf_indicators,
                                                         rsf_calculator_checks=rsf_calculator_checks,

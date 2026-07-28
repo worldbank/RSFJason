@@ -260,6 +260,7 @@ template_parse_file <- function(pool,
                                               template_lookup = template_lookup,
                                               template_file=template_file,
                                               rsf_indicators=rsf_indicators,
+                                              reporting_user_id=reporting_user_id,
                                               status_message = status_message,
                                               CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
         
@@ -278,6 +279,7 @@ template_parse_file <- function(pool,
                                               template_lookup = template_lookup,
                                               template_file=template_file,
                                               rsf_indicators=rsf_indicators,
+                                              reporting_user_id=reporting_user_id,
                                               status_message = status_message,
                                               CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
         

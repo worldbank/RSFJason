@@ -1210,7 +1210,7 @@ observeEvent(input$action_indicator_flags_review_save, {
       incProgress(amount=0.25,message="Recalculating data...")
       
       DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
-                                       rsf_pfcbl_id.family=import$import_rsf_pfcbl_id,
+                                       rsf_pf_id=import$import_rsf_pfcbl_id,
                                        for_import_id=import$import_id,
                                        calculate_future=FALSE,
                                        reference_asof_date=import$reporting_asof_date,

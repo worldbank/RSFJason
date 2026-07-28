@@ -69,32 +69,35 @@ SERVER_ADMIN_INDICATORS_DO_RECALCULATE <- function(rsf_pfcbl_ids=NA,
                                                    indicator_id,
                                                    reset=FALSE) {
   
+  rsf_pf_ids <- c()
+  
   if (any(is.na(rsf_pfcbl_ids))) {
     if (reset==TRUE) {
       all_ids <- DBPOOL %>% dbGetQuery("
-        select pfi.rsf_pfcbl_id
+        select pfi.rsf_pfcbl_id as rsf_pf_id
         from p_rsf.rsf_setup_indicators pfi 
         where pfi.is_subscribed = true
           and pfi.indicator_id = $1::int",
       params=list(indicator_id))
-      rsf_pfcbl_ids <- all_ids$rsf_pfcbl_id
+      rsf_pf_ids <- all_ids$rsf_pf_id
     } 
     else {
 
         all_ids <- DBPOOL %>% dbGetQuery("
-          select distinct dce.rsf_pfcbl_id from p_rsf.rsf_data_calculation_evaluations dce
+          select distinct dce.rsf_pf_id 
+          from p_rsf.rsf_data_calculation_evaluations dce
           where dce.indicator_id = $1::int",
           params=list(indicator_id))
         
-        rsf_pfcbl_ids <- all_ids$rsf_pfcbl_id
+        rsf_pfcbl_ids <- all_ids$rsf_pf_id
     }
   }
   
-  if (length(rsf_pfcbl_ids) > 0) {
+  if (length(rsf_pf_ids) > 0) {
     withProgress(message="Recalculating",
-                 value=(1/length(rsf_pfcbl_ids))/2, {
+                 value=(1/length(rsf_pf_ids))/2, {
       
-      for (id in rsf_pfcbl_ids) {
+      for (id in rsf_pf_ids) {
         
         progress_status_message <- function(class,...) {
           dots <- list(...)
@@ -102,27 +105,39 @@ SERVER_ADMIN_INDICATORS_DO_RECALCULATE <- function(rsf_pfcbl_ids=NA,
           incProgress(amount=0,
                       message=paste0("Recalculating affected data: ",dots))
         }
-        
-        pid <- DBPOOL %>% dbGetQuery("
-          select ids.rsf_program_id 
-          from p_rsf.rsf_pfcbl_ids ids
-          where ids.rsf_pfcbl_id = $1::int",
-          params=list(id))
-        pid <- pid$rsf_program_id
-        
+
         if (reset==TRUE) {
           DBPOOL %>% dbExecute("
-          select p_rsf.rsf_pfcbl_indicator_recalculate(v_rsf_pfcbl_id => $1::int,
-                                                        v_indicator_id => $2::int)",
+          delete from p_rsf.rsf_data_calculation_validations dcv
+          using p_rsf.rsf_pfcbl_ids ids
+          where ids.rsf_pf_id = $1::int
+            and dcv.rsf_pfcbl_id = ids.rsf_pfcbl_id
+            and dcv.indicator_id = $2::int",
           params=list(id,
                       indicator_id))
+          
+          DBPOOL %>% dbExecute("
+            insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,indicator_id,calculation_asof_date,rsf_pf_id,formula_calculation_rank)
+            select distinct
+              req.calculate_rsf_pfcbl_id,
+              req.calculate_indicator_id,
+              req.calculate_asof_date,
+              req.to_rsf_pf_id,
+              req.to_formula_calculation_rank
+          
+            from p_rsf.view_rsf_pf_calculation_evaluations_required req
+            where req.from_rsf_pf_id = $1::int
+              and req.calculate_indicator_id = $2::int
+            on conflict do nothing;",
+            params=list(id,
+                        indicator_id))
         }
         
         DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
-                                         rsf_pfcbl_id.family=pid,
+                                         rsf_pf_id=pid,
                                          for_import_id=NA,
                                          calculate_future=TRUE,
-                                         reference_asof_date=NULL,
+                                         reference_asof_date=today(),
                                          status_message=progress_status_message)
         
         incProgress(amount=(1/length(rsf_pfcbl_ids)))

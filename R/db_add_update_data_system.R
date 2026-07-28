@@ -100,10 +100,10 @@ db_add_update_data_system <- function(pool,
         #                                                                    usd.data_value,
         #                                                                    usd.data_unit) = false"))
         #print(system_upload_data)
+        
+        
         #somehow non-changed data got into the upload... so don't upload it, but do update its validation, ie, report that it's been calculated (with the result equal to the current value)
         #possibly a re-calculation for a flow data type?
-        
-        
         nx <- dbExecute(conn,"
                         with redundancies as  (
                           delete from _temp_upload_system_data usd

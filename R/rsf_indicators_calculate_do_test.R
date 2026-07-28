@@ -1,12 +1,12 @@
 # 
 # reporting_current_date <- '2026-03-31'
 # indicator_id <-  461
-# rsf_pfcbl_id.family <- 646260
+# rsf_pf_id <- 646260
 # all_parameters <- F
-#x<-rsf_indicators_calculate_do_test(pool,rsf_pfcbl_id.family,indicator_id,reporting_current_date,all_parameters=T)
+#x<-rsf_indicators_calculate_do_test(pool,rsf_pf_id,indicator_id,reporting_current_date,all_parameters=T)
 
 rsf_indicators_calculate_do_test <- function(pool,
-                                             rsf_pfcbl_id.family,
+                                             rsf_pf_id,
                                              indicator_id,
                                              reporting_current_date,
                                              all_parameters=TRUE,
@@ -17,13 +17,13 @@ rsf_indicators_calculate_do_test <- function(pool,
   #Ensure nothing is pending
   rsf_program_calculate(pool=pool,
                         rsf_indicators=db_indicators_get_labels(pool),
-                        rsf_pfcbl_id.family=rsf_pfcbl_id.family,
+                        rsf_pf_id=rsf_pf_id,
                         for_import_id=NA,
                         calculate_future=FALSE,
                         reference_asof_date=reporting_current_date,
                         status_message=status_message)
   {
-    status_message(paste0("Running test for SYSID=",paste0(rsf_pfcbl_id.family,collapse=",")," indicator_id=",indicator_id))
+    status_message(paste0("Running test for SYSID=",paste0(rsf_pf_id,collapse=",")," indicator_id=",indicator_id))
     
     
     
@@ -100,7 +100,7 @@ rsf_indicators_calculate_do_test <- function(pool,
         and sis.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id 
                                    from p_rsf.view_rsf_pfcbl_id_family_tree ft 
                                    where ft.from_rsf_pfcbl_id =  any($1::int[]))",
-                                                         params=list(dbMakeIntArray(rsf_pfcbl_id.family),
+                                                         params=list(dbMakeIntArray(rsf_pf_id),
                                                                      indicator_id,
                                                                      reporting_current_date))
     
@@ -124,6 +124,7 @@ rsf_indicators_calculate_do_test <- function(pool,
     setDT(rsf_calculator_checks)
     
     test_results <- rsf_program_perform_calculations(pool=pool,
+                                                     rsf_pf_id=rsf_pf_id,
                                                      current_data=test_calculation,
                                                      rsf_indicators=rsf_indicators,
                                                      rsf_calculator_checks=rsf_calculator_checks,
@@ -389,11 +390,13 @@ rsf_indicators_calculate_do_test <- function(pool,
     
     if (is.na(parent_formula_id)==TRUE) {
       
+      
       prerequisites <- dbGetQuery(pool,"
         with requirements as materialized (
           select 
           calc.formula_id as parent_formula_id,
-  				pids.to_parameter_rsf_pfcbl_id,
+  				#pids.to_parameter_rsf_pfcbl_id,
+  				ft.to_family_rsf_pfcbl_id as to_parameter_pfcbl_id,
   				requirement_indicator_id
   				
           from (
@@ -407,9 +410,13 @@ rsf_indicators_calculate_do_test <- function(pool,
   				inner join p_rsf.indicator_formulas indf on indf.formula_id = calc.formula_id
   				inner join lateral unnest(indf.formula_indicator_id_requirements) as requirement_indicator_id on true
   				inner join p_rsf.indicators ind on ind.indicator_id = requirement_indicator_id
-  				inner join p_rsf.compute_calculation_to_parameter_rsf_pfcbl_ids pids on pids.from_calculate_rsf_pfcbl_id = calc.rsf_pfcbl_id
-  				                                                                    and pids.from_calculate_formula_id = calc.formula_id
-          where pids.to_parameter_pfcbl_category = ind.data_category																																								
+  				
+  				inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = calc.rsf_pfcbl_id
+                                                           and ft.to_pfcbl_rank = ind.pfcbl_rank
+                                                 
+  				# inner join p_rsf.compute_calculation_to_parameter_rsf_pfcbl_ids pids on pids.from_calculate_rsf_pfcbl_id = calc.rsf_pfcbl_id
+  				#                                                                     and pids.from_calculate_formula_id = calc.formula_id
+          #where pids.to_parameter_pfcbl_category = ind.data_category																																								
         )
         select 
           req.parent_formula_id,
@@ -425,16 +432,56 @@ rsf_indicators_calculate_do_test <- function(pool,
           indf.formula_calculation_rank,
           indf.computation_group,
           indf.formula_id",
-  			params=list(dbMakeIntArray(results$rsf_pfcbl_id),
-  			            dbMakeIntArray(results$formula_id)))
+                                  params=list(dbMakeIntArray(results$rsf_pfcbl_id),
+                                              dbMakeIntArray(results$formula_id)))
       
+      
+  #     prerequisites <- dbGetQuery(pool,"
+  #       with requirements as materialized (
+  #         select 
+  #         calc.formula_id as parent_formula_id,
+  # 				pids.to_parameter_rsf_pfcbl_id,
+  # 				requirement_indicator_id
+  # 				
+  #         from (
+  #   				select distinct
+  #   				sis.rsf_pfcbl_id,
+  #   				sis.formula_id
+  #   				from p_rsf.view_rsf_setup_indicator_subscriptions sis 
+  #   				where sis.rsf_pfcbl_id = any($1::int[])
+  #   				  and sis.formula_id = any($2::int[])
+  # 				) as calc
+  # 				inner join p_rsf.indicator_formulas indf on indf.formula_id = calc.formula_id
+  # 				inner join lateral unnest(indf.formula_indicator_id_requirements) as requirement_indicator_id on true
+  # 				inner join p_rsf.indicators ind on ind.indicator_id = requirement_indicator_id
+  # 				inner join p_rsf.compute_calculation_to_parameter_rsf_pfcbl_ids pids on pids.from_calculate_rsf_pfcbl_id = calc.rsf_pfcbl_id
+  # 				                                                                    and pids.from_calculate_formula_id = calc.formula_id
+  #         where pids.to_parameter_pfcbl_category = ind.data_category																																								
+  #       )
+  #       select 
+  #         req.parent_formula_id,
+  #         req.requirement_indicator_id,
+  #         sis.rsf_pfcbl_id,
+  #         sis.formula_id
+  #       from requirements req
+  #       inner join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = req.to_parameter_rsf_pfcbl_id
+  #                                                                  
+  #       inner join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
+  #       where sis.formula_id is not null
+  #       order by 
+  #         indf.formula_calculation_rank,
+  #         indf.computation_group,
+  #         indf.formula_id",
+  # 			params=list(dbMakeIntArray(results$rsf_pfcbl_id),
+  # 			            dbMakeIntArray(results$formula_id)))
+  #     
       if (!empty(prerequisites)) {
         setDT(prerequisites)
         for (fId in unique(prerequisites$formula_id)) {
           pre <- prerequisites[formula_id==fId]  
           
           preResults <- rsf_indicators_calculate_do_test(pool=pool,
-                                                         rsf_pfcbl_id.family=rsf_pfcbl_id.family,
+                                                         rsf_pf_id=rsf_pf_id,
                                                          indicator_id=unique(pre$requirement_indicator_id),
                                                          reporting_current_date=reporting_current_date,
                                                          all_parameters=TRUE,
@@ -465,7 +512,7 @@ rsf_indicators_calculate_do_test <- function(pool,
         and ind.indicator_sys_category = 'rank_id'
         and rdc.reporting_asof_date <= $2::date
       order by ft.to_family_rsf_pfcbl_id,rdc.data_value,rdc.reporting_asof_date desc",
-      params=list(dbMakeIntArray(rsf_pfcbl_id.family),
+      params=list(dbMakeIntArray(rsf_pf_id),
                   reporting_current_date))
     setDT(rank_ids)
     if (!empty(rank_ids)) {

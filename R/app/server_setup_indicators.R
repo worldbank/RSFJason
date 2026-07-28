@@ -299,23 +299,39 @@ observeEvent(input$action_setup_program_recalculate_reset, {
   
   withProgress(message="Resetting all calculations takes a minute or two...",
                value=0.5,{
+
+                                  
     DBPOOL %>% dbExecute("
       delete from p_rsf.rsf_data_calculation_evaluations dce
-      where dce.rsf_pfcbl_id = any(select distinct ft.to_family_rsf_pfcbl_id
-                                   from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                                   where ft.from_rsf_pfcbl_id = $1::int
-                                     and ft.pfcbl_hierarchy <> 'parent')",
+      using p_rsf.rsf_pfcbl_ids ids
+      where ids.rsf_pfcbl_id = dce.rsf_pfcbl_id
+        and ids.rsf_pf_id = $1::int;",
       params=list(selected_rsf_pfcbl_id))
 
-    DBPOOL %>% dbGetQuery("
-                          select pfi.rsf_pfcbl_id,pfi.formula_id,recalc
-                          from p_rsf.rsf_setup_indicators pfi
-                          inner join lateral p_rsf.rsf_pfcbl_indicator_recalculate(v_rsf_pfcbl_id => pfi.rsf_pfcbl_id,
-                                                                                   v_formula_id => pfi.formula_id) as recalc on true
-                          where pfi.rsf_pfcbl_id = $1::int
-                            and pfi.formula_id is not null
-                            and pfi.is_subscribed is true",
-                          params=list(selected_rsf_pfcbl_id))
+    DBPOOL %>% dbExecute("
+      delete from p_rsf.rsf_data_calculation_validations dcv
+      using p_rsf.rsf_pfcbl_ids ids
+      where ids.rsf_pfcbl_id = dcv.rsf_pfcbl_id
+        and ids.rsf_pf_id = $1::int",
+      params=list(selected_rsf_pfcbl_id))
+      
+    DBPOOL %>% dbExecute("
+    insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,
+                                                       indicator_id,
+                                                       calculation_asof_date,
+                                                       rsf_pf_id,
+                                                       formula_calculation_rank)
+    select distinct -- distinct matters a little
+      calc.calculate_rsf_pfcbl_id,
+      calc.calculate_indicator_id,
+      calc.calculate_asof_date,
+      calc.to_rsf_pf_id,
+      calc.to_formula_calculation_rank
+    from p_rsf.view_rsf_pf_calculation_evaluations_required calc
+    where from_rsf_pf_id = $1::int
+    on conflict do nothing",
+    params=list(selected_rsf_pfcbl_id))
+    
                })  
 },ignoreInit = TRUE)
 

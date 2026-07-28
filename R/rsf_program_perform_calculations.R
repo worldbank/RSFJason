@@ -1,5 +1,6 @@
 
 rsf_program_perform_calculations <- function(pool,
+                                             rsf_pf_id,
                                              current_data,
                                              rsf_indicators,
                                              rsf_calculator_checks,
@@ -18,7 +19,7 @@ rsf_program_perform_calculations <- function(pool,
 
   t20 <- Sys.time()
   #setups
-  {
+  { 
     #browser()
     #datac <<- as.data.frame(current_data)
     #ri <<- as.data.frame(rsf_indicators)
@@ -69,7 +70,7 @@ rsf_program_perform_calculations <- function(pool,
   #setup indicators to calculate based on the current rank AND ALSO any stale calculations that MAY HAVE been added as a result of the previous calculations cycle.
   { 
     
-    
+    #Calculation group will segment by units and ensure different FX rates are separately applied.
     current_data_indicators <- current_data[,
                                             .(calculate_rsf_pfcbl_ids=list(calculate_rsf_pfcbl_id),
                                               calculation_group=.GRP
@@ -108,7 +109,15 @@ rsf_program_perform_calculations <- function(pool,
                                                         function(x) as.character(strsplit(x,split=',',fixed=T)[[1]]))
     setDT(formulas)
     
-    for_formula_calculation_rank <- unique(formulas$formula_calculation_rank)
+    #All formulas should have a formula_calculation_rank ... if not, it's a problem.  But a left-join on indicator's fomrulas could result in NA
+    #for non-formula calculations
+    formulas[is.na(formula_calculation_rank),
+             formula_calculation_rank:=0]
+    
+    #unit_fx_indicator_id and facility-level currency_ratio will have a formula_calculation_rank == 0
+    for_formula_calculation_rank <- unique(na.omit(formulas$formula_calculation_rank))
+    if (empty(formulas)) for_formula_calculation_rank <- 0
+    
     if (length(for_formula_calculation_rank) != 1) {
       stop(paste0("Each perform calculations can only process a single formula calculation rank and this request received: ",
                   paste0(for_formula_calculation_rank,collapse=", ")))
@@ -255,9 +264,12 @@ rsf_program_perform_calculations <- function(pool,
         calculate_rsf_pfcbl_ids <- unique(unlist(calculations_group$calculate_rsf_pfcbl_ids))
         
         data_rsf_pfcbl_ids <- db_indicators_get_calculation_parameter_rsf_pfcbl_ids(pool=pool,
-                                                                                    calculate_rsf_pfcbl_ids=calculate_rsf_pfcbl_ids,
+                                                                                    rsf_pf_id=rsf_pf_id,
                                                                                     calculate_indicator_ids=unique(calculations_group$calculate_indicator_id),
                                                                                     calculate_asof_date=calculations_group$calculate_asof_date[[1]])          
+        
+        #Ensure that "self" is ALWAYS included for downstream lookups, even if self isn't strictly a part of a calculation formula
+        data_rsf_pfcbl_ids <- unique(c(data_rsf_pfcbl_ids,calculate_rsf_pfcbl_ids))
         
         for_pfcbl_categories <- unique(c(calculations_group$formula_grouping_rsf_id,
                                          unlist(calculations_group$formula_pfcbl_id_categories),
@@ -861,6 +873,12 @@ rsf_program_perform_calculations <- function(pool,
       #conn <- poolCheckout(pool)
       #dbBegin(conn)
       #dbRollback(conn)
+      
+      #this is everything we just calculated (since calculations ocurr by date segment, date must be unique)
+      #so, validate it!
+      #presumably, inserted calculations have already been validated...but it doesn't hurt much to be thorough and ensure
+      #because it's possible (and frequent) that a calculated result that is identical to an existing result gets excluded on insert
+      #for data_is_meaningfully_different function.  So we don't want to leave a calculation pending evaluation.
       nx <- poolWithTransaction(pool,function(conn) {
         
         dbExecute(conn,"create temp table _validations(rsf_pfcbl_id int,
@@ -894,50 +912,6 @@ rsf_program_perform_calculations <- function(pool,
           params=list(unique(as.character(current_results$reporting_asof_date)))) #because calculation date is the same for every round of calculations, no need to upload it to tmp table
 
       })
-      
-      
-      # if (any(current_results$insert_action==FALSE)) {
-      #   
-      #   t2 <- Sys.time()
-      #   
-      #   verification_ids <- current_results[insert_action==FALSE,current_data_id]
-      #   status_message(class="none","Validating ",length(verification_ids)," previously calculated results.\n")
-      #   
-      #   validated <- dbGetQuery(pool,"
-      #                 with data_ids as (
-      #             
-      #                   select unnest(string_to_array($1::text,','))::int as data_id
-      #                 ),
-      #                 validate_checks as (
-      #                 
-      #                 delete from p_rsf.rsf_data_checks rdc
-      #                 using data_ids 
-      #                 where data_ids.data_id = rdc.data_id
-      #                   and rdc.check_asof_date = $2::date
-      #                   and rdc.check_data_id_is_current = true
-      #                   and rdc.indicator_check_id = any(select ic.indicator_check_id from p_rsf.indicator_checks ic where ic.is_calculator_check = true)
-      #                 returning null as done
-      #                 ),
-      #                 validate_calculations as (
-      #                 
-      #                   
-      #                 delete from p_rsf.rsf_data_calculation_evaluations dce
-      #                 using data_ids
-      #                 inner join p_rsf.rsf_data_current rdc on rdc.data_id = data_ids.data_id
-      #                 where rdc.rsf_pfcbl_id = dce.rsf_pfcbl_id
-      #                   and rdc.indicator_id = dce.indicator_id
-      #                   and dce.calculation_asof_date =  $2::date
-      #                 returning null as done
-      #                 )
-      #                 select count(*) as checks_validated from validate_checks
-      #                 union all
-      #                 select count(*) as calculations_validated from validate_calculations",
-      #                                           params=list(paste0(verification_ids,collapse=","),
-      #                                                       as.character(current_calculation_date)))
-      #   
-      #   if(SYS_PRINT_TIMING) debugtime("rsf_program_perform_calculations","revalidate_calculations",as.numeric(Sys.time()-t2,"secs"))
-      #   
-      # }
       
       #For those calculations that required an fx conversion, save the data ID of the fx value used as part of the calculation
       #(so that if that data_id becomes stale, it can invalidate the calculation that relied on it)

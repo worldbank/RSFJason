@@ -528,7 +528,7 @@ db_data_get_fx_ratio <- function(pool,
                                      is_invalidated==TRUE,paste0("data_id #",exchange_rate_data_id," calculation is invalidated: ",
                                                                  "This occurs when the currency ratio indicator ",fx_indicator_id,
                                                                  " is pending validation; but another calculation queries its value first. ",
-                                                                 "This is usually a calculation sequencing problem and result of database value 'computation_priority_rank' not being set (it should be =1). ",
+                                                                 "This is usually a calculation sequencing problem and result of Jason calculator not calculating currency_ratio values before calculated formulas need them. ",
                                                                  "Try modifying the indicator's fomula in a trivial way, such as appending a blank space, to reset the priority rank."),
                                      is_unreported,paste0(fx_pfcbl_category," does not have a reporting entry for the requested date"),
                                      default="Unknown"))]

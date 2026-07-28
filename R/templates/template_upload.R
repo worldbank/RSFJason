@@ -569,7 +569,7 @@ template_upload <- function(pool,
 
   processed_calculations <- rsf_program_calculate(pool=pool,
                                                   rsf_indicators=template$rsf_indicators,
-                                                  rsf_pfcbl_id.family=template$reporting_import$import_rsf_pfcbl_id,
+                                                  rsf_pf_id=template$reporting_import$import_rsf_pfcbl_id,
                                                   for_import_id=template$reporting_import$import_id,
                                                   calculate_future=FALSE,
                                                   reference_asof_date=reference_asof_date,
