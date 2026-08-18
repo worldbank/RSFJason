@@ -182,10 +182,7 @@ db_cohort_get_data <- function(pool,
                                     from _temp_cohort_data tcd 
                                     inner join p_rsf.rsf_data_checks rdc on rdc.data_id = tcd.data_id
                                     inner join p_rsf.indicator_checks ic on ic.indicator_check_id = rdc.indicator_check_id
-                                    left join p_rsf.view_rsf_setup_check_config scc on scc.rsf_pfcbl_id = rdc.rsf_pfcbl_id
-                                                                                   and scc.for_indicator_id = rdc.indicator_id
-                                                                                   and scc.indicator_check_id = rdc.indicator_check_id
-                                                                                   and scc.check_formula_id is not distinct from rdc.check_formula_id
+                                    left join p_rsf.rsf_setup_checks_config scc on scc.config_id = rdc.config_id
                                     left join p_rsf.view_account_info vai on vai.account_id = rdc.check_status_user_id
                                    
                                     where rdc.check_asof_date = $1::date     --ensure evaluations are for the current source data date

@@ -24,7 +24,7 @@ template_parse_file <- function(pool,
     
     t1 <- Sys.time()
     
-    status_message(class="none","Parsing template: ",basename(template_file),"\n")
+    status_message(class="warning","\n\nParsing template: ",basename(template_file),"\n")
     
     #Latency check
     {
@@ -529,24 +529,7 @@ template_parse_file <- function(pool,
                                                    rsf_indicators=template$rsf_indicators)
      
       
-      futures <- template$template_data[indicator_sys_category=="entity_creation_date" & !is.na(data_value)][ymd(data_value) > (today()-1)]
-      if (!empty(futures)) {
-        max_future <- futures[data_value==max(data_value),paste0(unique(indicator_name)," ",unique(as.character(data_value)))]
-        futures <- futures[,
-                           .(message=paste0("Future creation date on ",.N,
-                                            " rows starting from {",min(as.character(data_value)),"} on ",reporting_template_row_group[[1]],
-                                            " to {",max(as.character(data_value)),"} on ",reporting_template_row_group[[.N]])),
-                           by=.(indicator_name)]
-        
-        
-        for (i in 1:nrow(futures)) status_message(class="error",
-                                                  paste0("Creation date is in the future: template reporting date is ",
-                                                         template$reporting_asof_date,
-                                                         " but ",futures[i,indicator_name]," has: ",futures[i,message],"\n"))
-        
-        stop(paste0("Template failed to parse: entities are reported to have been created in the future.  Correct reporting date or correct the creation date to the past: ",max_future," cannot be greater than template reporting date ",template$reporting_asof_date))
-      }
-      futures <- NULL
+      
       
       #Fixed currency vs LCU currency redundancies
       #The templates themselves should filter these out.  But in case they don't...
@@ -789,6 +772,7 @@ template_parse_file <- function(pool,
                                    rsf_pfcbl_id int,
                                    indicator_id int,
                                    template_header text,
+                                   template_header_formula text,
                                    template_header_position text)
         on commit drop;")
       
@@ -796,6 +780,7 @@ template_parse_file <- function(pool,
                     name="theaders",
                     value=template$template_headers[,.(indicator_id,
                                                        template_header=label,
+                                                       template_header_formula=label_formula,
                                                        template_header_position=data_source_index)])
       
       dbExecute(conn,"update theaders
@@ -817,12 +802,14 @@ template_parse_file <- function(pool,
                                                             rsf_pfcbl_id,
                                                             indicator_id,
                                                             template_header,
+                                                            template_header_formula,
                                                             template_header_position)
         select distinct
           import_id,
           rsf_pfcbl_id,
           indicator_id,
           template_header,
+          template_header_formula,
           template_header_position        
         from theaders
         on conflict do nothing;")

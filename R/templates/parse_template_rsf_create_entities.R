@@ -13,7 +13,7 @@ parse_template_rsf_create_entities <- function(pool,
   
   rsf_names <- c("SYSID","SYSNAME")
   if (!all(rsf_names %in% names(report_data))) {
-    stop(paste0("Error: Expected column names ",paste0(rsf_names,collapse=",")," not found in ",paste0(names(tdata),collapse=",")))
+    stop(paste0("Error: Expected column names ",paste0(rsf_names,collapse=",")," not found in ",paste0(names(report_data),collapse=",")))
   } 
 
   if (any(grepl("^SYSNAME$",names(report_data)))) {
@@ -26,7 +26,12 @@ parse_template_rsf_create_entities <- function(pool,
                                 value.name="data_value",
                                 value.factor = F,
                                 variable.factor = F)
-                
+
+  #templates should include reporting_template_data_rank
+  #here for controlling possibility of indicators repeated by column
+  report_data[,
+              reporting_template_data_rank:=1:.N,
+              by=.(SYSID,reporting_template_row_group,reporting_asof_date)]
   
   bad_indicators <- which(!report_data$indicator_name %in% rsf_indicators$indicator_name)
   if (length(bad_indicators)) {

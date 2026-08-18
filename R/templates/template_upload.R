@@ -16,13 +16,14 @@ template_upload <- function(pool,
     }
   
     t1<-Sys.time() 
-    
+    tryCatch({ 
     uploaded_data <-  db_add_update_data_user(pool=pool,
                                               import_id=template$reporting_import$import_id,
                                               upload_data=template$pfcbl_data,
                                               upload_user_id=template$reporting_user_id,
                                               rsf_indicators=template$rsf_indicators)
-    
+    },
+    error=function(e) { status_message(conditionMessage(e)); stop(conditionMessage(e)) })
     
     template$pfcbl_data <- uploaded_data
     status_message(class="info","\nUploaded ",format(nrow(template$pfcbl_data),big.mark=","), " data points: ",format(round(Sys.time()-t1,2),units="secs"),"\n"); 
@@ -551,10 +552,11 @@ template_upload <- function(pool,
       sys_flags[,
                 check_formula_id:=as.numeric(NA)]
       
-      db_rsf_checks_add_update(pool=pool,
+      db_add_update_checks(pool=pool,
                                data_checks=sys_flags,
                                for_import_id=template$reporting_import$import_id,
-                               consolidation_threshold=0)
+                               consolidation_threshold=0,
+                               drop.timeseries.redundancies=TRUE)
       
     }
   }  
@@ -582,7 +584,8 @@ template_upload <- function(pool,
   t2 <- Sys.time()
   processed_checks <- rsf_program_check(pool=pool,
                                         rsf_indicators=template$rsf_indicators,
-                                        rsf_pfcbl_id.family=template$reporting_import$import_rsf_pfcbl_id,
+                                        rsf_pf_id=template$reporting_import$import_rsf_pfcbl_id,
+                                        for_import_id=template$reporting_import$import_id,
                                         check_future=FALSE,
                                         check_consolidation_threshold=0,
                                         reference_asof_date=reference_asof_date,

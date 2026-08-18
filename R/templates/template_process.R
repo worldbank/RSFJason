@@ -282,6 +282,8 @@ template_process <- function(pool,
       
       if (length(template_data_ids) > 0 &&
           !all(template$reporting_import$import_rsf_pfcbl_id %in% template_data_ids)) {
+        
+        #This is an error check -- we want it to be empty.
         family_match = dbGetQuery(pool,"
                                   select unnest($2::int[]) as rsf_pfcbl_id
                                   
@@ -292,7 +294,7 @@ template_process <- function(pool,
                                   where ft.from_rsf_pfcbl_id = $1::int
                                     and ft.pfcbl_hierarchy <> 'parent'",
                                   params=list(template$reporting_import$import_rsf_pfcbl_id,
-                                              dbMakeIntArray(ids)))
+                                              dbMakeIntArray(template_data_ids)))
         
         if (!empty(family_match)) {
           stop(paste0("Malformed template: for pfcbl_id templates SYSIDs must all be members of the RSF_REPORTING_ENTITY: but the follow SYSIDs are not child entites: ",
@@ -333,24 +335,7 @@ template_process <- function(pool,
       stop("Failed to match or create entity IDs")
     }
     
-    # if (template$template_ids_method=="rsf_id") {
-    # 
-    # 
-    # } 
-    # 
-    # else if (template$template_ids_method=="pfcbl_id") {
-    #   
-    # 
-    #   #Not Found!  So create it, matching rsf_id by input data
-    #   if (anyNA(template$match_results$rsf_pfcbl_id)) {
-    #     template <- template_set_data_match_rsf_ids(pool=pool,
-    #                                                 template=template) #function also adds to template: template$match_results
-    #   }
-    # }
-    # 
-    # else {
-    #   stop("Template must define rsf_id vs pfcbl_id matching")
-    # }
+    
     #template <- readRDS("template.RDS")
     #saveRDS(template,"template.RDS")
     #lobstr::obj_size(template) #OBA: 1.16GB
@@ -402,7 +387,7 @@ template_process <- function(pool,
   #This helps to resolve reporting flags onto correct pfcbl_categories/entities for indicator_not_found which we don't know how to map because we don't know what indicator
   #it is to know what pfcbl_category to map it to.
   if (!any(is.na(template$match_results$rsf_pfcbl_id),na.rm=T) &&
-      length(unique(template$match_results$rsf_pfcbl_id)) &&
+      length(unique(template$match_results$rsf_pfcbl_id))==1 &&
       anyNA(template$pfcbl_data$rsf_pfcbl_id)) { 
     
     template$pfcbl_data[is.na(rsf_pfcbl_id),
@@ -650,7 +635,8 @@ template_process <- function(pool,
         ratios[to_currency %in% c("LCU","LCY"),
                to_currency:=entity_local_currency_unit]
         
-        fx_lookup <- db_data_get_fx_ratio(pool=pool,
+        fx_lookup <- tryCatch({ 
+                     db_data_get_fx_ratio(pool=pool,
                                           fx_lookup=ratios[,
                                                            .(rsf_pfcbl_id,
                                                              exchange_rate_date=reporting_asof_date,
@@ -658,6 +644,16 @@ template_process <- function(pool,
                                                              from_currency)],
                                           create.indicators=TRUE, #Yes, create because these will be queried otherwise later for the same indicator when variance is checked.
                                           force.global=TRUE) #the whole point is to check against global rates
+        },
+        warning=function(w) {
+          status_message(paste0("Failed to get FX Ratios: ",conditionMessage(w)))
+          stop(paste0("Failed to get FX Ratios: ",conditionMessage(w)))
+        },
+        error=function(e) {
+          status_message(paste0("Failed to get FX Ratios: ",conditionMessage(e)))
+          stop(paste0("Failed to get FX Ratios: ",conditionMessage(e)))
+        })
+        
         ratios[fx_lookup,
                global_fx_rate:=as.numeric(i.exchange_rate),
                on=.(rsf_pfcbl_id,
@@ -781,183 +777,6 @@ template_process <- function(pool,
                                data_unit)]
     }
     
-    #check for currency data duplicates
-    #and if multiple culumns are reported in different currencies!
-    {
-    # if (FALSE) {
-    #   
-    #  
-    #   
-    #   
-    #   
-    #   currency_data <- template$pfcbl_data[indicator_id %in% template$rsf_indicators[data_type=="currency",indicator_id]]
-    #   
-    #   #should happen, but just in case
-    #   currency_data[is.na(data_unit),
-    #                 data_unit:='LCU']
-    #   
-    #   currency_data[,
-    #                 redundancies:=length(unique(paste0(ifelse(is.na(data_value),"0",data_value),data_unit))),
-    #                 by=.(rsf_pfcbl_id,
-    #                      indicator_id,
-    #                      reporting_asof_date,
-    #                      reporting_template_row_group)]
-    #   
-    #   #if there are no redundancies, then the issue is moot.
-    #   currency_data <- currency_data[redundancies>1][order(indicator_id)]
-    #   if (!empty(currency_data)) {
-    #     
-    #   
-    #     
-    #     #if the template is uploading its local currency unit, then no need to download it
-    #     currency_units <- template$pfcbl_data[indicator_id %in% currency_indicator_ids$indicator_id,
-    #                                           .(rsf_pfcbl_id,indicator_id,reporting_asof_date,data_category,local_currency_unit=data_value)]
-    #     currency_data[,
-    #                   `:=`(local_currency_unit=as.character(NA),       #LCU of the entity (generally loan or facility)
-    #                        defined_currency_unit=as.character(NA),     #If this metric is defined as _always_ reporting in a specific currency, eg USD (rare)
-    #                        formula_calculation_unit=as.character(NA))] #Setting-specific for formulas to return values converted into this currency for this facility.
-    #     
-    #     #Priority 3: it is assumed to be the local currency
-    #     currency_data[currency_units,
-    #                   local_currency_unit:=i.local_currency_unit,
-    #                   on=.(rsf_pfcbl_id,
-    #                        reporting_asof_date)]
-    #     
-    #     #Priority 2: it is setup to calculate in this currency
-    #     currency_data[indicator_subscriptions[data_type=="currency" & is.na(formula_calculation_unit)==FALSE],
-    #                   formula_calculation_unit:=i.formula_calculation_unit,
-    #                   on=.(indicator_id)]
-    #     
-    #     #Priority 1: it must be this currency by definition of the metric
-    #     currency_data[template$rsf_indicators[data_type=="currency" & data_unit != "LCU"],
-    #                   defined_currency_unit:=i.data_unit,
-    #                   on=.(indicator_id)]
-    #     
-    #     #So if the Template uploads metric_x as 100EUR and elsewhere metric_x as 120USD: if, forexample, it is set to have a formula calculation unit as EUR
-    #     #then the metric_x 100EUR will be considered the value of record and 120USD will be the redundancy, even if the facility's base value is USD.
-    #     
-    #     #we want everyone's local currency unit to know which is our reference data versus our redundant data. (reference is reported data in the LCU value)
-    #     missing_lcu <- currency_data[is.na(local_currency_unit)]
-    #     if (!empty(missing_lcu)) {
-    #       lcu <- lapply(unique(as.character(missing_lcu$reporting_asof_date)),
-    #                     FUN=function(asof_date,mlcu) {
-    #                       lcu <- dbGetQuery(pool,"
-    #                  select distinct on (lcu.for_rsf_pfcbl_id)
-    #                    lcu.for_rsf_pfcbl_id as rsf_pfcbl_id,
-    # 									 lcu.data_unit_value,
-    # 									 lcu.reporting_asof_date as lcu_current_date
-    # 								 from p_rsf.rsf_data_current_lcu lcu
-    # 								 where lcu.for_rsf_pfcbl_id = any(select unnest(string_to_array($2::text,','))::int)
-    # 									 and lcu.reporting_asof_date <= $1::date
-    # 								 order by lcu.for_rsf_pfcbl_id,lcu.reporting_asof_date desc",
-    #                                         params=list(asof_date,
-    #                                                     paste0(unique(mlcu$rsf_pfcbl_id),collapse=",")))
-    #                       lcu$reporting_asof_date <- as.Date(asof_date)
-    #                       lcu
-    #                     },mlcu=missing_lcu)
-    #       lcu <- rbindlist(lcu)
-    #       lcu[,
-    #           joincondition:=as.character(NA)]
-    #       currency_data[lcu,
-    #                     local_currency_unit:=i.data_unit_value,
-    #                     on=.(rsf_pfcbl_id,
-    #                          reporting_asof_date)]
-    #       
-    #       if (!empty(currency_data[is.na(local_currency_unit)])) {
-    #         stop("Redundant data reported and failed to resolve local currency units")
-    #       }
-    #     }
-    #     
-    #     currency_data[data_unit=="LCU",
-    #                   data_unit:=local_currency_unit]
-    #     currency_data[,
-    #                   unit_ratio:=paste0(data_unit,"/",local_currency_unit)]
-    #     currency_data[,
-    #                   fx_ratio:=as.numeric(NA)]
-    #     currency_data[data_unit==local_currency_unit,
-    #                   fx_ratio:=1]
-    #     
-    #     ratios[,joincondition:=as.numeric(NA)]
-    #     
-    #     fx_ratios <- rbindlist(list(ratios[,.(reporting_asof_date,data_value=as.numeric(data_value),data_unit)],
-    #                                 ratios[,.(reporting_asof_date,
-    #                                           data_value=1/as.numeric(data_value),
-    #                                           data_unit=paste0(to_currency,"/",from_currency))]))
-    #     currency_data[fx_ratios,
-    #                   fx_ratio:=i.data_value,
-    #                   on=.(reporting_asof_date,
-    #                        unit_ratio=data_unit)]
-    #     
-    #     if (anyNA(currency_data$fx_ratio)) {
-    #       stop("Soren TODO: lookup fx ratios that are not reported in dataset for comparing redundant reported indicators")
-    #     }
-    #     
-    #     currency_data[,
-    #                   fx_value:=round(as.numeric(data_value)*fx_ratio,CALCULATIONS_ENVIRONMENT$SIG_DIGITS)]
-    #     
-    #     currency_data[,
-    #                   unredundancies:=length(unique(fx_value)),
-    #                   by=.(rsf_pfcbl_id,
-    #                        indicator_id,
-    #                        reporting_asof_date,
-    #                        reporting_template_row_group)] #redundancy not restricted to reporting_template_row_group
-    #     
-    #     #not redundant at CURRENT FX rates
-    #     if (any(currency_data$unredundancies==1)) {
-    #       equal_currency_data <- currency_data[unredundancies==1]
-    #       
-    #       equal_currency_data[,
-    #                           redundancy_priority:=fcase(data_unit==defined_currency_unit,1,
-    #                                                      data_unit==formula_calculation_unit,2,
-    #                                                      data_unit==local_currency_unit,3,
-    #                                                      default=4)]
-    #       equal_currency_data[,
-    #                           is_calculated:=FALSE]
-    #       
-    #       equal_currency_data[indicator_subscriptions[is_calculated==TRUE],
-    #                     is_calculated:=TRUE,
-    #                     on=.(indicator_id)]
-    #       
-    #       #given group .by below, will put indicators _in the same row group_ in the order first of refernece_data and then in order of data_id (order of appearance)
-    #       setorder(equal_currency_data,
-    #                is_calculated,   #reported data is priority over calculated data as uncalculated is 0/FALSE and calcualted is 1/TRUE
-    #                redundancy_priority,
-    #                reporting_template_data_rank)
-    #       
-    #       equal_currency_data[,
-    #                           omit:=(1:.N)>1,
-    #                           by=.(rsf_pfcbl_id,
-    #                                indicator_id,
-    #                                reporting_asof_date,
-    #                                reporting_template_row_group)]
-    #       
-    #       redundancies <- equal_currency_data[,
-    #                                 .(message=paste0("Multiple values reported ",paste0("{",data_submitted,"}",collapse=" & "),
-    #                                                  " are equal in current-FX terms. Saving {",data_submitted[omit==FALSE],"} and discarding redundancies")),
-    #                                 by=.(rsf_pfcbl_id,
-    #                                      indicator_id,
-    #                                      reporting_asof_date,
-    #                                      reporting_template_row_group,
-    #                                      indicator_name)]
-    #       
-    #       template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
-    #                                                        redundancies[,.(rsf_pfcbl_id,
-    #                                                                        indicator_id,
-    #                                                                        reporting_asof_date,
-    #                                                                        check_name="sys_flag_multiple_data_points_reported",
-    #                                                                        check_message=message)]))
-    #       #currency_data[omit==F]
-    #       #omitting it because it's identical, so no need to flag
-    #       template$pfcbl_data <- template$pfcbl_data[!(reporting_template_data_rank %in% equal_currency_data[omit==TRUE,reporting_template_data_rank])]  
-    #       currency_data <- currency_data[unredundancies > 1] #these are not equal at CURRENT FX rates
-    #       equal_currency_data <- NULL
-    #     }
-    #     
-    #     #TODO: Try again by testing fx rate at parameter's last update FX rate date.
-    #   }
-    #   currency_data <- NULL
-    # }
-  }
     #duplicates per row should fail
     {
       #duplicates due to currency FX will already have been removed
@@ -1079,7 +898,33 @@ template_process <- function(pool,
       template$pfcbl_data[,ambiguous:=NULL]
       
       template$pfcbl_data <- unique(template$pfcbl_data)
-    }      
+    }
+    
+    
+    #Futures
+    {
+      futures <- template$pfcbl_data[indicator_sys_category=="entity_creation_date" & !is.na(data_value)
+      ][ymd(data_value) > (today()-1) | 
+          ymd(data_value) > reporting_asof_date]
+      if (!empty(futures)) {
+        
+        #sys_reporting_future_date
+        #max_future <- futures[data_value==max(data_value),paste0(unique(indicator_name)," ",unique(as.character(data_value)))]
+        
+        futures <- futures[,
+                           .(rsf_pfcbl_id,
+                             indicator_id,
+                             reporting_asof_date,
+                             check_name="sys_reporting_future_date",
+                             check_message=paste0(toupper(data_category)," is reported to have been created in the future on ",
+                                                  ymd(data_value),": ",
+                                                  ymd(data_value) - reporting_asof_date," DAYS _after_ the reporting date ",reporting_asof_date,
+                                                  ". Reporting cannot be based on future contractual commitments or predicted data."))]
+        template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
+                                                         futures))
+     }
+      futures <- NULL
+    }
   }
   
   #match action redundancies

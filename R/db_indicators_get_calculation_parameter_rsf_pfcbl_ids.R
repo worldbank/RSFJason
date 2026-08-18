@@ -1,34 +1,65 @@
 db_indicators_get_calculation_parameter_rsf_pfcbl_ids <- function(pool,
                                                                   rsf_pf_id,
+                                                                  calculate_rsf_pfcbl_ids,
                                                                   calculate_indicator_ids,
                                                                   calculate_asof_date) {
   
+  # parameter_rsf_pfcbl_ids <- dbGetQuery(pool,"
+  #   select distinct 
+  #     ft.to_family_rsf_pfcbl_id as parameter_rsf_pfcbl_id
+  #   from (
+  #   select distinct
+  #     req.from_rsf_pf_id,
+  #     calculation.from_rsf_pfcbl_id as calculate_from_rsf_pfcbl_id,
+  #     dce.calculation_asof_date,  
+  #     parameter_pfcbl_rank
+  #   from p_rsf.view_rsf_pf_calculation_requirements req
+  #   inner join p_rsf.rsf_data_calculation_evaluations dce on dce.rsf_pf_id = req.to_calculate_pf_id
+  #                                                        and dce.indicator_id = req.indicator_id
+  #   inner join p_rsf.rsf_pfcbl_ids calc on calc.rsf_pfcbl_id = dce.rsf_pfcbl_id
+  #   cross join lateral (values (calc.rsf_gpfcbl_family[req.formula_calculate_from_pfcbl_rank+1])) as calculation(from_rsf_pfcbl_id) 
+  #   cross join lateral unnest(req.formula_pfcbl_rank_range) as parameter_pfcbl_rank
+  #   where req.from_rsf_pf_id = $1::int
+  #     and req.indicator_id = any($2::int[])
+  #     and dce.calculation_asof_date = $3::date
+  #   ) as calc
+  #   inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = calc.calculate_from_rsf_pfcbl_id
+  #                                                    and ft.to_pfcbl_rank = parameter_pfcbl_rank
+  #   where exists(select true 
+  #                from p_rsf.rsf_pfcbl_ids params 
+  #                where params.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+  #                  and params.created_in_reporting_asof_date <= calc.calculation_asof_date)",
+  #   params=list(rsf_pf_id,
+  #               dbMakeIntArray(calculate_indicator_ids),
+  #               as.character(calculate_asof_date)))
+  
   parameter_rsf_pfcbl_ids <- dbGetQuery(pool,"
-    select distinct 
+  select distinct 
       ft.to_family_rsf_pfcbl_id as parameter_rsf_pfcbl_id
     from (
-    select distinct
-      req.from_rsf_pf_id,
-      calculation.from_rsf_pfcbl_id as calculate_from_rsf_pfcbl_id,
-      dce.calculation_asof_date,  
-      parameter_pfcbl_rank
-    from p_rsf.view_rsf_pf_calculation_requirements req
-    inner join p_rsf.rsf_data_calculation_evaluations dce on dce.rsf_pf_id = req.to_calculate_pf_id
-                                                         and dce.indicator_id = req.indicator_id
-    inner join p_rsf.rsf_pfcbl_ids calc on calc.rsf_pfcbl_id = dce.rsf_pfcbl_id
-    cross join lateral (values (calc.rsf_gpfcbl_family[req.formula_calculate_from_pfcbl_rank+1])) as calculation(from_rsf_pfcbl_id) 
-    cross join lateral unnest(req.formula_pfcbl_rank_range) as parameter_pfcbl_rank
-    where req.from_rsf_pf_id = $1::int
-      and req.indicator_id = any($2::int[])
-      and dce.calculation_asof_date = $3::date
+      select distinct
+        pcf.from_rsf_pf_id,
+        calculation.from_rsf_pfcbl_id as calculate_from_rsf_pfcbl_id,
+        parameter_pfcbl_rank,
+        pcf.formula_calculate_from_pfcbl_rank
+      from p_rsf.view_rsf_pf_calculation_requirements pcf     
+      inner join p_rsf.rsf_pfcbl_ids calc on calc.rsf_pf_id = pcf.to_calculate_pf_id
+                                         and calc.pfcbl_category_rank = pcf.data_category_rank
+      cross join lateral (values (calc.rsf_gpfcbl_family[pcf.formula_calculate_from_pfcbl_rank+1])) as calculation(from_rsf_pfcbl_id) 
+      cross join lateral unnest(pcf.formula_pfcbl_rank_range) as parameter_pfcbl_rank
+      where pcf.from_rsf_pf_id = $1::int
+        and pcf.indicator_id = any($3::int[])
+        and calc.rsf_pfcbl_id = any($2::int[])
+        
     ) as calc
     inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = calc.calculate_from_rsf_pfcbl_id
                                                      and ft.to_pfcbl_rank = parameter_pfcbl_rank
     where exists(select true 
                  from p_rsf.rsf_pfcbl_ids params 
                  where params.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-                   and params.created_in_reporting_asof_date <= calc.calculation_asof_date)",
+                   and params.created_in_reporting_asof_date <= $4::date)",
     params=list(rsf_pf_id,
+                dbMakeIntArray(calculate_rsf_pfcbl_ids),
                 dbMakeIntArray(calculate_indicator_ids),
                 as.character(calculate_asof_date)))
   

@@ -61,7 +61,7 @@ show_modal_indicator_review <- function(rsf_pfcbl_id,
   
   
   if (!isTruthy(rsf_pfcbl_id)) rsf_pfcbl_id <- ""
-  if (!isTruthy(review_asof_date)) review_asof_date <- ""
+  if (!isTruthy(review_asof_date)) review_asof_date <- SELECTED_PROGRAM_VALID_REPORTING_DATES()
   
   review_asof_date <- as.character(review_asof_date)
   
@@ -194,14 +194,29 @@ observeEvent(input$action_indicator_review_start, {
   disable(id="indicator_review_reporting_date")
 
   result <- tryCatch({
-    result <- DBPOOL %>% rsf_indicators_calculate_do_test(rsf_pf_id=ifelse(all(is.na(review_rsf_pfcbl_id),na.rm=T),
-                                                                                     rsf_program_id,
-                                                                                     review_rsf_pfcbl_id),
-                                                          indicator_id=review_indicator_id,
-                                                          reporting_current_date=indicator_review_reporting_date,
-                                                          all_parameters=(method=="rec"),
-                                                          status_message=status_message)
-    result    
+    
+    if (is.na(review_rsf_pfcbl_id)) {
+      subs <- DBPOOL %>% dbGetQuery("
+        select 
+          ris.rsf_pfcbl_id
+        from p_rsf.rsf_setup_indicators ris 
+        inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ris.rsf_pfcbl_id
+        where ris.indicator_id = 157327 and ris.is_subscribed is true and ids.rsf_program_id = $1::int",
+      params=list(SELECTED_PROGRAM_ID()))
+      review_rsf_pfcbl_id <- subs$rsf_pfcbl_id
+    }
+    
+    results <- NULL
+    for (cid in review_rsf_pfcbl_id) {
+      
+      nextresult <- DBPOOL %>% rsf_indicators_calculate_do_test(rsf_pf_id=cid,
+                                                            indicator_id=review_indicator_id,
+                                                            reporting_current_date=indicator_review_reporting_date,
+                                                            all_parameters=(method=="rec"),
+                                                            status_message=status_message)
+      results <- rbindlist(list(results,nextresult))
+    }
+    results
   },
   error = function(err) {
     status_message(class="error",

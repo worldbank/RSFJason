@@ -100,7 +100,9 @@ db_program_create <- function(pool,
                                      pfcbl_category,
                                      pfcbl_category_rank,
                                      created_by_reporting_cohort_id,
-                                     created_in_reporting_asof_date)
+                                     created_in_reporting_asof_date,
+                                     rsf_pf_id,
+                                     rsf_gpfcbl_family)
        select 
          $1::int,
          $1::int as rsf_program_id,
@@ -111,7 +113,9 @@ db_program_create <- function(pool,
          rpc.pfcbl_category,
          rpc.pfcbl_rank,
          $2::int as created_by_reporting_cohort_id,
-         $3::date as created_in_reporting_asof_date
+         $3::date as created_in_reporting_asof_date,
+         $1::int as rsf_pf_id,
+         array[0,$1::int]::int[] as rsf_gpfcbl_family
        from p_rsf.rsf_pfcbl_categories rpc
        where rpc.pfcbl_category = 'program'
        returning rsf_pfcbl_id,rsf_program_id",

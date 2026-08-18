@@ -219,6 +219,13 @@ db_indicators_get_header_actions <- function(pool,
   header_actions[,label_header_id:=.GRP,
                  by=.(header_id)]
   
+  header_actions[,
+                 map_indicator_data_category:=as.character(NA)]
+  
+  header_actions[rsf_indicators,
+                 map_indicator_data_category:=i.data_category,
+                 on=.(map_indicator_id=indicator_id)]
+  
  return (header_actions)
 }
  

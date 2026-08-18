@@ -6,6 +6,9 @@ LOAD_RSF_PFCBL_IDS <- reactiveVal(0)
 LOAD_VALID_REPORTING_DATE <- reactiveVal(NA)
 REFRESH_PROGRAM_INDICATORS <- reactiveVal(0)
 
+USER_URL_PARAMETERS <- eventReactive(session$clientData$url_search, {
+  parseQueryString(session$clientData$url_search)
+})
 
 USER_PROGRAMS <- eventReactive(c(LOGGEDIN(),
                                  LOAD_PROGRAM_ID()), {
@@ -278,7 +281,10 @@ observeEvent(input$server_programs__selected_facility, {
   
 },ignoreNULL = FALSE,ignoreInit = TRUE)
 
-observeEvent(LOGGEDIN(), {
+observeEvent(c(LOGGEDIN(),USER_URL_PARAMETERS()), {
+  
+  if (!LOGGEDIN()) return (NULL)
+  
   selected_facility <- DBPOOL %>% dbGetQuery("
     select 
       ids.rsf_pfcbl_id,
@@ -291,6 +297,44 @@ observeEvent(LOGGEDIN(), {
       and ust.setting_name = 'server_programs__selected_facility'",
     params=list(USER_ID()))
   
+  query <- USER_URL_PARAMETERS()
+  cat(paste0("USER_URL_PARAMETERS()=",names(query),"\n"))
+
+  if (length(query)) {
+    qids <- suppressWarnings(as.numeric(trimws(names(query))))
+    qids <- qids[!is.na(qids)]
+    
+    if (length(qids)) {
+      qid <- DBPOOL %>% dbGetQuery("
+        select 
+          ids.rsf_pfcbl_id,
+          ids.rsf_program_id,
+          ids.rsf_facility_id
+        from p_rsf.rsf_data_current_names_and_ids nids
+        inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = nids.rsf_pfcbl_id
+        where nids.id = trim($1::text)
+        
+        union all
+        
+        select 
+          ids.rsf_pfcbl_id,
+          ids.rsf_program_id,
+          ids.rsf_facility_id
+        from p_rsf.rsf_pfcbl_ids ids
+        where ids.rsf_pfcbl_id = $1::int
+        ",
+        params=list(qids[[1]]))
+      
+      if (!empty(qid)) {
+        
+        selected_facility <- qid[1,]
+        
+      }
+    }
+    
+    
+  }
+
   if (!empty(selected_facility)) {
     
     f_id <- as.numeric(selected_facility$rsf_facility_id)
@@ -302,4 +346,17 @@ observeEvent(LOGGEDIN(), {
                       inputId="server_programs__selected_program",
                       selected=selected_facility$rsf_program_id)
   }
-},ignoreInit=TRUE)
+  
+  
+  if (any(toupper(names(query))=="QR",na.rm=T)) {
+    upnum <- suppressWarnings(as.numeric(input$action_template_upload_new))
+    if (!length(upnum) || all(is.na(upnum))) {
+      upnum <- 1
+    } else {
+      upnum <- upnum +1
+    }
+    
+    shinyjs::runjs(paste0("Shiny.setInputValue(\"action_template_upload_new\",",upnum,",{priority:\"event\"})"))
+  }
+  
+},ignoreInit=TRUE,ignoreNULL=FALSE)

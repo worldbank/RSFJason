@@ -428,8 +428,15 @@ rsf_indicators_calculate <- function(pool,
                      grouping_count=.N),
                 by=c(grouping_cols)]
       
-      grouping_cols <- c("reporting_current_date","grouping","rsf_pfcbl_id")
+      #2026-AUG-17: this is adding rsf_pfcbl_id to everything ... this has been here a long time and seems like a serious efficiency error??
+      #Seems like it was intended to be inserted below?
+      #changed from c("reporting_current_date","grouping","rsf_pfcbl_id")
+      #to c("reporting_current_date","grouping")
+      grouping_cols <- c("reporting_current_date","grouping")
+      
       if (!is.na(calculation$formula_grouping_pfcbl_rank)) {
+        
+        grouping_cols <- c(grouping_cols,"rsf_pfcbl_id")
         #Column names that are equal-to or parent-level from the current grouping-level
         #These columns will be passed to the data.table by() clause and ensure that any aggregate functions will see them only onces and not count/sum repeated rows
         grouped_parameters <- parameters[!(parameter_variable %in% c("all","conflicts"))][rsf_indicators[indicator_pfcbl_rank <= calculation$formula_grouping_pfcbl_rank,

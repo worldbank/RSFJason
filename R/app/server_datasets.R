@@ -471,7 +471,8 @@ IMPORT_SELECTED <- eventReactive(c(IMPORT_SELECTED_ID(),
         
         incProgress(amount=0.25,message="Rechecking data...")
         DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
-                                     rsf_pfcbl_id.family=selected_import$import_rsf_pfcbl_id,
+                                     rsf_pf_id=selected_import$import_rsf_pfcbl_id,
+                                     for_import_id=selected_import$import_id,
                                      check_future=FALSE,
                                      check_consolidation_threshold=NA,
                                      reference_asof_date=selected_import$reporting_asof_date,
@@ -558,7 +559,14 @@ IMPORT_FLAGS_SELECTED <- eventReactive(IMPORT_SELECTED(), {
         ic.check_type,
         coalesce(scc.config_check_class,ic.check_class) as check_class,
         rdc.check_status,
-        (rdc.check_status_comment is NULL)::bool as is_new_status,
+        
+        rdc.check_status is not distinct from 'active' AND
+          (rdc.check_status_comment is NULL 
+           or 
+           scc.config_time is not distinct from rdc.status_time
+          )::bool 
+        as is_new_status,
+        
         sis.is_subscribed,
         sis.formula_id as indicator_formula_id,
         sis.is_calculated as formula_is_calculated,
@@ -585,19 +593,15 @@ IMPORT_FLAGS_SELECTED <- eventReactive(IMPORT_SELECTED(), {
       left join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
       
       left join p_rsf.indicator_check_formulas indcf on indcf.check_formula_id = rdc.check_formula_id
-      
-      left join p_rsf.view_rsf_setup_check_config scc on scc.rsf_pfcbl_id = rdc.rsf_pfcbl_id
-                                                     and scc.for_indicator_id = rdc.indicator_id
-                                                     and scc.indicator_check_id = rdc.indicator_check_id
-                                                     and scc.check_formula_id is not distinct from rdc.check_formula_id
+      left join p_rsf.rsf_setup_checks_config scc on scc.config_id = rdc.config_id
       left join p_rsf.view_indicator_checks_data_is_correctable dic on dic.check_formula_id is not distinct from rdc.check_formula_id 
                                                                    and dic.correctable_indicator_id = rdc.indicator_id
                                                      
-      where rc.reporting_rsf_pfcbl_id in (select distinct unnest(array[ids.rsf_program_id,ids.rsf_facility_id,ids.rsf_client_id])
-                                          from p_rsf.reporting_cohorts rcb 
-                                          inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rcb.reporting_rsf_pfcbl_id
-                                          where rcb.import_id = $1::int 
-                                            and rcb.is_reported_cohort is true)
+      where rc.reporting_rsf_pfcbl_id in (select x.rsf_pfcbl_id
+                                          from p_rsf.reporting_imports ri
+                                          inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ri.import_rsf_pfcbl_id
+                                          cross join lateral (values (ids.rsf_program_id),(ids.rsf_facility_id)) as x(rsf_pfcbl_id)
+                                          where ri.import_id = $1::int)
                                             
                                             --changed because a PROGRAM uploading a FACILITY and triggering calculatins would pull-in calculated data for other facilities
                                             --(select distinct reporting_rsf_pfcbl_id from p_rsf.reporting_cohorts rc where import_id = ::int)
@@ -1090,7 +1094,9 @@ observeEvent(input$action_cohort_delete, {
        select distinct
          pf.rsf_pf_id,
          sn.rsf_pfcbl_id,
-         sn.pfcbl_name
+         sn.pfcbl_name,
+         rpc.pfcbl_rank as pfcbl_category_rank,
+         ids.rsf_program_id
        from p_rsf.reporting_imports ri
        inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ri.import_rsf_pfcbl_id
        cross join lateral (values (ids.rsf_facility_id),
@@ -1100,21 +1106,7 @@ observeEvent(input$action_cohort_delete, {
        where ri.import_id = any($1::int[])
        order by rpc.pfcbl_rank desc",
        params=list(dbMakeIntArray(delete_import_ids)))                                              
-       
-       # affected_ids <- DBPOOL %>% dbGetQuery("select distinct 
-       #                                          ri.import_rsf_pfcbl_id,
-       #                                          ri.reporting_asof_date,
-       #                                          ids.pfcbl_category_rank as pfcbl_rank,
-       #                                          ids.rsf_program_id,
-       #                                          ids.rsf_facility_id,
-       #                                          sn.pfcbl_name
-       #                                        from p_rsf.reporting_imports ri
-       #                                        inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ri.import_rsf_pfcbl_id
-       #                                        inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ids.rsf_pfcbl_id
-       #                                        where ri.import_id = any($1::int[])",
-       #                                        params=list(dbMakeIntArray(delete_import_ids)))
-       # 
-       
+    
        setDT(affected_ids)
 
        if (empty(affected_ids)) {
@@ -1134,16 +1126,11 @@ observeEvent(input$action_cohort_delete, {
        DBPOOL %>% dbExecute("insert into p_rsf.reporting_imports_deleted_archive(import_id,
                                                                                  deleting_user_id)
                              select
-                               unnest(string_to_array($1::text,','))::int,
+                               unnest($1::int[])::int,
                                $2::text",
-                            params=list(paste0(delete_import_ids,collapse=","),
+                            params=list(dbMakeIntArray(delete_import_ids),
                                         USER_ID()))
-       
-     
-       # all_ids <- na.omit(unlist(unique(affected_ids[,.(import_rsf_pfcbl_id,
-       #                                                  rsf_program_id,
-       #                                                  rsf_facility_id)])))
-       
+
        #If program doesnt exist after delete then it means we've deleted the entire program
        stillexists <- DBPOOL %>% dbGetQuery("select distinct ids.rsf_pfcbl_id
                                              from p_rsf.rsf_pfcbl_ids ids
@@ -1151,72 +1138,70 @@ observeEvent(input$action_cohort_delete, {
                                                and ids.pfcbl_category_rank <= 2",
                                              params=list(dbMakeIntArray(affected_ids$rsf_pfcbl_id)))
 
-       affected_ids[rsf_pfcbl_id %in% stillexists$rsf_pfcbl_id]
+       affected_ids[,exists:=FALSE]
+       affected_ids[rsf_pfcbl_id %in% stillexists$rsf_pfcbl_id,
+                    exists:=TRUE]
 
        if (!any(affected_ids$exists==TRUE,na.rm=T)) {
          LOAD_PROGRAM_ID((-program_id))
          
-       } else {
-         
-         incProgress(amount=0.20,
-                     message="Recalculating affected data . . . ")
-         
-         
-       }
-
-       # affected_ids <- affected_ids[exists==TRUE,
-       #                              .(limit_date=max(reporting_asof_date),
-       #                                pfcbl_name=pfcbl_name[[1]]),
-       #                              by=.(import_rsf_pfcbl_id)]
+       } 
        
-       for (rnum in 1:nrow(affected_ids)) {
-         
-         who <- affected_ids[rnum]
-         
-
-         # limit_date <- DBPOOL %>% dbGetQuery("select max(reporting_asof_date)::text as limit_date
-         #                                      from p_rsf.reporting_imports ri
-         #                                      where ri.import_rsf_pfcbl_id = $1::int
-         #                                        and ri.reporting_asof_date <= $2::date",
-         #                                     params=list(who$import_rsf_pfcbl_id,
-         #                                                 who$limit_date))
-         # 
-         # if (empty(limit_date)) next;
-         # 
-         # limit_date <- ymd(limit_date$limit_date)
-         
-         progress_status_message <- function(class,...) {
-           dots <- list(...)
-           dots <- paste0(unlist(dots),collapse=" ")
-           incProgress(amount=0,
-                       message=paste0("Recalculating affected ",who," data: ",dots))
-         }
-         
-         DBPOOL %>% rsf_program_calculate(rsf_indicators = RSF_INDICATORS(),
-                                          rsf_pf_id = who$rsf_pf_id,
-                                          for_import_id=NA,
-                                          calculate_future=FALSE,
-                                          reference_asof_date=limit_date,
-                                          status_message=progress_status_message)
-         
-         incProgress(amount=(0.30/(1/nrow(affected_ids))),
-                     message=paste0("Rechecking affected data . . . "))
-
-         progress_status_message <- function(class,...) {
-           dots <- list(...)
-           dots <- paste0(unlist(dots),collapse=" ")
-           incProgress(amount=0,
-                       message=paste0("Rechecking affected ",who," data: ",dots))
-         }
-
-         DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
-                                      rsf_pfcbl_id.family=who$rsf_pf_id,
-                                      check_future=FALSE,
-                                      reference_asof_date=limit_date,
-                                      check_consolidation_threshold=NA,
-                                      status_message= progress_status_message)
-       
-       }
+       # July 2020
+       # I took out all this code to recalculate and re-check.
+       # If there's pending stuff we want to validate it, of course! That's why it's here.
+       # On the other hand, deletes occur because users want to correct/refresh a dataset.
+       # And now the dashboard's get_data_current() function will check if there are pending evaluations.  So even if the users
+       # immediately after the delete then tries to run a report, the data will be revalidated then.  Basically, we don't need the user to 
+       # wait re-calculations and re-checks after delete because they can't experience an issue that results from stale data: if they re-view and refresh
+       # the list, it will recalculate.  And if they try to access any data from a report, it will refresh.  And next they upload the corrected dataset,
+       # it will refresh.  So it's actuallay for evaluations to simply be left pending.
+       #
+       # else {
+       #   
+       #   incProgress(amount=0.20,
+       #               message="Recalculating affected data . . . ")
+       #   
+       #   
+       # }
+       # for (rnum in 1:nrow(affected_ids)) {
+       #   
+       #   who <- affected_ids[rnum]
+       #   
+       #   limit_date <- max(who$reporting_asof_date)
+       #   
+       #   progress_status_message <- function(class,...) {
+       #     dots <- list(...)
+       #     dots <- paste0(unlist(dots),collapse=" ")
+       #     incProgress(amount=0,
+       #                 message=paste0("Recalculating affected ",who$pfcbl_name," data: ",dots))
+       #   }
+       #   
+       #   DBPOOL %>% rsf_program_calculate(rsf_indicators = RSF_INDICATORS(),
+       #                                    rsf_pf_id = who$rsf_pf_id,
+       #                                    for_import_id=NA,
+       #                                    calculate_future=FALSE,
+       #                                    reference_asof_date=limit_date,
+       #                                    status_message=progress_status_message)
+       #   
+       #   incProgress(amount=(0.30/(1/nrow(affected_ids))),
+       #               message=paste0("Rechecking affected data . . . "))
+       # 
+       #   progress_status_message <- function(class,...) {
+       #     dots <- list(...)
+       #     dots <- paste0(unlist(dots),collapse=" ")
+       #     incProgress(amount=0,
+       #                 message=paste0("Rechecking affected ",who$pfcbl_name," data: ",dots))
+       #   }
+       # 
+       #   DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
+       #                                rsf_pf_id=who$rsf_pf_id,
+       #                                check_future=FALSE,
+       #                                reference_asof_date=limit_date,
+       #                                check_consolidation_threshold=NA,
+       #                                status_message= progress_status_message)
+       # 
+       # }
        incProgress(amount=1,message="Done")
      })
 

@@ -29,7 +29,11 @@ db_data_get_current <- function(pool,
     where ft.from_rsf_pfcbl_id = any($1::int[])
       and ft.pfcbl_hierarchy <> 'child'
       and dce.calculation_asof_date <= $2::date
-    group by ids.rsf_program_id,ft.from_rsf_pfcbl_id,ids.pfcbl_category_rank
+    group by 
+      ids.rsf_program_id,
+      ids.rsf_pf_id,
+      ft.from_rsf_pfcbl_id,
+      ids.pfcbl_category_rank
     order by ids.pfcbl_category_rank desc",
                       params=list(dbMakeIntArray(c(0,rsf_pfcbl_ids.familytree)),
                                   reporting_current_date))
@@ -182,10 +186,7 @@ db_data_get_current <- function(pool,
           rdc.check_status
         from p_rsf.rsf_data_checks rdc
         inner join p_rsf.indicator_checks ic on ic.indicator_check_id = rdc.indicator_check_id
-        left join p_rsf.view_rsf_setup_check_config scc on scc.rsf_pfcbl_id = rdc.rsf_pfcbl_id
-                                                       and scc.for_indicator_id = rdc.indicator_id
-                                                       and scc.indicator_check_id = rdc.indicator_check_id
-                                                       and scc.check_formula_id is not distinct from rdc.check_formula_id
+        left join p_rsf.rsf_setup_checks_config scc on scc.config_id = rdc.config_id
         where rdc.evaluation_id = any($1::int[])
         order by 
           rdc.rsf_pfcbl_id,

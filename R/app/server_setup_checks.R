@@ -277,19 +277,21 @@ observeEvent(input$server_setup_checks__recheck_reset, {
                value=0.5,{
     DBPOOL %>% dbExecute("
       delete from p_rsf.rsf_data_check_evaluations dce
-      where dce.rsf_pfcbl_id = any(select distinct ft.to_family_rsf_pfcbl_id
-                                   from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                                   where ft.from_rsf_pfcbl_id = $1::int
-                                     and ft.pfcbl_hierarchy <> 'parent')",
+      where dce.rsf_pf_id = $1::int",
       params=list(selected_rsf_pfcbl_id))
     
     DBPOOL %>% dbGetQuery("
-      select pfc.rsf_pfcbl_id,pfc.check_formula_id,recalc
-      from p_rsf.rsf_setup_checks pfc
-      inner join lateral p_rsf.rsf_pfcbl_check_recalculate(v_rsf_pfcbl_id => pfc.rsf_pfcbl_id,
-                                                           v_check_formula_id => pfc.check_formula_id) as recalc on true
-      where pfc.rsf_pfcbl_id = $1::int
-        ad pfc.is_subscribed is true",
+      insert into p_rsf.rsf_data_check_evaluations(rsf_pfcbl_id,check_asof_date,check_formula_id,rsf_pf_id,for_import_id)
+      select distinct 
+        cer.rsf_pfcbl_id,
+        cer.check_asof_date,
+        cer.check_formula_id,
+        cer.rsf_pf_id,
+        cer.for_import_id
+      from p_rsf.view_rsf_pf_check_evaluations_required cer
+      where cer.from_rsf_pf_id = $1::int
+      on conflict 
+      do nothing;",
       params=list(selected_rsf_pfcbl_id))
   })
 },ignoreInit = TRUE)
@@ -331,7 +333,8 @@ observeEvent(input$server_setup_checks__recheck_run, {
                    
                    DBPOOL %>% rsf_program_check(rsf_program_id=SELECTED_PROGRAM_ID(),
                                                 rsf_indicators=RSF_INDICATORS(),
-                                                rsf_pfcbl_id.family=facility$rsf_pfcbl_id,
+                                                rsf_pf_id=facility$rsf_pfcbl_id,
+                                                for_import_id=NA,
                                                 check_future=TRUE,
                                                 check_consolidation_threshold=NA,
                                                 reference_asof_date=NULL,

@@ -1,9 +1,11 @@
 rsf_program_perform_checks <- function(pool=pool,
+                                       rsf_pf_id,
                                        rsf_indicators,
                                        perform_checks,
                                        perform.test = FALSE,
                                        status_message=function(...) {}) {
 
+  if (empty(perform_checks)) return (NULL)
   #if (nrow(perform_checks) != 1) { stop("Multiple perform checks not allowed") }
   # #if (!all(names(perform_checks) %in% c("indicator_check_id","for_indicator_id"))) stop("Perform checks expects a two-column data.table with indicator_check_id and for_indicator_id")
   check_asof_date <- unique(perform_checks$check_asof_date)
@@ -94,10 +96,12 @@ rsf_program_perform_checks <- function(pool=pool,
     check_rsf_pfcbl_ids <- unique(unlist(checks$check_rsf_pfcbl_ids))
     
     
-    data_rsf_pfcbl_ids <- db_checks_get_calculation_parameter_rsf_pfcbl_ids(pool=pool,
-                                                                            check_rsf_pfcbl_ids=check_rsf_pfcbl_ids,
-                                                                            check_formula_ids=unique(checks$check_formula_id),
-                                                                            check_asof_date=check_asof_date)
+    parameter_rsf_pfcbl_ids <- db_checks_get_calculation_parameter_rsf_pfcbl_ids(pool=pool,
+                                                                            rsf_pf_id=rsf_pf_id,
+                                                                            check_asof_date=check_asof_date,
+                                                                            check_formula_ids=unique(checks$check_formula_id))
+    
+    data_rsf_pfcbl_ids <- unique(c(check_rsf_pfcbl_ids,parameter_rsf_pfcbl_ids))
     # parameter_rsf_pfcbl_ids <- dbGetQuery(pool,"
     #                                           select 
     #                                             distinct cids.to_parameter_rsf_pfcbl_id as rsf_pfcbl_id
@@ -124,7 +128,8 @@ rsf_program_perform_checks <- function(pool=pool,
                                          for_pfcbl_categories = for_pfcbl_categories,
                                          rsf_indicators=rsf_indicators)
   }
-  #lobstr::obj_size(rsf_data_wide)
+  
+   #lobstr::obj_size(rsf_data_wide)
   computed_checks <- rsf_checks_calculate(pool=pool,
                                           rsf_indicators = rsf_indicators,
                                           rsf_data_wide=rsf_data_wide,

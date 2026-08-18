@@ -31,6 +31,11 @@ server_admin_checks_formulas.module_ui <- function(id,
   r_rows <- ceiling(nchar(formula_rmsg)/100)
   r_rows <- max(r_rows,(1+length(strsplit(formula_rmsg,"[[:cntrl:]]")[[1]])))
   
+  formula_var <- formula$variance_formula
+  if (!isTruthy(formula_var)) formula_var <- ""
+  v_rows <- ceiling(nchar(formula_var)/100)
+  v_rows <- max(v_rows,(1+length(strsplit(formula_var,"[[:cntrl:]]")[[1]])))
+  
   ui <- div(name="formula_box",id=ns("ui"),
             box(title=uiOutput(outputId=ns("box_formula_title")),collapsible=TRUE,collapsed=start.collapsed,width=12,
                 fluidRow(column(4,style='padding:0 3px 0 15px;',
@@ -74,6 +79,13 @@ server_admin_checks_formulas.module_ui <- function(id,
                                               rows=r_rows,
                                               value=formula_rmsg,
                                               placeholder='Please enter a "quoted" flag message text; or formula to compute a flag message...'))),
+                
+                fluidRow(column(12,style='padding:0px 15px 0 15px;',
+                                textAreaInput(inputId=ns("variance_formula"),
+                                              label="Formula Variance Methodology",
+                                              rows=v_rows,
+                                              value=formula_var,
+                                              placeholder='Leave blank by default: custom variance calculation to configure flag settings'))),
 
                 fluidRow(column(12,style='padding:0px 15px 0 15px;',
                                 textAreaInput(inputId=ns("formula_comments"),

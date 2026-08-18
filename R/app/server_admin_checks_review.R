@@ -170,7 +170,7 @@ observeEvent(input$server_admin_checks_review__test_start, {
   if (!isTruthy(check_test_reporting_date)) return (showNotification(type="error",h3("Reporting date must be selected")))
   else check_test_reporting_date <- as.Date(check_test_reporting_date)
   
-  if (!isTruthy(test_rsf_pfcbl_ids)) test_rsf_pfcbl_ids <- NULL
+  if (!isTruthy(test_rsf_pfcbl_ids)) test_rsf_pfcbl_ids <- NA
   
   disable(id="server_admin_checks_review__test_start")
   disable(id="server_admin_checks_review__test_facilities_list")
@@ -179,8 +179,7 @@ observeEvent(input$server_admin_checks_review__test_start, {
   status_message(class="info","Starting test.  This may take a few moments...\n")
   
   result <- tryCatch({
-    DBPOOL %>% rsf_checks_do_test(rsf_program_id=rsf_program_id,
-                                  pfcbl_ids.familytree=test_rsf_pfcbl_ids,
+    DBPOOL %>% rsf_checks_do_test(rsf_pf_ids=test_rsf_pfcbl_ids,
                                   reporting_current_date=check_test_reporting_date,
                                   check_formula_id=test_check_formula_id)
   },

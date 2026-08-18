@@ -197,10 +197,14 @@ parse_template_IFC_QR2025 <- function(pool,
   {
     if (!file.exists(template_file)) stop(paste0("Uh oh! File '",template_file,"' doesn't exist!"))
     if (!file_ext(template_file) %in% "xlsx") stop("Only .xlsx files using Excel-365 versions or later may use this template")
-    if ((file.info(template_file)$size / 1024^2) > 350) {
+    if ((file.size(template_file) / 1024^2) > 35) {
       stop(paste0("Uh oh! This file is ",round(file.info(template_file)$size / 1024^2,2),"MB! This exceeds the 35MB limit (and it surely also exceeds IFC and client email server limits, which will prevent you from communicating this data with the client). ",
-                  "Most likely, your file unnecessarily large and Excel can reduce the size considerably (like deleting unused formats).  Ask Copilot Excel how to ",
-                  "reduce this file size and re-save it. ",
+                  "Most likely, your file unnecessarily is large and Excel can reduce the size considerably (like deleting unused formats).  Ask Copilot Excel how to ",
+                  "reduce this file size and re-save it or try going to: \n",
+                  "- Review tab \n",
+                  "- Check Performance button \n",
+                  "- Optimize Workbook \n",
+                  "> Then also see if formats are filled-out for the entire workbook--and if so, highlight unused cells and 'clear formats'",
                   "However, if all the data here is truly necessary for upload, re-save as a .csv the quarterly report file and use Jason's csv file upload method instead (",
                   "the qreport headers need to be on row 1 of the .csv file and the project ID number needs to be in the file name of the .csv file"))
     }
@@ -216,15 +220,7 @@ parse_template_IFC_QR2025 <- function(pool,
     #https://github.com/ycphs/openxlsx/issues/124
     
     excelwb <- suppressWarnings(openxlsx2::wb_load(template_file))
-    # excelwb <- tryCatch({
-    #   openxlsx2::wb_load(template_file)
-    # },
-    # error = function(e) { 
-    #   stop(conditionMessage(e))
-    # },
-    # warning = function(w) { 
-    #   suppressWarnings(openxlsx2::wb_load(template_file))
-    # })
+    
     
     sheetCURRENTFLAGS <- "Current Flags"
     nregions_table <- openxlsx2::wb_get_named_regions(excelwb)
@@ -356,7 +352,11 @@ parse_template_IFC_QR2025 <- function(pool,
    
     #Load the data sheets (and their formulas)  
     {
-      template_headers <- NULL
+      template_headers <- data.table(label=character(0),
+                                     label_formula=character(0),
+                                     data_source_index=character(0),
+                                     indicator_id=numeric(0))
+      
       
       #Summary tab
       {
@@ -401,10 +401,20 @@ parse_template_IFC_QR2025 <- function(pool,
         data_sheet <- openxlsx2::read_xlsx(excelwb,sheet=dataSheet,row_names=F,col_names=F,detect_dates=T)
         setDT(data_sheet)
         
+        for (col in names(data_sheet)) {
+          if (is.character(data_sheet[[col]])) next;
+          set(data_sheet, j = col, value = as.character(data_sheet[[col]]))
+        }
+        
         QREPORT_data_dims <- dim(data_sheet)
         
         data_formula_matrix <- openxlsx2::wb_to_df(excelwb,sheet=dataSheet,row_names=F,col_names=F,show_formula=T)
         setDT(data_formula_matrix)
+        
+        for (col in names(data_formula_matrix)) {
+          if (is.character(data_formula_matrix[[col]])) next;
+          set(data_formula_matrix, j = col, value = as.character(data_formula_matrix[[col]]))
+        }
         
         if (!all(dim(data_formula_matrix) == dim(data_sheet))) {
           stop("QReport data sheet data and formulas are mismatched")
@@ -566,13 +576,14 @@ parse_template_IFC_QR2025 <- function(pool,
       #ifcpid <- names(openxlsx2::wb_to_df(excelwb, named_region = "IFC_ProjectID"))
       #ifcpid <- nregions_table[range_name=="",range_value]
       ifcpid <- unlist(nregions_table[grepl("IFC_ProjectID",name,ignore.case=T),data_value])
+      ifcpn <-  unlist(nregions_table[grepl("IFC_ClientName",name,ignore.case=T),data_value])
       project_id <- as.numeric(gsub("[^[:digit:]]+","",ifcpid))
       
-      
-      
+
       if (length(project_id)==0 || is.na(project_id)) {
         stop(paste0("Failed to identify IFC Project ID number from defined name RSA_IFCProjectID.  Read-in value: ",project_id," from: ",ifcpid))
       }
+      
       rsf_pfcbl_id <- dbGetQuery(pool,"
                                       select distinct
                                       cni.rsf_pfcbl_id
@@ -580,9 +591,27 @@ parse_template_IFC_QR2025 <- function(pool,
                                       where id = $1::text
                                         and cni.pfcbl_category = 'facility'",
                                   params=list(project_id))
+      
+      
       if (nrow(rsf_pfcbl_id) != 1) {
-          stop(paste0("Failed to uniquely match IFC Project ID from Project ID defined in template: '",ifcpid,"'.  Has this IFC Facility been setup?"))
+        
+        rsf_pfcbl_id <- dbGetQuery(pool,"
+          select distinct
+            rd.rsf_pfcbl_id
+          from p_rsf.rsf_data rd
+          inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rd.rsf_pfcbl_id
+          inner join p_rsf.indicators ind on ind.indicator_id = rd.indicator_id
+                                         and ind.indicator_sys_category in ('id','name')
+          where (rd.data_value = trim($1::text) or rd.data_value = trim($2::text))
+            
+            and ids.pfcbl_category = 'facility'",
+                                   params=list(ifcpid,ifcpn))
+        
+        if (nrow(rsf_pfcbl_id) != 1) {
+          stop(paste0("Failed to uniquely match IFC Project ID from Project ID defined in template: '",ifcpid," ",ifcpn,"'.  Has this IFC Facility been setup?"))
+        }
       }
+      
       rsf_pfcbl_id$rsf_pfcbl_id #need this here to return it from the anonamous function
     }
     
@@ -740,6 +769,7 @@ parse_template_IFC_QR2025 <- function(pool,
         template_headers <- rbindlist(list(template_headers,
                                            list_sheet[!is.na(map_indicator_id),
                                                          .(label=name,
+                                                           label_formula=as.character(NA),
                                                            data_source_index=paste0("Template Sheet defined name ",name),
                                                            indicator_id=map_indicator_id)]))
       }
@@ -987,12 +1017,19 @@ parse_template_IFC_QR2025 <- function(pool,
       label_cols <- sapply(label_matches,
                            function(x) length(unlist(x)),
                            USE.NAMES = TRUE)
-
+      
       if (length(label_cols[label_cols > 0]) == 0) stop("Failed to indicator labels in the template Summary sheet: Expected on Column B")
-      if (which.max(label_cols) != 2) stop("Indicators are expected in Column B (and Column A may be used for multi-language labeling).  However, labels appear to be entered primarily elsewhere?")
+      
+      #Here, 2 refers to 2nd column, ie Colunm B.
+      if (which.max(label_cols) != 2) stop("Indicators are expected in Column B (and Column C may be used for multi-language labeling).  However, labels appear to be entered primarily elsewhere?")
       
       
-      label_cols <- label_cols[which(names(label_cols) %in% c("A","B","C"))] #only columns where labels are allowed
+      label_cols <- label_cols[which(names(label_cols) %in% c("B","C"))] #only columns where labels are allowed
+      
+      #Ignore if no labels
+      if (label_cols[2]==0) label_cols <- label_cols[-2]
+      if (label_cols[1]==0) label_cols <- label_cols[-1]
+      
       #label_cols <- label_cols[which(names(label_cols) %in% c("B"))] #only check B (the defined names are separately checked)
       label_cols_index <- which(names(label_matches) %in% names(label_cols))
       
@@ -1053,6 +1090,8 @@ parse_template_IFC_QR2025 <- function(pool,
                                           map_formula_id,
                                           map_check_formula_id)]
       
+      #If col "C" has been omitted due to being blank or hidden, etc it will be pulled back in here, but not have label matches included
+      #And therefore the label matches have been matched only against B.
       data_cols <- names(summary_sheet)[c(2,3,4,5)] #Cols B,C,D,E
       data_cols <- c(data_cols,"original_row_num")
       
@@ -1062,6 +1101,12 @@ parse_template_IFC_QR2025 <- function(pool,
       summary_sheet <- summary_sheet[,
                                      ..data_cols]
       
+      #NOTE!
+      #Column defined_name expects,by default, to have template's Defined Names
+      #As included in the Template sheet.
+      #However, users may delete these entirely (all NA) if not used/useful after setup
+      #OR 
+      #They may use this column for bi-lingual templates
       summary_sheet <- setnames(summary_sheet,
                                 old=names(summary_sheet),
                                 new=c("label",
@@ -1069,7 +1114,12 @@ parse_template_IFC_QR2025 <- function(pool,
                                       "data_unit",
                                       "data_value",
                                       "original_row_num"))
-     
+      
+      
+      #If defined name is blank entirely then it will be read-in as logical/numeric NA values and won't "melt" with character values.
+      set(summary_sheet,i=NULL,j="defined_name",value=as.character(summary_sheet$defined_name))
+      set(summary_sheet,i=NULL,j="label",value=as.character(summary_sheet$label))
+      
       summary_sheet[,data_column_num:=4]
       
       summary_sheet[,data_unit:=superTrim(data_unit,
@@ -1329,24 +1379,9 @@ parse_template_IFC_QR2025 <- function(pool,
         }        
       }
       
-      if (save_headers) {
-        template_headers <- rbindlist(list(template_headers,
-                                           summary_sheet[!is.na(map_indicator_id),
-                                                         .(label,
-                                                           data_source_index=paste0("SUMMARY ROW-",original_row_num),
-                                                           indicator_id=map_indicator_id)]))
-      }
-      
-      
-      summary_sheet <- summary_sheet[is.na(map_indicator_id)==FALSE,
-                                       .(indicator_name,
-                                         data_unit,
-                                         data_value,
-                                         original_row_num,
-                                         data_column_num)]
+     
     }
     
-    summary_sheet <- unique(summary_sheet)
     
     #If the data unit is a formula, it's probably just lazy data entry.  Make the unit equal to another cell's unit instead of retyping.
     #Unlikley that the unit is actually a calculated result.
@@ -1355,10 +1390,31 @@ parse_template_IFC_QR2025 <- function(pool,
                     if (i <= 0 || j <=0) { as.character(NA) #because List data is added as negative original row number
                     } else { x[i,j] }
                   },
-                   i=original_row_num,
-                   j=data_column_num,
-                   MoreArgs=list(x=as.matrix(summary_formula_matrix)),
-                   SIMPLIFY = TRUE)]
+                  i=original_row_num,
+                  j=data_column_num,
+                  MoreArgs=list(x=as.matrix(summary_formula_matrix)),
+                  SIMPLIFY = TRUE)]
+    
+    if (save_headers) {
+      template_headers <- rbindlist(list(template_headers,
+                                         summary_sheet[!is.na(map_indicator_id),
+                                                       .(label,
+                                                         label_formula=data_formula,
+                                                         data_source_index=paste0("SUMMARY ROW-",original_row_num),
+                                                         indicator_id=map_indicator_id)]))
+    }
+    
+    
+    summary_sheet <- summary_sheet[is.na(map_indicator_id)==FALSE,
+                                   .(indicator_name,
+                                     data_unit,
+                                     data_value,
+                                     data_formula,
+                                     original_row_num,
+                                     data_column_num)]
+    
+    summary_sheet <- unique(summary_sheet)
+    
     
     summary_sheet[,
                   reporting_template_row_group:='1SUMMARY']
@@ -1423,10 +1479,6 @@ parse_template_IFC_QR2025 <- function(pool,
     
     {
       QREPORT_startrow <- nregions_table[grepl("Template_QReport_StartRow",name,ignore.case=T),data_value]
-#       QREPORT_startrow <- names(openxlsx2::wb_to_df(excelwb,
-#                                 named_region = "Template_QReport_StartRow"))
-# 
-# #      QREPORT_startrow <- as.numeric(names(openxlsx2::wb_to_df(excelwb, named_region = "Template_QREPORT_startrow")))
 
       if (!length(QREPORT_startrow) || 
           suppressWarnings(is.na(as.numeric(QREPORT_startrow)))) {
@@ -1468,7 +1520,7 @@ parse_template_IFC_QR2025 <- function(pool,
       if (which.max(label_rows) != (QREPORT_startrow-1)) stop(paste0("Template defined name Template_qreport_startrow specifies QReport headers start on ROW ",(QREPORT_startrow-1),
                                                                      ". But most headers are on ROW ",which.max(label_rows),
                                                                      ". Has the template been modified or corrupted? Otherwise, ensure headers are on ROW ",QREPORT_startrow-1," and facility ",
-                                                                     "data starts ",QREPORT_startrow))
+                                                                     "data starts ",QREPORT_startrow,".  If this is a bi-lingual template, non-English headers may be added in rows 2 or 3 and/or modify the default headers and section titles on these rows.  However, the english headers are expected to be on Row ",(QREPORT_startrow-1)," and the QR data is expected to start on Row ",(QREPORT_startrow)))
       
       
       label_rows <- label_rows[label_rows > 0]
@@ -1809,6 +1861,7 @@ parse_template_IFC_QR2025 <- function(pool,
         template_headers <- rbindlist(list(template_headers,
                                            unique(data_labels[!is.na(map_indicator_id),
                                                          .(label,
+                                                           label_formula=as.character(NA),
                                                            data_source_index=paste0("QReport COL-",original_col_num),
                                                            indicator_id=map_indicator_id)])))
       }
@@ -1923,12 +1976,46 @@ parse_template_IFC_QR2025 <- function(pool,
     
     #empty rows (of the excel sheet), not columns
     empty_rows <- data_sheet[,
-                             .(blank=all(is.na(reporting_submitted_data_value) | nchar(reporting_submitted_data_value)==0)),
+                             .(blank=all(is.na(reporting_submitted_data_value) | nchar(superTrim(reporting_submitted_data_value))==0)),
                              by=.(reporting_template_row_group)
                              ][blank==T,reporting_template_row_group]
     
     data_sheet <- data_sheet[!(reporting_template_row_group %in% empty_rows)]
     
+    
+    empty_ids <- data_sheet[rsf_indicators[,.(indicator_sys_category,indicator_name)],
+                            on=.(indicator_name)
+                            ][!is.na(indicator_sys_category),
+                              .(noids=all(is.na(reporting_submitted_data_value) | nchar(superTrim(reporting_submitted_data_value))==0)),
+                              by=.(reporting_template_row_group)
+                              ][noids==TRUE,
+                                reporting_template_row_group]
+    
+    empty_ids <- empty_ids[!is.na(empty_ids)]
+    if (length(empty_ids)) {
+      unexpected_blanks <- data_sheet[reporting_template_row_group %in% empty_ids & 
+                                        (!is.na(reporting_submitted_data_value) | 
+                                           nchar(superTrim(reporting_submitted_data_value)) > 0)]
+      
+      unexpected_blanks <- unexpected_blanks[,.(check_message=paste0(reporting_template_row_group," not uploaded because ID values eixst, unexpectedly reports data elsewhere: ",
+                                                                     paste0(
+                                                                       paste0(" '",indicator_name,"' = '",reporting_submitted_data_value,"' "),
+                                                                       collapse=" & "))),
+                                             by=.(reporting_template_row_group)]
+      
+      unexpected_blanks <- unexpected_blanks[,
+                                             .(rsf_pfcbl_id=rsf_pfcbl_id.facility,
+                                               indicator_id=as.numeric(NA),
+                                               reporting_asof_date=reporting_asof_date,
+                                               check_name="sys_reporting_data_discarded",
+                                               check_message)]
+      
+      reporting_flags <- rbindlist(list(reporting_flags,
+                                        unexpected_blanks))
+      
+      data_sheet <- data_sheet[!(reporting_template_row_group %in% empty_ids)]
+      
+    }
     #Where users have done a formula fill-down that just generically creates data without any real intention of reporting anything.
     calculation_indicators <- rsf_indicators[,
                                              .(indicator_name,
@@ -2040,7 +2127,7 @@ parse_template_IFC_QR2025 <- function(pool,
   
   
   if (!is.null(return.insert_flags)) {
-    
+
     excelwb <- clean_up_template(excelwb=excelwb)
     
     {
@@ -2601,11 +2688,14 @@ parse_template_IFC_QR2025 <- function(pool,
       
       excelwb$clean_sheet(sheetCURRENTFLAGS)
       
-      existing_tables <- excelwb$get_tables(sheet=sheetCURRENTFLAGS)$tab_name
+      existing_tables <- excelwb$get_tables(sheet=sheetCURRENTFLAGS)
       if (length(existing_tables)) {
-        for (tn in existing_tables) {
-          message(paste0(tn," already exists: removing from Current Flags"))
-          excelwb$remove_tables(sheet=sheetCURRENTFLAGS,table=tn)
+        existing_tables <- existing_tables$tab_name
+        if (length(existing_tables)) {
+          for (tn in existing_tables) {
+            message(paste0(tn," already exists: removing from Current Flags"))
+            excelwb$remove_tables(sheet=sheetCURRENTFLAGS,table=tn)
+          }
         }
       }
       

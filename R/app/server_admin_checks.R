@@ -105,6 +105,7 @@ SERVER_ADMIN_CHECKS.SELECTED_CHECK <- eventReactive(c(RSF_CHECKS(),
         icf.indicator_check_id,
         icf.formula,
         icf.formula_result_message,
+        icf.variance_formula,
         icf.formula_comments,
         coalesce(icf.auto_resolve,false) as auto_resolve,
         icf.unit_fx_method,
@@ -520,6 +521,7 @@ observeEvent(input$server_admin_checks__edit_check_add_formulas, {
                             indicator_check_id=selected_check$indicator_check_id,
                             formula=as.character(NA),
                             formula_result_message=as.character(NA),
+                            variance_formula=as.character(NA),
                             formula_comments=as.character(NA),
                             auto_resolve=FALSE,
                             unit_fx_method="calculation",
@@ -775,11 +777,11 @@ output$server_admin_checks__download_checks <- downloadHandler(
                                                      formula_subgrouping=subgrouping)]
                               
                               formulas_dt <- rbindlist(unlist(checks$formulas,recursive = F))
-                              formulas_dt <- formulas_dt[,.(ID=indicator_check_id,`Applied on Indicator`=for_indicator_name,formula,formula_result_message,auto_resolve,formula_comments)]
+                              formulas_dt <- formulas_dt[,.(ID=indicator_check_id,`Applied on Indicator`=for_indicator_name,formula,formula_result_message,variance_formula,auto_resolve,formula_comments)]
                               
                               checks_dt <- formulas_dt[checks_dt,on=.(ID),nomatch=NA]
                               setcolorder(checks_dt,neworder=c("ID","Name","Class","Applied on Indicator","Definition","is_system","is_varying","formula_grouping","formula_subgrouping",
-                                                               "formula","formula_result_message","auto_resolve","formula_comments"))
+                                                               "formula","formula_result_message","variance_formula","auto_resolve","formula_comments"))
                               
                               excelwb <- openxlsx::createWorkbook()
                               addWorksheet(excelwb,sheetName="RSF Checks")

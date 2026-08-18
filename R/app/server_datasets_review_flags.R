@@ -42,14 +42,46 @@ SERVER_DATASETS_REVIEW_FLAGS_db_EVALUATION_DETAILS <- function(evaluation_ids) {
     rdc.check_status_user_id,
     vai.users_name as check_status_users_name,
     nids.rsf_full_name as entity_name,
-    nids.pfcbl_name
+    nids.pfcbl_name,
+    
+    rdc.check_status is not distinct from 'active' AND
+    (rdc.check_status_comment is NULL 
+     or 
+     scc.config_time is not distinct from rdc.status_time
+    )::bool as is_new_status,
+    comments.last_loan_comment
+        
     from p_rsf.rsf_data_checks rdc
     inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = rdc.rsf_pfcbl_id
+    left join p_rsf.rsf_setup_checks_config scc on scc.config_id = rdc.config_id
     left join p_rsf.view_account_info vai on vai.account_id = rdc.check_status_user_id
+    left join p_rsf.indicators ind on ind.data_category = nids.pfcbl_category
+                                  and ind.indicator_sys_category = 'entity_comments'
+    left join lateral (select
+                       '[' || UPPER(TO_CHAR(cd.reporting_asof_date, 'MonYYYY')) || ' loan QR comments] ' || cd.data_value as last_loan_comment
+                       from p_rsf.rsf_data_current cd
+                       where cd.rsf_pfcbl_id = rdc.rsf_pfcbl_id
+                         and cd.indicator_id = ind.indicator_id
+                         and cd.reporting_asof_date <= rdc.check_asof_date
+                       order by 
+                         cd.reporting_asof_date desc
+                       limit 1) as comments on comments.last_loan_comment is not null
     where rdc.evaluation_id = any($1::int[])",
     params=list(dbMakeIntArray(evaluation_ids)))
   
   setDT(flag_evaluations)
+
+  flag_evaluations[,
+                   check_status_comment:=fcase(!is.na(check_status_comment) & !is.na(last_loan_comment),
+                                               paste0(check_status_comment," ",last_loan_comment),
+                                               
+                                               is.na(check_status_comment) & !is.na(last_loan_comment),
+                                               last_loan_comment,
+                                               
+                                               !is.na(check_status_comment) & is.na(last_loan_comment),
+                                               check_status_comment,
+                                               
+                                               default=as.character(NA))]
   
   return (flag_evaluations)
 }
@@ -124,7 +156,8 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
       scs.subscription_comments,
       scs.comments_user_id,
       icf.check_formula_title,
-      vai.users_name
+      vai.users_name,
+      icf.variance_formula is not null and char_length(trim(icf.variance_formula)) > 10 as variance_tolerance_allowed
     from p_rsf.view_rsf_setup_check_subscriptions scs
     inner join p_rsf.indicator_check_formulas icf on icf.check_formula_id = scs.check_formula_id
     left join p_rsf.view_account_info vai on vai.account_id = scs.comments_user_id
@@ -180,10 +213,10 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
   
   toleranceInput <- {
     toleranceValue <- NULL
-    if (config$variance_tolerance_allowed==FALSE) {
+    if (config$variance_tolerance_allowed==FALSE && setup$variance_tolerance_allowed==FALSE) {
       toleranceValue <- 0.0
     } else {
-      toleranceValue <- as.numeric(config$config_threshold)
+      toleranceValue <- suppressWarnings(as.numeric(config$config_threshold))
       if (!isTruthy(toleranceValue)) toleranceValue <- 0.0
     }
     
@@ -195,7 +228,7 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
                                 value=as.character(toleranceValue),
                                 placeholder="eg, '2.5%', '3 DAYS'")
     
-    if (config$variance_tolerance_allowed==FALSE) ttInput <- disabled(ttInput)
+    if (config$variance_tolerance_allowed==FALSE && setup$variance_tolerance_allowed==FALSE) ttInput <- disabled(ttInput)
     
     ttInput
   }  
@@ -477,10 +510,7 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
       ids.rsf_facility_id,
       coalesce($4::bool,false) as config_auto_resolve,
       coalesce($5::text,ic.check_class) as config_check_class,
-      case when ic.variance_tolerance_allowed is true 
-           then coalesce($6::numeric,0)
-           else 0
-      end as config_threshold,
+      coalesce($6::numeric,0) as config_threshold,
       $7::text as config_comments,
       $8::text as comments_user_id
     from p_rsf.rsf_pfcbl_ids ids,
@@ -517,7 +547,8 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
         select 
           rdc.evaluation_id,
           scc.config_comments,
-          scc.comments_user_id
+          scc.comments_user_id,
+          scc.config_id
         from p_rsf.rsf_setup_checks_config scc
         inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = scc.rsf_pfcbl_id
         inner join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
@@ -534,6 +565,7 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
           and scc.indicator_check_id = $3::int
           and rdc.check_data_id_is_current is true
           and rdc.check_status = 'active'
+          and rdc.config_id is null
           and
           (
             (scc.config_auto_resolve is true)
@@ -543,8 +575,9 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
       )
       update p_rsf.rsf_data_checks rdc
       set check_status = 'resolved',
-          check_status_comment = concat('Resolved by Flag Configuration: ',res.config_comments),
-          check_status_user_id = res.comments_user_id
+          check_status_comment = concat('Resolved [Setting #',res.config_id,']: ',res.config_comments),
+          check_status_user_id = res.comments_user_id,
+          config_id = res.config_id
       from resolve res
       where res.evaluation_id = rdc.evaluation_id",
        params=list(ids[[1]],
@@ -559,7 +592,8 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
         select 
           dca.archive_id,
           scc.config_comments,
-          scc.comments_user_id
+          scc.comments_user_id,
+          scc.config_id
         from p_rsf.rsf_setup_checks_config scc
         inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = scc.rsf_pfcbl_id
         inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
@@ -576,6 +610,7 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
           and scc.for_indicator_id = $2::int
           and scc.indicator_check_id = $3::int
           and dca.check_status = 'active'
+          and dca.config_id is null
           and
           (
             (scc.config_auto_resolve is true)
@@ -585,8 +620,9 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
       )
       update p_rsf.rsf_data_checks_archive dca
       set check_status = 'resolved',
-          check_status_comment = concat('Resolved by Flag Configuration: ',res.config_comments),
-          check_status_user_id = res.comments_user_id
+          check_status_comment = concat('Resolved [Setting #',res.config_id,']: ',res.config_comments),
+          check_status_user_id = res.comments_user_id,
+          config_id = res.config_id
       from resolve res
       where res.archive_id = dca.archive_id",
                          params=list(ids[[1]],
@@ -628,11 +664,11 @@ observeEvent(input$action_indicator_flags_review, {
   setup_definition <- NULL
   config_definition <- NULL
   
+  #uses view_rsf_setup_check_config to get the config based on applicability rather than actual application
   check_config <- DBPOOL %>% dbGetQuery("
     select 
-      concat('[',coalesce(vai.users_name,'UNKNOWN'),']: ',scc.config_comments) as config_comments
+      scc.config_comments as config_comments
     from p_rsf.view_rsf_setup_check_config scc
-    left join p_rsf.view_account_info vai on vai.account_id = scc.comments_user_id
     where scc.rsf_pfcbl_id = $1::int
       and scc.for_indicator_id = $2::int
       and scc.indicator_check_id = $3::int
@@ -643,7 +679,7 @@ observeEvent(input$action_indicator_flags_review, {
                 flag_selected$check_formula_id))
   
   if (!empty(check_config)) {
-    config_definition <- div(icon("gears",style="color:black"),
+    config_definition <- div(icon("gears",style="color:purple"),
                              check_config$config_comments)
   } else {
     config_definition <- NULL
@@ -861,7 +897,7 @@ observeEvent(input$action_indicator_flags_review, {
                                   )),
                          fluidRow(style="padding-top:10px;",
                                   column(12,
-                                         div(style='display:inline-block',
+                                         div(style='display:inline-block;font-size:15px;',
                                              definition))),
                          
                          fluidRow(style="padding-top:10px;width:100%",
@@ -1228,7 +1264,8 @@ observeEvent(input$action_indicator_flags_review_save, {
       
       incProgress(amount=0.25,message="Rechecking data...")
       DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
-                                   rsf_pfcbl_id.family=import$import_rsf_pfcbl_id,
+                                   rsf_pf_id=import$import_rsf_pfcbl_id,
+                                   for_import_id=NA,
                                    check_future=FALSE,
                                    check_consolidation_threshold=NA,
                                    reference_asof_date=import$reporting_asof_date,
@@ -1400,13 +1437,10 @@ output$datasets_review_download_flags_action <- downloadHandler(
     import <- IMPORT_SELECTED()
     whentxt <- toupper(format(today(),format="%d%b"))
     f <- import$source_name
-    #f <- "#3 51197 - OTP Leasing - 1Q26 - v2.xlsx"
-    #f <- "#3 51197 - OTP Leasing - 1Q26 - CHK18MAY v2.xlsx"
+    
     if (grepl("CHK\\d+[A-Z]{3}[^[:alnum:]]",f)) {
       f <- gsub("^(.*CHK)(\\d+[A-Z]{3})([^[:alnum:]].*)$",paste0("\\1",whentxt,"\\3"),f,ignore.case = T)
       
-      
-      #f <- gsub("CHK(\\d+)",paste0("CHK",chk+1),f)
     } else {
       
       if (grepl("v\\d",f,ignore.case = T)) {
@@ -1476,7 +1510,8 @@ output$datasets_review_download_flags_action <- downloadHandler(
                                                                 check_class=character(0),
                                                                 check_formula_title=character(0),
                                                                 check_status=character(0),
-                                                                check_stats_comment=character(0))
+                                                                check_stats_comment=character(0),
+                                                                is_new_status=logical(0))
         
         #Because the IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED filters the SUMMARY object only and the summary object contains all evaluation_ids as a list
         #regardless of the status.  So need to re-filter on the status selection.
@@ -1487,7 +1522,7 @@ output$datasets_review_download_flags_action <- downloadHandler(
         } else if (view_data_flags=="RESOLVED") {
           flags <- flags[check_status=="resolved"]
         } else if (view_data_flags=="NEW") {
-          flags <- flags[check_status=="active" & (is.na(check_status_comment) || nchar(check_stats_comment)==0)]
+          flags <- flags[is_new_status==TRUE]
         }
         
         setorder(flags,
@@ -1536,19 +1571,60 @@ output$datasets_review_download_flags_action <- downloadHandler(
             
           
           
+          
           } else {
             
             wbflags <- openxlsx2::wb_load(file=file)
+            sheetCURRENTFLAGS <- "Current Flags"
             
-            if (any(wbflags$sheet_names=="Current Flags")) {
-              wbflags$remove_worksheet(sheet="Current Flags")
+            if (any(wbflags$sheet_names==sheetCURRENTFLAGS)) {
+              
+              wbflags$clean_sheet(sheetCURRENTFLAGS)
+              
+              existing_tables <- wbflags$get_tables(sheet=sheetCURRENTFLAGS)
+              if (length(existing_tables)) {
+                existing_tables <- existing_tables$tab_name
+                if (length(existing_tables)) {
+                  for (tn in existing_tables) {
+                    message(paste0(tn," already exists: removing from Current Flags"))
+                    wbflags$remove_tables(sheet=sheetCURRENTFLAGS,table=tn)
+                  }
+                }
+              }
+              
+              wbflags$worksheets[[which(wbflags$sheet_names==sheetCURRENTFLAGS)]][["sheetPr"]] <- xml_node_create(
+                "sheetPr", 
+                xml_children = xml_node_create(
+                  "tabColor", 
+                  xml_attributes = c(rgb = "FFFF0000")
+                )
+              )
+              
+              #somehow this seems to cause problems, possible it removes the wrong index or doens't upadte index correctly and results in user-defined formulas crapping out
+              #excelwb$remove_worksheet(sheet=sheetCURRENTFLAGS)
+              
+            } else {
+              
+              wbflags$add_worksheet(sheet=sheetCURRENTFLAGS,
+                                    zoom=80,
+                                    tab_color=wb_color("purple"))
             }
-            wbflags$add_worksheet(sheet="Current Flags")
-            sorder <- which(wbflags$sheet_names=="Current Flags")
-            wbflags$set_order(c(sorder,wbflags$sheetOrder[-sorder]))
-            wbflags$add_data_table(sheet="Current Flags",
+
+            sorder <- which(wbflags$sheet_names==sheetCURRENTFLAGS)
+            neworder <- c()
+            if (length(wbflags$sheetOrder) <= 3) {
+              neworder <- c(wbflags$sheetOrder[-sorder],sorder) #add to last
+            } else {
+              neworder <- wbflags$sheetOrder[-sorder]
+              neworder <- c(neworder[1:2],
+                            sorder,
+                            neworder[3:length(neworder)]) #add to 3rd
+            }
+            
+            wbflags$set_order(neworder)
+            wbflags$add_data_table(sheet=sheetCURRENTFLAGS,
                                    table_name="RSF_current_flags",
-                                   dims="B1",
+                                   dims="B5",
                                    x=flags[,
                                            .(FLAGID=evaluation_id,
                                              CHECK_DATE=check_asof_date,
@@ -1561,19 +1637,29 @@ output$datasets_review_download_flags_action <- downloadHandler(
                                              STATUS=check_status,
                                              comment=check_status_comment,
                                              user=check_status_users_name)])
-            wbflags$set_active_sheet(sheet="Current Flags")
-            wbflags$set_col_widths(sheet="Current Flags",
-                                   cols=c(1,2,3,4,5,6,7,8,9,10),
-                                   widths = c(10,
-                                              13, #check date 
+            
+            wbflags$add_data(sheet=sheetCURRENTFLAGS,
+                             x=paste0("REPORT: ",today()),
+                             dims="A1")
+            
+            wbflags$set_col_widths(sheet=sheetCURRENTFLAGS,
+                                   cols=1+c(1,2,3,4,5,6,7,8,9,10),
+                                   widths = c(8,
+                                              11, #check date 
                                               35, #entity name
-                                              17, #check type
+                                              20, #check type
                                               10, #check class
                                               90, #check message
                                               90, #check
                                               10,
                                               10,
                                               10))
+
+            wbflags$set_active_sheet(sheetCURRENTFLAGS)
+            wbflags$set_selected(sheet=sheetCURRENTFLAGS)
+            wbflags$set_sheetview(sheet=sheetCURRENTFLAGS,
+                                  top_left_cell = "A1")
+            
             
           }
           
@@ -1731,7 +1817,8 @@ output$datasets_review_download_zeroversion_action <- downloadHandler(
                                                                 check_class=character(0),
                                                                 check_formula_title=character(0),
                                                                 check_status=character(0),
-                                                                check_stats_comment=character(0))
+                                                                check_stats_comment=character(0),
+                                                                is_new_status=logical(0))
         
         #Because the IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED filters the SUMMARY object only and the summary object contains all evaluation_ids as a list
         #regardless of the status.  So need to re-filter on the status selection.
@@ -1742,7 +1829,7 @@ output$datasets_review_download_zeroversion_action <- downloadHandler(
         } else if (view_data_flags=="RESOLVED") {
           flags <- flags[check_status=="resolved"]
         } else if (view_data_flags=="NEW") {
-          flags <- flags[check_status=="active" & (is.na(check_status_comment) || nchar(check_stats_comment)==0)]
+          flags <- flags[is_new_status==TRUE]
         }
         
         setorder(flags,

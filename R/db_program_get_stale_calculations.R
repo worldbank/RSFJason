@@ -41,8 +41,13 @@ db_program_get_stale_calculations <- function(pool,
           ep.fx_priority
           from (
             select 
-              ids.rsf_program_id,
-              ids.rsf_facility_id,
+              -- Idea here is for rsf_facility_ids to pull-in calculations that its program needs to calculate, too, at the same calcualtion rank.
+              -- eg, sums of facility metrics, etc.  So that program get calculated along with child-level calculations.
+              -- since rsf_pfcbl_ids ids is (mostly) pull-in in 'from' rsf_facility_id, if we're returning the prioritized global ID 0, then we want to 
+              -- ensure that _only_ global metrics are included in that priority group (so we can't simply unnest gpfcbl_family as it would include the facility 
+              -- and program IDs).  But if there are no global priorities, then pull in only facility+program and then program, in that order.
+              case when dce.rsf_pfcbl_id = 0 then 0 else ids.rsf_program_id end as rsf_program_id,
+              case when dce.rsf_pfcbl_id = 0 then NULL else ids.rsf_facility_id end as rsf_facility_id,
               dce.calculation_asof_date,
               dce.formula_calculation_rank,
               ind.data_type is not distinct from 'currency_ratio' as fx_priority
@@ -52,6 +57,15 @@ db_program_get_stale_calculations <- function(pool,
                     (ids.rsf_gpfcbl_family[1]),
                     (ids.rsf_gpfcbl_family[2]),
                     (ids.rsf_gpfcbl_family[3])
+
+/* very slightly less efficient?                    
+VALUES
+                    (ids.rsf_gpfcbl_family[1],array[ids.rsf_gpfcbl_family[1]]::int[]),  -- global only
+                    (ids.rsf_gpfcbl_family[2],array[ids.rsf_gpfcbl_family[2]]::int[]),  -- program (but not global)
+                    (ids.rsf_gpfcbl_family[3],array[ids.rsf_gpfcbl_family[2:3]]::int[]) -- program and facility IDs
+            ) AS pf(rsf_pf_id,rsf_gpf_id)                    
+*/                    
+
             ) AS pf(rsf_pf_id)
             inner join p_rsf.rsf_data_calculation_evaluations dce on dce.rsf_pf_id = pf.rsf_pf_id
             inner join p_rsf.indicators ind on ind.indicator_id = dce.indicator_id
@@ -98,7 +112,6 @@ db_program_get_stale_calculations <- function(pool,
           cd.current_data_unit,
           cd.current_data_date,
           coalesce(lcu.data_unit_value,'LCU') as entity_local_currency_unit,
-          --coalesce(rc.reporting_asof_date = calc.calculation_asof_date,false) as current_value_updated_in_reporting_current_date,
           cd.current_data_date is NOT distinct from calc.calculation_asof_date as current_value_updated_in_reporting_current_date,
           NOT coalesce(cd.is_calculated,false) as current_value_is_user_monitored,
           coalesce(cd.is_calculated,false) as current_data_is_system_calculation,
@@ -138,8 +151,16 @@ db_program_get_stale_calculations <- function(pool,
                                                  and rsi.indicator_id = calc.indicator_id
         inner join p_rsf.indicators ind on ind.indicator_id = calc.indicator_id       
                                           
+        inner join p_rsf.rsf_pfcbl_ids cids on cids.rsf_pfcbl_id = calc.rsf_pfcbl_id
+                                          
         left join p_rsf.indicator_formulas indf on indf.formula_id = rsi.formula_id -- left join for unit_fx indicators
+
+        -- if the indicator is grouped at a parent-level, then calculate at that group's LCU value.
+        -- otherwise, downstream, the formulas will be segmented based on currency of calculation and input data will be partitioned 
+        -- and aggregates will be wrong (based on LCU partitions instead of the full group unified by that group's LCU)
+        cross join lateral (values (cids.rsf_gpfcbl_family[1+(coalesce(indf.formula_grouping_pfcbl_rank,cids.pfcbl_category_rank))])) as baselcu(rsf_pfcbl_id) 
         
+        -- The current data value (used downstream to compare if the system calculation has changed compared to current)
         left join lateral (select
                           rdc.data_id as current_data_id,
                           rdc.data_value as current_data_value,
@@ -152,16 +173,18 @@ db_program_get_stale_calculations <- function(pool,
                            and rdc.reporting_asof_date <= calc.calculation_asof_date
                          order by rdc.reporting_asof_date desc
                          limit 1) cd on true
-                                          																		
+                         
+        -- LCU currency based on the calculation parent grouping level 
         left join lateral (select 
                            lcu.data_unit_value,
                            lcu.reporting_asof_date as lcu_current_date
                          from p_rsf.rsf_data_current_lcu lcu
-                         where lcu.for_rsf_pfcbl_id = calc.rsf_pfcbl_id
+                         where lcu.for_rsf_pfcbl_id = baselcu.rsf_pfcbl_id
                            and lcu.reporting_asof_date <= calc.calculation_asof_date
                          order by lcu.reporting_asof_date desc
                          limit 1) lcu on true			
-                                                   
+
+        -- To secure sytem flags, if any                                           
         left join p_rsf.rsf_data rd on rd.data_id = cd.current_data_id
         where rsi.is_subscribed is true
           and ((ep.fx_priority is true and ind.data_type = 'currency_ratio')

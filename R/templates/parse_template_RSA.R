@@ -1373,6 +1373,8 @@ parse_template_RSA <- function(pool,
            check_name,
            check_message)
   
+  template_headers[,label_formula:=as.character(NA)]
+  
   template <- list(reporting_import=reporting_import, #This is unusual.
                    cohort_pfcbl_id=for_rsf_pfcbl_id,
                    reporting_asof_date=reporting_asof_date,

@@ -3,13 +3,12 @@
 	
 # check
 
-#  pfcbl_ids.familytree <- 569532;rsf_program_id <- unlist(dbGetQuery(pool,"select rsf_program_id from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id=$1::int",params=list(pfcbl_ids.familytree)))
-# reporting_current_date='2026-03-31';
-# check_formula_id = 258
+# rsf_pf_ids <- 37368
+# reporting_current_date='2026-06-30';
+# check_formula_id = 178
 #Revise to take check_id and then check/warn if program is not subscribed to it
 rsf_checks_do_test <- function(pool,
-                               rsf_program_id,
-                               pfcbl_ids.familytree=NULL,
+                               rsf_pf_ids=NA,
                                reporting_current_date,
                                check_formula_id,
                                status_message=function(...) {})
@@ -17,16 +16,16 @@ rsf_checks_do_test <- function(pool,
   
   
   
-  if (is.null(pfcbl_ids.familytree) || all(is.na(pfcbl_ids.familytree))) {
-    pfcbl_ids.familytree <- dbGetQuery(pool,"
-                                      select ids.rsf_pfcbl_id 
-                                      from p_rsf.rsf_pfcbl_ids ids
-                                      where ids.rsf_program_id = $1::int
-                                        and ids.pfcbl_category = 'program'",
-                                      params=list(rsf_program_id))
-    pfcbl_ids.familytree <- as.numeric(unlist(pfcbl_ids.familytree))
+  if (is.null(rsf_pf_ids) || all(is.na(rsf_pf_ids))) {
+    rsf_pf_ids <- dbGetQuery(pool,"
+                                      select rsc.rsf_pfcbl_id as rsf_pf_id
+                                      from p_rsf.rsf_setup_checks rsc 
+                                      where rsc.check_formula_id = $1::int
+                                        and rsc.is_subscribed is true",
+                                      params=list(check_formula_id))
+    rsf_pf_ids <- as.numeric(unlist(rsf_pf_ids))
   } else {
-    pfcbl_ids.familytree <- as.numeric(unlist(pfcbl_ids.familytree))
+    rsf_pf_ids <- as.numeric(unlist(rsf_pf_ids))
   }
   
   check_formula <- dbGetQuery(pool,"
@@ -46,51 +45,96 @@ rsf_checks_do_test <- function(pool,
   #As multi-currency RSFs are increasing, there was an inherent bug that the check LCU must be at the parent grouping level as well,
   #else the portfolio is segmented by currency and may not compute the check appropriately.  Eg, when client-grouped checks
   #the entire portfolio, it was missing duplicated loan ranks because those loans were reported in different currencies.
+  
+  #code semi-replicated from db_program_get_stale_checks
   perform_checks <- dbGetQuery(pool,"
+                         
     select 
-      ids.rsf_program_id,
-      array_to_string(array_agg(distinct ids.rsf_pfcbl_id),',')::text as check_rsf_pfcbl_ids,
-    	array_to_string(array_agg(rdc.evaluation_id) filter(where rdc.evaluation_id is not NULL),',')::text as current_evaluation_ids,
-    	$3::date as check_asof_date,
-    	icf.check_formula_id,
-      icf.computation_group,
-    	coalesce(pglcu.data_unit_value,lcu.data_unit_value) as entity_local_currency_unit
-    from p_rsf.rsf_pfcbl_ids ids 
-    inner join p_rsf.indicator_check_formulas icf on icf.check_pfcbl_category = ids.pfcbl_category
-    
-    left join lateral (select * from p_rsf.rsf_data_current_lcu lcu
-                       where lcu.for_rsf_pfcbl_id = ids.rsf_pfcbl_id
-    									   and lcu.reporting_asof_date <= $3::Date
-    									 order by lcu.reporting_asof_date desc
-    									 limit 1) as lcu on true
-    									 
-    left join p_rsf.view_rsf_pfcbl_id_family_tree ft on icf.parent_grouping_pfcbl_category is not null
-                                                    and ft.from_rsf_pfcbl_id = ids.rsf_pfcbl_id
-                                                    and ft.to_pfcbl_category = icf.parent_grouping_pfcbl_category
-                                                    and ft.pfcbl_hierarchy = 'parent'
-    left join lateral (select * from p_rsf.rsf_data_current_lcu pglcu
-                       where pglcu.for_rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-                         and pglcu.reporting_asof_date <= $3::Date
-                       order by pglcu.reporting_asof_date desc
-                       limit 1) as pglcu on true                                       
-                       
-    left join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
-  																		 and rdc.check_asof_date = $3::date
-  																		 and rdc.check_formula_id = icf.check_formula_id
-  																		 and rdc.check_data_id_is_current	= true
-    where icf.check_formula_id = $2::int
-      and ids.created_in_reporting_asof_date <= $3::Date
-      and ids.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
-                                 from p_rsf.view_rsf_pfcbl_id_family_tree ft
-                                 where ft.from_rsf_pfcbl_id = any($1::int[]))
+      array_to_string(array_agg(distinct chk.rsf_pfcbl_id),',')::text as check_rsf_pfcbl_ids,
+      array_to_string(array_agg(rdc.evaluation_id) filter(where rdc.evaluation_id is not NULL),',')::text as current_evaluation_ids,
+      req.from_rsf_pf_id,
+      req.to_rsf_pf_id as rsf_pf_id,
+      $2::date as check_asof_date,
+      req.check_formula_id,
+      req.computation_group,
+      lcu.data_unit_value as entity_local_currency_unit
+    from p_rsf.view_rsf_pf_check_requirements req
+    inner join p_rsf.rsf_pfcbl_ids chk on chk.rsf_pf_id = req.to_rsf_pf_id
+                                      and chk.pfcbl_category_rank = req.data_category_rank
+    -- if the check is grouped at a parent-level, then calculate at that group's LCU value.
+    -- otherwise, downstream, the formulas will be segmented based on currency of calculation and input data will be partitioned 
+    -- and aggregates will be wrong (based on LCU partitions instead of the full group unified by that group's LCU)
+    cross join lateral (values (chk.rsf_gpfcbl_family[1+req.formula_calculate_from_pfcbl_rank])) as baselcu(rsf_pfcbl_id) 
+    left join lateral (select lcu.data_unit_value
+                       from p_rsf.rsf_data_current_lcu lcu
+                       where lcu.for_rsf_pfcbl_id = baselcu.rsf_pfcbl_id
+                         and lcu.reporting_asof_date <= $2::date
+                        order by lcu.reporting_asof_date desc
+                        limit 1) lcu on true
+    left join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = chk.rsf_pfcbl_id
+                                       and rdc.check_asof_date = $2::date
+                                       and rdc.check_formula_id = $3::int
+                                       and rdc.check_data_id_is_current	= true   
+                                       and rdc.check_status = 'active' -- this is only to auto-resovle active checks that, being re-checked, are false.
+    where true
+      
+      and req.from_rsf_pf_id = any($1::int[])
+      and req.check_formula_id = $3::int
     group by 
-      ids.rsf_program_id,
-      icf.check_formula_id,
-      icf.computation_group,
-    	coalesce(pglcu.data_unit_value,lcu.data_unit_value)",
-   params=list(dbMakeIntArray(pfcbl_ids.familytree),
-               check_formula_id,
-               reporting_current_date))
+      req.from_rsf_pf_id,
+      req.to_rsf_pf_id,
+      req.check_formula_id,
+      req.computation_group,
+      lcu.data_unit_value",
+                       params=list(dbMakeIntArray(rsf_pf_ids),
+                                   reporting_current_date,
+                                   check_formula_id))
+  
+  # perform_checks <- dbGetQuery(pool,"
+  #   select 
+  #     ids.rsf_program_id,
+  #     array_to_string(array_agg(distinct ids.rsf_pfcbl_id),',')::text as check_rsf_pfcbl_ids,
+  #   	array_to_string(array_agg(rdc.evaluation_id) filter(where rdc.evaluation_id is not NULL),',')::text as current_evaluation_ids,
+  #   	$3::date as check_asof_date,
+  #   	icf.check_formula_id,
+  #     icf.computation_group,
+  #   	coalesce(pglcu.data_unit_value,lcu.data_unit_value) as entity_local_currency_unit
+  #   from p_rsf.rsf_pfcbl_ids ids 
+  #   inner join p_rsf.indicator_check_formulas icf on icf.check_pfcbl_category = ids.pfcbl_category
+  #   
+  #   left join lateral (select * from p_rsf.rsf_data_current_lcu lcu
+  #                      where lcu.for_rsf_pfcbl_id = ids.rsf_pfcbl_id
+  #   									   and lcu.reporting_asof_date <= $3::Date
+  #   									 order by lcu.reporting_asof_date desc
+  #   									 limit 1) as lcu on true
+  #   									 
+  #   left join p_rsf.view_rsf_pfcbl_id_family_tree ft on icf.parent_grouping_pfcbl_category is not null
+  #                                                   and ft.from_rsf_pfcbl_id = ids.rsf_pfcbl_id
+  #                                                   and ft.to_pfcbl_category = icf.parent_grouping_pfcbl_category
+  #                                                   and ft.pfcbl_hierarchy = 'parent'
+  #   left join lateral (select * from p_rsf.rsf_data_current_lcu pglcu
+  #                      where pglcu.for_rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+  #                        and pglcu.reporting_asof_date <= $3::Date
+  #                      order by pglcu.reporting_asof_date desc
+  #                      limit 1) as pglcu on true                                       
+  #                      
+  #   left join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = ids.rsf_pfcbl_id
+  # 																		 and rdc.check_asof_date = $3::date
+  # 																		 and rdc.check_formula_id = icf.check_formula_id
+  # 																		 and rdc.check_data_id_is_current	= true
+  #   where icf.check_formula_id = $2::int
+  #     and ids.created_in_reporting_asof_date <= $3::Date
+  #     and ids.rsf_pfcbl_id = any(select ft.to_family_rsf_pfcbl_id
+  #                                from p_rsf.view_rsf_pfcbl_id_family_tree ft
+  #                                where ft.from_rsf_pfcbl_id = any($1::int[]))
+  #   group by 
+  #     ids.rsf_program_id,
+  #     icf.check_formula_id,
+  #     icf.computation_group,
+  #   	coalesce(pglcu.data_unit_value,lcu.data_unit_value)",
+  #  params=list(dbMakeIntArray(pfcbl_ids.familytree),
+  #              check_formula_id,
+  #              reporting_current_date))
   
   perform_checks[["check_rsf_pfcbl_ids"]] <- lapply(perform_checks[["check_rsf_pfcbl_ids"]],function(x) as.numeric(strsplit(x,split=',',fixed=T)[[1]]))
   perform_checks[["current_evaluation_ids"]] <- lapply(perform_checks[["current_evaluation_ids"]],function(x) as.numeric(strsplit(x,split=',',fixed=T)[[1]]))
@@ -106,11 +150,32 @@ rsf_checks_do_test <- function(pool,
   
   rsf_indicators <- db_indicators_get_labels(pool=pool)
   
-  test <- rsf_program_perform_checks(pool=pool,
-                                    rsf_indicators=rsf_indicators,
-                                    perform_checks=perform_checks,
-                                    perform.test=TRUE,
-                                    status_message=status_message)
+  test <- list(input=NULL,
+               results=NULL)
+  
+  #perform_pf_id <- rsf_pf_ids[[1]]
+  for (perform_pf_id in rsf_pf_ids) {
+    pchk <- perform_checks[from_rsf_pf_id==perform_pf_id]
+    if (empty(pchk)) next;
+    
+    chk <- rsf_program_perform_checks(pool=pool,
+                                      rsf_pf_id=perform_pf_id,
+                                      rsf_indicators=rsf_indicators,
+                                      perform_checks=pchk,
+                                      perform.test=TRUE,
+                                      status_message=status_message)
+    
+    test$input <- rbindlist(list(test$input,
+                                 chk$input),
+                            use.names=T)
+    
+    test$results <- rbindlist(list(test$results,
+                                   chk$results),
+                              use.names=T)
+    
+    
+    
+  }
   
   results_data <- test$input
   check_results <- test$results
@@ -146,11 +211,8 @@ rsf_checks_do_test <- function(pool,
                                 inner join p_rsf.rsf_data rd on rd.data_id = rdc.data_id
                                 inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
                                 inner join p_rsf.reporting_imports ri on ri.import_id = rc.import_id
-                                left join p_rsf.view_rsf_setup_check_config scc on scc.rsf_pfcbl_id = rdc.rsf_pfcbl_id
-                                                                               and scc.for_indicator_id = rdc.indicator_id
-                                                                               and scc.indicator_check_id = rdc.indicator_check_id
-                                                                               and scc.check_formula_id is not distinct from rdc.check_formula_id
-                                 where rdc.evaluation_id = any($1::int[])",
+                                left join p_rsf.rsf_setup_checks_config scc on scc.config_id = rdc.config_id
+                                where rdc.evaluation_id = any($1::int[])",
                                params=list(dbMakeIntArray(eval_ids)))
     
     setDT(current_flags)

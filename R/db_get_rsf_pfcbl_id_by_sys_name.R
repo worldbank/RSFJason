@@ -1,10 +1,10 @@
 
 db_get_rsf_pfcbl_id_by_sys_name <- function(pool,
-                                         sys_names,
-                                         rsf_program_id=NA,
-                                         rsf_pfcbl_id.family_tree=NA,
-                                         include.global=TRUE,
-                                         error.if.missing=TRUE) {
+                                            sys_names,
+                                            rsf_program_id=NA,
+                                            rsf_pfcbl_id.family_tree=NA,
+                                            include.global=TRUE,
+                                            error.if.missing=TRUE) {
   
   #ensure no delimiters exist in the name...they should be normalized in the normalize_SystemNames function when coming from database.
   #But perhasp a user does something in an upload file?
@@ -12,7 +12,24 @@ db_get_rsf_pfcbl_id_by_sys_name <- function(pool,
     stop(paste0("Failed to lookup SYSNAME due to malformatted name: ',' and '>' in name are not allowed: ",
                 paste0(grep("[,>]",sys_names,value = T),collapse=" & ")))
   }
+  
+  if (any(grepl("^global",sys_names))) {
+    
+    dbExecute(pool,"
+                do $$
+                begin
+                  if (not exists(select * from p_rsf.rsf_programs where rsf_program_id = 0)
+                      or not exists(select * from p_rsf.rsf_pfcbl_ids where rsf_pfcbl_id = 0)
+                      or not exists(select * from p_rsf.reporting_cohorts where reporting_cohort_id = 0)
+                      or not exists(select * from p_rsf.rsf_data where rsf_pfcbl_id = 0)
+                  ) then
+                      raise info 'Initializing Global Program';
+                      perform p_rsf.initialize_global_program();
 
+                  end if;          
+                end;
+                $$ language plpgsql;")
+  }
   #conn <- poolCheckout(pool)
   #dbBegin(conn)
   sysids <- poolWithTransaction(pool=pool,function(conn) {
@@ -83,21 +100,5 @@ db_get_rsf_pfcbl_id_by_sys_name <- function(pool,
     }
   }
   
-  # 
-  # sysids <- dbGetQuery(pool,"
-  #           with matches as (
-  #             select p_rsf.get_rsf_pfcbl_id_by_sys_name(sn.sys_name) as rsf_pfcbl_id,sn.sys_name
-  #             from (select unnest(string_to_array($2::text,',')) as sys_name) sn
-  #           )
-  #           select
-  #             mat.sys_name,
-  #             ids.rsf_pfcbl_id
-  #           from matches mat
-  #           left join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = mat.rsf_pfcbl_id
-  #           where (ids.rsf_pfcbl_id is NULL or 
-  #                  ids.rsf_program_id = $1::int or 
-  #                  ids.pfcbl_category = 'global')",
-  #                      params=list(template$rsf_program_id,
-  #                                  paste0(unique(sys_names),collapse=",")))
   return (sysids)
 }

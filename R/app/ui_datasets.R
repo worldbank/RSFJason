@@ -2,7 +2,7 @@
 div(style="background-color:white;padding:10px;",
 
   div(style="float:right;position:relative;padding-left:50px;height:34px;",
-      actionButton(inputId="action_template_upload_new",label="Upload Template",class="btn-primary",icon=icon("upload"))
+      actionButton(inputId="action_template_upload_new",label="Upload Template",class="btn-success",icon=icon("upload"))
   ),
   
   div(style="position:relative;float:right;display:inline-block;white-space:nowrap;height:34px;",

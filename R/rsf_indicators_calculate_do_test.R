@@ -1,7 +1,7 @@
 # 
-# reporting_current_date <- '2026-03-31'
-# indicator_id <-  461
-# rsf_pf_id <- 646260
+# reporting_current_date <- '2026-06-30'
+# indicator_id <-157327
+# rsf_pf_id <- 37368
 # all_parameters <- F
 #x<-rsf_indicators_calculate_do_test(pool,rsf_pf_id,indicator_id,reporting_current_date,all_parameters=T)
 
@@ -14,6 +14,7 @@ rsf_indicators_calculate_do_test <- function(pool,
                                              status_message=function(...) {})
 {
   
+  if (is.na(rsf_pf_id)) stop("A facility/program ID is required")
   #Ensure nothing is pending
   rsf_program_calculate(pool=pool,
                         rsf_indicators=db_indicators_get_labels(pool),

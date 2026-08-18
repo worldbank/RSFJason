@@ -265,6 +265,7 @@ rsf_program_perform_calculations <- function(pool,
         
         data_rsf_pfcbl_ids <- db_indicators_get_calculation_parameter_rsf_pfcbl_ids(pool=pool,
                                                                                     rsf_pf_id=rsf_pf_id,
+                                                                                    calculate_rsf_pfcbl_ids=unique(calculate_rsf_pfcbl_ids),
                                                                                     calculate_indicator_ids=unique(calculations_group$calculate_indicator_id),
                                                                                     calculate_asof_date=calculations_group$calculate_asof_date[[1]])          
         
@@ -533,9 +534,7 @@ rsf_program_perform_calculations <- function(pool,
                       & is.na(current_data_id)==FALSE,
                       insert_action:=FALSE]
       
-      # current_results[formula_overwrite=="manual"
-      #                 & is.na(current_data_id)==FALSE,
-      #                 insert_action:=FALSE]
+      
       
       
       #for indicator formulas of data type "missing"
@@ -607,6 +606,18 @@ rsf_program_perform_calculations <- function(pool,
                         (suppressWarnings(as.numeric(data_value))==0 & is.na(current_data_value))
                       ),
                       equivalent:=TRUE]
+      
+      #for money (or anything else) where both values are zero with possbly different units.
+      #Eg, "0 USD" vs "0 XOF"
+      #For deny overwrite flags, informing user that the system didn't overwrite "0 XOF" with "0 USD" is just annoying, even
+      #if their template really does have unit errors, don't bother unless it's a discrepancy that carries numeric value.
+      current_results[,zeroValueEquivalent:=FALSE]
+      current_results[  (
+                          is.same_text(data_value,current_data_value) |
+                            (suppressWarnings(as.numeric(current_data_value))==0 & is.na(data_value)) |
+                            (suppressWarnings(as.numeric(data_value))==0 & is.na(current_data_value))
+                        ),
+                        zeroValueEquivalent:=TRUE]
       
       current_results[,fx_value:=as.numeric(NA)]
       #Don't flag overwrites for equivalent numbers
@@ -691,7 +702,8 @@ rsf_program_perform_calculations <- function(pool,
                                        data_changed ==TRUE &
                                        insert_action==TRUE &
                                        equivalent==FALSE &
-                                       current_value_updated_in_reporting_current_date==FALSE,
+                                       current_value_updated_in_reporting_current_date==FALSE & 
+                                       zeroValueEquivalent==FALSE,
                                          .(rsf_pfcbl_id,
                                            indicator_id,
                                            reporting_asof_date,
@@ -728,10 +740,11 @@ rsf_program_perform_calculations <- function(pool,
       #System will report a soft deleted data point.
       #Otherwise, we'll save the data_calculated_value and data_calculated_unit (uniquely for this calculator flag!), although these columns are used by any reported
       #data that attempts to overwrite finalized data, too.
-      vs_flags <- current_results[flag_overwrite==TRUE &  # < TRUE
-                                  data_changed ==TRUE &   # < TRUE
-                                  insert_action==FALSE &  # < FALSE
-                                  equivalent==FALSE,      # < FALSE 
+      vs_flags <- current_results[flag_overwrite==TRUE &      # < TRUE
+                                  data_changed ==TRUE &       # < TRUE
+                                  insert_action==FALSE &      # < FALSE
+                                  equivalent==FALSE &         # < FALSE 
+                                  zeroValueEquivalent==FALSE, # < FALSE 
                                          .(rsf_pfcbl_id,
                                            indicator_id,
                                            reporting_asof_date,
@@ -936,18 +949,18 @@ rsf_program_perform_calculations <- function(pool,
           dbExecute(conn,"analyze _temp_fx_ids")
           
           dbExecute(conn,"delete from p_rsf.rsf_data_current_fx dcf
-                          where exists(select * from _temp_fx_ids fids
+                          where exists(select true from _temp_fx_ids fids
                                        where fids.rsf_pfcbl_id = dcf.rsf_pfcbl_id
                                          and fids.indicator_id = dcf.indicator_id
                                          and fids.reporting_asof_date = dcf.reporting_asof_date)
-                            and not exists(select * from _temp_fx_ids fids
+                            and not exists(select true from _temp_fx_ids fids
                                            where fids.rsf_pfcbl_id = dcf.rsf_pfcbl_id
                                              and fids.indicator_id = dcf.indicator_id
                                              and fids.reporting_asof_date = dcf.reporting_asof_date
                                              and fids.fx_data_id = dcf.fx_data_id)")
           
           errors <- dbGetQuery(conn,"
-            select * 
+            select true 
             from _temp_fx_ids fids 
             where not exists(select * from p_rsf.rsf_data_current rdc
                              where rdc.data_id = fids.fx_data_id)
@@ -1096,9 +1109,10 @@ rsf_program_perform_calculations <- function(pool,
     #Moved here to upload flags associated with each round of current calculations
     #This can result in more uploads to rsf_data_checks (in smaller batches)
     #but, importantly, since the conflict data was introduced, we want any conflict data results to be available for formulas that query them on subsequent rounds.
-    db_rsf_checks_add_update(pool=pool,
+    db_add_update_checks(pool=pool,
                              data_checks=calculation_flags,
-                             
+                             for_import_id=for_import_id,
+                             #AUG2026: Yes! Now db_add_update_checks will set to NA if not applicable.
                              #No! Because if we submit a data correction, etc, and that template with a correction triggers a cascade across other metrics
                              #then we want the system to find the most relevant import that upload the data that's being overwritten and not necessarily 
                              #the import that triggered the changes/overwrites.

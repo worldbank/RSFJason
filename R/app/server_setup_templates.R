@@ -383,7 +383,7 @@ server_setup_template__header_module_ui <- function(id,
   return (ui)
 }
 
-RSF_TEMPLATES <- eventReactive(LOGGEDIN(), {
+RSF_TEMPLATES <- eventReactive(SELECTED_PROGRAM_ID(), {
   
   if (!isTruthy(LOGGEDIN())) return (NULL)
   

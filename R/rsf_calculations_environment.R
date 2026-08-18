@@ -114,102 +114,127 @@
            "conflicts"           #data.table object: all conflicting data saved in checks where check_has_data is true (for most recently reported such flag!)
          ))
   
-  assign(x="hasmatches",
+  assign(x="text_in_values",
          envir=CALCULATIONS_ENVIRONMENT,
          pos=0,
-         value=function(group_values,
-                        member_values,
-                        sep="guess",
-                        mode=c("any","all")) {
-
-           mode <- match.arg(mode)
-           
-           dt <- data.table(group_values=group_values,
-                            member_values=member_values)
-           dt[,id:=1:.N]
-           
-           dt[,group_grouping:=.GRP,
-              by=.(group_values)]
-           
-           dt[,member_grouping:=.GRP,
-              by=.(member_values)]
-           
-           
-           groups <- unique(dt[,.(group_values,group_grouping)])
-           members <- unique(dt[,.(member_values,member_grouping,group_grouping)])
-           
-           #ordered in most likely to be a delimiter to most likely to be regular punctuation
-           if (sep=="guess") {
-             if (any(grepl("\\|",unique(groups$group_values)))) { sep <- "|" 
-             } else if (any(grepl(";",unique(groups$group_values)))) { sep <- ";"    
-             } else if (any(grepl("&",unique(groups$group_values)))) { sep <- "&" #commas are relatively common in Lists, eg sector of: "Lumber, furniture, wood products"
-             } else if (any(grepl(",",unique(groups$group_values)))) { sep <- "," }
-           }
-
-           groups[,group_values:=strsplit(x=group_values,split=sep,fixed=T)]
-           members[,member_values:=strsplit(x=member_values,split=sep,fixed=T)]
-           
-           
-           groups <- groups[,
-                            .(group_value=unlist(group_values,recursive=F)),
-                            by=.(group_grouping)]
-           
-           
-           members <- members[,
-                              .(member_value=unlist(member_values,recursive=F)),
-                              by=.(group_grouping,member_grouping)]
-           
-           groups[,group_value:=tolower(trimws(group_value))]
-           members[,member_value:=tolower(trimws(member_value))]
-           
-           if (mode=="all") {
-             groups[,size:=.N,
-                    by=.(group_grouping)]
-             
-             members[groups,
-                     size:=i.size,
-                     on=.(group_grouping)]
-           } else {
-             members[,size:=1]
-           }
-           
-           members[groups,
-                   .(member_grouping,
-                     member_value),
-                   on=.(group_grouping,
-                        member_value=group_value),
-                   by=.EACHI]
-           
-           members[,
-                   match:=FALSE]
-           members[groups,
-                   match:=TRUE,
-                   on=.(group_grouping,
-                        member_value=group_value)]
-           
-           members <- members[,
-                              .(match=sum(match) >= size),
-                              by=.(group_grouping,
-                                   member_grouping)]
-           
-           
-           # members[,
-           #         match:=matches > 0]
-           # 
-           # members[,
-           #         match:=matches == size]
-           
-           dt[members,
-              match:=i.match,
-              on=.(member_grouping,
-                   group_grouping)]
-           
-           dt[is.na(match)==TRUE,
-              match:=FALSE]
-           
-           return(dt$match)
-           
-         })
+         value=function(text,
+                        values,
+                        sep="guess") {
+    
+    vals <- unique(values)
+    if (length(vals) != 1) stop(paste0("textmatches group_values must be a unique vector of elements and multiple different values are not allowed.  Try pre-grouping this calculation?"))
+    
+    #ordered in most likely to be a delimiter to most likely to be regular punctuation
+    if (sep=="guess") {
+      if (any(grepl("\\|",vals))) { sep <- "|" 
+      } else if (any(grepl(";",vals))) { sep <- ";"    
+      } else if (any(grepl("&",vals))) { sep <- "&" #commas are relatively common in Lists, eg sector of: "Lumber, furniture, wood products"
+      } else if (any(grepl(",",vals))) { sep <- "," 
+      } else {
+        sep <- NA
+      }
+    }
+    
+    vals <- trimws(unlist(strsplit(vals,split=sep,fixed=T)))
+    return (text %chin% vals)
+  })
+  
+  # assign(x="hasmatches",
+  #        envir=CALCULATIONS_ENVIRONMENT,
+  #        pos=0,
+  #        value=function(group_values,
+  #                       member_values,
+  #                       sep="guess",
+  #                       mode=c("any","all")) {
+  # 
+  #          mode <- match.arg(mode)
+  #          
+  #          dt <- data.table(group_values=group_values,
+  #                           member_values=member_values)
+  #          dt[,id:=1:.N]
+  #          
+  #          dt[,group_grouping:=.GRP,
+  #             by=.(group_values)]
+  #          
+  #          dt[,member_grouping:=.GRP,
+  #             by=.(member_values)]
+  #          
+  #          
+  #          groups <- unique(dt[,.(group_values,group_grouping)])
+  #          members <- unique(dt[,.(member_values,member_grouping,group_grouping)])
+  #          
+  #          #ordered in most likely to be a delimiter to most likely to be regular punctuation
+  #          if (sep=="guess") {
+  #            if (any(grepl("\\|",unique(groups$group_values)))) { sep <- "|" 
+  #            } else if (any(grepl(";",unique(groups$group_values)))) { sep <- ";"    
+  #            } else if (any(grepl("&",unique(groups$group_values)))) { sep <- "&" #commas are relatively common in Lists, eg sector of: "Lumber, furniture, wood products"
+  #            } else if (any(grepl(",",unique(groups$group_values)))) { sep <- "," }
+  #          }
+  # 
+  #          groups[,group_values:=strsplit(x=group_values,split=sep,fixed=T)]
+  #          members[,member_values:=strsplit(x=member_values,split=sep,fixed=T)]
+  #          
+  #          
+  #          groups <- groups[,
+  #                           .(group_value=unlist(group_values,recursive=F)),
+  #                           by=.(group_grouping)]
+  #          
+  #          
+  #          members <- members[,
+  #                             .(member_value=unlist(member_values,recursive=F)),
+  #                             by=.(group_grouping,member_grouping)]
+  #          
+  #          groups[,group_value:=tolower(trimws(group_value))]
+  #          members[,member_value:=tolower(trimws(member_value))]
+  #          
+  #          if (mode=="all") {
+  #            groups[,size:=.N,
+  #                   by=.(group_grouping)]
+  #            
+  #            members[groups,
+  #                    size:=i.size,
+  #                    on=.(group_grouping)]
+  #          } else {
+  #            members[,size:=1]
+  #          }
+  #          
+  #          members[groups,
+  #                  .(member_grouping,
+  #                    member_value),
+  #                  on=.(group_grouping,
+  #                       member_value=group_value),
+  #                  by=.EACHI]
+  #          
+  #          members[,
+  #                  match:=FALSE]
+  #          members[groups,
+  #                  match:=TRUE,
+  #                  on=.(group_grouping,
+  #                       member_value=group_value)]
+  #          
+  #          members <- members[,
+  #                             .(match=sum(match) >= size),
+  #                             by=.(group_grouping,
+  #                                  member_grouping)]
+  #          
+  #          
+  #          # members[,
+  #          #         match:=matches > 0]
+  #          # 
+  #          # members[,
+  #          #         match:=matches == size]
+  #          
+  #          dt[members,
+  #             match:=i.match,
+  #             on=.(member_grouping,
+  #                  group_grouping)]
+  #          
+  #          dt[is.na(match)==TRUE,
+  #             match:=FALSE]
+  #          
+  #          return(dt$match)
+  #          
+  #        })
   
   
   assign(x="remap",

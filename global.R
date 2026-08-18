@@ -9,6 +9,7 @@ options(warning.length=8170)
 options(shiny.maxRequestSize=500*1024^2) #500MB
  
 #options(warn=2, error=recover)
+#options(warn=0, error=recover)
 options(warn=0, error=NULL)
 #Sys.setlocale("LC_ALL",c("English"))
 
@@ -53,8 +54,6 @@ library(plyr)
 library(glue)
 library(R.utils)
 library(digest)
-#https://appsilon.com/forget-about-excel-use-r-shiny-packages-instead/?nabe=4634331497365504:1
-
 
 library(openxlsx)
 library(openxlsx2)
@@ -113,7 +112,7 @@ source("./R/rsf_setup_export_create_entity.R")
 
 source("./R/db_add_update_data_user.R")
 source("./R/db_add_update_data_system.R")
-source("./R/db_rsf_checks_add_update.R")
+source("./R/db_add_update_checks.R")
 source("./R/db_rsf_checks_validate.R")
 
 source("./R/db_program_get_data.R")

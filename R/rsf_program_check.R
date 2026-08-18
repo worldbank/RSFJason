@@ -1,10 +1,11 @@
 rsf_program_check <- function(pool,
-                             rsf_indicators,
-                             rsf_pfcbl_id.family,
-                             check_future=TRUE,
-                             check_consolidation_threshold=NA,
-                             reference_asof_date=NULL,
-                             status_message) {
+                              rsf_pf_id,
+                              rsf_indicators,
+                              for_import_id,
+                              check_future=TRUE,
+                              check_consolidation_threshold=NA,
+                              reference_asof_date=NULL,
+                              status_message) {
   
   t1 <- Sys.time()
 
@@ -20,14 +21,13 @@ rsf_program_check <- function(pool,
       any(check_consolidation_threshold <= 1)) check_consolidation_threshold <- NA
   
   stale_checks <- db_program_get_stale_checks(pool=pool,
-                                              rsf_pfcbl_id.family=rsf_pfcbl_id.family,
+                                              rsf_pf_id=rsf_pf_id,
                                               limit_future=limit_date)
   
   
   if (empty(stale_checks)) return (NULL) #nothing to check!
   
   #In case it was NULL and defaulted to program-level
-  rsf_pfcbl_id.family <- unique(stale_checks$rsf_pfcbl_id.family)
   
   check_groups <- sort(unique(stale_checks$check_group))
   
@@ -37,7 +37,7 @@ rsf_program_check <- function(pool,
   #Errors generally result from changes in the check formula and residual calculations
   
   #group <- 1
-  #group <- 10
+  #group <- 2
   #group <- group+1
   check_results <- NULL
   computed_count <- 0
@@ -59,6 +59,7 @@ rsf_program_check <- function(pool,
                           " checks for ",perform_checks$check_asof_date[[1]]," ...\n"))
     
     computed_checks <- rsf_program_perform_checks(pool=pool,
+                                                  rsf_pf_id=rsf_pf_id,
                                                   rsf_indicators=rsf_indicators,
                                                   perform_checks=perform_checks,
                                                   perform.test = FALSE,
@@ -72,35 +73,30 @@ rsf_program_check <- function(pool,
     
     computed_count <- computed_count + nrow(computed_checks)
     
-    for (chk in 1:nrow(perform_checks)) {
-      check <- perform_checks[chk,
-                              .(current_evaluation_ids,
-                                check_formula_id,
-                                check_asof_date)]
+    {
+      obsolete_evaluations <- computed_checks[flag_status==FALSE]  
       
-      eids <- na.omit(unlist(check$current_evaluation_ids,recursive = F))
-      
-      if (length(eids)==0) next;
-      
-      existing_checks <- dbGetQuery(pool,
-                                   "select 
+      eids <- na.omit(as.numeric(unique(unlist(perform_checks$current_evaluation_ids))))
+      if (length(eids) && !empty(obsolete_evaluations)) {
+        
+        existing_checks <- dbGetQuery(pool,
+                                      "select 
                                       rdc.rsf_pfcbl_id,
+                                      rdc.check_asof_date,
+                                      rdc.check_formula_id,
                                       rdc.evaluation_id
                                     from p_rsf.rsf_data_checks rdc
                                     where rdc.evaluation_id = any($1::int[])
                                       and rdc.check_status = 'active'
                                    ",params=list(dbMakeIntArray(eids)))
-      setDT(existing_checks)
-      obsolete_evaluations <- computed_checks[check_asof_date == check$check_asof_date &
-                                              check_formula_id == check$check_formula_id &
-                                              flag_status == FALSE, #Computed to be FALSE but existing check exists
-                                              .(rsf_pfcbl_id)
-                                              ][existing_checks,
-                                                on=.(rsf_pfcbl_id),
-                                                evaluation_id,
-                                                nomatch=NULL]
-      if (length(obsolete_evaluations) > 0) {
-        dbExecute(pool,"
+        setDT(existing_checks)
+        obsolete_evaluations <- obsolete_evaluations[existing_checks,
+                                                     on=.(rsf_pfcbl_id,
+                                                          check_asof_date,
+                                                          check_formula_id),
+                                                     nomatch=NULL]
+        if (!empty(obsolete_evaluations)) {
+          dbExecute(pool,"
                  update p_rsf.rsf_data_checks rdc
                  set check_status = 'resolved',
                      check_status_comment = concat('Resolved by System: flag no longer exists following data correction'),
@@ -108,13 +104,56 @@ rsf_program_check <- function(pool,
                      status_time = TIMEOFDAY()::timestamptz
                  where rdc.check_status = 'active'
                    and rdc.evaluation_id = any($1::int[])",
-                  params=list(dbMakeIntArray(obsolete_evaluations)))
+                    params=list(dbMakeIntArray(obsolete_evaluations$evaluation_id)))
+        }
       }
-      
-      existing_checks <- NULL
-      check <- NULL
-
     }
+    
+    #This was previously done as an efficiency gain -- basically to avoid uploading rsf_pfcbl_id,check_asof_date,formula_id ... does save some IO but
+    #more so increases loops on the DB.  Not sure it's really a gain?  Maybe for mega clients with mega flags?
+    # for (chk in 1:nrow(perform_checks)) {
+    #   check <- perform_checks[chk,
+    #                           .(current_evaluation_ids,
+    #                             check_formula_id,
+    #                             check_asof_date)]
+    #   
+    #   eids <- na.omit(unlist(check$current_evaluation_ids,recursive = F))
+    #   
+    #   if (length(eids)==0) next;
+    #   
+    #   existing_checks <- dbGetQuery(pool,
+    #                                "select 
+    #                                   rdc.rsf_pfcbl_id,
+    #                                   rdc.evaluation_id
+    #                                 from p_rsf.rsf_data_checks rdc
+    #                                 where rdc.evaluation_id = any($1::int[])
+    #                                   and rdc.check_status = 'active'
+    #                                ",params=list(dbMakeIntArray(eids)))
+    #   setDT(existing_checks)
+    #   obsolete_evaluations <- computed_checks[check_asof_date == check$check_asof_date &
+    #                                           check_formula_id == check$check_formula_id &
+    #                                           flag_status == FALSE, #Computed to be FALSE but existing check exists
+    #                                           .(rsf_pfcbl_id)
+    #                                           ][existing_checks,
+    #                                             on=.(rsf_pfcbl_id),
+    #                                             evaluation_id,
+    #                                             nomatch=NULL]
+    #   if (length(obsolete_evaluations) > 0) {
+    #     dbExecute(pool,"
+    #              update p_rsf.rsf_data_checks rdc
+    #              set check_status = 'resolved',
+    #                  check_status_comment = concat('Resolved by System: flag no longer exists following data correction'),
+    #                  check_status_user_id = (select account_id from p_rsf.view_account_info where is_system_account = true and users_name = 'RSF SYS Calculator'),
+    #                  status_time = TIMEOFDAY()::timestamptz
+    #              where rdc.check_status = 'active'
+    #                and rdc.evaluation_id = any($1::int[])",
+    #               params=list(dbMakeIntArray(obsolete_evaluations)))
+    #   }
+    #   
+    #   existing_checks <- NULL
+    #   check <- NULL
+    # 
+    # }
 
     #Keep everything that was done    
     # computed_checks <- computed_checks[is.na(flag_status) | #so it can be flagged later
@@ -162,18 +201,8 @@ rsf_program_check <- function(pool,
     
     #consolidate all failed checks to the calling entity, otherwise it's just very spammy and really not meaningful to assign at the entity level
     failed_checks[,rsf_pfcbl_id:=NULL]
-    failed_checks[,rsf_pfcbl_id:=as.numeric(rsf_pfcbl_id.family)]
+    failed_checks[,rsf_pfcbl_id:=as.numeric(rsf_pf_id)]
     failed_checks <- unique(failed_checks)
-    
-    # failed_checks <- failed_checks[,.(rsf_pfcbl_id=unlist(rsf_pfcbl_id,recursive=F)),
-    #                                by=.(check_formula_id,
-    #                                     check_asof_date,
-    #                                     check_message)]
-    # failed_checks[,
-    #               n:=.N,
-    #               by=.(check_asof_date,
-    #                    check_formula_id,
-    #                    check_message)]
     
     failed_checks[,
                   `:=`(flag_status=TRUE,
@@ -195,7 +224,7 @@ rsf_program_check <- function(pool,
   t2 <- Sys.time()
   if (any(check_results$flag_status==TRUE,na.rm=T)) {
 
-    db_rsf_checks_add_update(pool=pool,
+    db_add_update_checks(pool=pool,
                              data_checks=check_results[flag_status==TRUE,
                                                        .(rsf_pfcbl_id,
                                                          for_indicator_id=as.numeric(NA),
@@ -204,7 +233,10 @@ rsf_program_check <- function(pool,
                                                          check_asof_date,
                                                          check_message,
                                                          variance=check_variance)],
-                             for_import_id=NA, #this is for sys checks related to the specific reporting template; not to the checks triggered by the data itself, here
+                             for_import_id=for_import_id, #AUG2026: modified to always include and now db_add_update_checks will decide to include or not
+                             #for_import_id=NA, #this is for sys checks related to the specific reporting template; 
+                                               #not to the checks triggered by the data itself (which are being computed here) 
+                                               #ie, data checks vs reporting checks, like data formatting errors or indicator not found, computed elsewhere.
                              consolidation_threshold=check_consolidation_threshold)
     
   }
@@ -214,17 +246,18 @@ rsf_program_check <- function(pool,
   if (!empty(check_results)) {
     
 
+    #There's a small chance some other process has inserted new flags in-between the time of getting stale checks (using these parameters)
+    #and now the request to delete/validate them. But it seems very, very low that multiple people are uploading client data at the same time 
+    #and generating new checks.  And this is the most efficient way to clear out pending evaluations.
     
     dbExecute(pool,"
       delete from p_rsf.rsf_data_check_evaluations dce
-      using p_rsf.view_rsf_pfcbl_id_family_tree ft
-      where ft.from_rsf_pfcbl_id = $1::int
-        and dce.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-        and dce.check_asof_date <= any(select unnest(string_to_array($2::text,','))::date)
-        and dce.check_formula_id = any($3::int[])",
-      params=list(rsf_pfcbl_id.family,
-                  paste0(na.omit(unique(check_results$check_asof_date)),collapse=","),
-                  dbMakeIntArray(completed_check_formula_ids)))
+      using p_rsf.view_rsf_pf_check_requirements req
+      where req.from_rsf_pf_id = $1::int
+        and dce.rsf_pf_id = req.to_rsf_pf_id
+        and dce.check_asof_date <= $2::date",
+      params=list(rsf_pf_id,
+                  limit_date))
   }
   
   if(SYS_PRINT_TIMING) debugtime("rsf_program_check","Done!",format(Sys.time()-t1))

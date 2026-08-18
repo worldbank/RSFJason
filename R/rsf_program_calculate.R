@@ -15,10 +15,7 @@ rsf_program_calculate <- function(pool,
       #where as calculations are system and user should be able to view these separately.
       #unique constraint on database will deny recycling cohort_ids and enforce new cohorts on upload
       
-      #rsf_indicators <-db_indicators_get_labels(pool=pool)
-      #rsf_pfcbl_id.family = 581034
-      #using_reporting_cohort_id=NA
-  
+
       if (all(is.na(reference_asof_date))) reference_asof_date <- NULL
   
       processed_calculations <- data.table(calculate_rsf_pfcbl_id=numeric(0),
@@ -115,9 +112,15 @@ rsf_program_calculate <- function(pool,
                                       calculate_indicator_id,
                                       calculate_asof_date)]
           
-          #Testing
 
+          #Having calculations calculate x2 is uncommon but valid when:
+          # (1) Metrics are already pending calculation ex ante before the upload (ie, something else triggered them, such as a delete request) and
+          #the delete left stale data to be recalculated into the "future" such as for fx rate flucations into known future timelines.
+          # (2) Historic corrections that result in a recalculation, which can occur if a system flag is automatically "restored" by this upload
+          #and then triggers an historic overwrite into the timeline and prompts re-calculating from that historic date into the current timeline of this upload.
           if (any(processed_calculations$processed_times > 1)) {
+            
+            #Testing
             #stop("stop")
             # repeat_calcs <- fsetdiff(required_calculations[,.(calculate_rsf_pfcbl_id,calculate_indicator_id,calculate_asof_date)],
             #                          processed_calculations[processed_times > 1,.(calculate_rsf_pfcbl_id,calculate_indicator_id,calculate_asof_date)])
@@ -142,12 +145,12 @@ rsf_program_calculate <- function(pool,
               repeat_calcs <- unique(repeat_calcs[processed_times > 1,.(indicator_name,calculate_asof_date,processed_times)])
               for (rc in 1:nrow(repeat_calcs)) {
                 
-                status_message(class="error",
+                status_message(class=ifelse(all(processed_calculations$processed_times <= 2),"warning","error"),
                                paste0(repeat_calcs[rc,indicator_name],
                                       " has been re-calculated multiple times (x",repeat_calcs[rc,processed_times],")",
                                       " in ",
                                       as.character(repeat_calcs[rc,calculate_asof_date]),
-                                      " rsf_pfcbl_id.family=",rsf_pfcbl_id.family,"\n"))              
+                                      " rsf_pf_id=",rsf_pf_id,"\n"))              
               }
             }
             

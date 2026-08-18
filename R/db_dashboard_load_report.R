@@ -153,14 +153,22 @@ db_dashboard_load_report <- function(pool,
          as.character(template_reporting_date),"'"))
   }
 
-  #Reporting IDs
+  #Reporting IDs (get the rsf_pf_id of whoever exported it -- ie, a client can export data from the dashboard, but only can re-import at the facility/program level)
   {
-    reporting_rsf_pfcbl_id <- dbGetQuery(pool,"
-      select p_rsf.get_rsf_pfcbl_id_by_sys_name($1::text) as rsf_pfcbl_id",
+    sys_name_lookup <- dbGetQuery(pool,"
+      select 
+        ids.rsf_pf_id,
+        ids.rsf_pfcbl_id,
+        ids.pfcbl_category,
+        ids.rsf_program_id
+      from p_rsf.rsf_pfcbl_ids ids
+      where ids.rsf_pfcbl_id = any(select p_rsf.get_rsf_pfcbl_id_by_sys_name($1::text) as rsf_pfcbl_id)",
       params=list(template_reporting_entity))
     
-    reporting_rsf_pfcbl_id <- unlist(reporting_rsf_pfcbl_id)
+    reporting_rsf_pfcbl_id <- sys_name_lookup$rsf_pf_id
+    rsf_program_id <- sys_name_lookup$rsf_program_id
     if (length(reporting_rsf_pfcbl_id)==0) reporting_rsf_pfcbl_id <- as.numeric(NA)
+    if (length(rsf_program_id)==0) rsf_program_id <- as.numeric(NA)
     
     if (!is.na(export$exporting_rsf_pfcbl_id)) {
       
@@ -174,20 +182,6 @@ db_dashboard_load_report <- function(pool,
                export$is_setup_template==FALSE) {
       stop(paste0("RSF Template error: Failed to find SYSID from reported SYNAME. ",reporting_rsf_pfcbl_id," does not exist in the database?"))
     } 
-  }
-  
-  
-  {
-    rsf_program_id <- dbGetQuery(pool,
-                                 "select distinct ids.rsf_program_id
-                                  from p_rsf.rsf_pfcbl_ids ids
-                                  where ids.rsf_pfcbl_id = $1::int",
-                                 params=list(reporting_rsf_pfcbl_id))
-    if (empty(rsf_program_id)) {
-      rsf_program_id <- as.numeric(NA)
-    } else {
-      rsf_program_id <- as.numeric(unlist(rsf_program_id))
-    }
   }
   
   #Load the data

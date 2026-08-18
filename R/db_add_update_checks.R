@@ -1,8 +1,9 @@
 #NEW
-db_rsf_checks_add_update <- function(pool,
+db_add_update_checks <- function(pool,
                                      data_checks,
                                      for_import_id=NA,
-                                     consolidation_threshold=NA) 
+                                     consolidation_threshold=NA,
+                                     drop.timeseries.redundancies=FALSE) 
 {
 
   
@@ -32,7 +33,7 @@ db_rsf_checks_add_update <- function(pool,
       stop(paste0("data_checks must define columns: ",paste0(bad_cols,collapse=", ")))
     }
     
-    #Because these fields may (or may not) come from other preocesses.
+    #Because these fields may (or may not) come from other processes
     if (!any(names(data_checks)=="variance")) {
       data_checks[,
                   variance:=as.numeric(NA)]
@@ -99,10 +100,9 @@ db_rsf_checks_add_update <- function(pool,
   #poolReturn(conn)
   
   
-t20 <- Sys.time()  
+
   nx <- poolWithTransaction(pool,function(conn) {
     
-    t30 <- Sys.time()
         {
           dbExecute(conn,"
                     create temp table _temp_data_checks(data_id int,
@@ -118,7 +118,8 @@ t20 <- Sys.time()
                                                         check_status_user_id text,
                                                         check_data_id_is_current bool,
                                                         data_check_value text,
-                                                        data_check_unit text)
+                                                        data_check_unit text,
+                                                        config_id int)
                     on commit drop")
   
           dbExecute(conn,"create TEMP table _temp_add_checks(rsf_pfcbl_id int,
@@ -145,7 +146,7 @@ t20 <- Sys.time()
           #after it has been deactivated.
           dbExecute(conn,"
             delete from _temp_add_checks tac
-            where exists(select * from p_rsf.rsf_pfcbl_ids ids
+            where exists(select true from p_rsf.rsf_pfcbl_ids ids
                          where ids.rsf_pfcbl_id = tac.rsf_pfcbl_id
                            and (tac.check_asof_date < ids.created_in_reporting_asof_date 
                                 or
@@ -158,8 +159,7 @@ t20 <- Sys.time()
         
           
         }   
-    #if(SYS_PRINT_TIMING) debugtime("db_rsf_checks_add_update","write data in ",format(Sys.time()-t30))  
-    
+
         {
           
           
@@ -176,7 +176,7 @@ t20 <- Sys.time()
                             AND (exists(select * from p_rsf.indicator_checks ic 
                                        where tac.indicator_check_id = ic.indicator_check_id
                                          and ic.is_system is true)
-                             or not exists(select * from p_rsf.indicator_check_formulas icf
+                             or not exists(select true from p_rsf.indicator_check_formulas icf
                                            where icf.indicator_check_id = tac.indicator_check_id))")
           
           
@@ -208,29 +208,11 @@ t20 <- Sys.time()
               and tic.check_formula_id is NOT NULL -- this is only meaningful for non-system checks that have formulas.
               and tac.flag_id = tic.flag_id")
           
-          # dbExecute(conn,"update _temp_add_checks tac
-          #           set for_indicator_id = ind.indicator_id
-          #           from p_rsf.rsf_pfcbl_ids ids 
-          #           inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
-          #           where ind.indicator_sys_category = 'entity_reporting'
-          #             and tac.for_indicator_id is NULL")
-          # 
-          # dbExecute(conn,"update _temp_add_checks tac
-          #                 set data_id = (select rdc.data_id
-          #                                from p_rsf.rsf_data_current rdc
-          #                                where rdc.rsf_pfcbl_id = tac.rsf_pfcbl_id
-          #                                  and rdc.indicator_id = tac.for_indicator_id
-          #                                  and rdc.reporting_asof_date <= tac.check_asof_date
-          #                                order by
-          #                                  rdc.reporting_asof_date desc
-          #                                limit 1)
-          #                 where tac.data_id is null")
-          # 
-          
-          
+         
           #Will assign to entity_reporting when previously, no for_indicator_id is assigned
           #(1) It's a system indicator with no check_formula_id
-          #(2) The indicator formula was triggered -- and a flag found -- but no formula-entity-level indicators were actually modified this reporting period (maybe a parent metric update and triggered a child-level flag?)
+          #(2) The indicator formula was triggered -- and a flag found -- but no formula-entity-level indicators were actually modified this reporting period 
+          #   (maybe a parent metric update and triggered a child-level flag?)
           dbExecute(conn,"
                     update _temp_add_checks tic
                     set for_indicator_id = coalesce(tac.for_indicator_id,ind.indicator_id), -- if an indicator_id hasn't been asigned, then assign to entity_reporting
@@ -278,7 +260,7 @@ t20 <- Sys.time()
           
           #if a flag is generated on an indicator/data point that the entity has NEVER reported on before,
           #then reassign it to the entity's reporting indicator for this period.
-          non_reporting_data <- dbGetQuery(conn,"select exists(select * from _temp_add_checks where data_id is NULL or for_indicator_id is null)::bool")
+          non_reporting_data <- dbGetQuery(conn,"select exists(select true from _temp_add_checks where data_id is NULL or for_indicator_id is null)::bool")
           if (unlist(non_reporting_data)==TRUE) {
             
             x <- dbGetQuery(conn,"select * from _temp_add_checks where data_id is NULL or for_indicator_id is null")
@@ -292,19 +274,61 @@ t20 <- Sys.time()
           dbExecute(conn,"
                     update _temp_add_checks tac
                     set check_formula_id = NULL
-                    where exists(select * from p_rsf.indicator_checks ic
+                    where exists(select true from p_rsf.indicator_checks ic
                                  where ic.indicator_check_id = tac.indicator_check_id
                                    and ic.is_system = true)
                       and check_formula_id is distinct from NULL")
 
           #delete where data already has this flag and this message (its redundant)
-          dbExecute(conn,"
-                  delete from _temp_add_checks tac
-                  where exists(select * from p_rsf.rsf_data_checks rdc
-                               where rdc.data_id = tac.data_id
-                                 and rdc.check_asof_date = tac.check_asof_date
-                                 and rdc.indicator_check_id = tac.indicator_check_id::int
-                                 and rdc.check_message is not distinct from tac.check_message)")
+          #But also "modernize" its for_import_id, that is if a check was run historically on a future data point ... and now the future is here ...
+          #Then reassign the check to the current import
+          nx <- dbGetQuery(conn,"
+            with redundant as (
+              select 
+                rdc.evaluation_id,
+                rdc.for_import_id as previous_import_id,
+                rdc.data_id,
+                rdc.check_asof_date,
+                rdc.indicator_check_id,
+                rdc.check_formula_id,
+                tac.check_message,
+                $1::int as current_import_id
+              from p_rsf.rsf_data_checks rdc
+              inner join _temp_add_checks tac on rdc.data_id = tac.data_id
+                                             and rdc.check_asof_date = tac.check_asof_date
+                                             and rdc.indicator_check_id = tac.indicator_check_id
+                                             and rdc.check_formula_id is not distinct from tac.check_formula_id
+                                             and rdc.check_message is not distinct from tac.check_message
+            ),
+            new_import as (
+              update p_rsf.rsf_data_checks rdc
+                set for_import_id = red.current_import_id
+              from redundant red
+              inner join p_rsf.reporting_imports ri on ri.import_id = red.current_import_id
+              where red.current_import_id is not null
+                and rdc.evaluation_id = red.evaluation_id
+                and rdc.for_import_id is distinct from red.current_import_id
+                and rdc.check_asof_date = ri.reporting_asof_date
+              returning true
+            ),
+            remove as (
+              delete from _temp_add_checks tac
+              using redundant red
+              where red.data_id = tac.data_id
+                and red.check_asof_date = tac.check_asof_date
+                and red.indicator_check_id = tac.indicator_check_id
+                and red.check_formula_id is not distinct from tac.check_formula_id
+                and red.check_message is not distinct from tac.check_message
+             returning true
+            )
+            select distinct null
+            from new_import
+            
+            union all
+            
+            select distinct null
+            from remove",
+            params=list(for_import_id))
           
           #Because check messages can change.
           dbExecute(conn,"
@@ -322,7 +346,7 @@ t20 <- Sys.time()
           
           dbExecute(conn,"
                   delete from _temp_add_checks tac
-                  where exists(select * from p_rsf.rsf_data_checks rdc
+                  where exists(select true from p_rsf.rsf_data_checks rdc
                                where rdc.rsf_pfcbl_id = tac.rsf_pfcbl_id
                                  and rdc.check_asof_date = tac.check_asof_date
                                  and rdc.indicator_check_id = tac.indicator_check_id::int
@@ -330,11 +354,16 @@ t20 <- Sys.time()
                                  and tac.check_formula_id is not null
                                  and rdc.check_data_id_is_current = true)")
           
-          #when for_import_id is defined by call to this function, it's from template system checks
+          #when for_import_id is defined by call to this function, and drop.timeseries.redundancies==TRUE,
+          #it's from template system checks
           #if there's the same issue in the template without any change in the flag, no need to re-flag it each upload: first flag suffices.
           #For example, system formatting name, no need to reapply if the flag isn't omitted during template_upload.
           #or indicator_not_found every time, or indicator_not_monitored every time.
-          if (!is.na(for_import_id)) {
+          #Within regular non-system checks, they're only triggered on changes in rsf_data_current and therfore cannot run the risk of
+          #timeseries redundancies since the flag will only be triggered and/or applied to relevant data.
+          #But templates are inherently repetitive and will bring the same issues forward in time and generate the same flags over and over
+          #again without any checks on whether the data is new or not.
+          if (!is.na(for_import_id) && drop.timeseries.redundancies==TRUE) {
             dbExecute(conn,"
                       with last_checks as (
                         select distinct on (chk.rsf_pfcbl_id,chk.indicator_id,chk.indicator_check_id)
@@ -364,7 +393,7 @@ t20 <- Sys.time()
                       ")
           }
           
-          nothing <- dbGetQuery(conn,"select not exists(select * from _temp_add_checks)::bool")
+          nothing <- dbGetQuery(conn,"select not exists(select true from _temp_add_checks)::bool")
           
           if (unlist(nothing)==TRUE) {
             return (0);
@@ -391,7 +420,8 @@ t20 <- Sys.time()
                       																	check_status_user_id,
                       																	check_data_id_is_current,
                       																	data_check_value,
-                                                        data_check_unit)																
+                                                        data_check_unit,
+                                                        config_id) -- if the config auto-resolves: then its done.  But if it set to review, need to know how message arrived														
 																	
                           select 
                           	tac.data_id,
@@ -400,7 +430,8 @@ t20 <- Sys.time()
                           	tac.check_asof_date,
                           	tac.indicator_check_id,
                             tac.check_formula_id,
-                          	(timeofday())::timestamptz as status_time,
+                            coalesce(scc.config_time,
+                          	         (timeofday())::timestamptz) as status_time,
                           	tac.check_message,
                           	
                           	case 
@@ -413,15 +444,17 @@ t20 <- Sys.time()
                           	
                           	case 
                           	  when coalesce(tac.variance,0) < coalesce(scc.config_threshold,0) 
-                          	  then concat('Variance ',round(tac.variance,2),'% below threshold ',round(scc.config_threshold,2),'% Resolved [',ssc_vai.users_name,']: ',scc.config_comments)
+                          	  then concat('Variance ',round(tac.variance,2),'% below threshold ',
+                          	              round(scc.config_threshold,2),'% Resolved [Setting #',scc.config_id,']: ',scc.config_comments)
                           	  
                           	  when scc.config_auto_resolve is not null and scc.config_auto_resolve is true 
-                          	  then concat('Auto Resolved [',ssc_vai.users_name,']: ',scc.config_comments)
+                          	  then concat('Auto-Resolved [Setting #',scc.config_id,']: ',scc.config_comments)
                           	  
+                          	  -- set to review
                           	  when scc.config_auto_resolve is not null and scc.config_auto_resolve is false
-                          	  then concat('Review [',ssc_vai.users_name,']: ',scc.config_comments)
+                          	  then concat(scc.config_comments,concat(' [Setting #',scc.config_id,']'))
                           	  
-                          	  when coalesce(icf.auto_resolve,ic.auto_resolve_system_check,false) is true then 'Auto-resolved by SYSTEM [default]'
+                          	  when coalesce(icf.auto_resolve,ic.auto_resolve_system_check,false) is true then 'Auto-resolved [SYSTEM default]'
 
                           		else NULL::text
                           	end as check_status_comment,
@@ -437,72 +470,76 @@ t20 <- Sys.time()
 
                           	NULL as check_data_id_is_current, -- before trigger will set this
                           	tac.data_check_value,
-                            tac.data_check_unit
+                            tac.data_check_unit,
+                            scc.config_id
 
                           from _temp_add_checks tac
-                          --left join p_rsf.rsf_data rd on rd.data_id = tac.data_id and rd.reporting_asof_date = tac.check_asof_date
                           left join p_rsf.indicator_checks ic on ic.indicator_check_id = tac.indicator_check_id
                           left join p_rsf.indicator_check_formulas icf on icf.check_formula_id = tac.check_formula_id
                           left join p_rsf.view_rsf_setup_check_config scc on scc.rsf_pfcbl_id = tac.rsf_pfcbl_id
                                                                          and scc.for_indicator_id = tac.for_indicator_id
                                                                          and scc.indicator_check_id = ic.indicator_check_id
-                                                                         and scc.check_formula_id is not distinct from tac.check_formula_id
-                          left join p_rsf.view_account_info ssc_vai on ssc_vai.account_id = scc.comments_user_id")
+                                                                         and scc.check_formula_id is not distinct from tac.check_formula_id")
           
           
-          #if(SYS_PRINT_TIMING)  debugtime("db_rsf_checks_add_update","staged",format(nx,big.mark = ",")," checks in ",format(Sys.time()-t1))
+          #if(SYS_PRINT_TIMING)  debugtime("db_add_update_checks","staged",format(nx,big.mark = ",")," checks in ",format(Sys.time()-t1))
           #x <- dbGetQuery(conn,"select * from _temp_data_checks");setDT(x);x
           #y <- dbGetQuery(conn,"select * from _temp_add_checks");setDT(y);y
         }
         
         {
-          nx <- dbExecute(conn,"
-                          
-                                insert into p_rsf.rsf_data_checks(data_id,
-                                																	rsf_pfcbl_id,
-                                																	indicator_id,
-                                																	check_asof_date,
-                                																	indicator_check_id,
-                                                                  check_formula_id,
-                                																	status_time,
-                                																	check_message,
-                                																	check_status,
-                                																	check_status_comment,
-                                																	check_status_user_id,
-                                																	check_data_id_is_current,
-                                																	data_check_value,
-                                                                  data_check_unit,
-                                                                  for_import_id)																
+          dbExecute(conn,"
+            insert into p_rsf.rsf_data_checks(data_id,
+            																	rsf_pfcbl_id,
+            																	indicator_id,
+            																	check_asof_date,
+            																	indicator_check_id,
+                                              check_formula_id,
+            																	status_time,
+            																	check_message,
+            																	check_status,
+            																	check_status_comment,
+            																	check_status_user_id,
+            																	check_data_id_is_current,
+            																	data_check_value,
+                                              data_check_unit,
+                                              for_import_id,
+                                              config_id)																
                                 select 
-                                  data_id,
-  																rsf_pfcbl_id,
-  																indicator_id,
-  																check_asof_date,
-  																indicator_check_id,
-  																check_formula_id,
-  																status_time,
-  																check_message,
-  																check_status,
-  																check_status_comment,
-  																check_status_user_id,
+                                  tdc.data_id,
+  																tdc.rsf_pfcbl_id,
+  																tdc.indicator_id,
+  																tdc.check_asof_date,
+  																tdc.indicator_check_id,
+  																tdc.check_formula_id,
+  																tdc.status_time,
+  																tdc.check_message,
+  																tdc.check_status,
+  																tdc.check_status_comment,
+  																tdc.check_status_user_id,
   																NULL as check_data_id_is_current,
-  																data_check_value,
-                                  data_check_unit,
-                                  NULLIF($1::text,'NA')::int as for_import_id
+  																tdc.data_check_value,
+                                  tdc.data_check_unit,
+                                  ri.import_id as for_import_id, -- import can only be tied to checks for same rsf_pf_id and same as-of date.
+                                  tdc.config_id
 
 
-                                from _temp_data_checks	
+                                from _temp_data_checks tdc
+                                -- we dont check deactivation date here because calculator checks can go into the future
+                                -- (although users wont be able to see them until theres some future reporting, usually; or see via dashboard)
+                                inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = tdc.rsf_pfcbl_id
+                                left join p_rsf.reporting_imports ri on ri.import_rsf_pfcbl_id = ids.rsf_pf_id
+                                                                    and ri.reporting_asof_date = tdc.check_asof_date
+                                                                    and ri.import_id = NULLIF($1::text,'NA')::int
+                                
                                 on conflict do nothing
                           ",params=list(for_import_id))
           
         }
-      
-      nx    
     
     })
   
-  if(SYS_PRINT_TIMING) debugtime("db_rsf_checks_add_update","uploading"," in ",format(Sys.time()-t20))  
   
-  if(SYS_PRINT_TIMING) debugtime("db_rsf_checks_add_update","Done! uploading",nx," in ",format(Sys.time()-t10))
+  if(SYS_PRINT_TIMING) debugtime("db_add_update_checks","Done! uploading",nx," in ",format(Sys.time()-t10))
   return(TRUE)
 }

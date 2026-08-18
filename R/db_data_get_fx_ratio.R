@@ -415,6 +415,7 @@ db_data_get_fx_ratio <- function(pool,
                    exchange_rate_date)]
     
     #Saving is hard-coded for GLOBAL since only these indicators will self-calculate here
+    #NOTE: rsf_pfcbl_id will be 0 as defined above in calc_fx
     if (!empty(calc_fx[!is.na(fx_indicator_id)])) {
       calc_dates <- as.character(sort(unique(calc_fx$exchange_rate_date)))
       #calc_date <- calc_dates[[1]]
@@ -462,10 +463,10 @@ db_data_get_fx_ratio <- function(pool,
           from p_rsf.view_rsf_setup_indicator_subscriptions sis
           where sis.rsf_pfcbl_id = $1::int
             and sis.indicator_id = any($2::int[])",
-          params=list(unique(save_fx$rsf_pfcbl_id)),
-                      dbMakeIntArray(save_fx$indicator_id))
+          params=list(unique(save_fx$rsf_pfcbl_id),
+                      dbMakeIntArray(save_fx$indicator_id)))
         
-        setDT(for_formula_calculation_ranks)
+        setDT(formula_calculation_ranks)
         
         #this really should only be a single value ... but maybe (maybe?) some internal change could
         #see two ranks for this?  if so, will generate an error...
@@ -475,7 +476,7 @@ db_data_get_fx_ratio <- function(pool,
                                                                      indicator_id]]
           db_add_update_data_system(pool=pool,
                                     for_import_id=NA, #function will auto-assign import_id
-                                    for_formula_calculation_ranks=for_formula_calculation_rank,
+                                    for_formula_calculation_rank=for_formula_calculation_rank,
                                     system_upload_data=sfx)
         }
       }
