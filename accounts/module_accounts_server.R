@@ -39,9 +39,11 @@ module_accounts_server <- function(id,
     LOGIN_ATTEMPTS <- reactiveVal(0)
     LOGIN_CHANGE_FAILED_MSG <- reactiveVal(NULL)
     
-    if (!is.null(cookie_name)) session$sendCustomMessage("cookies","now!")
+    if (!is.null(cookie_name)) { session$sendCustomMessage("cookies","now!") }
   
     doLogin <- function(credentials) {
+      
+      message(paste0("doLogin with credentials: ",!(!isTruthy(credentials) || !isTruthy(credentials$session_id) || !isTruthy(credentials$account_id))))
       
       if (!isTruthy(credentials) || 
           !isTruthy(credentials$session_id) ||
@@ -81,57 +83,13 @@ module_accounts_server <- function(id,
       hideElement(id="login_failed2")
       hideElement(id="login_failed3")
       hideElement(id="login_failed4")
+      hideElement(id="login_failed5")
       if(n>0) {
         showElement(id=paste0("login_failed",n))
       }
     }
     
     LOGGEDIN <- reactive({ isTruthy(USER_ACCOUNT$user_account_id) && isTruthy(USER_ACCOUNT$application_session_id) })
-    
-    # observeEvent(session, { 
-    #   print("Session information")
-    #   # 
-    #   # session$url_hostname [1] "datanalytics-int.worldbank.org"
-    #   #browser()
-    #   #print(reactiveValuesToList(session))
-    #   
-    #   #will be assigned by Active Directory
-    #   ad_user <- NULL
-    #   if (isTruthy(session$user) && nchar(session$user) > 1) {
-    #     
-    #     ad_user <- session$user
-    #   } 
-    #   
-    #   if (!is.null(ad_user)) {
-    #     user_account <- DBPOOL %>% dbGetQuery("
-    #     select 
-    #       vai.account_id,
-    #       vai.users_name,
-    #       vai.users_login
-    #     from p_rsf.view_account_info vai
-    #     where users_login ~ concat('^',($1::text),'@')
-    #       and exists(select * 
-    #        from users.view_account_permissions_granted apg
-    #        where apg.account_id = vai.account_id
-    #          and apg.permission_value > 0)",
-    #                                           params=list(ad_user))
-    #     
-    #     if (nrow(user_account)==1) {
-    #       USER_ACCOUNT$user_account_id <- user_account$account_id
-    #       USER_ACCOUNT$user_name <- user_account$user_name
-    #       USER_ACCOUNT$user_login <- user_account$user_login
-    #       
-    #       #USER_ACCOUNT$application_permissions <- credentials$application_permissions
-    #       USER_ACCOUNT$application_session_id <- session$token
-    #     }
-    #   }
-    #   
-    #   # if (grepl("rsf-prod",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_PROD"]]
-    #   # } else if (grepl("rsf-dev",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_DEV"]]
-    #   # } else if (grepl("rsf-stage",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_STAGE"]]
-    #   # } else {  }
-    #   
-    # },once=T,priority = 1)
     
     observeEvent(LOGGEDIN(), {
       
@@ -145,6 +103,7 @@ module_accounts_server <- function(id,
         cookieValues$session_id <- USER_ACCOUNT$application_session_id
         cookieValues$user_login <- USER_ACCOUNT$user_login
         cookieValues$rememberme <- rememberme
+      
       } else {
         cookieValues$session_id <- NULL
         cookieValues$user_login <- NULL
@@ -167,6 +126,8 @@ module_accounts_server <- function(id,
     #tags$head(tags$script('Shiny.addCustomMessageHandler("cookies", function(arg) {  Shiny.onInputChange("cookie_report", document.cookie); });')),
     observeEvent(input$cookie_report, {
       
+      #in case AD auto-login pre-empts cookie report and cookie-based login.
+      if (LOGGEDIN()==TRUE) return (NULL)
       #print(paste0("COOKIE REPORT: ",input$cookie_report))
       cookie <- getCookie(cookie_name=cookie_name,
                           cookie_data=input$cookie_report)
@@ -194,7 +155,8 @@ module_accounts_server <- function(id,
       
       ad_user <- NULL
       success <- FALSE
-      message(paste0("Parent session: ",parent_session$user))
+      
+      message(paste0("\nParent session (ActiveDirectory) user: ",parent_session$user),"\n")
       
       if (isTruthy(parent_session$user)) {
         
@@ -202,38 +164,48 @@ module_accounts_server <- function(id,
         
         if (!is.null(ad_user)) {
           
-          message(paste0("Active Directory login for: ",ad_user))
-          
           user_account <- dbGetQuery(APPLICATIONS,"
-        select 
-          vai.account_id,
-          vai.users_name,
-          vai.login_email as user_login,
-          aas.application_permissions
-        from arlapplications.view_account_application_subscriptions aas
-        inner join arlapplications.view_account_info vai on vai.account_id = aas.account_id
-        where vai.login_email ~ concat('^',($1::text),'@')
-          and aas.application_hashid = $2
-          and aas.application_permissions>0",
-          params=list(ad_user,
-                      application_hashid))
+          select 
+            vai.account_id,
+            vai.users_name,
+            vai.login_email as user_login,
+            aas.application_permissions,
+            sessions.session_id,
+            vai.login_name
+          from arlapplications.view_account_application_subscriptions aas
+          inner join arlapplications.view_account_info vai on vai.account_id = aas.account_id
+          left join lateral (select case when acs.logout_time is not null then null
+                                         else acs.session_id end as session_id
+                             from arlapplications.application_account_sessions acs
+                             where acs.application_hashid = aas.application_hashid
+                              and acs.account_id = vai.account_id
+                             order by login_time desc
+                             limit 1) as sessions on true
+          where vai.login_name is not distinct from NULLIF(trim(lower(regexp_replace(split_part($1::text,'@', 1),'[^[:alnum:]\\.]','','gi'))),'')
+            and aas.application_hashid = $2
+            and aas.application_permissions > 0",
+            params=list(ad_user,
+                        application_hashid))
           
-          user_account$session_id <- parent_session$token
+          message(paste0("Active Directory login for: ",ad_user," obtained users_name=",user_account$users_name," session_id=",user_account$session_id))
           
-          
-          if (nrow(user_account)==1) {
+          if (nrow(user_account)==1 && isTruthy(user_account$session_id) && all.equal.character(ad_user,user_account$login_name)) {
             success <- doLogin(credentials=user_account)
           }
         }
       }
       
+      #Failed to login via AD so let's try the cookie instead?
       if (success==FALSE &&
-          isTruthy(cookie$user_login) && isTruthy(cookie$session_id) && as.logical(input$login_rememberme) %in% TRUE) {
+          isTruthy(cookie$user_login) && 
+          isTruthy(cookie$session_id) && 
+          isTRUE(as.logical(input$login_rememberme))) {
         
         result <- db_user_login(pool=APPLICATIONS,
                                 application_hashid=application_hashid,
                                 username=cookie$user_login,
                                 password=cookie$session_id)
+        
         if (isTruthy(result)) {
           message("Login by remember password cookie session credentials")
           success <- doLogin(credentials=result)
@@ -251,7 +223,7 @@ module_accounts_server <- function(id,
       
       
       
-    })
+    }, ignoreNULL = FALSE)
     
     observeEvent(input$login_change_action, {
       if (!is.null(USER_ACCOUNT$application_session_id)) return (NULL)
@@ -354,7 +326,7 @@ module_accounts_server <- function(id,
               hideElement(id="login_failed1")
               updateTextInput(session=session,inputId="login_password",label="Temporary Password",value="")  
               
-              user_send_email(pool=APPLICATIONS,
+              user_send_email(arl_pool=APPLICATIONS,
                               to=reset_code$login_email,
                               subject="RSF JASON | password reset",
                               html=email) 
@@ -473,10 +445,13 @@ module_accounts_server <- function(id,
     
     observeEvent(input$reset_password_button, {
  
-      lookup <- db_user_check_email_exists(pool=APPLICATIONS, application_hashid=RSF_MANAGEMENT_APPLICATION_ID, email=input$user_login)
+      lookup <- db_user_check_email_exists(pool=APPLICATIONS,
+                                           application_hashid=RSF_MANAGEMENT_APPLICATION_ID, 
+                                           email=input$user_login)
+      
       is_can_login <- db_user_check_permission(pool=APPLICATIONS, application_hashid=RSF_MANAGEMENT_APPLICATION_ID, email=input$user_login, 'CAN_LOGIN')
 
-      if (nrow(lookup) == 1 && 
+      if (length(lookup) == 1 && 
           nrow(is_can_login) == 1) {
         
         reset_code <- db_user_reset_password(pool=APPLICATIONS,
@@ -485,15 +460,15 @@ module_accounts_server <- function(id,
                                              username=input$user_login)
 
         if (!empty(reset_code) && 
-            reset_code$reset_success==TRUE) {
+            isTRUE(reset_code$reset_success)) {
           email <- div(p("Dear ",paste0(ifelse(!isTruthy(reset_code$users_name),"User",reset_code$users_name),",")),
                        p("Your ",tags$a(href="https://datanalytics-int.worldbank.org/rsf-prod/","RSF Jason")," account password has been reset"),
                        p("Please use the following temporary password to reset your account: ",reset_code$reset_password))
           
-          to <- input$user_login
+          to <- reset_code$login_email
           subject <- "RSF JASON | Password Reset"
 #print("SENDING MAIL")          
-          user_send_email(pool = APPLICATIONS,
+          user_send_email(arl_pool = APPLICATIONS,
                           to = to,
                           subject = subject,
                           html = email)
@@ -512,7 +487,10 @@ module_accounts_server <- function(id,
           showElement(id = "login_change_password",anim=TRUE,animType="fade")
           showElement(id = "login_password")
           updateTextInput(session=session,inputId="login_password",label="Temporary Password",value="")
-        } else{
+        
+        } else if (!empty(reset_code) && is.na(reset_code$reset_success)) { 
+          show_error(5)
+        } else {
           show_error(3)
         }
       }

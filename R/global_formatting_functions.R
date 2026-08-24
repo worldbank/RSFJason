@@ -404,6 +404,11 @@ is.same_number <- function(a,b,tolerance=1/10^CALCULATIONS_ENVIRONMENT$SIG_DIGIT
     if (!is.na(a) & !is.na(suppressWarnings(as.numeric(a)))) a<-as.numeric(a)
     if (!is.na(b) & !is.na(suppressWarnings(as.numeric(b)))) b<-as.numeric(b)
     
+    if (!all(is.numeric(c(a,b)))) {
+      a <- as.character(a)
+      b <- as.character(b)
+    }
+    
     #isTRUE(base::all.equal(a,b,check.class=F,tolerance=tolerance)) 
     isTRUE(base::all.equal(a,b,check.class=F)) | isTRUE(base::`==`(e1=a,e2=b))  | all(c(is.nothing(a),is.nothing(b)))
     

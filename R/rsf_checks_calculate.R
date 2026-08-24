@@ -50,6 +50,7 @@ rsf_checks_calculate <- function(pool,
                                                       check_asof_date=check_asof_date,
                                                       check_formula_id=check_formula_id,
                                                       check_message=check_message,
+                                                      check_variance=as.numeric(NA),
                                                       flag_status=NA)
   }
   
@@ -502,7 +503,6 @@ rsf_checks_calculate <- function(pool,
     #computed_results
   }
   status_message(class="none","\n") #to line-break after #1,2,3,4...etc
-  
   
   completed_checks <- rbindlist(all_checks)
   

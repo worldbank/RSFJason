@@ -7,7 +7,8 @@ db_indicators_get_header_actions <- function(pool,
                                              # discrete terms that are a specific header section, a partial match can help identify similar equivalent 
                                              # patterns of the same term. Whereas for QR template, each section is a list of complete headers that should be fully matched
                                              formatting.function=superTrim,
-                                             formatting.strip=NULL) #regexp to strip-out, ie, gsub to "" 
+                                             formatting.strip=NULL, #regexp to strip-out, ie, gsub to "" 
+                                             include.relatives=FALSE) #will include all known headers, sorted by relevance/priority 
 {
   
   trimFunc <- NULL
@@ -20,6 +21,49 @@ db_indicators_get_header_actions <- function(pool,
     trimFunc <- formatting.function
   }
   
+  header_actions <- NULL
+  
+  if (isTRUE(include.relatives)) {
+    header_actions <- dbGetQuery(pool,"
+      select distinct on (ids.rsf_pfcbl_id,sth.template_id,sth.template_header_full_normalized)
+      ids.rsf_pfcbl_id,
+      sth.rsf_pfcbl_id as setup_rsf_pfcbl_id,
+      sth.template_id,
+        sth.header_id,
+        sn.sys_name as SYSNAME,
+        rt.template_name,
+        sth.template_header_sheet_name as template_header_section_name,
+        sth.template_header_sheet_index as template_header_section_index,
+        sth.template_header,
+        sth.action,
+        sth.comment,
+        sth.map_indicator_id,
+        sth.indicator_name,
+        sth.map_formula_id,
+        indf.indicator_id as formula_indicator_id,
+        sth.calculation_formula,
+        sth.map_check_formula_id,
+        sth.check_formula,
+        case coalesce(array_position(ids.rsf_gpfcbl_family,sth.rsf_pfcbl_id),4) 
+        when 1 then 'global'
+        when 2 then 'program'
+        when 3 then 'facility'
+        when 4 then 'relative'
+        end as action_level,
+        sn.sys_name as action_source
+      from p_rsf.rsf_pfcbl_ids ids
+      cross join p_rsf.view_rsf_setup_template_headers sth --p_rsf.rsf_setup_template_headers sth
+      inner join p_Rsf.reporting_templates rt on rt.template_id = sth.template_id
+      inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = sth.rsf_pfcbl_id
+      left join p_rsf.indicator_formulas indf on indf.formula_id = sth.map_formula_id
+      where ids.rsf_pfcbl_id = $1
+        and sth.template_id = $2
+      order by ids.rsf_pfcbl_id,sth.template_id,sth.template_header_full_normalized,
+      array_position(ids.rsf_gpfcbl_family,sth.rsf_pfcbl_id) desc nulls last,sn.pfcbl_category = 'program' desc,sn.pfcbl_category = 'facility' desc",
+       params=list(rsf_pfcbl_id,
+                   template_id))
+    
+  } else {
   header_actions <- dbGetQuery(pool,"
       select tha.*,indf.indicator_id as formula_indicator_id
         from p_rsf.view_rsf_setup_template_header_actions tha
@@ -29,7 +73,7 @@ db_indicators_get_header_actions <- function(pool,
       order by header_id desc",
                                params=list(rsf_pfcbl_id,
                                            template_id))
-  
+  }
   setDT(header_actions)
   header_actions[is.na(map_indicator_id) & !is.na(formula_indicator_id),
                  map_indicator_id := formula_indicator_id]

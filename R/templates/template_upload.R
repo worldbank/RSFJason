@@ -76,73 +76,7 @@ template_upload <- function(pool,
       sys_flags[,
                 omit:=NULL]
     }
-    
-    
-    #if an indicator has a setup designation, and it's being reported by this cohort for the 2nd or more times;
-    #Then flag a key characteristics change.
-    {
-      key_characteristics <- template$pfcbl_data[rsf_pfcbl_id %in% template$match_results[match_action != "new",rsf_pfcbl_id] &
-                                                 indicator_id %in% template$rsf_indicators[is.na(is_setup)==FALSE,indicator_id] &
-                                                 inserted==TRUE,
-                                                 .(rsf_pfcbl_id,
-                                                   indicator_id,
-                                                   reporting_asof_date)]
-      
-      if (!empty(key_characteristics)) {
-        
-        key_characteristics <- poolWithTransaction(pool,function(conn) {
-  
-          dbExecute(conn,"
-            create temp table _temp_chflags(rsf_pfcbl_id int,
-                                            indicator_id int,
-                                            reporting_asof_date date)
-            on commit drop;
-          ")
-  
-          dbAppendTable(conn,
-                        name="_temp_chflags",
-                        value=unique(key_characteristics))
-  
-          dbExecute(conn,"analyze _temp_chflags")
-          dbGetQuery(conn,"
-            select
-              ch.*,
-              concat('FROM ',
-                     coalesce(previous.data_value,'{MISSING}'),
-                     ' reported on ',
-                     previous.reporting_asof_date,
-                     ' TO ',
-                     coalesce(rdc.data_value,'{MISSING}')) as changes
-            from _temp_chflags ch
-            inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ch.rsf_pfcbl_id
-                                                 and rdc.indicator_id = ch.indicator_id
-                                                 and rdc.reporting_asof_date = ch.reporting_asof_date
-            left join lateral (select 
-                               rdp.data_value,
-                               rdp.reporting_asof_date
-                               from p_rsf.rsf_data_current rdp
-                               where rdp.rsf_pfcbl_id = rdc.rsf_pfcbl_id
-                                 and rdp.indicator_id = rdc.indicator_id
-                                 and rdp.reporting_asof_date < rdc.reporting_asof_date
-                               order by rdp.reporting_asof_date desc
-                               limit 1) as previous on true")
-        })
-        
-        setDT(key_characteristics)
-        key_characteristics[,
-                            `:=`(check_name="sys_data_key_characteristics_changed",
-                                 check_message=paste0("Key change reported: ",changes))]
-        key_characteristics <- key_characteristics[,
-                                                   .(rsf_pfcbl_id,
-                                                     indicator_id,
-                                                     reporting_asof_date,
-                                                     check_name,
-                                                     check_message)]
-        
-        sys_flags <- rbindlist(list(sys_flags,
-                                    key_characteristics))
-      }
-    }    
+     
     
     #Facility/client data without ammendment
     {
@@ -185,7 +119,7 @@ template_upload <- function(pool,
               and ind.data_category in ('client','facility')
               and ind.is_periodic_or_flow_reporting = false
               and ind.indicator_sys_category is distinct from 'template_file'
-              and ind.indicator_sys_category is distinct from 'reporting_date'
+              and ind.indicator_sys_category is distinct from 'portfolio_reporting_date'
               and facility.created_in_reporting_asof_date <> rc.reporting_asof_date -- init date isnt an update
               and exists(select * from p_rsf.rsf_data_current rdc where rdc.data_id = rd.data_id) -- wasnt a reversion
               
@@ -198,7 +132,7 @@ template_upload <- function(pool,
                          inner join p_rsf.indicators rrind on rrind.indicator_id = rdc.indicator_id
                          where ft.from_rsf_pfcbl_id = ri.import_rsf_pfcbl_id
                            and ft.to_pfcbl_category = 'client'
-                           and rrind.indicator_sys_category = 'reporting_date'
+                           and rrind.indicator_sys_category = 'portfolio_reporting_date'
                            and (
                                  (rdc.reporting_asof_date < ri.reporting_asof_date) -- and I've reported in the past
                                  or 

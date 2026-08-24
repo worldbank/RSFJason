@@ -14,6 +14,7 @@ server <- function(input, output, session)
   } else { print("DBPOOL (MAIN) FAILED TO START") }
   
   observeEvent(session, { 
+    
     # print("Session information")
     # # session$url_hostname [1] "127.0.0.1"
     # # session$url_hostname [1] "datanalytics-int.worldbank.org"
@@ -242,6 +243,132 @@ server <- function(input, output, session)
   #   else return (paste0("RSF: ",program$program_nickname))
   # })
   # 
+  
+  observeEvent(input$login_request_action, { 
+    
+    m <- modalDialog(id="server_admin_request__create_user_modal",
+                     div(align="center",
+                         div(style="background-color:white;padding:5px;height:275px;width:450px;",
+                             align="left",
+                             fluidRow(
+                               column(12,
+                                      textInput(inputId="server_admin_request__create_user_name",
+                                                label="Your Name",
+                                                placeholder="Enter Your First & Last Name"))),
+                             fluidRow(
+                               column(12,
+                                      textInput(inputId="server_admin_request__create_user_email",
+                                                label="Your Email Address",
+                                                placeholder="Your email is your account login")))
+                             
+                         )),
+                     
+                     title=HTML("Request RSF Jason Account"),
+                     easyClose = FALSE,
+                     footer=div(style="display:inline-block;width:100%;",
+                                div(style="display:inline-block;float:left;",
+                                    modalButton("Cancel")),
+                                div(style="display:inline-block;float:right;",
+                                    actionButton(inputId="server_admin_request__create_action",
+                                                 label="Submit",
+                                                 class="btn-success"))),
+                     size="s")
+    showModal(m)
+    
+  })
+  
+  observeEvent(input$server_admin_request__create_action, {
+    
+    name <- trimws(input$server_admin_request__create_user_name)
+    email <- trimws(input$server_admin_request__create_user_email)
+    
+    if (!isTruthy(name) || 
+        !isTruthy(email)) {
+      return(showNotification(type="error",
+                              ui=h3("Name and email address must be completed")))
+    }
+    
+    AD_user <- session$user
+    
+    if (!isTruthy(AD_user)) {
+      return(showNotification(type="error",
+                              ui=h3("Request failed: it appears you are not logged into a World Bank Group computer?")))
+    }
+    
+    if (!grepl(paste0("^",AD_user),email)) {
+      return(showNotification(type="error",
+                              ui=h3("Request failed: You may only request an account for yourself and not on behalf of someone else.")))
+    }
+
+    if (!grepl("^[[:alnum:]_\\.]+@(ifc|worldbank|miga|worldbankgroup)\\.(org|onmicrosoft\\.com)$",email,ignore.case=T)) {
+      return(showNotification(type="error",
+                              ui=h3("Request failed: You may only request an account registered to a World Bank Group email address")))
+    }
+    
+    #DBPOOL_APPLICATIONS <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[["ARL"]]))
+    lookup_email <- db_user_check_email_exists(pool=DBPOOL_APPLICATIONS,
+                                               RSF_MANAGEMENT_APPLICATION_ID,
+                                               email=email)
+    
+    if (length(lookup_email)) {
+      return(showNotification(type="error",
+                              ui=h3("You already have an account registered under email addres '",lookup_email,"' Try clicking 'Forgot password' instead?")))
+    }
+    
+    
+    new_account_id <- tryCatch({
+      new_account_id <- DBPOOL_APPLICATIONS %>% dbGetQuery("
+      select * 
+      from arlapplications.accounts_create(v_application_hashid => $1::text,
+                                           v_request_by_account_id => $2::text,
+                                           v_name => $3::text,
+                                           v_login => $4::text)",
+                                           params=list(RSF_MANAGEMENT_APPLICATION_ID,
+                                                       ACCOUNT_SYS_ADMIN$account_id,
+                                                       name,
+                                                       email))
+      
+      new_account_id <- unlist(new_account_id)
+      
+      reset_code <- db_user_reset_password(pool=DBPOOL_APPLICATIONS,
+                                           application_hashid=RSF_MANAGEMENT_APPLICATION_ID,
+                                           sysadmin_id=ACCOUNT_SYS_ADMIN$account_id,
+                                           username=email)
+      
+      email <- div(p(paste0("Dear ",tools::toTitleCase(name),",")),
+                   p("Your ",tags$a(href="https://datanalytics-int.worldbank.org/rsf-prod/","RSF Jason")," account has been created."),
+                   p("You username is your email: ",email),
+                   p("Please use the link above to login for the first time and complete setting up your account with this temporary password: ",reset_code$reset_password),
+                   p("First Time Account Creation Steps"),
+                   p("1: Click the ",tags$a(href="https://datanalytics-int.worldbank.org/rsf-prod/","RSF Jason")," link"),
+                   p("2: Enter your email address '",email,"' in the username field."),
+                   p("3: Enter your temporary password '",reset_code$reset_password,"' in the password field"),
+                   p("4: Click the Login button -> You will be redirected to change your temporary password"),
+                   p("5: Enter your temporary password '",reset_code$reset_password,"' in the tempoerary password field."),
+                   p("6: Enter your own personalized (memoarable and secure) password in the New Password field."),
+                   p("7: Again re-enter your own personalized password in the Verify Password field"),
+                   p("8: Click the Login button -> You will now be logged into the Jason system"))
+      
+      user_send_email(arl_pool=DBPOOL_APPLICATIONS,
+                      to=reset_code$login_email,
+                      subject="RSF JASON | password reset",
+                      html=email)
+    },
+    error = function(e) {
+      showNotification(type="error",
+                       ui=h3(conditionMessage(e)))
+      NULL
+    },
+    warning = function(w) {
+      showNotification(type="error",
+                       ui=h3(conditionMessage(w)))
+      NULL
+    })
+    
+    SERVER_ADMIN_USERS_LIST.REFRESH(SERVER_ADMIN_USERS_LIST.REFRESH()+1)
+    removeModal()
+    
+  })
   
   intercept_status_message <- function(...,
                                        class="none",

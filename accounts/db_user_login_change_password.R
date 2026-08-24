@@ -5,7 +5,7 @@ db_user_login_change_password <- function(pool,
                                           old_password,
                                           new_password) {
   
-  print(paste0("db_user_login_change_password application_hashid=",application_hashid," username=",username," old_password=",old_password," new_password=",new_password))
+  #print(paste0("db_user_login_change_password application_hashid=",application_hashid," username=",username," old_password=",old_password," new_password=",new_password))
 
   user_account_id <- dbGetQuery(pool,
                                 "select * 

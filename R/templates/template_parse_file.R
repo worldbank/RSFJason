@@ -4,6 +4,7 @@ template_parse_file <- function(pool,
                                 source_note=NA,
                                 parse_rsf_pfcbl_id=NULL, #For those templates that do not report the entity (like pdf files), this is manually specified at upload
                                 auto_delete_old_versions=TRUE,
+                                parse_file.retry=TRUE,
                                 status_message=function(...) {}) {
   
 #Setups
@@ -590,6 +591,7 @@ template_parse_file <- function(pool,
     
     
     
+    
     } else {
 
       
@@ -734,6 +736,300 @@ template_parse_file <- function(pool,
 
       template$fail_on_incomplete_cohorts <- FALSE
 
+    }
+    
+    #Do we need to create new fx metrics due to currency requirements?
+    {
+      currencies <- unique(template$template_data[rsf_indicators[,.(indicator_id,data_type)],
+                                           on=.(indicator_id)
+                                           ][data_type %in% c("currency","currency_ratio") | 
+                                             indicator_sys_category %in% c("entity_currency_unit","entity_local_currency_unit")
+                                             ][,.(data_type,
+                                                  unit=fifelse(indicator_sys_category %in% c("entity_currency_unit","entity_local_currency_unit"),
+                                                        yes=data_value,
+                                                        no=data_unit))])[unit != "LCU"]
+      
+      ratios <- unique(currencies[data_type=="currency_ratio",unit])
+      currencies <- unique(currencies[data_type!="currency_ratio",unit])
+      currencies <- unique(c(currencies,unlist(strsplit(ratios,"/"))))
+      
+      currencies <- currencies[currencies %in% CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES]
+      currencies <- unlist(lapply(data.frame(t(unique(CJ(currencies,currencies)))),
+                                 function(x) { if (length(x) != 2 || x[1] != x[2]) paste0(sort(x),collapse="/") }),use.names=F)
+      
+      ratios <- data.table(fx_ratio=unique(c(ratios,currencies)))
+      
+      ratios <- ratios[,.(data_category=c("facility","global")),
+                       by=.(fx_ratio)]
+      
+      required_ratios <- rsf_indicators[data_type=="currency_ratio",.(indicator_id,data_unit,data_category)
+                               ][ratios,
+                                 on=.(data_unit=fx_ratio,
+                                      data_category),
+                                 nomatch=NA][is.na(indicator_id)]
+      
+      if (!empty(required_ratios)) {
+        
+        for (i in 1:nrow(required_ratios)) {
+          status_message(class="warning",
+                         paste0("\nCreating new ",required_ratios[i,data_category]," FX ratio: ",required_ratios[i,data_unit],"\n"))
+        }
+        
+        # conn <- poolCheckout(pool)
+        # dbBegin(conn)
+        # dbRollback(conn)
+        new_indicators <- poolWithTransaction(pool,function(conn) { 
+          
+          dbExecute(conn,"create temporary table _temp_currency_codes(alphabetic_lookup_ratio text,
+                                                                      data_category text)
+                        on commit drop;")
+          
+          dbAppendTable(conn,
+                        name="_temp_currency_codes",
+                        value=unique(required_ratios[,.(alphabetic_lookup_ratio=data_unit,
+                                                        data_category)]))
+          
+          
+          dbExecute(conn,"
+            delete from _temp_currency_codes tcc
+            where exists(select true from p_rsf.indicators ind 
+                         where ind.data_category = tcc.data_category
+                           and ind.data_type = 'currency_ratio'
+                           and p_rsf.fx_currency_ratio_in_alphabetic_order(ind.data_unit) = 
+                               p_rsf.fx_currency_ratio_in_alphabetic_order(tcc.alphabetic_lookup_ratio))")
+          
+          #dbGetQuery(conn,"select * from _temp_currency_codes")
+          dbExecute(conn,"DO $$ BEGIN
+                        if exists(select true from _temp_currency_codes) then
+                        
+                          -- Just to be sure
+                          update _temp_currency_codes tcc
+                          set alphabetic_lookup_ratio = p_rsf.fx_currency_ratio_in_alphabetic_order(tcc.alphabetic_lookup_ratio);
+                        
+                          with new_currencies as materialized (
+                          	select 
+                          		alphabetic_lookup_ratio,
+                          		'sys_global_fx_' || regexp_replace(alphabetic_lookup_ratio,'/','_') as indicator_name,
+                          		true as is_system,
+                          		tcc.alphabetic_lookup_ratio || ' WBG Exchange Rate' as label,
+                          		tcc.data_category,
+                          		alphabetic_lookup_ratio || ' WBG corporate exchange rate, internally managed by System' as definition
+                          	from _temp_currency_codes tcc
+                          	where tcc.data_category = 'global'
+                          	
+                          	union all
+                          	
+                          	select
+                          		alphabetic_lookup_ratio,
+                          		'facility_fx_defined_exchange_rate_' || regexp_replace(alphabetic_lookup_ratio,'/','_') as indicator_name,
+                          		false as is_system,
+                          		'Facility defined FX rate ' || tcc.alphabetic_lookup_ratio as label,
+                          		tcc.data_category,
+                          		alphabetic_lookup_ratio || 'FX rate as defined by the facility and reported in the QR (not automatically calculated). Used when RSA requires a source external to IFC as basis of truth for FX reporting.' as definition
+
+                          	from _temp_currency_codes tcc
+                          	where tcc.data_category = 'facility'
+                          ),
+                          new_indicators as materialized (
+                          	insert into p_rsf.indicators(indicator_name,
+                          															 data_category,
+                          															 data_type,
+                          															 is_calculated,
+                          															 is_system,
+                          															 definition,
+                          															 data_unit,
+                          															 modification_time,
+                          															 is_required,
+                                                         default_subscription)
+                           select 
+                          	ncu.indicator_name,
+                          	ncu.data_category,
+                          	'currency_ratio' as data_type,
+                          	true as is_calculated,
+                          	ncu.is_system,
+                          	ncu.definition,
+                          	alphabetic_lookup_ratio as data_unit,
+                          	(timeofday())::timestamptz as modification_time,
+                          	false as is_required,
+                            true as default_subscription
+                           from new_currencies ncu
+                           returning indicator_id,label_id,data_unit,data_category,indicator_name
+                          ),
+                          new_labels as materialized (
+                            
+                            insert into p_rsf.labels(label_id,label_key,primary_label,label_id_group)
+                              select 
+                              ni.label_id,
+                              'EN' as label_key,
+                              ncu.label as primary_label,
+                              'indicators' as label_id_group
+                            from new_indicators ni
+                            inner join new_currencies ncu on ncu.alphabetic_lookup_ratio = ni.data_unit
+                                                         and ncu.data_category = ni.data_category
+                          )
+                            insert into p_rsf.indicator_formulas(indicator_id,formula,overwrite,formula_title)
+                            select 
+                              ni.indicator_id,
+                              'get_IFC_FX_rate(exchange_rate_date=global_reporting_quarter_end_date.current,
+                                               currency_code_ratio=' || ni.data_unit || ')' as formula,
+                              case when ni.data_category = 'global' then 'allow'
+                                   else 'deny' end 
+                              as overwrite,
+                              
+                              case when ni.data_category = 'global' 
+                                   then 'FX ' || ni.data_unit || ' IFC Official Rate'
+                                   else 'FX ' || ni.data_unit || ' Compare with IFC Official Rate (Do not overwrite)' 
+                              end as formula_title
+                            from new_indicators ni;
+                          
+                          
+                                            
+                          RAISE INFO 'NEW FX INDICATOR CREATED';
+                      end if;
+                  
+                  END $$;")
+          
+          dbGetQuery(conn,"
+            select
+              ind.indicator_id,
+              ind.data_unit,
+              ind.data_category
+            from p_rsf.indicators ind
+            inner join _temp_currency_codes tcc on tcc.alphabetic_lookup_ratio = ind.data_unit
+                                               and tcc.data_category = ind.data_category")
+        })
+        
+        setDT(new_indicators)
+        if (!empty(new_indicators) && isTRUE(parse_file.retry)) {
+          #Because template may have had its currency ratio indicator defined that we failed to read-in properly because the indicator and
+          #its label didn't exist yet.  Now that it does, let's re-try.
+          return (template_parse_file(pool=pool,
+                                      template_file=template_file,
+                                      reporting_user_id=reporting_user_id,
+                                      source_note=source_note,
+                                      parse_rsf_pfcbl_id=parse_rsf_pfcbl_id,
+                                      auto_delete_old_versions=auto_delete_old_versions,
+                                      parse_file.retry=FALSE,
+                                      status_message=status_message))
+        }
+      }      
+    }
+    
+    #Initialize users, if so defined
+    {
+      users <- template$template_data[indicator_sys_category=="entity_user_correspondence",data_value]
+      if (length(users)) {
+        users <- strsplit(users,split="[;,]")[[1]]
+        users <- rbindlist(lapply(users,function(u) {
+          if (grepl("<.*>$",u)) {
+            data.frame(name=trimws(gsub("^([^>]+)<.*>$","\\1",u)) , email=trimws(gsub("^[^>]+<(.*)>$","\\1",u)))
+          }
+        }))
+        
+        users[,c("user","domain"):=tstrsplit(email,"@")]
+        users <- users[grepl("^(ifc|miga|worldbank|worldbankgroup)\\.(org|onmicrosoft.com)$",domain)]
+        users[,user:=tolower(trimws(user))]
+        
+        accounts <- dbGetQuery(pool,"
+        select vai.login_name as user,vai.account_id,apg.permission_name
+        from p_rsf.view_account_info vai
+        left join users.view_account_permissions_granted apg on apg.account_id = vai.account_id
+                                                            and apg.rsf_pfcbl_id = $2::int
+                                                            and apg.permission_name = 'WRITE'
+        where vai.login_name = any(select unnest(string_to_array($1::text,',')::text[])::text)",
+        params=list(paste0(users$user,collapse=","),
+                    template$cohort_pfcbl_id))
+        setDT(accounts)
+        
+        accounts <- accounts[users,
+                             on=.(user)]
+        
+        
+        accounts <- accounts[is.na(account_id) | is.na(permission_name)]
+        #We need to create accounts here or grant existing accounts permissions
+        if (!empty(accounts)) {
+          
+          accounts[is.na(name) | nchar(trimws(name))==0,
+                   name:=user]
+          
+          if (!empty(accounts[is.na(account_id)])) {
+            create <- accounts[is.na(account_id),.(name,email)]
+            for (i in 1:nrow(create)) {
+
+              new_account_id <- DBPOOL_APPLICATIONS %>% dbGetQuery("
+              select * 
+              from arlapplications.accounts_create(v_application_hashid => $1::text,
+                                                   v_request_by_account_id => $2::text,
+                                                   v_name => $3::text,
+                                                   v_login => $4::text)",
+                                                   params=list(RSF_MANAGEMENT_APPLICATION_ID,
+                                                               ACCOUNT_SYS_ADMIN$account_id,
+                                                               create[i]$name,
+                                                               create[i]$email))
+              
+              accounts[email==create[i]$email,
+                       account_id:=new_account_id]
+            } 
+          }
+          
+          if (!empty(accounts[is.na(permission_name)])) {
+            grant <- accounts[is.na(permission_name)]
+            
+            
+            for (i in 1:nrow(grant)) {
+            
+              status_message(class="warning",
+                             paste0("\n\nGRANTING WRITE PRMISSIONS to <",grant[i,email],"> from template's IFC Correspondence Field\n"))  
+              Sys.sleep(2)
+              
+              dbExecute(pool,"
+              insert into users.permissions(account_id,rsf_pfcbl_id,sys_name,granted,notes)
+              select 
+              vai.account_id,
+              sn.rsf_pfcbl_id,
+              sn.sys_name,
+              coalesce(roles.role_permissions,0) as granted,
+              concat('Permissions set by QR Template: ',($2::text),' on ',(select timeofday()::date)) as notes
+              from p_rsf.view_account_info vai,
+                   p_rsf.view_rsf_pfcbl_id_current_sys_names sn,
+                   users.roles 
+              where vai.account_id = $1::text
+                and sn.rsf_pfcbl_id = 0
+                and roles.role_name = 'VIEWER'
+              on conflict(account_id,sys_name)
+              do update
+              set granted = permissions.granted|excluded.granted,
+                  notes = excluded.notes;",
+                                   params=list(grant[i]$account_id,
+                                               template$template_file))
+              
+              dbExecute(pool,"
+              insert into users.permissions(account_id,rsf_pfcbl_id,sys_name,granted,notes)
+              select 
+              vai.account_id,
+              sn.rsf_pfcbl_id,
+              sn.sys_name,
+              coalesce(roles.role_permissions,0) as granted,
+              concat('Permissions set by QR Template: ',($3::text),' on ',(select timeofday()::date)) as notes
+              from p_rsf.view_account_info vai,
+                   p_rsf.view_rsf_pfcbl_id_current_sys_names sn,
+                   users.roles 
+              where vai.account_id = $1::text
+                and sn.rsf_pfcbl_id = $2::int
+                and sn.pfcbl_category = 'facility'
+                and roles.role_name = 'USER'
+              on conflict(account_id,sys_name)
+              do update
+              set granted = permissions.granted|excluded.granted,
+                  notes = excluded.notes;",
+              params=list(grant[i]$account_id,
+                          template$cohort_pfcbl_id,
+                          template$template_file))
+            }
+          }
+          
+        }
+      }
     }
     
     #Create a new reporting cohort, user-created cohort will be parent of any subsequent sys-created cohorts

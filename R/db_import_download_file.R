@@ -10,7 +10,9 @@ db_import_download_file <- function(pool,
   #Linked reporting cohorts will not have any upload file.
   download_file <- dbGetQuery(pool,"
                               select 
-                                ri.file_name,ri.file_data
+                                coalesce(NULLIF(ri.file_sequence_name,''),ri.file_name) as file_name,
+                                --ri.file_name,
+                                ri.file_data
                               from p_rsf.reporting_imports ri
                               where import_id = $1::int",
                               params=list(import_id))

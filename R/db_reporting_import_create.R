@@ -37,9 +37,6 @@ db_reporting_import_create <- function(pool,
     stop(paste0("Invalid import_rsf_pfcbl_id: ",import_rsf_pfcbl_id,". Reporting entity does not exist"))
   }
 
-  # if (reporting_entity$pfcbl_category_rank > 3) {
-  #   stop(paste0("Import not allowed.  Only Programs, Facilities and Clients are allowed to create imports"))
-  # }
   
   if (reporting_asof_date < ymd(reporting_entity$created_in_reporting_asof_date)) {
     stop(paste0("Template cannot declare a reporting_asof_date '",as.character(reporting_asof_date),"' that pre-dates the ",

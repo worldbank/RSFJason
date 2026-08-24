@@ -37,7 +37,8 @@ SERVER_DATASETS_REVIEW_FLAGS_db_EVALUATION_DETAILS <- function(evaluation_ids) {
     rdc.check_asof_date,
     rdc.check_formula_id,
     rdc.check_status,
-    rdc.check_status_comment,
+    nullif(rdc.check_status_comment,'') as check_status_comment,
+    nullif(rdc.check_reporting_comment,'') as check_reporting_comment,
     rdc.check_message,
     rdc.check_status_user_id,
     vai.users_name as check_status_users_name,
@@ -58,7 +59,7 @@ SERVER_DATASETS_REVIEW_FLAGS_db_EVALUATION_DETAILS <- function(evaluation_ids) {
     left join p_rsf.indicators ind on ind.data_category = nids.pfcbl_category
                                   and ind.indicator_sys_category = 'entity_comments'
     left join lateral (select
-                       '[' || UPPER(TO_CHAR(cd.reporting_asof_date, 'MonYYYY')) || ' loan QR comments] ' || cd.data_value as last_loan_comment
+                       '[' || UPPER(TO_CHAR(cd.reporting_asof_date, 'MonYYYY')) || ' QR \"other comments\"] ' || cd.data_value as last_loan_comment
                        from p_rsf.rsf_data_current cd
                        where cd.rsf_pfcbl_id = rdc.rsf_pfcbl_id
                          and cd.indicator_id = ind.indicator_id
@@ -72,16 +73,16 @@ SERVER_DATASETS_REVIEW_FLAGS_db_EVALUATION_DETAILS <- function(evaluation_ids) {
   setDT(flag_evaluations)
 
   flag_evaluations[,
-                   check_status_comment:=fcase(!is.na(check_status_comment) & !is.na(last_loan_comment),
-                                               paste0(check_status_comment," ",last_loan_comment),
+                   check_reporting_comment:=fcase(!is.na(check_reporting_comment) & !is.na(last_loan_comment),
+                                                  paste0(check_reporting_comment,"\n",last_loan_comment),
                                                
-                                               is.na(check_status_comment) & !is.na(last_loan_comment),
-                                               last_loan_comment,
+                                                  is.na(check_reporting_comment) & !is.na(last_loan_comment),
+                                                  last_loan_comment,
                                                
-                                               !is.na(check_status_comment) & is.na(last_loan_comment),
-                                               check_status_comment,
+                                                  !is.na(check_reporting_comment) & is.na(last_loan_comment),
+                                                  check_reporting_comment,
                                                
-                                               default=as.character(NA))]
+                                                  default=as.character(NA))]
   
   return (flag_evaluations)
 }
@@ -323,7 +324,6 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
                    size="m")
   showModal(m)
 }
-
 
 
 #An alternative to managing the check subscription via the SETUP interface.
@@ -684,7 +684,6 @@ observeEvent(input$action_indicator_flags_review, {
   } else {
     config_definition <- NULL
   }
-  
   
   check_definition <- DBPOOL %>% dbGetQuery("
     select 
@@ -1359,7 +1358,7 @@ output$server_datasets_review_flags_dataset <- DT::renderDataTable({
     } else if (indicator_flags_status_filter=="Resolved") {
       evaluations <- evaluations[check_status=="resolved"]
     } else if (indicator_flags_status_filter=="New") {
-      evaluations <- evaluations[is.na(check_status_comment)]
+      evaluations <- evaluations[is_new_status==TRUE]
     }
   }
   
@@ -1369,12 +1368,30 @@ output$server_datasets_review_flags_dataset <- DT::renderDataTable({
   } else if (any(indicator_flags_selected=="none",na.rm=T)) { 
     evaluations[,selected:=FALSE]
   } else {
-    evaluations[,selected := is.na(check_status_comment)]
+    evaluations[,selected := is_new_status]
   }
+  evaluations[nchar(check_reporting_comment)==0,
+              check_reporting_comment:=as.character(NA)]
   
-  evaluations[is.na(check_status_comment),
-              check_status_comment:="{MISSING}"]
+  evaluations[nchar(check_status_comment)==0,
+              check_status_comment:=as.character(NA)]
   
+  evaluations[,
+              check_status_comment:=fcase(!is.na(check_reporting_comment) & !is.na(check_status_comment),
+                                          paste0("<b>[IFC Comment]</b> ",check_status_comment,
+                                                 "<br>",
+                                                 "<b>[CLIENT Comment]</b> ",check_reporting_comment),
+                                          
+                                          is.na(check_reporting_comment) & !is.na(check_status_comment),
+                                          paste0("<b>[IFC Comment]</b> ",check_status_comment),
+                                          
+                                          !is.na(check_reporting_comment) & is.na(check_status_comment),
+                                          paste0("<b>[IFC Comment]</b> {NONE}",
+                                                 "<br>",
+                                                 "<b>[CLIENT Comment]</b> ",check_reporting_comment),
+                                          default="{MISSING}")]
+  
+  evaluations[,gsub("[[:cntrl:]]+","<br>",check_status_comment)]
   
   evaluations[,
               apply_html:=paste0("<input type='checkbox' name='apply_flag_actions' id='",paste0("flag_",evaluation_id),"' value=",evaluation_id," onmousedown='event.stopPropagation();' ",
@@ -1435,23 +1452,34 @@ output$datasets_review_download_flags_action <- downloadHandler(
   filename = function() {
     
     import <- IMPORT_SELECTED()
+
     whentxt <- toupper(format(today(),format="%d%b"))
-    f <- import$source_name
+    fname <- import$source_name
     
-    if (grepl("CHK\\d+[A-Z]{3}[^[:alnum:]]",f)) {
-      f <- gsub("^(.*CHK)(\\d+[A-Z]{3})([^[:alnum:]].*)$",paste0("\\1",whentxt,"\\3"),f,ignore.case = T)
+    if (grepl("CHK\\d+[A-Z]{3}[^[:alnum:]]",fname)) {
+      fname <- gsub("CHK\\d+[A-Z]{3}[^[:alnum:]]",fname,"")  
+    }
+    
+    if (grepl("\\d+[A-Z]{3}[^[:alnum:]]",fname)) {
+      fname <- gsub("\\d+[A-Z]{3}[^[:alnum:]]",fname,"")
+    }
+    # if (grepl("CHK\\d+[A-Z]{3}[^[:alnum:]]",f)) {
+    #   f <- gsub("^(.*CHK)(\\d+[A-Z]{3})([^[:alnum:]].*)$",paste0("\\1",whentxt,"\\3"),f,ignore.case = T)
+    #   
+    # } 
+    
+    {
       
-    } else {
-      
-      if (grepl("v\\d",f,ignore.case = T)) {
-        f <- gsub("(v\\d+)",paste0(" - CHK",whentxt," \\1"),f)
+      if (grepl("v\\d",fname,ignore.case = T)) {
+        fname <- gsub("(v\\d+)",paste0(" - CHK",whentxt," \\1"),fname)
       } else {
-        f <- paste0(file_path_sans_ext(f)," - CHK",whentxt,".",file_ext(f))
+        fname <- paste0(file_path_sans_ext(fname)," - CHK",whentxt,".",file_ext(fname))
       }
     }
-    f <- gsub("\\s+"," ",f)
-    f <- gsub("\\s+\\.xlsx",".xlsx",f)
-    f <- gsub("\\-\\s?\\-","-",f)
+    fname <- gsub("\\s+"," ",fname)
+    fname <- gsub("\\s+\\.xlsx",".xlsx",fname)
+    fname <- gsub("\\-\\s?\\-","-",fname)
+    fname
   },
   content=function(file) {
     
@@ -1511,6 +1539,7 @@ output$datasets_review_download_flags_action <- downloadHandler(
                                                                 check_formula_title=character(0),
                                                                 check_status=character(0),
                                                                 check_stats_comment=character(0),
+                                                                check_reporting_comment=character(0),
                                                                 is_new_status=logical(0))
         
         #Because the IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED filters the SUMMARY object only and the summary object contains all evaluation_ids as a list
@@ -1568,15 +1597,29 @@ output$datasets_review_download_flags_action <- downloadHandler(
                                                  return.next_date=NULL,
                                                  status_message = function(...) {},
                                                  CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
-            
-          
           
           
           } else {
             
             wbflags <- openxlsx2::wb_load(file=file)
-            sheetCURRENTFLAGS <- "Current Flags"
             
+            sheetSUMMARY <- grep("Summary",wb_get_sheet_names(wbflags),value=T,ignore.case=T)
+            if (length(sheetSUMMARY)) {
+              sumdf <- wbflags$to_df(sheet=sheetSUMMARY,col_names=F,detect_dates = F)
+              rsf_report <- NULL
+              if (any(names(sumdf)=="B")) { rsf_report <- grep("RSF Quarterly report",sumdf$B,ignore.case = T) }
+              if (length(rsf_report) && rsf_report[1] < 10) {
+                rsf_report <- rsf_report[1]
+                tojason <- wbflags$to_df(sheet=sheetSUMMARY,col_names=F,detect_dates = F,cols="B",rows=rsf_report,show_formula=T)
+                if (!grepl("hyperlink",tojason,ignore.case = T)) {
+                  wbflags$add_formula(sheet=sheetSUMMARY,
+                                      dims=paste0("B",rsf_report),
+                                      x=paste0('HYPERLINK("https://datanalytics-int.worldbank.org/rsf-prod/?',import$entity_id,'","RSF Quarterly Report")'))
+                }
+              }
+            }
+            
+            sheetCURRENTFLAGS <- "Current Flags"
             if (any(wbflags$sheet_names==sheetCURRENTFLAGS)) {
               
               wbflags$clean_sheet(sheetCURRENTFLAGS)
@@ -1627,33 +1670,38 @@ output$datasets_review_download_flags_action <- downloadHandler(
                                    dims="B5",
                                    x=flags[,
                                            .(FLAGID=evaluation_id,
-                                             CHECK_DATE=check_asof_date,
+                                             DATE=check_asof_date,
                                              NAME=entity_name,
                                              type=check_type,
                                              class=check_class,
-                                             MESSAGE=check_message,
                                              CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
                                                                                      check_formula_title)),
                                              STATUS=check_status,
-                                             comment=check_status_comment,
-                                             user=check_status_users_name)])
+                                             MESSAGE=check_message,
+                                             `IFC Comments`=ifelse(is.na(check_status_comment),"",trimws(check_status_comment)),
+                                             `Client Comments`=ifelse(is.na(check_reporting_comment),"",trimws(check_reporting_comment)))])
             
             wbflags$add_data(sheet=sheetCURRENTFLAGS,
-                             x=paste0("REPORT: ",today()),
+                             x=paste0("RSF FLAG REPORT Generated on: ",today()),
                              dims="A1")
+            
+            wbflags$add_formula(sheet=sheetCURRENTFLAGS,
+                                dims="A1",
+                                x=paste0('HYPERLINK("https://datanalytics-int.worldbank.org/rsf-prod/?',import$import_rsf_pfcbl_id,'","RSF FLAG REPORT Generated on: ',today(),'")'))
+            
             
             wbflags$set_col_widths(sheet=sheetCURRENTFLAGS,
                                    cols=1+c(1,2,3,4,5,6,7,8,9,10),
                                    widths = c(8,
                                               11, #check date 
                                               35, #entity name
-                                              20, #check type
+                                              10, #check type
                                               10, #check class
-                                              90, #check message
-                                              90, #check
-                                              10,
-                                              10,
-                                              10))
+                                              10, #check
+                                              10, #status
+                                              90,
+                                              90,
+                                              90))
 
             wbflags$set_active_sheet(sheetCURRENTFLAGS)
             wbflags$set_selected(sheet=sheetCURRENTFLAGS)

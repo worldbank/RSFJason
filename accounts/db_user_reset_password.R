@@ -3,7 +3,7 @@ db_user_reset_password <- function(pool,
                                    sysadmin_id,
                                    username) {
   
-  print(paste0("db_user_reset_password application_hashid=",application_hashid," sysadmin_id=",sysadmin_id," username=",username))
+  #print(paste0("db_user_reset_password application_hashid=",application_hashid," sysadmin_id=",sysadmin_id," username=",username))
   reset <- dbGetQuery(pool,"
                       select 
                         arp.account_id,

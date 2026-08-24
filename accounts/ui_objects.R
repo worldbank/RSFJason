@@ -449,7 +449,14 @@ ui_htmlHead <- tagList(
 ui_header_OUT <- shinydashboardPlus::dashboardHeader(title=div(ifelse(grepl("DEV",LOCATION)==TRUE,"DEV! ",""),
                                            "RSF/ Jason"),
                                  titleWidth = sidebar_width,
-                                 controlbarIcon=NULL)
+                                 controlbarIcon=NULL,
+                                 
+                                 tags$li(class = 'dropdown',
+                                         div(style="margin-right:5px;color:white;font-size:22px;font-weight:bold;vertical-align:middle;padding-top:8px;display:inline-block",
+                                             
+                                             div(style="padding-right:5px;display:inline-block",
+                                                 actionButton(inputId="login_request_action",
+                                                              label="Request Access",icon=icon("user"),class="btn btn-primary")))))
 
 
 
@@ -566,7 +573,8 @@ ui_body_OUT <- dashboardBody(id="dashboardBody",
                                       inline=TRUE)," Failed.")),
                 hidden(div(id=accounts_NS("login_failed2"),style="color:red;","Wrong login")),
                 hidden(div(id=accounts_NS("login_failed3"),style="color:red;","You have no permission")),
-                hidden(div(id=accounts_NS("login_failed4"),style="color:red;","Your password was reseted. Check your email")),
+                hidden(div(id=accounts_NS("login_failed4"),style="color:red;","Your password was reset. Check your email")),
+                hidden(div(id=accounts_NS("login_failed4"),style="color:red;","Your password was previously reset and may not be re-reset for 15 minutes. Check your email for previous reset code")),
                 hidden(div(id=accounts_NS("reset_password"),style="color:black;","Get Temporary Password ", 
                            actionButton(inputId=accounts_NS("reset_password_button"),
                                         label="Send email",icon=icon("envelope"),class="btn btn-success"))),

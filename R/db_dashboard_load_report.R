@@ -155,15 +155,22 @@ db_dashboard_load_report <- function(pool,
 
   #Reporting IDs (get the rsf_pf_id of whoever exported it -- ie, a client can export data from the dashboard, but only can re-import at the facility/program level)
   {
+    #Dashboard export files can "export" at the client, facility or program levels.
+    #But imports can only import at the program and facility levels.
+    #This is due to legacy version differences.
     sys_name_lookup <- dbGetQuery(pool,"
-      select 
+      select distinct
         ids.rsf_pf_id,
         ids.rsf_pfcbl_id,
         ids.pfcbl_category,
-        ids.rsf_program_id
+        ids.rsf_program_id,
+        ids.rsf_facility_id,
+        ids.rsf_client_id
       from p_rsf.rsf_pfcbl_ids ids
       where ids.rsf_pfcbl_id = any(select p_rsf.get_rsf_pfcbl_id_by_sys_name($1::text) as rsf_pfcbl_id)",
       params=list(template_reporting_entity))
+    
+    setDT(sys_name_lookup)
     
     reporting_rsf_pfcbl_id <- sys_name_lookup$rsf_pf_id
     rsf_program_id <- sys_name_lookup$rsf_program_id
@@ -172,7 +179,8 @@ db_dashboard_load_report <- function(pool,
     
     if (!is.na(export$exporting_rsf_pfcbl_id)) {
       
-      if (!identical(as.integer(export$exporting_rsf_pfcbl_id),as.integer(reporting_rsf_pfcbl_id))) {
+      if (!all(as.integer(export$exporting_rsf_pfcbl_id) %in% 
+               as.integer(c(unlist(sys_name_lookup[,.(rsf_program_id,rsf_facility_id,rsf_client_id)]))),na.rm=T)) {
         stop(paste0("RSF Template error: Template was generated from a Jason data export request under SYSID:",
                     export$exporting_rsf_pfcbl_id," but template has altered the exporting SYSNAME:",template_reporting_entity,
                     ", which is associated with SYSID:",reporting_rsf_pfcbl_id,". Modifying the template SYSNAME is not allowed."))
@@ -180,7 +188,7 @@ db_dashboard_load_report <- function(pool,
     
     } else if (is.na(reporting_rsf_pfcbl_id) &&
                export$is_setup_template==FALSE) {
-      stop(paste0("RSF Template error: Failed to find SYSID from reported SYNAME. ",reporting_rsf_pfcbl_id," does not exist in the database?"))
+      stop(paste0("RSF Template error: Failed to find SYSID from reported SYNAME '",template_reporting_entity,"' Does not exist in the database?"))
     } 
   }
   

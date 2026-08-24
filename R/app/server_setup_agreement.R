@@ -18,7 +18,7 @@ SERVER_SETUP_AGREEMENT__RSA <- eventReactive(IMPORTS_LIST(), {
       vai.users_name,
       ri.import_time,
       ri.reporting_asof_date,
-      ri.file_name
+      coalesce(NULLIF(ri.file_sequence_name,''),ri.file_name) as file_name
     from p_rsf.reporting_imports ri
     inner join p_rsf.reporting_templates rt on rt.template_id = ri.template_id
     left join p_rsf.view_account_info vai on vai.account_id = ri.import_user_id

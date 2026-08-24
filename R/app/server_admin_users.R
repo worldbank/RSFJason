@@ -444,7 +444,7 @@ observeEvent(input$server_admin_users__create_action, {
                  p("7: Again re-enter your own personalized password in the Verify Password field"),
                  p("8: Click the Login button -> You will now be logged into the Jason system"))
     
-    user_send_email(pool=DBPOOL_APPLICATIONS,
+    user_send_email(arl_pool=DBPOOL_APPLICATIONS,
                     to=reset_code$login_email,
                     subject="RSF JASON | password reset",
                     html=email)

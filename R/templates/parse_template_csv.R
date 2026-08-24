@@ -77,13 +77,13 @@ parse_template_csv <- function(pool,
                  on=.(indicator_name)]
     
     if (!any(parse_labels$indicator_sys_category=="id") ||
-        !any(parse_labels$indicator_sys_category=="reporting_date")) {
+        !any(parse_labels$indicator_sys_category=="portfolio_reporting_date")) {
       stop("Failed to find dataset root reporting ID (eg, IFC partner ID number) and reporting_asof_date in dataset filename or data columns")
     }
     
-    asof_col <- unique(parse_labels[indicator_sys_category=="reporting_date",indicator_name])
+    asof_col <- unique(parse_labels[indicator_sys_category=="portfolio_reporting_date",indicator_name])
     id_col <- unique(parse_labels[indicator_sys_category=="id",indicator_name])
-    if (length(asof_col) != 1) stop(paste0("Multiple reporting_date columns found: ",paste0(asof_col,collapse=" & ")))
+    if (length(asof_col) != 1) stop(paste0("Multiple portfolio_reporting_date columns found: ",paste0(asof_col,collapse=" & ")))
 
     #Data set could contain IDs for any number of entities, eg many loans, borrowers, client(s), etc.
     #Find the columns that have IDs and identify the highest pfcbl_rank that has one unique ID value (ie, a root value under which we're reporting)

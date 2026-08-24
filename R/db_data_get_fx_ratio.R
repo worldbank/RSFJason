@@ -232,7 +232,8 @@ db_data_get_fx_ratio <- function(pool,
     
     
     if (!empty(fx_codes[is.na(fx_indicator_id)==TRUE])) {
-
+#AUG 2026: Mostly now put into template_parse_file to create anticipated FX ratios up-front
+      
       #conn <- poolCheckout(pool)
       #dbBegin(conn)
       #dbRollback(conn)

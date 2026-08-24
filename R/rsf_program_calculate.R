@@ -63,7 +63,7 @@ rsf_program_calculate <- function(pool,
         
         #using_calculations_cohort_id <- using_reporting_cohort_id
         #if (any(required_calculations$calculate_indicator_id %in% c(157358))) { browser() }
-        #if(any(required_calculations$calculate_indicator_id %in% c(157542))) { stop("Found!") }
+        #if(any(required_calculations$calculate_indicator_id %in% c(43449))) { stop("Found!") }
         #if (any(required_calculations$calculate_asof_date > ymd('2025-06-30'))) { stop(">2025-06-30")}
         #required_calculations[rsf_indicators,on=.(calculate_indicator_id=indicator_id),nomatch=NULL][,.(indicator_name=sort(unique(indicator_name)))][indicator_name=="client_risk_sharing_fee_billing_period_DAYS"]
         current_calculate_asof_date <- unique(as.character(required_calculations$calculate_asof_date))

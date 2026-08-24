@@ -10,10 +10,9 @@ parse_template_RSA <- function(pool,
 {
  
 # reporting_user_id <- SOREN_ACCOUNT
-# for_rsf_pfcbl_id <- 586864
-# for_rsf_pfcbl_id <- 586864
+# for_rsf_pfcbl_id <- 71632
 # template_id <- 11
-# template_file <- "C:/Users/SHeitmann/OneDrive - WBG/IFC Risk Sharing - Documents/PROJECTS/49649 - RBUA SME RSF/IFC Legal Agreements/IFC_RBUA SME RSF - RSA signed and dated version.pdf"
+# template_file <- "facility BANQUE FRANCO LAO FIJI SLGP RSF 52103 -2026-08-24.txt"
   
   #file.exists(template_file)
   
@@ -32,7 +31,8 @@ parse_template_RSA <- function(pool,
                                                  rsf_pfcbl_id=for_rsf_pfcbl_id,
                                                  rsf_indicators=rsf_indicators,
                                                  formatting.strip=regexp_get_bullets(),
-                                                 formatting.function=superTrim) #important: function is normalizeLabels() will omit {system parse#unit} stuff
+                                                 formatting.function=superTrim, #important: function is normalizeLabels() will omit {system parse#unit} stuff
+                                                 include.relatives=TRUE) #RSA settings are relatively unique but may be recognized by unrelated facilities
   
   section_labels <- rsf_labels[action=="section"]
   rsf_labels <- rsf_labels[action != "section"]
@@ -633,6 +633,12 @@ parse_template_RSA <- function(pool,
     
     label_matches <- rbindlist(label_matches)
     
+    if (empty(label_matches)) {
+      label_matches <- data.table(match_id=numeric(0),
+                                  match_position=numeric(0),
+                                  match_rows=numeric(0))
+    }
+    
     label_matches <- label_matches[rsf_labels[,.(label_header_id,action,map_indicator_id,map_formula_id,map_check_formula_id)],
                                    on=.(match_id=label_header_id),
                                    nomatch=NULL]
@@ -829,7 +835,9 @@ parse_template_RSA <- function(pool,
   {
     #parsing <- rsa[action=="parse"]
     
-
+    parsing <- NULL
+    remap_hierarchies <- NULL
+    
     parsing <- rsa[,.(label_header_id=as.numeric(unlist(header_ids,recursive=F))),
                    by=c(grep("header_ids",names(rsa),invert=T,value=T))]
 
@@ -997,124 +1005,151 @@ parse_template_RSA <- function(pool,
     }
   }
  
-  #Its possible (expected) that the same metric could parse the same or multiple values.  For LIST text metrics, this is necessary.  And for multi-select values.
-  #Concatenate these into a csv list.
-  parsing[,n:=.N,
-          by=.(SYSID,
-               reporting_asof_date,
-               indicator_id,
-               indicator_name)]
-  
-  if (!empty(parsing[n>1])) {
-    
-    parsing[(indicator_name %in% rsf_indicators[indicator_options_group_allows_multiples==TRUE,indicator_name]) |
-            (grepl("list",indicator_name,ignore.case=T) & indicator_name %in% rsf_indicators[data_type=="text",indicator_name]),
-            multiples:=TRUE]
-    
-    parsing[n > 1 & multiples==TRUE,
-            data_value:=paste0(sort(unique(superTrim(data_value))),collapse=" & "),
+  if (!empty(parsing)) {
+      
+    #Its possible (expected) that the same metric could parse the same or multiple values.  For LIST text metrics, this is necessary.  And for multi-select values.
+    #Concatenate these into a csv list.
+    parsing[,n:=.N,
             by=.(SYSID,
                  reporting_asof_date,
                  indicator_id,
-                 indicator_name,
-                 data_unit)]
+                 indicator_name)]
     
-    parsing[,multiples:=NULL]
-    parsing <- unique(parsing)
+    if (!empty(parsing[n>1])) {
+      
+      parsing[(indicator_name %in% rsf_indicators[indicator_options_group_allows_multiples==TRUE,indicator_name]) |
+              (grepl("list",indicator_name,ignore.case=T) & indicator_name %in% rsf_indicators[data_type=="text",indicator_name]),
+              multiples:=TRUE]
+      
+      parsing[n > 1 & multiples==TRUE,
+              data_value:=paste0(sort(unique(superTrim(data_value))),collapse=" & "),
+              by=.(SYSID,
+                   reporting_asof_date,
+                   indicator_id,
+                   indicator_name,
+                   data_unit)]
+      
+      parsing[,multiples:=NULL]
+      parsing <- unique(parsing)
+      
+    }
     
+    parsing[,n:=NULL]
+    parsing[,data_value:=superTrim(data_value)]
+    
+    
+    
+    existing_data <- dbGetQuery(pool,"
+      select
+        rdc.rsf_pfcbl_id,
+        rdc.indicator_id,
+        rdc.reporting_asof_date,
+        p_rsf.rsf_data_value_unit(rdc.data_value,rdc.data_unit) as existing_value,
+        ri.file_name,
+        p_rsf.data_value_is_meaningfully_different(input_rsf_pfcbl_id => rdc.rsf_pfcbl_id,
+                                                   input_indicator_id => rdc.indicator_id,
+                                                   input_reporting_asof_date => rdc.reporting_asof_date,
+                                                   input_data_value => rdc.data_value,
+                                                   input_data_unit => rdc.data_unit,
+                                                   is_user_reporting => true) as different
+      from p_rsf.rsf_data_current rdc
+      inner join p_rsf.rsf_data rd on rd.data_id = rdc.data_id
+      inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
+      inner join p_rsf.reporting_imports ri on ri.import_id = rc.import_id
+      where rdc.rsf_pfcbl_id = any($1::int[])
+        and rdc.indicator_id = any($2::int[])
+        and rdc.reporting_asof_date = any(select unnest(string_to_array($3::text,','))::date)
+        and rc.is_calculated_cohort is false",
+      params=list(dbMakeIntArray(parsing$SYSID),
+                  dbMakeIntArray(parsing$indicator_id),
+                  paste0(unique(parsing$reporting_asof_date,collapse=",")))) 
+    
+    if (!empty(existing_data)) {
+      
+      setDT(existing_data)
+      existing_data[,file_name:=gsub(".gz","",file_name)]
+      parsing[,omit:=FALSE]
+      parsing[existing_data,
+              omit:=TRUE,
+              on=.(SYSID=rsf_pfcbl_id,
+                   indicator_id,
+                   reporting_asof_date)]
+      
+      existing_data <- existing_data[parsing,
+                    on=.(rsf_pfcbl_id=SYSID,
+                         indicator_id,
+                         reporting_asof_date),
+                    nomatch=NULL]
+      existing_data <- existing_data[different==TRUE]
+      existing_data <- unique(existing_data[,.(rsf_pfcbl_id,
+                                               indicator_id=NA, #consolidate under sys_reporting
+                                               reporting_asof_date,
+                                               check_name="sys_flag_indicator_ignored",
+                                               check_message=paste0("RSA template will not overwrite data: ",
+                                                                    "Parsed value ",indicator_name,"[",
+                                                                    fcase(!is.na(data_value) & !is.na(data_unit),paste0(data_value," ",data_unit),
+                                                                          is.na(data_value),data_unit,
+                                                                          is.na(data_unit),data_value,
+                                                                          default="MISSING"),
+                                                                    "] IGNORED because of existing value [",existing_value,"] ",
+                                                                    "reported in '",file_name,"'"))])
+      
+      reporting_flags <- rbindlist(list(reporting_flags,
+                                        existing_data))
+      
+      parsing <- parsing[omit==FALSE]
+    }                              
+    #Only "PARSING" will generate data
+    #other actions generate actions
+    template_data <- unique(parsing[!is.na(indicator_name),
+                                   .(SYSID,
+                                     reporting_asof_date,
+                                     indicator_id,
+                                     indicator_name,
+                                     reporting_submitted_data_value=data_value,
+                                     reporting_submitted_data_unit=data_unit,
+                                     reporting_submitted_data_formula=as.character(NA))])
+
+  } else {
+    template_data <- data.table(SYSID=numeric(0),
+                                reporting_asof_date=as.Date(numeric(0)),
+                                indicator_id=numeric(0),
+                                indicator_name=character(0),
+                                reporting_submitted_data_value=character(0),
+                                reporting_submitted_data_unit=character(0),
+                                reporting_submitted_data_formula=character(0))
   }
-  
-  parsing[,n:=NULL]
-  parsing[,data_value:=superTrim(data_value)]
-  
-  
-  
-  existing_data <- dbGetQuery(pool,"
-    select
-      rdc.rsf_pfcbl_id,
-      rdc.indicator_id,
-      rdc.reporting_asof_date,
-      p_rsf.rsf_data_value_unit(rdc.data_value,rdc.data_unit) as existing_value,
-      ri.file_name,
-      p_rsf.data_value_is_meaningfully_different(input_rsf_pfcbl_id => rdc.rsf_pfcbl_id,
-                                                 input_indicator_id => rdc.indicator_id,
-                                                 input_reporting_asof_date => rdc.reporting_asof_date,
-                                                 input_data_value => rdc.data_value,
-                                                 input_data_unit => rdc.data_unit,
-                                                 is_user_reporting => true) as different
-    from p_rsf.rsf_data_current rdc
-    inner join p_rsf.rsf_data rd on rd.data_id = rdc.data_id
-    inner join p_rsf.reporting_cohorts rc on rc.reporting_cohort_id = rd.reporting_cohort_id
-    inner join p_rsf.reporting_imports ri on ri.import_id = rc.import_id
-    where rdc.rsf_pfcbl_id = any($1::int[])
-      and rdc.indicator_id = any($2::int[])
-      and rdc.reporting_asof_date = any(select unnest(string_to_array($3::text,','))::date)
-      and rc.is_calculated_cohort is false",
-    params=list(dbMakeIntArray(parsing$SYSID),
-                dbMakeIntArray(parsing$indicator_id),
-                paste0(unique(parsing$reporting_asof_date,collapse=",")))) 
-  
-  if (!empty(existing_data)) {
-    
-    setDT(existing_data)
-    existing_data[,file_name:=gsub(".gz","",file_name)]
-    parsing[,omit:=FALSE]
-    parsing[existing_data,
-            omit:=TRUE,
-            on=.(SYSID=rsf_pfcbl_id,
-                 indicator_id,
-                 reporting_asof_date)]
-    
-    existing_data <- existing_data[parsing,
-                  on=.(rsf_pfcbl_id=SYSID,
-                       indicator_id,
-                       reporting_asof_date),
-                  nomatch=NULL]
-    existing_data <- existing_data[different==TRUE]
-    existing_data <- unique(existing_data[,.(rsf_pfcbl_id,
-                                             indicator_id=NA, #consolidate under sys_reporting
-                                             reporting_asof_date,
-                                             check_name="sys_flag_indicator_ignored",
-                                             check_message=paste0("RSA template will not overwrite data: ",
-                                                                  "Parsed value ",indicator_name,"[",
-                                                                  fcase(!is.na(data_value) & !is.na(data_unit),paste0(data_value," ",data_unit),
-                                                                        is.na(data_value),data_unit,
-                                                                        is.na(data_unit),data_value,
-                                                                        default="MISSING"),
-                                                                  "] IGNORED because of existing value [",existing_value,"] ",
-                                                                  "reported in '",file_name,"'"))])
-    
-    reporting_flags <- rbindlist(list(reporting_flags,
-                                      existing_data))
-    
-    parsing <- parsing[omit==FALSE]
-  }                              
-  #Only "PARSING" will generate data
-  #other actions generate actions
-  template_data <- unique(parsing[!is.na(indicator_name),
-                                 .(SYSID,
-                                   reporting_asof_date,
-                                   indicator_id,
-                                   indicator_name,
-                                   reporting_submitted_data_value=data_value,
-                                   reporting_submitted_data_unit=data_unit,
-                                   reporting_submitted_data_formula=as.character(NA))])
-  
   template_data[,reporting_template_row_group:=paste0(1:.N,"RSA")]
   
+  actions <- data.table(action=character(0),
+                        indicator_id=numeric(0),
+                        indicator_formula_id=numeric(0),
+                        check_formula_id=numeric(0),
+                        comments=character(0))
+  if (!empty(rsa)) {
+    actions <- rbindlist(list(actions,
+                              rsa[,.(action,
+                                     indicator_id=map_indicator_id,
+                                     indicator_formula_id=map_formula_id,
+                                     check_formula_id=map_check_formula_id,
+                                     comments=paste0(toupper(section)," paragraph ",paragraph,":: ",text))]))
+  }
+ 
+  if (!empty(parsing)) {
+    actions <- rbindlist(list(actions,
+                              parsing[!is.na(indicator_id),
+                                      .(action="remap",
+                                        indicator_id,
+                                        indicator_formula_id=as.numeric(NA),
+                                        check_formula_id=as.numeric(NA),
+                                        comments=paste0(toupper(section)," paragraph ",paragraph,":: ",text))]))
+  }
   
-  actions <- rbindlist(list(rsa[,.(action,
-                                   indicator_id=map_indicator_id,
-                                   indicator_formula_id=map_formula_id,
-                                   check_formula_id=map_check_formula_id,
-                                   comments=paste0(toupper(section)," paragraph ",paragraph,":: ",text))],
-                            parsing[!is.na(indicator_id),
-                                    .(action="remap",
-                                      indicator_id,
-                                      indicator_formula_id=as.numeric(NA),
-                                      check_formula_id=as.numeric(NA),
-                                      comments=paste0(toupper(section)," paragraph ",paragraph,":: ",text))],
-                            remap_hierarchies))
+  if (!empty(remap_hierarchies)) {
+    actions <- rbindlist(list(actions,
+                              remap_hierarchies))
+    
+  }  
   
   
   actions <- actions[!(action=="ignore")] #ignore means ignore... do nothing

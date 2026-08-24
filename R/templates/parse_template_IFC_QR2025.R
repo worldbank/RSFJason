@@ -454,63 +454,52 @@ parse_template_IFC_QR2025 <- function(pool,
           setDT(current_flags)
 
           #legacy formatting
-          if (any(names(current_flags)=="comment",na.rm=T)) setnames(current_flags,old="comment",new="comments")
+          if (any(names(current_flags)=="comment",na.rm=T)) setnames(current_flags,old="comment",new="IFC Comments")
+          #Expected: FLAGID,DATE,NAME,type,class,CHECK,STATUS,MESSAGE,IFC Comments,CLIENT Comments
           
           if (!empty(current_flags)) {
-            
           
             setnames(current_flags,
                      old=names(current_flags),
                      new=tolower(gsub("\\s+","_",names(current_flags))))
-            
-            current_flag_key_headers <- c("FLAGID","STATUS","Comment")
-            current_flag_headers <- unlist(lapply(current_flag_key_headers,grep,x=names(current_flags),ignore.case=T,value=T))
 
-            
-            if (length(current_flag_headers) < 3) {
+            if (!all(c("flagid","status","ifc_comments") %in% names(current_flags))) {
               status_message(class="error",
                              "Failed to read-in CURRENT FLAGS due to missing/unrecognized headers")
               
               current_flags <- NULL
               
+            
             } else {
               
              
-              current_flags <- current_flags[,
-                                             ..current_flag_headers]
+              # current_flags <- current_flags[,
+              #                                ..current_flag_headers]
               
-              if (all(any(grepl("ifc_comments",current_flag_headers,ignore.case=T)) & 
-                      any(grepl("client_comments",current_flag_headers,ignore.case=T)))) {
-                current_flags[,
-                              comments:=as.character(NA)]
+              if (!any(grepl("client_comments",names(current_flags),ignore.case=T))) {
                 
                 current_flags[,
-                              ifc_comments:=trimws(gsub("^\\[IFC\\]\\s+","",ifc_comments,ignore.case=T))]
-                
-                current_flags[,
-                              client_comments:=trimws(gsub("^\\[CLIENT\\]\\s+","",client_comments,ignore.case=T))]
-                
-                current_flags[is.na(ifc_comments),
-                              ifc_comments:=""]
-                current_flags[nchar(ifc_comments)>0,
-                              ifc_comments:=paste0("[IFC] ",ifc_comments)]
-                
-
-                current_flags[is.na(client_comments),
                               client_comments:=""]
-                current_flags[nchar(client_comments)>0,
-                              client_comments:=paste0("[CLIENT] ",client_comments)]
-                
-                current_flags[,
-                              comments:=trimws(paste0(ifc_comments,
-                                               " \n\n",
-                                               client_comments))]
               }
               
-              current_flags <- current_flags[!is.na(comments) & nchar(comments) > 0,
-                                             .(flagid,
-                                               status,
-                                               comments)]
+              current_flags[grepl("N/A",ifc_comments,ignore.case = T) | 
+                            grepl("^NA$",ifc_comments,ignore.case = T) | 
+                            is.na(ifc_comments),
+                            ifc_comments:=""]
+
+              current_flags[grepl("N/A",client_comments,ignore.case = T) | 
+                            grepl("^NA$",client_comments,ignore.case = T) | 
+                            is.na(client_comments),
+                            client_comments:=""]
+
+                            
+              current_flags[,
+                            ifc_comments:=trimws(ifc_comments)]
+
+              current_flags[,
+                            client_comments:=trimws(client_comments)]
+              
+              current_flags <- current_flags[nchar(ifc_comments) > 0 | nchar(client_comments) > 0]
               
               current_flags[,status:=tolower(status)]
               current_flags[,status:=fcase(status=="closed","resolved",
@@ -520,50 +509,86 @@ parse_template_IFC_QR2025 <- function(pool,
               
               
               
-              current_flags[,flagid:=suppressWarnings(as.numeric(gsub("^.*#(\\d+)$","\\1",flagid)))]
-              current_flags <- current_flags[!is.na(flagid)]
+              current_flags[,evaluation_id:=suppressWarnings(as.numeric(gsub("^.*#(\\d+)$","\\1",flagid)))]
+              current_flags <- current_flags[!is.na(evaluation_id)]
               
             }
           }
           
           if (!empty(current_flags)) {
             
-            # conn <- poolCheckout(pool)
-            # dbBegin(conn)
-            # dbRollback(conn)
-            poolWithTransaction(pool,function(conn) {
+            ids_notfound <- db_checks_report_comments(pool=pool,
+                                                      current_flags=current_flags,
+                                                      reporting_user_id=reporting_user_id)
+            
+            if (length(ids_notfound)) {
+              current_flags <- current_flags[evaluation_id %in% ids_notfound]
+              current_flags[,c("indicator_name","check_formula") := tstrsplit(check,":")]
               
-              dbExecute(conn,"create temp table _temp_flags(flagid int,
-                                                            status text,
-                                                            comment text,
-                                                            username text)
+              updateids <- poolWithTransaction(pool,function(conn) {
+                
+                dbExecute(conn,"create temp table _temp_flags(evaluation_id int,
+                                                              check_asof_date date,
+                                                              pfcbl_name text,
+                                                              indicator_name text,
+                                                              check_formula text,
+                                                              check_message text)
                               on commit drop")
+                
+                dbAppendTable(conn,
+                              name="_temp_flags",
+                              value=current_flags[,.(evaluation_id,
+                                                     check_asof_date=date,
+                                                     pfcbl_name=name,
+                                                     indicator_name,
+                                                     check_formula,
+                                                     check_message=message)])
+                
+                dbGetQuery(conn,"
+                select 
+                  lookup.missing_id,
+                  coalesce(rdc.evaluation_id,dca.archive_id) as current_id
+                from (
+                  select 
+                  tf.evaluation_id as missing_id,
+                  nids.rsf_pfcbl_id,
+                  ind.indicator_id,
+                  tf.check_asof_date,
+                  coalesce(icf.indicator_check_id,ic.indicator_check_id) as indicator_check_id,
+                  icf.check_formula_id,
+                  tf.check_message
+                  from _temp_flags tf
+                  inner join p_rsf.indicators ind on ind.indicator_name = tf.indicator_name
+                  inner join p_rsf.rsf_data_current_names_and_ids nids on nids.pfcbl_name like '%' || tf.pfcbl_name
+                  left join p_rsf.indicator_checks ic on ic.check_name = trim(tf.check_formula)                  
+                  left join p_rsf.indicator_check_formulas icf on icf.check_formula_title = trim(tf.check_formula)
+                ) lookup
+                  left join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = lookup.rsf_pfcbl_id
+                                                      and rdc.check_asof_date = lookup.check_asof_date
+                                                      and rdc.indicator_check_id = lookup.indicator_check_id                                                      
+                                                      and rdc.check_formula_id is not distinct from lookup.check_formula_id
+                                                      and rdc.check_message is not distinct from lookup.check_message
+                  left join p_rsf.rsf_data_checks_archive dca on dca.rsf_pfcbl_id = lookup.rsf_pfcbl_id
+                                                             and dca.check_asof_date = lookup.check_asof_date
+                                                             and dca.indicator_check_id = lookup.indicator_check_id                                                      
+                                                             and dca.check_formula_id is not distinct from lookup.check_formula_id
+                                                             and dca.check_message is not distinct from lookup.check_message                                                      
+                           
+                ")
+              })
               
-              dbAppendTable(conn,
-                            name="_temp_flags",
-                            value=current_flags[,.(flagid,status,comment)])
+              setDT(updateids)
+              updateids <- updateids[!is.na(current_id)]
               
-              nx <- dbExecute(conn,"
-                update p_rsf.rsf_data_checks rdc
-                set check_status = tf.status,
-                    check_status_comment = tf.comment,
-                    check_status_user_id = $1::text
-                from _temp_flags tf
-                where tf.flagid = rdc.evaluation_id
-                  and tf.comment is distinct from rdc.check_status_comment",
-                        params=list(reporting_user_id))
-              
-              ny <- dbExecute(conn,"
-                update p_rsf.rsf_data_checks_archive dca
-                set check_status = tf.status,
-                    check_status_comment = tf.comment,
-                    check_status_user_id = $1::text
-                from _temp_flags tf
-                where tf.flagid = dca.archive_id
-                  and tf.comment is distinct from dca.check_status_comment",
-                        params=list(reporting_user_id))
-              nx+ny
-            })
+              if (!empty(updateids)) {
+                current_flags[updateids,
+                              evaluation_id:=i.current_id,
+                              on=.(evaluation_id=missing_id)]
+                ids_notfound <- db_checks_report_comments(pool=pool,
+                                                          current_flags=current_flags[evaluation_id %in% updateids$current_id],
+                                                          reporting_user_id=reporting_user_id)
+              }
+            }
           }
         }
       }
@@ -2684,6 +2709,22 @@ parse_template_IFC_QR2025 <- function(pool,
     #excelwb2 <- excelwb
     #wb_save(excelwb,file="c:/temp/test2.xlsx",overwrite = T)
     #ok
+    sheetSUMMARY <- grep("Summary",excelwb$sheet_names,value=T,ignore.case=T)
+    if (length(sheetSUMMARY)) {
+      sumdf <- excelwb$to_df(sheet=sheetSUMMARY,col_names=F,detect_dates = F)
+      rsf_report <- NULL
+      if (any(names(sumdf)=="B")) { rsf_report <- grep("RSF Quarterly report",sumdf$B,ignore.case = T) }
+      if (length(rsf_report) && rsf_report[1] < 10) {
+        rsf_report <- rsf_report[1]
+        tojason <- excelwb$to_df(sheet=sheetSUMMARY,col_names=F,detect_dates = F,cols="B",rows=rsf_report,show_formula=T)
+        if (!grepl("hyperlink",tojason,ignore.case = T)) {
+          excelwb$add_formula(sheet=sheetSUMMARY,
+                              dims=paste0("B",rsf_report),
+                              x=paste0('HYPERLINK("https://datanalytics-int.worldbank.org/rsf-prod/?',rsf_pfcbl_id.facility,'","RSF Quarterly Report")'))
+        }
+      }
+    }
+    
     if (any(excelwb$sheet_names==sheetCURRENTFLAGS)) {
       
       excelwb$clean_sheet(sheetCURRENTFLAGS)
@@ -2791,8 +2832,8 @@ parse_template_IFC_QR2025 <- function(pool,
                                                         check_status=="resolved","Closed",
                                                         TRUE,check_status),
                                            MESSAGE=check_message,          #G  
-                                           `IFC Comments`=check_status_comment,
-                                           `CLIENT Comments`="")])
+                                           `IFC Comments`=ifelse(is.na(check_status_comment),"",check_status_comment),
+                                           `CLIENT Comments`=ifelse(is.na(check_reporting_comment),"",check_reporting_comment))])
       
       refs_flags[,target_cf:=paste0("'Current Flags'!K",5+(1:.N))] #offset to row 5
       
@@ -2903,8 +2944,12 @@ parse_template_IFC_QR2025 <- function(pool,
     #excelwb2 <- excelwb
     #wb_save(excelwb,file="c:/temp/cs1.xlsx",overwrite = T)
     excelwb$add_data(sheet=sheetCURRENTFLAGS,
-                     x=paste0("REPORT: ",today()),
+                     x=paste0("RSF FLAG REPORT Generated on: ",today()),
                      dims="A1")
+    
+    excelwb$add_formula(sheet=sheetCURRENTFLAGS,
+                        dims="A1",
+                        x=paste0('HYPERLINK("https://datanalytics-int.worldbank.org/rsf-prod/?',rsf_pfcbl_id.facility,'","RSF FLAG REPORT Generated on: ',today(),'")'))
     
     excelwb$set_col_widths(sheet=sheetCURRENTFLAGS,
                            cols=1+c(1,2,3,4,5,6,7,8,9,10), #Col B is +1 offset

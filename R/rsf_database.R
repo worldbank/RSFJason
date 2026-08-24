@@ -93,6 +93,8 @@ dremioConnect <- function(pool,
   
   tryCatch({ 
     { 
+      #print("Trying:  ")
+      #print(credentials_list)
       do.call(dbPool, credentials_list)  
       #do.call(dbConnect, credentials_list)  
     }

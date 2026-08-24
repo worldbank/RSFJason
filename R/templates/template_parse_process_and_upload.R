@@ -64,20 +64,15 @@ template_parse_process_and_upload <- function(pool,
   exists <- file.exists(template_files)
   if (!all(exists)) stop(paste0("File note found: ",template_files[!exists]))
   
-  #if (any(grepl("^[[:punct:]]*\\d+",basename(template_files)))) {
-    ordered_files <- suppressWarnings(as.numeric(gsub("^[[:punct:][:space:]]*([[:digit:]\\.]+).*$","\\1",basename(template_files))))
-    versioned_files <- suppressWarnings(as.numeric(gsub("^.*[[:punct:][:space:]]+v([[:digit:]\\.]+).*$","\\1",basename(template_files))))
-    #subordered <- grepl("^[[:punct:]]*\\d+[[:punct:][:space:]]\\d+",basename(template_files))
-    
-    template_files <- template_files[order(ordered_files,versioned_files,template_files)]
-  #} else {
-    
-  #}
-  #template_files <- sort(template_files)
+
+  ordered_files <- suppressWarnings(as.numeric(gsub("^[[:punct:][:space:]]*([[:digit:]\\.]+).*$","\\1",basename(template_files))))
+  versioned_files <- suppressWarnings(as.numeric(gsub("^.*[[:punct:][:space:]]+v([[:digit:]\\.]+).*$","\\1",basename(template_files),ignore.case = T)))
+
+  template_files <- template_files[order(ordered_files,versioned_files,template_files)]
+
   ppu_results <- NULL
   
   #tf <- template_files[[1]]
-  
   for (tf in template_files) {
     
     current_import_id <- NULL

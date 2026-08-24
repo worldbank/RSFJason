@@ -86,7 +86,7 @@ source("./R/reports/export_reporting_cohort_to_excel.R")
 
 source("./R/db_create_new_rsf_ids.R")
 source("./R/db_create_entity_indicator_requirements.R")
-
+source("./R/db_checks_report_comments.R")
 source("./R/db_data_get_info.R")
 #source("./R/db_data_get_flags.R")
 source("./R/db_data_update_flags.R")
@@ -435,23 +435,23 @@ openxlsx_getNamedRegionsTable <- function(excelwb) {
   return (nregion_data)
 }
 
-user_send_email <- function(pool,
+user_send_email <- function(arl_pool=dbStart(credentials_file=paste0(getwd(),LOCATIONS[["ARL"]])),
                             from="\"RSF JASON\"<noreply@positconnect.int.worldbank.org>",
                             to,
                             subject,
                             html) {
   
-  lookup <- db_user_check_email_exists(pool=pool,
-                                       RSF_MANAGEMENT_APPLICATION_ID,
-                                       to)
+  #to may be an actual email address or a user login_name and we'll lookup the email address actually tied to the account here.
+  lookup_email <- db_user_check_email_exists(pool=arl_pool,
+                                             RSF_MANAGEMENT_APPLICATION_ID,
+                                             to)
   
   #to <- "sheitmann@ifc.org"
-  valid <- !empty(lookup)
   
-  if (!valid) stop(paste0("Invalid email address: ",to))
+  if (!length(lookup_email)) stop(paste0("Invalid email address: ",to))
+  if (length(lookup_email) != 1) stop("Only one receipient may be defined")
   
-  if (length(to) != 1) stop("Only one receipient may be defined")
-  print(paste0("user_send_email : emailing ",to," from ",from," subject: ",subject))
+  print(paste0("user_send_email : emailing ",lookup_email," from ",from," subject: ",subject))
   html <- as.character(html)
   html <- gsub(">[[:space:]]+","> ",html) #Pandoc won't format html when line breaks exist; and it will crash when not having some spaces.
   
@@ -468,7 +468,7 @@ user_send_email <- function(pool,
   
   tryCatch({
     sendmail(from=from,
-             to=to,
+             to=lookup_email,
              subject=subject,
              msg=msg,
              control=list(smtpServer="lmail.worldbank.org"))
