@@ -96,14 +96,14 @@ observeEvent(input$server_dashboard__view_options, {
                                                      selected=SERVER_DASHBOARD_RUN_OPTIONS$flags_display,
                                                      options=list(placeholder="None"))),
                                       column(3,
-                                             pickerInput(inputId="server_dashboard_options__format_filter",
-                                                            label="Filter",
-                                                            choices=c(`Blank Columns`="ECOLS",
-                                                                      `Blank Rows`="EROWS",
-                                                                      `Unchanged Columns`="UCOLS",
-                                                                      `Unchanged Rows`="UROWS"),
-                                                            multiple=TRUE,
-                                                            selected=SERVER_DASHBOARD_RUN_OPTIONS$format_filter,
+                                             pickerInput(inputId="server_dashboard_options__checks_audit",
+                                                            label="Include Checks Details",
+                                                            choices=c("YES","NO"),
+                                                            width="100%",
+                                                            multiple=FALSE,
+                                                            selected=fcase(isTruthy(SERVER_DASHBOARD_RUN_OPTIONS$check_audit),
+                                                                           "YES",
+                                                                           default="NO"),
                                                             options=list(placeholder="No Filter")))
                        #)
                        ),
@@ -141,21 +141,23 @@ observeEvent(input$server_dashboard__view_options, {
                                        label="Close & Run",
                                        class="btn-success")),
                    size="m")
-  
-  updateSwitchInput(session=session,
-                    inputId="server_dashboard__autorun",
-                    value=FALSE)
-  showModal(m)
-})
 
-{    
-  observeEvent(input$server_dashboard_options__close, {
-    removeModal()
-    updateSwitchInput(session=session,
-                      inputId="server_dashboard__autorun",
-                      value=TRUE)
-  })
-}  
+  SERVER_DASHBOARD_DO_AUTORUN(FALSE)  
+  # updateSwitchInput(session=session,
+  #                   inputId="server_dashboard__autorun",
+  #                   value=FALSE)
+  showModal(m)
+},ignoreInit=TRUE,ignoreNULL = TRUE)
+
+  
+observeEvent(input$server_dashboard_options__close, {
+  removeModal()
+  SERVER_DASHBOARD_DO_AUTORUN(TRUE)
+  # updateSwitchInput(session=session,
+  #                   inputId="server_dashboard__autorun",
+  #                   value=TRUE)
+},ignoreInit=TRUE,ignoreNULL = TRUE)
+  
 
 observeEvent(input$server_dashboard_options__syscols, {
 
@@ -185,6 +187,7 @@ observeEvent(input$server_dashboard_options__fx_date, {
     SERVER_DASHBOARD_RUN_OPTIONS$fx_reported_date <- FALSE
   }
 })
+
 observeEvent(input$server_dashboard_options__fx_audit, {
   
   if (input$server_dashboard_options__fx_audit %in% c("YES")) {
@@ -224,11 +227,11 @@ observeEvent(input$server_dashboard_options__format_exceldates, {
 })
 
 #hiding empty/unchanged rows/cols
-observeEvent(input$server_dashboard_options__format_filter, {
+observeEvent(input$server_dashboard_options__checks_audit, {
   
-  if (!isTruthy(input$server_dashboard_options__format_filter)) SERVER_DASHBOARD_RUN_OPTIONS$format_filter <- ""
-  else SERVER_DASHBOARD_RUN_OPTIONS$format_filter <- intersect(c("ECOLS","EROWS","UCOLS","UROWS"),
-                                                               input$server_dashboard_options__format_filter)
+  if (!isTruthy(input$server_dashboard_options__checks_audit)) SERVER_DASHBOARD_RUN_OPTIONS$check_filter <- ""
+  else SERVER_DASHBOARD_RUN_OPTIONS$check_filter <- intersect(c("ECOLS","EROWS","UCOLS","UROWS"),
+                                                               input$server_dashboard_options__checks_audit)
   
   #SERVER_DASHBOARD_RUN_OPTIONS$flags_query <- "FLAGS" %in% input$server_dashboard_options__format_filter
 })

@@ -476,7 +476,7 @@ observeEvent(input$server_admin_checks__edit_check_delete, {
                             h3("System checks cannot be deleted")))
   }
   
-  used <- dbGetQuery(pool,"
+  used <- DBPOOL %>% dbGetQuery("
           select sn.sys_name
           from p_rsf.rsf_setup_checks pfc
           inner join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on sn.rsf_pfcbl_id = pfc.rsf_pfcbl_id
@@ -516,7 +516,7 @@ observeEvent(input$server_admin_checks__edit_check_add_formulas, {
   
   selected_check <- SERVER_ADMIN_CHECKS.SELECTED_CHECK()
   if (!isTruthy(selected_check)) return (NULL)
-  
+
   new_formula <- data.table(check_formula_id=(-1 * as.numeric(input$server_admin_checks__edit_check_add_formulas)), #set when saved, pseudo for now.
                             indicator_check_id=selected_check$indicator_check_id,
                             formula=as.character(NA),

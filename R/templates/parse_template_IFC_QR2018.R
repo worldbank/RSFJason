@@ -61,8 +61,8 @@ parse_template_IFC_QR2018 <- function(pool,
                                  sheet=attr(nregions,"sheet"),
                                  position=attr(nregions,"position"))
       
-      nregions_all[,is_system:=grepl("\\.wvu|^_xlnm",name)]
-      nregions_all <- nregions_all[is_system==FALSE]
+      nregions_all[,is_excel_system:=grepl("\\.wvu|^_xlnm",name)]
+      nregions_all <- nregions_all[is_excel_system==FALSE]
       #Note: sheets with external references links can create real issues and also generate sheet names that aren't in the workbook.  Eg, "[1]1. Summary"
       
       nregions_date <- which(nregions %in% c("S_DET","S_QDD"))

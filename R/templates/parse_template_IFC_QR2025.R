@@ -192,7 +192,6 @@ parse_template_IFC_QR2025 <- function(pool,
     }
     return (excelwb)
   }
-  
   #Read file
   {
     if (!file.exists(template_file)) stop(paste0("Uh oh! File '",template_file,"' doesn't exist!"))
@@ -289,7 +288,11 @@ parse_template_IFC_QR2025 <- function(pool,
                      data_value:=list(as.character(dval))]
     }
     
-
+    nregions_table[,is_excel_system:=grepl("\\.wvu|^_xlnm",name)]
+    nregions_table <- nregions_table[is_excel_system==FALSE]
+    
+    # nregions_table[,
+    #                is_excel_name:= grepl("^_xlnm\\.",name,ignore.case=T) |grepl("_\\.wvu.*$",name,ignore.case=T)]
     
     
     snames <- openxlsx2::wb_get_sheet_names(excelwb)
@@ -481,6 +484,8 @@ parse_template_IFC_QR2025 <- function(pool,
                 current_flags[,
                               client_comments:=""]
               }
+              current_flags[,ifc_comments:=as.character(ifc_comments)]
+              current_flags[,client_comments:=as.character(client_comments)]
               
               current_flags[grepl("N/A",ifc_comments,ignore.case = T) | 
                             grepl("^NA$",ifc_comments,ignore.case = T) | 
@@ -2304,60 +2309,6 @@ parse_template_IFC_QR2025 <- function(pool,
       }
     }
     
-    # #Remove custom XML
-    # if (length(excelwb$customXml) ||
-    #     any(grepl("customXml",excelwb$Content_Types)) || 
-    #     any(grepl("customXml",excelwb$workbook.xml.rels))) {
-    #   
-    #   message("Excel file has customXml that will be removed")
-    #   excelwb$Content_Types <- grep("customXml",excelwb$Content_Types,value=T,invert = T)
-    #   excelwb$workbook.xml.rels <- grep("customXml",excelwb$workbook.xml.rels,value=T,invert = T)
-    #   excelwb$customXml <- NULL
-    # }
-    # 
-    # 
-    # #Remove Hidden Named Ranges
-    # if (any(nchar( (nr<-excelwb$get_named_regions())$hidden) )) {
-    #   
-    #   for (i in 1:nrow(nr)) {
-    #     rng <- nr[i,]
-    #     hnr <- suppressWarnings(as.numeric(rng$hidden))
-    #     if (length(hnr) > 0 && !is.na(hnr) && hnr==1) {
-    #       
-    #       if (any(rng$sheets==excelwb$sheet_names)) {
-    #         message(paste0("Excel file has hidden named ranges that will be removed: ",rng$name))  
-    #         excelwb$remove_named_region(sheet=rng$sheets,
-    #                                     name=rng$name)
-    #       }
-    #     }
-    #   }
-    # }
-    # 
-    # #Remove existing comments (Legacy comments create issues)
-    # if (length(excelwb$comments)) {
-    #   
-    #   comments <- rbindlist(lapply(seq_along(excelwb$sheet_names),function(s) { x <- excelwb$get_comment(sheet=s); if (length(x)) cbind(x[,c("ref","cmmt_id")],sheet=s) }))
-    #   #threads <- rbindlist(lapply(seq_along(excelwb$sheet_names),function(s) { x <- excelwb$get_thread(sheet=s); if (length(x)) cbind(x,sheet=s) }))
-    #   
-    #   
-    #   
-    #   for (nc in 1:nrow(comments)) excelwb$remove_comment(sheet=comments[nc]$sheet,dims=comments[nc]$ref)
-    #   #for (nc in 1:nrow(threads)) excelwb$remove_comment(sheet=threads[nc]$sheet,dims=threads[nc]$ref)
-    #   #if (!empty(comments)) { invisible(pmap(comments[,.(sheet,dims=ref)],excelwb$remove_comment)) }
-    #   
-    #   for (i in seq_along(excelwb$vml_rels)) {
-    #     if (nchar(excelwb$vml_rels[i])==0) excelwb$vml_rels[[i]] <- NULL
-    #   }
-    # }
-    # if (length(excelwb$threadComments)) {
-    #   for (i in seq_along(excelwb$threadComments)) excelwb$threadComments[[i]] <- ""
-    # }
-     
-    
-    #openxlsx2::wb_save(excelwb,file="C:/Temp/test1.xlsx",overwrite=T)
-    #summarySheet: set above
-    #dataSheet: set above
-    
     if (empty(excelwb$get_person(name="IFC Risk Sharing"))) { excelwb$add_person(name="IFC Risk Sharing") }
     
     return.insert_flags[rsf_indicators,
@@ -2403,13 +2354,6 @@ parse_template_IFC_QR2025 <- function(pool,
                                               check_class=="info","#D9EAD3",
                                               default="gray"))]
  
-    # return.insert_flags[,
-    #         check_color:=fcase(check_status=="resolved","lightgray",
-    #                            check_class=="critical","firebrick",
-    #                            check_class=="error","red",
-    #                            check_class=="warning","orange",
-    #                            check_class=="info","blue",
-    #                            default="gray")]
     
     #because there's only one indicator per error
     summary <- flag_data[sheet_name=="summary"
@@ -2442,12 +2386,7 @@ parse_template_IFC_QR2025 <- function(pool,
                            check_rank,
                            check_color,
                            check_font)]
-      # summary[,check_rank:=fcase(check_class=="critical",4,
-      #                            check_class=="error",3,
-      #                            check_class=="warning",2,
-      #                            check_class=="info",1,
-      #                            default=5)]
-      
+ 
       setorder(summary,-check_rank)
       sheet_num <- grep("Summary$",excelwb$sheet_names,ignore.case=T)
       sflags <- summary[order(check_rank,decreasing = T),
@@ -2528,80 +2467,7 @@ parse_template_IFC_QR2025 <- function(pool,
     
     sheet_num <- grep("QReport$",excelwb$sheet_names,ignore.case=T)
     qreport_data <- wb_to_df(excelwb,sheet=sheet_num,col_names = F)
-    # 
-    # if (any( (qreport_data_blank_rows <- rowSums(!is.na(qreport_data))==0)[-(1:QREPORT_startrow)],na.rm=T)) {
-    #   last_not_blank <- Position(isFALSE,qreport_data_blank_rows,right=TRUE)
-    #   
-    #   #allow 5 blank rows
-    #   if (last_not_blank+5 < nrow(qreport_data) && last_not_blank >QREPORT_startrow) {
-    #     
-    #     excelwb <- wb_clean_sheet(excelwb, 
-    #                               sheet = sheet_num, 
-    #                               dims = paste0("A",(last_not_blank+5),":",openxlsx2::int2col(ncol(qreport_data)),nrow(qreport_data)))
-    #     
-    #     qreport_data <- qreport_data[1:(last_not_blank+5),]                
-    #   }
-    # }
-    # 
-    # #remove conditional styles and reset styles on Qreport
-    # {
-    # 
-    #   #Remove conditional formatting applied to arbitrary cells    
-    #   if (length(removecf <- grep("\\s+",trimws(excelwb$worksheets[[sheet_num]]$conditionalFormatting$sqref)))) {
-    #     excelwb$worksheets[[sheet_num]]$conditionalFormatting <- excelwb$worksheets[[sheet_num]]$conditionalFormatting[-removecf,]
-    #   }
-    #   
-    #   #any conditional formual on a row with double-digit row number (ie, more than row 6 start row; simpler than parsing each digit value)
-    #   if (length(removecf <- grep("\\d{2,}",excelwb$worksheets[[sheet_num]]$conditionalFormatting$sqref))) {
-    #     excelwb$worksheets[[sheet_num]]$conditionalFormatting <- excelwb$worksheets[[sheet_num]]$conditionalFormatting[-removecf,]
-    #   }
-    #   
-    #   #openxlsx2::wb_save(excelwb,file="C:/Temp/OTP Test2.xlsx",overwrite=T)
-    #   excelwb <- wb_add_fill(wb=excelwb,
-    #                          sheet=sheet_num,
-    #                          dims=paste0("A",QREPORT_startrow,":",openxlsx2::int2col(ncol(qreport_data)),nrow(qreport_data)),
-    #                          color=NULL)
-    #   
-    #   excelwb <- wb_add_font(wb=excelwb,
-    #                          sheet=sheet_num,
-    #                          dims=paste0("A",QREPORT_startrow,":",openxlsx2::int2col(ncol(qreport_data)),nrow(qreport_data)),
-    #                          update=NULL) 
-    #   
-    #   excelwb <- wb_add_border(wb=excelwb,
-    #                            sheet=sheet_num,
-    #                            dims=paste0("A",QREPORT_startrow,":",openxlsx2::int2col(ncol(qreport_data)),nrow(qreport_data)),
-    #                            update=NULL)
-    #   
-    #   excelwb <- wb_add_data(wb=excelwb,
-    #                          sheet=sheet_num,
-    #                          x="🏴 ",
-    #                          dims="A5")
-    #   
-    #   excelwb <- wb_add_cell_style(wb=excelwb,
-    #                                sheet=sheet_num,
-    #                                dims="A5",
-    #                                horizontal = "center")
-    # 
-    #   #Color of the flag
-    #   excelwb <- wb_add_font(wb=excelwb,
-    #                          sheet=sheet_num,
-    #                          dims="A5",
-    #                          color=wb_color(name=fcase(any(qreport$check_class=="critical",na.rm=T),"#800000",
-    #                                                    any(qreport$check_class=="error",na.rm=T),"#CC0000",
-    #                                                    any(qreport$check_class=="warning",na.rm=T),"#ED7D31",
-    #                                                    any(qreport$check_class=="info",na.rm=T),"#1155CC",
-    #                                                    default="gray")))
-    # }
-    
-    #wb_save(excelwb,file="c:/temp/test2.xlsx",overwrite = T)
-    
-    #openxlsx2::wb_save(excelwb,file="C:/Temp/OTP Test2.xlsx",overwrite=T)
-    #Reset flags to blanks
-    # excelwb <- wb_add_data(wb=excelwb,
-    #                        sheet=sheet_num,
-    #                        x=rep("",times=(nrow(qreport_data)+1-QREPORT_startrow)),
-    #                        dims=paste0("A",QREPORT_startrow,":A",nrow(qreport_data)))
-    # 
+   
     excelwb <- wb_add_cell_style(wb=excelwb,
                                  sheet=sheet_num,
                                  dims=paste0("A",QREPORT_startrow,":A",nrow(qreport_data)),
@@ -2713,7 +2579,9 @@ parse_template_IFC_QR2025 <- function(pool,
     if (length(sheetSUMMARY)) {
       sumdf <- excelwb$to_df(sheet=sheetSUMMARY,col_names=F,detect_dates = F)
       rsf_report <- NULL
-      if (any(names(sumdf)=="B")) { rsf_report <- grep("RSF Quarterly report",sumdf$B,ignore.case = T) }
+      if (any(names(sumdf)=="B")) { 
+        rsf_report <- grep("RSF Quarterly report",sumdf$B,ignore.case = T) 
+      }
       if (length(rsf_report) && rsf_report[1] < 10) {
         rsf_report <- rsf_report[1]
         tojason <- excelwb$to_df(sheet=sheetSUMMARY,col_names=F,detect_dates = F,cols="B",rows=rsf_report,show_formula=T)
@@ -2725,20 +2593,26 @@ parse_template_IFC_QR2025 <- function(pool,
       }
     }
     
+    #start
     if (any(excelwb$sheet_names==sheetCURRENTFLAGS)) {
       
-      excelwb$clean_sheet(sheetCURRENTFLAGS)
-      
+      #!important:
+      #clean_sheet() does not clean tables.  So clean-up tables and this must happen FRIST
+      #before clean_sheet removes the headers and leaves the tables object out of synch.
       existing_tables <- excelwb$get_tables(sheet=sheetCURRENTFLAGS)
-      if (length(existing_tables)) {
+      if (nrow(existing_tables) && length(existing_tables)) {
         existing_tables <- existing_tables$tab_name
         if (length(existing_tables)) {
           for (tn in existing_tables) {
             message(paste0(tn," already exists: removing from Current Flags"))
-            excelwb$remove_tables(sheet=sheetCURRENTFLAGS,table=tn)
+            excelwb$remove_tables(sheet=sheetCURRENTFLAGS,
+                                  table=tn,
+                                  remove_data=FALSE)
           }
         }
       }
+      
+      excelwb$clean_sheet(sheetCURRENTFLAGS)
       
       excelwb$worksheets[[which(excelwb$sheet_names==sheetCURRENTFLAGS)]][["sheetPr"]] <- xml_node_create(
         "sheetPr", 
@@ -2748,8 +2622,11 @@ parse_template_IFC_QR2025 <- function(pool,
         )
       )
       
+      
       #somehow this seems to cause problems, possible it removes the wrong index or doens't upadte index correctly and results in user-defined formulas crapping out
       #excelwb$remove_worksheet(sheet=sheetCURRENTFLAGS)
+    
+    
     
     } else {
       
@@ -2758,86 +2635,60 @@ parse_template_IFC_QR2025 <- function(pool,
                             tab_color=wb_color("red"))
     }
     
-    #wb_save(excelwb,file="c:/temp/test6.xlsx",overwrite = T)
-    #Unhide hidden sheets and collapsed rows
-    # snames <- wb_get_sheet_names(excelwb)
-    # for(sname in snames) {
-    #   size <- dim(wb_to_df(excelwb,sheet=sname))
-    #   excelwb <- wb_set_sheet_visibility(excelwb,sheet=sname,value="visible")
-    # 
-    #   if (length(size)) {
-    #     excelwb$remove_row_heights(sheet=sname,
-    #                                rows=1:size[1])
-    #   }
-    #   # excelwb$set_row_heights(sheet=sname,
-    #   #                         rows=1:size[1],
-    #   #                         heights=150,
-    #   #                         hidden=FALSE,
-    #   #                         hide_blanks=FALSE)
-    #   # 
-    #   
-    #   ratt <- excelwb[["worksheets"]][[which(sname==snames)]][["sheet_data"]][["row_attr"]]
-    #   if (any(nchar(ratt$hidden)>0,na.rm=T)) {
-    #     excelwb[["worksheets"]][[which(sname==snames)]][["sheet_data"]][["row_attr"]][which(nchar(ratt$hidden)>0),"hidden"] <- ""
-    #   }
-    #   
-    #   if (any(nchar(ratt$ht)>0,na.rm=T)) {
-    #     excelwb[["worksheets"]][[which(sname==snames)]][["sheet_data"]][["row_attr"]][which(nchar(ratt$ht)>0),"ht"] <- ""
-    #   }
-    #   
-    #   excelwb$remove_hyperlink(sheet=sname)
-    # }
-
-    #wb_save(excelwb,file="c:/temp/test7.xlsx",overwrite = T)
-    
-    #wb_save(excelwb,file="c:/temp/test4.xlsx",overwrite = T)
-    #ok
+    empty_flags <- data.table(FLAGID=as.numeric(NA),
+                              DATE=reporting_asof_date,
+                              NAME="[NONE]",
+                              type=as.character(NA),
+                              class=as.character(NA),
+                              CHECK="[NONE]",
+                              STATUS=as.character(NA),
+                              MESSAGE="There are no checks for this dataset",
+                              `IFC Comments`="",
+                              `CLIENT Comments`="")
+    write_flags <- NULL
     if (empty(refs_flags)) {
       
-     
-      excelwb$add_data_table(sheet=sheetCURRENTFLAGS,
-                             table_name="rsf_current_flags",
-                             col_names=TRUE,
-                             dims="B5",
-                             x=refs_flags[,
-                                          .(FLAGID=NA,           #B
-                                            DATE=reporting_asof_date,
-                                            NAME="[NONE]",
-                                            type=NA,
-                                            class=NA,
-                                            
-                                            CHECK="[NONE]",
-                                            STATUS=NA,
-                                            MESSAGE="There are no checks for this dataset",
-                                            `IFC Comments`="",
-                                            `CLIENT Comments`="")])
-    
-    
-    
+      
+      write_flags <- empty_flags
+      excelwb$add_data(sheet=sheetCURRENTFLAGS,
+                       col_names=TRUE,
+                       with_filter=TRUE,
+                       dims="B5",
+                       x=write_flags)
+      
     } else {
+      write_flags <- refs_flags[,
+                 .(FLAGID=evaluation_id,           #B
+                   DATE=check_asof_date,           #C
+                   NAME=entity_name,               #D
+                   type=check_type,                #E
+                   class=check_class,              #F 
+                   CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
+                                                           check_formula_title)), #G
+                   STATUS=fcase(check_status=="active","Review",
+                                check_status=="resolved","Closed",
+                                TRUE,check_status), #H
+                   MESSAGE=check_message,          #I  
+                   `IFC Comments`=ifelse(is.na(check_status_comment),"",check_status_comment), #J
+                   `CLIENT Comments`=ifelse(is.na(check_reporting_comment),"",check_reporting_comment), #K
+                   evaluation_id,
+                   sheet,
+                   check_color,
+                   check_font,
+                   ref,
+                   dims,
+                   target_cf=paste0("'Current Flags'!K",5+(1:.N)))] #K
     
-      excelwb$add_data_table(sheet=sheetCURRENTFLAGS,
-                             table_name="rsf_current_flags",
+      excelwb$add_data(sheet=sheetCURRENTFLAGS,
                              col_names=TRUE,
+                             with_filter=TRUE,
                              dims="B5",
-                             x=refs_flags[,
-                                         .(FLAGID=evaluation_id,           #B
-                                           DATE=check_asof_date,           #C
-                                           NAME=entity_name,               #D
-                                           type=check_type,                #E
-                                           class=check_class,              #F 
-                                           CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
-                                                                                   check_formula_title)),
-                                           STATUS=fcase(check_status=="active","Review",
-                                                        check_status=="resolved","Closed",
-                                                        TRUE,check_status),
-                                           MESSAGE=check_message,          #G  
-                                           `IFC Comments`=ifelse(is.na(check_status_comment),"",check_status_comment),
-                                           `CLIENT Comments`=ifelse(is.na(check_reporting_comment),"",check_reporting_comment))])
+                             x=write_flags[,
+                                           .SD,
+                                           .SDcols=names(empty_flags)])
       
-      refs_flags[,target_cf:=paste0("'Current Flags'!K",5+(1:.N))] #offset to row 5
       
-      pwalk(refs_flags[,.(ref,dims,evaluation_id,sheet,target_cf,check_color,check_font)],
+      pwalk(write_flags[,.(ref,dims,evaluation_id,sheet,target_cf,check_color,check_font)],
             function(ref,dims,evaluation_id,sheet,target_cf,check_color,check_font) { 
         
         excelwb$add_formula(sheet=sheetCURRENTFLAGS,
@@ -2864,50 +2715,63 @@ parse_template_IFC_QR2025 <- function(pool,
       
       #FORMATTING and CONDITIONAL FORMATTING
       {
+        
+        excelwb$add_font(sheet=sheetCURRENTFLAGS,
+                         dims=paste0("B5:",openxlsx2::int2col(2+ncol(empty_flags)-1),"5"), #empty flags doesn't have URL cols, etc
+                         size=11,
+                         bold=TRUE,
+                         color = wb_color(hex = "#FFFFFF"))
+        
+        excelwb$add_fill(
+          sheet = sheetCURRENTFLAGS,
+          dims=paste0("B5:",openxlsx2::int2col(2+ncol(empty_flags)-1),"5"), #empty flags doesn't have URL cols, etc
+          color = wb_color(hex = "#002060") 
+        )
+        
         excelwb$add_cell_style(sheet=sheetCURRENTFLAGS,
-                               dims=paste0("G6:G",length(refs_flags$dims)+5),
+                               dims=paste0("G6:G",length(write_flags$dims)+5),
                                wrap_text = TRUE) 
         
         excelwb$add_cell_style(sheet=sheetCURRENTFLAGS,
-                               dims=paste0("H6:H",length(refs_flags$dims)+5),
+                               dims=paste0("H6:H",length(write_flags$dims)+5),
                                wrap_text = TRUE) 
   
         excelwb$add_cell_style(sheet=sheetCURRENTFLAGS,
-                               dims=paste0("I6:I",length(refs_flags$dims)+5),
+                               dims=paste0("I6:I",length(write_flags$dims)+5),
                                wrap_text = TRUE) 
         
         excelwb$add_cell_style(sheet=sheetCURRENTFLAGS,
-                               dims=paste0("J6:J",length(refs_flags$dims)+5),
+                               dims=paste0("J6:J",length(write_flags$dims)+5),
                                wrap_text = TRUE) 
   
         
         excelwb$add_font(sheet=sheetCURRENTFLAGS,
-                         dims=paste0("B6:B",length(refs_flags$dims)+5),
+                         dims=paste0("B6:B",length(write_flags$dims)+5),
                          size=9,
                          color = wb_color(hex = "#0000FF"), 
                          underline = "single")
         
         excelwb$add_data_validation(sheet=sheetCURRENTFLAGS,
-                         dims=paste0("H6:H",length(refs_flags$dims)+5),
+                         dims=paste0("H6:H",length(write_flags$dims)+5),
                          type="list",
                          value='"Review,Closed,Past Reporting Error"',
                          allow_blank=FALSE)
         
         excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
-                                           dims=paste0("H6:H",length(refs_flags$dims)+5),
+                                           dims=paste0("H6:H",length(write_flags$dims)+5),
                                            type = "containsText",
                                            rule="Review",
                                            #formula = '',
                                            style = "checkStatusReview")
         
         excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
-                                           dims=paste0("H6:H",length(refs_flags$dims)+5),
+                                           dims=paste0("H6:H",length(write_flags$dims)+5),
                                            type = "containsText",
                                            rule = "Closed",
                                            style = "checkStatusClosed")
         
         excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
-                                           dims=paste0("H6:H",length(refs_flags$dims)+5),
+                                           dims=paste0("H6:H",length(write_flags$dims)+5),
                                            type = "containsText",
                                            rule = "Past Reporting Error",
                                            style = "checkStatusError")
@@ -2915,25 +2779,25 @@ parse_template_IFC_QR2025 <- function(pool,
         
         
         excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
-                                           dims=paste0("F6:F",length(refs_flags$dims)+5),
+                                           dims=paste0("F6:F",length(write_flags$dims)+5),
                                            type = "containsText",
                                            rule = "critical",
                                            style = "checkClassCritical")
   
         excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
-                                           dims=paste0("F6:F",length(refs_flags$dims)+5),
+                                           dims=paste0("F6:F",length(write_flags$dims)+5),
                                            type = "containsText",
                                            rule = "error",
                                            style = "checkClassError")
   
         excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
-                                           dims=paste0("F6:F",length(refs_flags$dims)+5),
+                                           dims=paste0("F6:F",length(write_flags$dims)+5),
                                            type = "containsText",
                                            rule = "warning",
                                            style = "checkClassWarning")
   
         excelwb$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
-                                           dims=paste0("F6:F",length(refs_flags$dims)+5),
+                                           dims=paste0("F6:F",length(write_flags$dims)+5),
                                            type = "containsText",
                                            rule = "info",
                                            style = "checkClassInfo")
@@ -2942,10 +2806,10 @@ parse_template_IFC_QR2025 <- function(pool,
     }
     
     #excelwb2 <- excelwb
-    #wb_save(excelwb,file="c:/temp/cs1.xlsx",overwrite = T)
-    excelwb$add_data(sheet=sheetCURRENTFLAGS,
-                     x=paste0("RSF FLAG REPORT Generated on: ",today()),
-                     dims="A1")
+    #wb_save(excelwb,file="c:/temp/test/cs1.xlsx",overwrite = T)
+    # excelwb$add_data(sheet=sheetCURRENTFLAGS,
+    #                  x=paste0("RSF FLAG REPORT Generated on: ",today()),
+    #                  dims="A1")
     
     excelwb$add_formula(sheet=sheetCURRENTFLAGS,
                         dims="A1",
@@ -2954,7 +2818,7 @@ parse_template_IFC_QR2025 <- function(pool,
     excelwb$set_col_widths(sheet=sheetCURRENTFLAGS,
                            cols=1+c(1,2,3,4,5,6,7,8,9,10), #Col B is +1 offset
                            widths = c(12, #Flag ID/Link
-                                      9, #check date 
+                                      10, #check date 
                                       35, #entity name
                                       17, #check type
                                       10, #check class
@@ -2964,8 +2828,13 @@ parse_template_IFC_QR2025 <- function(pool,
                                       70, #Comment
                                       70))#Response
     
+    for (s in excelwb$get_sheet_names()) {
+      
+      excelwb$set_sheetview(sheet=s,
+                            tab_selected=as.numeric((s==sheetCURRENTFLAGS)))
+    }
     excelwb$set_active_sheet(sheetCURRENTFLAGS)
-    excelwb$set_selected(sheet=sheetCURRENTFLAGS)
+    #excelwb$set_selected(sheet=sheetCURRENTFLAGS)
     excelwb$set_sheetview(sheet=sheetCURRENTFLAGS,
                          top_left_cell = "A1")
     

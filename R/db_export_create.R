@@ -4,12 +4,13 @@ db_export_create <- function(pool,
                              exporting_pfcbl_ids,
                              exporting_indicator_ids=NULL, #NULL means users can add/remove columns and still upload with a viable integrity key
                              template_id,
-                             export_name=NA)
+                             report_id=as.numeric(NA),
+                             dashboard_parameters=as.character(NA),
+                             exporting_title=as.character(NA))
 {
   
   exporting_pfcbl_ids <- unique(as.numeric(exporting_pfcbl_ids))
   exporting_indicator_ids <- unique(as.numeric(exporting_indicator_ids))
-  
   
   if (anyNA(exporting_pfcbl_ids)) stop("exporting_pfcbl_ids contains NAs")
   if (anyNA(exporting_indicator_ids)) stop("exporting_indicator_ids contains NAs")
@@ -40,9 +41,8 @@ db_export_create <- function(pool,
                                   	count(distinct to_family_rsf_pfcbl_id) as members 
                                   	from p_rsf.view_rsf_pfcbl_id_family_tree ft
                                   	where ft.from_rsf_pfcbl_id = any($1::int[])
-                                  		and to_pfcbl_rank <= 3
-                                  		and to_pfcbl_rank <= from_pfcbl_rank
-                                  		and to_pfcbl_category <> 'global'
+                                  		and to_pfcbl_rank <= 2
+                                  		--and to_pfcbl_category <> 'global'
                                   	group by to_pfcbl_rank
                                   ),
                                   parent as materialized (
@@ -54,74 +54,78 @@ db_export_create <- function(pool,
                                     limit 1
                                   )
                                   select
-                                    ids.rsf_program_id,
-                                    ids.rsf_pfcbl_id as exporting_rsf_pfcbl_id,
-                                    ids.pfcbl_category
+                                    ids.rsf_pf_id as exporting_rsf_pf_id,
+                                    ids.pfcbl_category,
+                                    nids.sys_name
                                   from p_rsf.rsf_pfcbl_ids ids
+                                  inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
                                   where ids.rsf_pfcbl_id = (select rsf_pfcbl_id from parent)",
                                   params=list(dbMakeIntArray(exporting_pfcbl_ids)))
  
     
     #nothing here.  Probably due to multiple programs being selected in an export.  Otherwise, this shouldn't happen!
-    if (empty(exporting_parent)) {
-      exporting_parent  <- dbGetQuery(conn,"
-        select
-          ids.rsf_program_id,
-          ids.rsf_pfcbl_id as exporting_rsf_pfcbl_id,
-          ids.pfcbl_category
-        from p_rsf.rsf_pfcbl_ids ids
-        where ids.rsf_pfcbl_id = 0
-      ")
-    }
+    # if (empty(exporting_parent)) {
+    #   exporting_parent  <- dbGetQuery(conn,"
+    #     select
+    #       ids.rsf_program_id,
+    #       ids.rsf_pfcbl_id as exporting_rsf_pfcbl_id,
+    #       ids.pfcbl_category
+    #     from p_rsf.rsf_pfcbl_ids ids
+    #     where ids.rsf_pfcbl_id = 0
+    #   ")
+    # }
     
-    exporting_cohort <- dbGetQuery(conn,"insert into p_rsf.dashboard_exports(rsf_program_id,
-                                                                             exporting_user_id,
-                                                                             exporting_rsf_pfcbl_id,
-                                                                             export_name,
-                                                                             --reporting_key created in BEFORE INSERT trigger
-                                                                             for_reporting_template_id,
-                                                                             data_integrity_key,
-                                                                             exporting_asof_date)
+    exporting_cohort <- dbGetQuery(conn,"
+      insert into p_rsf.dashboard_exports(exporting_rsf_pf_id,
+                                          exporting_user_id,
+                                          export_name,
+                                          generated_with_report_id,
+                                          for_reporting_template_id,
+                                          data_integrity_key,
+                                          exporting_asof_date,
+                                          dashboard_parameters,
+                                          exporting_title)
                         select
-                         $1::int as rsf_program_id,
+                         $1::int exporting_rsf_pf_id,
                          $2::text as exporting_user_id,
-                         $3::int exporting_rsf_pfcbl_id,
-                         $4::text as export_name,
+                         $3::text as export_name,
+                         $4::int as generated_with_report_id,
                          $5::int as template_id,
                          $6::text as data_integrity_key,
-                         $7::date as export_asof_date
+                         $7::date as export_asof_date,
+                         $8::jsonb as dashboard_parameters,
+                         $9::text as exporting_title
                         returning 
-                          rsf_program_id,
-                          exporting_cohort_id,
+                          export_id,
                           export_name,
-                          exporting_rsf_pfcbl_id,
+                          exporting_rsf_pf_id,
                           exporting_asof_date,
                           reporting_key,
                           data_integrity_key,
                           exporting_time",
-                     params=list(exporting_parent$rsf_program_id,
+                     params=list(exporting_parent$exporting_rsf_pf_id,
                                  exporting_user_id,
-                                 exporting_parent$exporting_rsf_pfcbl_id,
-                                 export_name,
+                                 exporting_parent$sys_name,
+                                 report_id,
                                  template_id,
                                  data_integrity_key,
-                                 exporting_asof_date))
-    
-    setDT(exporting_cohort)
+                                 exporting_asof_date,
+                                 jsonlite::toJSON(dashboard_parameters),
+                                 exporting_title))
 
     return(exporting_cohort)
   })
 
-  program_info <- dbGetQuery(pool,
-                            "select
-                              coalesce(nickname,name,pfcbl_name) as name
-                             from p_rsf.rsf_data_current_names_and_ids nai
-                            where nai.rsf_pfcbl_id = $1
-                              and nai.reporting_asof_date <= $2::date
-                            order by nai.reporting_asof_date desc
-                            limit 1",
-                            params=list(exporting_cohort$rsf_program_id,
-                                        exporting_asof_date))
+  # program_info <- dbGetQuery(pool,
+  #                           "select
+  #                             coalesce(nickname,name,pfcbl_name) as name
+  #                            from p_rsf.rsf_data_current_names_and_ids nai
+  #                           where nai.rsf_pfcbl_id = $1
+  #                             and nai.reporting_asof_date <= $2::date
+  #                           order by nai.reporting_asof_date desc
+  #                           limit 1",
+  #                           params=list(exporting_cohort$rsf_program_id,
+  #                                       exporting_asof_date))
   
   sys_name <- dbGetQuery(pool,
                          "select
@@ -132,10 +136,11 @@ db_export_create <- function(pool,
                             and nai.reporting_asof_date <= $2::date
                           order by nai.reporting_asof_date desc
                           limit 1",
-                         params=list(exporting_cohort$exporting_rsf_pfcbl_id,
+                         params=list(exporting_cohort$exporting_rsf_pf_id,
                                      exporting_asof_date))
+  setDT(exporting_cohort)
   
-  exporting_cohort[,program_name:=program_info$name]
+  exporting_cohort[,program_name:=paste0("RSF Jason Extract #",export_id)]
   exporting_cohort[,exporting_entity_name:=sys_name$sys_name]
   exporting_cohort[,exporting_pfcbl_name:=sys_name$pfcbl_name]
   exporting_cohort[,exporting_users_name:=account_info$users_name]

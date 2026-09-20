@@ -7,7 +7,7 @@ SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS <- reactiveVal(data.table())
 SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING <- reactiveVal(0)
 SERVER_ADMIN_INDICATORS_DELETE_INDICATOR_ID <- reactiveVal(NA)
 #RSF_INDICATORS is used by all the admin screens to have a full list of indicators, etc
-RSF_INDICATORS <- eventReactive(c(LOGGEDIN(),
+RSF_INDICATORS <- eventReactive(list(LOGGEDIN(),
                                   LOAD_SYSTEM_INDICATOR()), #will be called when a new indicator is created or deleted -- so refresh
 {
 
@@ -44,7 +44,7 @@ RSF_INDICATORS <- eventReactive(c(LOGGEDIN(),
   }
   return (indicators)
   
-}, ignoreInit=FALSE) %>% debounce(100)
+}, ignoreInit=FALSE, ignoreNULL=FALSE) #%>% debounce(100)
 
 RSF_INDICATOR_FORMULAS <- eventReactive(RSF_INDICATORS(), {
   
@@ -707,6 +707,8 @@ observeEvent(input$server_admin_indicators__save_indicator, {
   definition <- input$admin_system_edit_indicator_definition
   default_subscription <- as.logical(input$admin_system_edit_indicator_default_subscribed)
   
+  classification <- input$admin_system_edit_indicator_classification
+  
   unit_fx_method <- input$admin_system_edit_indicator__unit_fx_method #calculation, parameter, fx
   unit_fx_source <- input$admin_system_edit_indicator__unit_fx_source #facility vs global
   unit_fx_indicator_id <- as.numeric(input$admin_system_edit_indicator__unit_fx_indicator_id) #for fixed-currency metrics, which parameter controls it.
@@ -784,7 +786,7 @@ observeEvent(input$server_admin_indicators__save_indicator, {
     options_allows_blanks <- NA
     options_allows_multi <- NA
   }
-
+  
   success <- withProgress(message="Saving changes...",value=0.3, {
     
     success <- tryCatch({
@@ -801,6 +803,7 @@ observeEvent(input$server_admin_indicators__save_indicator, {
                                                           options_group_allows_blanks=options_allows_blanks,
                                                           options_group_allows_multiples=options_allows_multi,
                                                           definition=definition,
+                                                          classification=classification,
                                                           unit_fx_method=unit_fx_method,
                                                           unit_fx_source=unit_fx_source,
                                                           unit_fx_indicator_id=unit_fx_indicator_id),
@@ -1195,6 +1198,7 @@ output$admin_system_edit_indicator <- renderUI({
   selected_monitoring <- as.logical(indicator$default_subscription)
   if (is.na(selected_monitoring)) selected_monitoring <- TRUE
   
+  selected_classification <- as.character(indicator$classification)
   
   category_choices <- c(Global="global",
                         Program="program",
@@ -1348,21 +1352,26 @@ output$admin_system_edit_indicator <- renderUI({
                                          value=indicator_name))
             ),
             fluidRow(align="center",
-                     column(3,align="left",
+                     #column(2,align="left",
+                     div(style="display:flex;flex-flow:row nowrap;justify-content: space-between;padding-left:10px;",
+                         
+                         div(style="display:flex;flex-direction:row;min-width:150px;padding-left:10px;text-align:left",
                             enabled(state=editable,
                                     selectizeInput(inputId="admin_system_edit_indicator_category",
                                                    label = "Data Category",
                                                    choices = category_choices,
                                                    selected = selected_category,
                                                    options = list(placeholder="Select...")))),
-                     column(2,align="left",
+                     #column(2,align="left",
+                     div(style="display:flex;flex-direction:row;min-width:115px;text-align:left",
                             enabled(state=editable,
                                     selectizeInput(inputId="admin_system_edit_indicator_type",
                                                    label = "Data Type",
                                                    choices = type_choices,
                                                    selected = selected_type,
                                                    options = list(placeholder="Select...")))),
-                     column(3,align="left",
+                     #column(2,align="left",
+                     div(style="display:flex;flex-direction:row;min-width:115px;text-align:left",
                             enabled(state=editable & addable_choices,
                                     selectizeInput(inputId="admin_system_edit_indicator_type_unit",
                                                    label = "Data Unit",
@@ -1371,7 +1380,30 @@ output$admin_system_edit_indicator <- renderUI({
                                                    options = list(placeholder="{ Not applicable }",
                                                                   create=addable_choices,
                                                                   persist=TRUE)))),
-                     column(2,align="left",
+                     #column(2,align="left",
+                     div(style="display:flex;flex-direction:row;min-width:175px;text-align:left",
+                            selectizeInput(inputId="admin_system_edit_indicator_classification",
+                                           label="Purpose",
+                                           selected=selected_classification,
+                                           choices=c(`RSA Terms`="terms",
+                                                     `RSA Determination`="determination",
+                                                     `RSA Costs`="billing",
+                                                     `RSA Criteria`="criteria",
+                                                     
+                                                     `Facility Events`="events",
+                                                     
+                                                     `QR Reported Data`="reporting",
+                                                     `QR Calculated Data`="metrics",
+                                                     
+                                                     `Portfolio Invoicing`="payments",
+                                                     `Portfolio Performance`="performance",
+                                                     `Portfolio Information`="portfolio"
+                                                     
+                                                     ),
+                                           options = list(placeholder="Required..."))),
+                            
+                     #column(2,align="left",
+                     div(style="display:flex;flex-direction:row;min-width:115px;text-align:left",
                             enabled(state=editable,
                                     selectizeInput(inputId="admin_system_edit_indicator_data_frequency",
                                                    label = "Data Frequency",
@@ -1379,12 +1411,14 @@ output$admin_system_edit_indicator <- renderUI({
                                                                'Periodic'=TRUE),
                                                    selected = selected_frequency,
                                                    options = list(placeholder="Normal")))),
-                     column(2,align="left",
+                     #column(2,align="left",
+                     div(style="display:flex;flex-direction:row;min-width:115px;padding-right:20px;text-align:left",
                             selectizeInput(inputId="admin_system_edit_indicator_default_subscribed",
-                                           label="Monitoring",
+                                           label="Monitor",
                                            selected=selected_monitoring,
                                            choices=c("Auto"=TRUE,
-                                                     "RSF Setup"=FALSE)))
+                                                     "Manual"=FALSE)))
+                     )
             ),
             uiOutput(outputId = "admin_system_edit_indicator_fx_UI"),
             fluidRow(align="left",

@@ -10,7 +10,6 @@ SYSTEM_ALL_OPTIONS <- reactive({
   Shiny.destroyList(SYSTEM_OPTIONS_MODULES)
   options <- DBPOOL %>% db_rsf_get_options_groups()
   setDT(options)
-  print("SYSTEM_ALL_OPTIONS <- reactive({")
   
   return (options)
 
@@ -93,7 +92,6 @@ observeEvent(SYSTEM_ALL_OPTIONS(), {
   
   all_options <- SYSTEM_ALL_OPTIONS()
   if (!isTruthy(all_options)) return (NULL)
-  if (SYS_PRINT_TIMING) debugtime("observeEvent: SYSTEM_ALL_OPTIONS")
   
   options_group <- SELECTED_SYSTEM_OPTION()
   

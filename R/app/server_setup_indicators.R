@@ -4,6 +4,8 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
                                                 input$server_programs__selected_facility,
                                                 SERVER_SETUP_INDICATORS_LIST_REFRESH()), {
   
+  t1 <- Sys.time()
+  
   if (empty(RSF_INDICATORS())) return (NULL)
   
   selected_rsf_pfcbl_id <- as.numeric(input$server_programs__selected_facility)
@@ -14,17 +16,48 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
     
   monitored_indicators <- DBPOOL %>% dbGetQuery("
     select 
-      sis.*,
-      indf.formula_title,
-      indf.is_primary_default,
+      sis.rsf_pfcbl_id,
+      sis.pfcbl_category,
+      sis.pfcbl_rank,
+      sis.indicator_name,
+      sis.indicator_id,
+      sis.data_category,
+      sis.data_category_rank,
+      sis.data_type,
+      sis.default_value,
+      sis.default_unit,
+      sis.indicator_sys_category,
+      sis.is_system_indicator,
+      sis.formula_id,
+      sis.formula_calculation_rank,
+      sis.formula_title,
+      sis.is_primary_default,
+      sis.is_calculated,
+      sis.is_subscribed,
+      sis.subscription_comments,
+      sis.comments_user_id,
+      sis.is_unsubscribed,
+      sis.is_auto_subscribed,
+      sis.filter_matched_pfcbl_indicators,
+      sis.filter_category_manager,
+      sis.category_manager_rsf_pfcbl_id,
+      sis.created_in_reporting_asof_date,
+      sis.deactivated_in_reporting_asof_date,
+      sis.is_periodic_or_flow_reporting,
+      sis.unit_fx_method,
+      sis.unit_fx_source,
+      sis.unit_fx_indicator_id,
+      sis.formula_overwrite,
+      sis.rsf_pf_id,
       coalesce(has.reported,false) as has_reported,
       case when sis.is_auto_subscribed = true then NULL::bool
            else sis.is_subscribed end
       as user_subscription,
       (formulas.num >= 2) OR (formulas.num > 0 AND sis.formula_id is NULL) as calculation_has_variety,
-      sis.formula_calculation_unit
+      sis.formula_calculation_unit,
+      sis.classification,
+      array_to_string(sis.formula_indicator_id_requirements,',') as formula_indicator_id_requirements
     from p_rsf.view_rsf_setup_indicator_subscriptions sis
-    left join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
     left join lateral (select count(*) num from p_rsf.indicator_formulas indf where indf.indicator_id = sis.indicator_id) as formulas on true
     left join lateral (select exists(select * from p_rsf.view_rsf_pfcbl_id_family_tree ft
                                      inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
@@ -105,6 +138,8 @@ SERVER_SETUP_INDICATORS_LIST <- eventReactive(c(RSF_INDICATORS(),
                                           "onmousedown='event.stopPropagation();' ",
                                           "onclick='Shiny.setInputValue(\"server_setup_indicators__toggle_select\",\"",formula_html_id,"\",{priority:\"event\"})' />")] 
 
+  print(paste0("SERVER_SETUP_INDICATORS_LIST:eventReactive ",round(as.numeric(Sys.time()-t1,units="secs"),1)," seconds"))
+  
   return (monitored_indicators)
 
 },
@@ -258,12 +293,6 @@ ignoreInit = FALSE, ignoreNULL=FALSE) %>% debounce(250)
 ####################
 ###########OBSERVERS
 ####################
-
-# observeEvent(SERVER_SETUP_INDICATORS_LIST_REFRESH(), {
-#   
-#   #if indicators list changes, checks can also change.
-#   SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1)
-# })
 
 observeEvent(input$ui_setup__indicator_search_filter, {
   search <- input$ui_setup__indicator_search_filter

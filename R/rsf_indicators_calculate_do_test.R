@@ -1,7 +1,7 @@
 # 
-# reporting_current_date <- '2026-06-30'
-# indicator_id <-157414
-# rsf_pf_id <- 37368
+# reporting_current_date <- '2026-09-30'
+# indicator_id <-43429
+# rsf_pf_id <- 71605
 # all_parameters <- F
 #x<-rsf_indicators_calculate_do_test(pool,rsf_pf_id,indicator_id,reporting_current_date,all_parameters=T)
 
@@ -13,18 +13,25 @@ rsf_indicators_calculate_do_test <- function(pool,
                                              parent_formula_id=as.numeric(NA),
                                              status_message=function(...) {})
 {
-  
+ 
   if (is.na(rsf_pf_id)) stop("A facility/program ID is required")
   #Ensure nothing is pending
-  rsf_program_calculate(pool=pool,
-                        rsf_indicators=db_indicators_get_labels(pool),
+  rsf_indicators <- db_indicators_get_labels(pool=pool)
+  pending <- rsf_program_calculate(pool=pool,
+                        rsf_indicators=rsf_indicators,
                         rsf_pf_id=rsf_pf_id,
                         for_import_id=NA,
                         calculate_future=FALSE,
                         reference_asof_date=reporting_current_date,
                         status_message=status_message)
+  
+  if (!empty(pending)) {
+    status_message(paste0("Completd ",nrow(pending)," pending calculations for SYSID=",paste0(rsf_pf_id,collapse=","),"\n"))
+  }
+  
   {
-    status_message(paste0("Running test for SYSID=",paste0(rsf_pf_id,collapse=",")," indicator_id=",indicator_id))
+    
+    status_message(paste0("Running test for SYSID=",paste0(rsf_pf_id,collapse=",")," indicator_id=",indicator_id,"\n"))
     
     
     
@@ -112,7 +119,7 @@ rsf_indicators_calculate_do_test <- function(pool,
   }
   
   {
-    rsf_indicators <- db_indicators_get_labels(pool=pool)
+    
     
     rsf_calculator_checks <- dbGetQuery(pool,
                                         "select 
@@ -133,6 +140,8 @@ rsf_indicators_calculate_do_test <- function(pool,
                                                      status_message=status_message)
     
     
+    
+    status_message(paste0("Completed test for SYSID=",paste0(rsf_pf_id,collapse=",")," indicator_id=",test_calculation$calculate_indicator_id," (using subscribed formula_id=",test_calculation$formula_id,") as-of ",test_calculation$calculate_asof_date,"\n\n"))
     
     calculation <- dbGetQuery(pool,"
                               select 

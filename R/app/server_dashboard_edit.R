@@ -574,12 +574,17 @@ observeEvent(input$action_server_dashboard__edit_save, {
     #LOAD_IMPORT(results[nrow(results),import_id]) #if multiple, loads last upload
     
     if (!any(as.character(unique(results$reporting_asof_date)) %in% as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))) {
-      new_dates <- setdiff(sort(as.character(unique(results$reporting_asof_date))),as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))
-      LOAD_VALID_REPORTING_DATE(new_dates)
+
+      if (isTruthy(SELECTED_PROGRAM_ID())) {
+        DO_SELECT_PROGRAM_ID(-as.numeric(SELECTED_PROGRAM_ID()))
+      }
     }
   }
   
   IMPORT_LIST__REFRESH(IMPORT_LIST__REFRESH()+1)
+  SERVER_SETUP_INDICATORS_LIST_REFRESH(SERVER_SETUP_INDICATORS_LIST_REFRESH()+1) #Datasets can create/affect/auto-subscribed and should be up-to-date
+  #Will also trigger checks refresh
+  SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1) #Ensure new data is reflected in any reports.
   
   removeModal()
   

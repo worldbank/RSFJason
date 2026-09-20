@@ -184,6 +184,10 @@ observeEvent(input$modal_dataset_upload_next, {
   
   IMPORT_LIST__REFRESH(IMPORT_LIST__REFRESH()+1) #failed cohorts will leave an artifact, generally, which should be viewable.
   
+  SERVER_SETUP_INDICATORS_LIST_REFRESH(SERVER_SETUP_INDICATORS_LIST_REFRESH()+1) #Datasets can create/affect/auto-subscribed and should be up-to-date
+  #Will also trigger checks refresh
+  SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1) #Ensure new data is reflected in any reports.
+  
   if (empty(results)) {
     IMPORT_NEW_ID(NA) 
     
@@ -202,28 +206,34 @@ observeEvent(input$modal_dataset_upload_next, {
       inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ri.import_rsf_pfcbl_id
       where ri.import_id = $1::int",
       params=list(last_import_id))
-    
-    #print(paste0("SETTING NEW/LAST cohort_id=",last_cohort_id))
-    #If we uploaded a dataset while the selected program is empty, then it means we've created a new program. So let's load it now.
-    if (empty(SELECTED_PROGRAM()) || !identical(as.numeric(SELECTED_PROGRAM_ID()),as.numeric(import_ids$rsf_program_id))) {
-      
-      if (!as.numeric(import_ids$rsf_program_id) %in% USER_PROGRAMS()$rsf_pfcbl_id) {
-        LOAD_PROGRAM_ID(import_ids$rsf_program_id)
-      }
-      
-      session$userData$server_programs__selected_facility <- as.numeric(import_ids$rsf_facility_id)
-      
-      updateSelectizeInput(session=session,
-                           inputId="server_programs__selected_program",
-                           selected=as.numeric(import_ids$rsf_program_id))
-    }
-    
+
     IMPORT_NEW_ID(last_import_id)
     
+    refresh_program_selection <- FALSE
+    #print(paste0("SETTING NEW/LAST cohort_id=",last_cohort_id))
+    #If we uploaded a dataset while the selected program is empty, then it means we've created a new program. So let's load it now.
+    if (empty(SELECTED_PROGRAM()) || !identical(as.numeric(SELECTED_PROGRAM_ID()),
+                                                as.numeric(import_ids$rsf_program_id))) {
+      
+      if (!as.numeric(import_ids$rsf_program_id) %in% USER_PROGRAMS()$rsf_pfcbl_id) {
+        USER_PROGRAMS_REFRESH(USER_PROGRAMS_REFRESH()+1)
+        DO_SELECT_PROGRAM_ID(as.numeric(import_ids$rsf_program_id))
+      }
+      
+      if (!identical(as.numeric(session$userData$server_programs__selected_facility),
+                     as.numeric(import_ids$rsf_facility_id))) {
+        session$userData$server_programs__selected_facility <- as.numeric(import_ids$rsf_facility_id)
+      }
+      
+      refresh_program_selection <- TRUE
+    }
     
     if (!any(as.character(unique(results$reporting_asof_date)) %in% as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))) {
-      new_dates <- setdiff(sort(as.character(unique(results$reporting_asof_date))),as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))
-      LOAD_VALID_REPORTING_DATE(new_dates)
+      refresh_program_selection <- TRUE
+    }
+    
+    if (refresh_program_selection==TRUE) {
+      DO_SELECT_PROGRAM_ID(-as.numeric(import_ids$rsf_program_id))
     }
     
     showElement(id="dataset_upload_nav2",

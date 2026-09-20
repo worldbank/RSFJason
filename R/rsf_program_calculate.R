@@ -58,6 +58,12 @@ rsf_program_calculate <- function(pool,
                                                                    limit_future=limit_date)
         
         
+        if (length(fcr<-unique(required_calculations$formula_calculation_rank))>1) {
+          status_message(class="error",
+                         paste0("Multiple calculation ranks received: possibly due to formula definition changes. ",
+                                "If this message persists, report to sysadmin"))
+          required_calculations <- required_calculations[formula_calculation_rank==min(fcr)]
+        }
         #Global program does not define a global-local currency unit and therefore is excluded from this check.
         
         

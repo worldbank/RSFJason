@@ -53,8 +53,8 @@ export_dashboard_edits_to_excel <- function(pool,
                                             reporting_user=format_name_abbreviation(export_cohort$exporting_users_name),
                                             reporting_time=as.character(export_cohort$exporting_time),
                                             reporting_notes=ifelse(is.na(export_cohort$export_name),
-                                                                   paste0("Data Reporting #",export_cohort$exporting_cohort_id),
-                                                                   paste0(export_cohort$export_name,"#",export_cohort$exporting_cohort_id)))
+                                                                   paste0("Data Reporting #",export_cohort$export_id),
+                                                                   paste0(export_cohort$export_name,"#",export_cohort$export_id)))
   
   
   

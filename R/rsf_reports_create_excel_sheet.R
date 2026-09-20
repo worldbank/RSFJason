@@ -13,8 +13,9 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
                                            reporting_entity,
                                            reporting_asof_date,
                                            reporting_user,
-                                           reporting_time=as.character(format.Date(now(),"%Y%b%d %Hh%M")),
-                                           reporting_notes="",
+                                           reporting_time=toupper(as.character(format.Date(now(),"%Y%b%d %Hh%M"))),
+                                           reporting_notes="None",
+                                           reporting_url=NA,
                                            protect="IFCRSF",
                                            protect_full=FALSE) #protect just headers or full sheet
 {
@@ -88,21 +89,20 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
   
   openxlsx::writeData(excelwb,sheet=sheet,x=header,colNames=FALSE,rowNames=FALSE,startCol=1,startRow=1)
 
-  if (grepl("#\\d+$",reporting_notes)) {
+  if (!is.na(reporting_url) && nchar(reporting_url) > 1) {
     
-    reporting_id <- gsub("^.*#(\\d+)$","\\1",reporting_notes)
     link_string <- makeHyperlinkString(
       sheet = sheet, 
       #row = 6, 
       #col = 2,
       text = reporting_notes, 
-      file = paste0("https://datanalytics-int.worldbank.org/rsf-prod/?report=",reporting_id)
+      file = reporting_url
     )
     openxlsx::writeFormula(excelwb,
                            sheet=sheet,
                            startRow=6,
                            startCol=2,
-                           x = paste0('=HYPERLINK(\"',paste0("https://datanalytics-int.worldbank.org/rsf-prod/?report=",reporting_id),'\", "',reporting_notes,'")'))
+                           x = paste0('=HYPERLINK(\"',reporting_url,'\","',reporting_notes,'")'))
   } 
   
     

@@ -133,8 +133,6 @@ server <- function(input, output, session)
   STATUS_MESSAGE_PANEL <- reactiveValues(container_id="dataset_upload_log_container",panel_id="dataset_upload_log")
   USER_ACCOUNT <- reactiveValues()
   
-  
-  
   USER_ID <- eventReactive(USER_ACCOUNT$user_account_id, { USER_ACCOUNT$user_account_id },ignoreNULL = FALSE)
   USER_NAME <- eventReactive(USER_ACCOUNT$user_name, {  format_name_abbreviation(USER_ACCOUNT$user_name) },ignoreNULL=FALSE)
   LOGGEDIN <- reactive({ isTruthy(USER_ACCOUNT$user_account_id) && isTruthy(USER_ACCOUNT$application_session_id) })
@@ -157,6 +155,19 @@ server <- function(input, output, session)
              })
   })
   
+  source("./R/app/server_admin_options.R",local=serverENV)
+  source("./R/app/server_admin_options_module.R",local=serverENV)
+  
+  source("./R/app/server_admin_indicators.R",local=serverENV)
+  source("./R/app/server_admin_indicator_formulas.R",local=serverENV)
+  source("./R/app/server_admin_indicators_review.R",local=serverENV)
+  
+  source("./R/app/server_admin_checks.R",local=serverENV)
+  source("./R/app/server_admin_checks_formulas.R",local=serverENV)
+  source("./R/app/server_admin_checks_review.R",local=serverENV)
+  
+  source("./R/app/server_admin_users.R",local=serverENV)
+  
   source("./R/app/server_programs.R",local=serverENV)
   
   source("./R/app/server_dashboard.R",local=serverENV)
@@ -178,18 +189,6 @@ server <- function(input, output, session)
   source("./R/app/server_setup_templates.R",local=serverENV)
   source("./R/app/server_setup_create.R",local=serverENV)
   
-  source("./R/app/server_admin_options.R",local=serverENV)
-  source("./R/app/server_admin_options_module.R",local=serverENV)
-  
-  source("./R/app/server_admin_indicators.R",local=serverENV)
-  source("./R/app/server_admin_indicator_formulas.R",local=serverENV)
-  source("./R/app/server_admin_indicators_review.R",local=serverENV)
-  
-  source("./R/app/server_admin_checks.R",local=serverENV)
-  source("./R/app/server_admin_checks_formulas.R",local=serverENV)
-  source("./R/app/server_admin_checks_review.R",local=serverENV)
-  
-  source("./R/app/server_admin_users.R",local=serverENV)
   
   login_initialize <- observeEvent(USER_ID(),{ 
   
@@ -280,7 +279,7 @@ server <- function(input, output, session)
   observeEvent(input$server_admin_request__create_action, {
     
     name <- trimws(input$server_admin_request__create_user_name)
-    email <- trimws(input$server_admin_request__create_user_email)
+    email <- tolower(trimws(input$server_admin_request__create_user_email))
     
     if (!isTruthy(name) || 
         !isTruthy(email)) {
@@ -289,15 +288,21 @@ server <- function(input, output, session)
     }
     
     AD_user <- session$user
-    
-    if (!isTruthy(AD_user)) {
-      return(showNotification(type="error",
-                              ui=h3("Request failed: it appears you are not logged into a World Bank Group computer?")))
-    }
-    
-    if (!grepl(paste0("^",AD_user),email)) {
-      return(showNotification(type="error",
-                              ui=h3("Request failed: You may only request an account for yourself and not on behalf of someone else.")))
+   
+    if (isTruthy(AD_user) && !grepl(paste0("^",AD_user),email,ignore.case=T)) {
+      
+      can_admin <- DBPOOL %>% dbGetQuery("
+        select exists(select true 
+                      from p_rsf.view_account_info vai
+                      inner join users.view_account_permissions_granted perg on perg.account_id = vai.account_id
+                      where vai.login_name = $1::text
+                        and permission_name = 'ADMIN')::bool as administrator",
+        params=list(AD_user))
+      
+      if (!any(unlist(can_admin),na.rm=T)) {
+        return(showNotification(type="error",
+                                ui=h3("Request failed: You may only request an account for yourself and not on behalf of someone else.")))
+      }
     }
 
     if (!grepl("^[[:alnum:]_\\.]+@(ifc|worldbank|miga|worldbankgroup)\\.(org|onmicrosoft\\.com)$",email,ignore.case=T)) {

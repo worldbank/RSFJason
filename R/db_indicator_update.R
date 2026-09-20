@@ -113,7 +113,8 @@ db_indicator_update <- function(pool,
        modification_time = (timeofday())::timestamptz,
        unit_fx_method = NULLIF($14,'NA'),
        unit_fx_source = NULLIF($15,'NA'),
-       unit_fx_indicator_id = NULLIF($16,'NA')::int
+       unit_fx_indicator_id = NULLIF($16,'NA')::int,
+       classification=NULLIF($17,'NA')::text
 
     where indicator_id = $13::int
     ",params=list(indicator$indicator_name,
@@ -132,7 +133,8 @@ db_indicator_update <- function(pool,
                   
                   indicator$unit_fx_method,
                   indicator$unit_fx_source,
-                  indicator$unit_fx_indicator_id))
+                  indicator$unit_fx_indicator_id,
+                  indicator$classification))
   
   #conn <- poolCheckout(pool)
   #dbBegin(conn)

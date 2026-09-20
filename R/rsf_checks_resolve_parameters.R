@@ -65,7 +65,7 @@ rsf_checks_resolve_parameters <- function(checks,
   {
     #for FX we want to add .unit and .reporteddate to all currency data types
     fx_variable_requirements <- request_indicator_variables[parameter_data_type=="currency" &
-                                                            grepl("(current|previous|first)$",parameter_variable) &
+                                                            grepl("(current|previous|first|primary|prior)$",parameter_variable) &
                                                             # parameter_variable %in% c("current",
                                                             #                           "first",
                                                             #                           "previous") &

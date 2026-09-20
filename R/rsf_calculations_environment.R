@@ -91,11 +91,18 @@
            # "issuances.current",  #Current reported value in the issuance sequence
            # "issuances.current.unit",
            # "issuances.current.reporteddate",
-           # #All but useless, except if a historic issuance reports anachronistically and can check if it is not the current one
+           
+           # 2026-09-07: Re-added "issuances" due to emerging rules that except renewals from some critiera
            # #When the entity is the most recent issuance, then .current and .issuances.current will return the same value
-           # "issuances.previous", #Previously reported issuance's value in the issuance sequence
-           # "issuances.previous.unit",
-           # "issuances.previous.reporteddate",
+           "issuances.prior", #Previously reported issuance's value in the issuance sequence
+           "issuances.prior.unit",
+           "issuances.prior.reporteddate",
+           "issuances.primary", #Previously reported issuance's value in the issuance sequence
+           "issuances.primary.unit",
+           "issuances.primary.reporteddate",
+
+
+           
            #Primarily relevant when a new issuance is generated and we can compare with the closing values of the last issuance
            
            

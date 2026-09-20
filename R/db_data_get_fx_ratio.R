@@ -285,7 +285,8 @@ db_data_get_fx_ratio <- function(pool,
                           															 data_unit,
                           															 modification_time,
                           															 is_required,
-                                                         default_subscription)
+                                                         default_subscription,
+                                                         classification)
                            select 
                           	'sys_global_fx_' || currency_ratio_name,
                           	'global' as data_category,
@@ -296,7 +297,8 @@ db_data_get_fx_ratio <- function(pool,
                           	alphabetic_lookup_ratio as data_unit,
                           	(timeofday())::timestamptz as modification_time,
                           	false as is_required,
-                            true as default_subscription
+                            true as default_subscription,
+                            'metrics'
                            from new_currencies
                            returning indicator_id,label_id,data_unit
                           )

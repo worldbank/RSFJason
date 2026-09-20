@@ -96,8 +96,8 @@ export_create_entity_to_excel <- function(pool,
                                             reporting_user=format_name_abbreviation(export_cohort$exporting_users_name),
                                             reporting_time=paste0(toupper(format.Date(export_cohort$exporting_time,"%Y%b%d %Hh%M"))),
                                             reporting_notes=ifelse(is.na(export_cohort$export_name),
-                                                                   paste0("Data Extract #",export_cohort$exporting_cohort_id),
-                                                                   paste0(export_cohort$export_name,"#",export_cohort$exporting_cohort_id)))
+                                                                   paste0("Data Extract #",export_cohort$export_id),
+                                                                   paste0(export_cohort$export_name,"#",export_cohort$export_id)))
   
   
   

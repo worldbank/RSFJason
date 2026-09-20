@@ -27,11 +27,14 @@ SERVER_DASHBOARD_SPECIAL_INDICATORS <- c(":exclude:reported",
                                          ":expand:calculations-deep",
                                          ":expand:indicators")
 
-SERVER_DASHBOARD_CELL_INFO <- reactiveVal("")
 SERVER_DASHBOARD_REFRESH <- reactiveVal(0)
+SERVER_DASHBOARD_DO_AUTORUN <- reactiveVal(FALSE)
+
 SERVER_DASHBOARD_CURRENT_QUERY <- reactiveVal(data.table())
 SERVER_DASHBOARD_CURRENT_INDICATORS <- reactiveVal(data.table())
 SERVER_DASHBOARD_CHOICE_INDICATORS <- reactiveVal(character(0))
+
+SERVER_DASHBOARD_CELL_INFO <- reactiveVal("")
 
 SERVER_DASHBOARD_RUN_OPTIONS_INIT <- list(rsf_pfcbl_ids=numeric(0),
                                           indicator_names=character(0),
@@ -41,7 +44,6 @@ SERVER_DASHBOARD_RUN_OPTIONS_INIT <- list(rsf_pfcbl_ids=numeric(0),
                                           format_blank="text",
                                           format_unchanged="gray",
                                           format_exceldates=FALSE,
-                                          format_filter="",
                                           format_pivot="DATA",
                                           format_pivot_category="parent",
                                           syscols = c("reporting_asof_date", 
@@ -51,8 +53,8 @@ SERVER_DASHBOARD_RUN_OPTIONS_INIT <- list(rsf_pfcbl_ids=numeric(0),
                                           flags_display = c("active"),
                                           
                                           name_filter=c(),
-                                          reporting_filter="",
-
+                                          status_filter="",
+                                          check_audit=FALSE,
                                           fx_currency="LCU", #FX can not be allowed if FUTURE dates are selected
                                           fx_force_global=TRUE,
                                           fx_concatenate_LCU=TRUE, #when different currency units in same col, merge number+unit
@@ -103,46 +105,43 @@ SERVER_DASHBOARD_DOWNLOAD_FILENAME <- eventReactive(c(SERVER_DASHBOARD_RUN_OPTIO
 
 })
 
-SERVER_DASHBOARD_FACILITIES_LIST <- eventReactive(c(SELECTED_PROGRAM_FACILITIES_LIST()), {
+SERVER_DASHBOARD_FACILITIES_LIST <- eventReactive(SELECTED_PROGRAM_FACILITIES_LIST(), {
   
   MODE_CROSS_PROGRAM <- FALSE
   
   selected_program_id <- SELECTED_PROGRAM_ID()
   if (!isTruthy(selected_program_id)) MODE_CROSS_PROGRAM <- TRUE
   
-  if (MODE_CROSS_PROGRAM==TRUE) {
+  if (MODE_CROSS_PROGRAM==TRUE && !empty(USER_PROGRAMS())) {
     
+    # programs <- DBPOOL %>% dbGetQuery("
+    # select 
+    #   ids.rsf_program_id,
+    #   ids.rsf_facility_id,
+    #   ids.rsf_pfcbl_id,
+    #   ids.pfcbl_category,
+    #   ids.pfcbl_category_rank as pfcbl_rank,
+    #   nids.pfcbl_category || ':' || nids.rsf_name as facility_name,
+    #   nids.name,
+    #   nids.id,
+    #   nids.sys_name,
+    #   nids.created_in_reporting_asof_date
+    # from p_rsf.rsf_pfcbl_ids ids
+    # inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
+    # where ids.pfcbl_category = 'program'
+    # order by facility_name")
     
-    programs <- DBPOOL %>% dbGetQuery("
-    select 
-      ids.rsf_program_id,
-      ids.rsf_facility_id,
-      ids.rsf_client_id,
-      ids.rsf_pfcbl_id,
-      ids.pfcbl_category,
-      ids.pfcbl_category_rank as pfcbl_rank,
-      nids.pfcbl_category || ':' || nids.rsf_name as facility_name,
-      nids.name,
-      nids.id,
-      nids.created_in_reporting_asof_date
-    from p_rsf.rsf_pfcbl_ids ids
-    inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
-    where ids.pfcbl_category = 'program'
-    order by facility_name")
-    
-    setDT(programs)
-    return (programs)
+    #setDT(programs)
+    return (USER_PROGRAMS()[rsf_pfcbl_id != 0])
     
   } else {
     
     return (SELECTED_PROGRAM_FACILITIES_LIST())
   }
-  
-  
 },ignoreNULL = FALSE)
 
-SERVER_DASHBOARD_INDICATORS <- eventReactive(c(SERVER_DASHBOARD_REPORT_SELECTED(),
-                                               RSF_INDICATORS()), { 
+SERVER_DASHBOARD_INDICATORS <- eventReactive(list(SERVER_DASHBOARD_REPORT_SELECTED(),
+                                                  RSF_INDICATORS()), { 
                                                  
   if (empty(RSF_INDICATORS())) return (NULL)
                                                  
@@ -176,7 +175,7 @@ SERVER_DASHBOARD_INDICATORS <- eventReactive(c(SERVER_DASHBOARD_REPORT_SELECTED(
                                               is_system=TRUE)))
   
   }
-  
+
   return (dash_indicators)
   
 }, ignoreNULL=FALSE)
@@ -346,7 +345,6 @@ SERVER_DASHBOARD_SELECTED_INDICATORS <- eventReactive(SERVER_DASHBOARD_RUN_OPTIO
   
 })
 
-
 SERVER_DASHBOARD_VALID_ASOF_DATES <- eventReactive(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids, {
 
   #program_id <- SELECTED_PROGRAM_ID()
@@ -410,8 +408,8 @@ SERVER_DASHBOARD_VALID_ASOF_DATES <- eventReactive(SERVER_DASHBOARD_RUN_OPTIONS$
 ignoreNULL = FALSE)
 
 
-SERVER_DASHBOARD_RUN_ASOF_DATES <- eventReactive(c(SERVER_DASHBOARD_VALID_ASOF_DATES(),
-                                                   SERVER_DASHBOARD_RUN_OPTIONS$asof_dates), {
+SERVER_DASHBOARD_RUN_ASOF_DATES <- eventReactive(list(SERVER_DASHBOARD_VALID_ASOF_DATES(),
+                                                      SERVER_DASHBOARD_RUN_OPTIONS$asof_dates), {
    
    selected_asof_dates <- na.omit(unique(as.numeric(SERVER_DASHBOARD_RUN_OPTIONS$asof_dates)))
    if (empty(SERVER_DASHBOARD_VALID_ASOF_DATES())) return (c())
@@ -432,41 +430,76 @@ SERVER_DASHBOARD_RUN_ASOF_DATES <- eventReactive(c(SERVER_DASHBOARD_VALID_ASOF_D
 
 SERVER_DASHBOARD_DATA_RUN <- eventReactive(SERVER_DASHBOARD_REFRESH(), {
   
-  SERVER_DASHBOARD_CURRENT_QUERY(data.table())
-  SERVER_DASHBOARD_REFRESH()  
+  if (isTRUE(SERVER_DASHBOARD_DO_AUTORUN()) && 
+      isTRUE(input$tabset_dashboard %in% "dashboard")) {
+    
+    if (!empty(SERVER_DASHBOARD_CURRENT_QUERY())) { 
+      SERVER_DASHBOARD_CURRENT_QUERY(data.table()) 
+    }
+    
+    return (SERVER_DASHBOARD_REFRESH())
+    
+  } else {
+    
+    return (NULL)
+  }
   
 }) %>% debounce(500)
 
-SERVER_DASHBOARD_RUN_AUTORUN <- eventReactive(c(input$tabset_dashboard,
-                                                input$server_dashboard__autorun), {
-  
-  if (!(input$tabset_dashboard %in% "dashboard")) return (FALSE)
-  else return(isTruthy(as.logical(input$server_dashboard__autorun)))
-})
 
-observeEvent(input$server_dashboard__autorun, {
-  if (is.null(input$server_dashboard__autorun) || all(is.na(as.logical(input$server_dashboard__autorun)))) {
-    do_run <- FALSE
-  } else {
-    do_run <- as.logical(input$server_dashboard__autorun)
+observeEvent(SERVER_DASHBOARD_DO_AUTORUN(), {
+
+  if (!identical(as.logical(input$server_dashboard__autorun),
+                 as.logical(SERVER_DASHBOARD_DO_AUTORUN()))) {
+
+    updateSwitchInput(session=session,
+                      inputId="server_dashboard__autorun",
+                      value=isTruthy(SERVER_DASHBOARD_DO_AUTORUN()))
+    
   }
   
-  if (do_run==TRUE)  SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1)
+  if (isTRUE(SERVER_DASHBOARD_DO_AUTORUN())) {
+
+    if (length(na.omit(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids))==0) {
+      showNotification(type="message",
+                       ui=h3("Who is this report for? First: Select relevant project(s) from the drop-down list. Then RUN."))
+    } else if (length(na.omit(SERVER_DASHBOARD_RUN_OPTIONS$asof_dates))==0) {
+      showNotification(type="message",
+                       ui=h3("As-of when is this report for? First: Select relevant quarterly determination date(s) from the drop-down list. Then RUN."))
+      
+    } else {
+      SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1)
+    }
+  }
   
-}, ignoreNULL=FALSE)
+},ignoreInit=TRUE,ignoreNULL=FALSE)
+
+observeEvent(input$server_dashboard__autorun, {
+
+  if (!is.null(input$server_dashboard__autorun) &&
+      !is.na(as.logical(input$server_dashboard__autorun)) &&
+      !identical(as.logical(input$server_dashboard__autorun),
+                 as.logical(SERVER_DASHBOARD_DO_AUTORUN()))) {
+   
+      SERVER_DASHBOARD_DO_AUTORUN(isTruthy(input$server_dashboard__autorun))
+  }
+  
+}, ignoreNULL=FALSE,ignoreInit = TRUE)
 
 #############################################################################################
 #Queries database and caches result in SERVER_DASHBOARD_CURRENT_QUERY
 observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
+
+  if (!isTruthy(SERVER_DASHBOARD_DO_AUTORUN())) return (NULL)
+  if (!isTruthy(SERVER_DASHBOARD_DATA_RUN())) return (NULL)
   
-  run <- SERVER_DASHBOARD_RUN_AUTORUN()
-  if (!isTruthy(run)) return (NULL)
+  #After it's been run: turn off auto run. Helps prevent re-querying during report building
+  #or other triggers elsewhere that refresh the dashboard's reactives unnecessarily (or irrelevantly)
+  SERVER_DASHBOARD_DO_AUTORUN(FALSE)
   
   selected_client_ids <- unique(as.numeric(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids))
   selected_indicators <- SERVER_DASHBOARD_SELECTED_INDICATORS()
   selected_asof_dates <- SERVER_DASHBOARD_RUN_ASOF_DATES()
-  
-  
   
   fx_currency <- SERVER_DASHBOARD_RUN_OPTIONS$fx_currency
   fx_reported_date <- as.logical(SERVER_DASHBOARD_RUN_OPTIONS$fx_reported_date)
@@ -475,20 +508,22 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
   if (!isTruthy(fx_reported_date)) fx_reported_date <- FALSE
   if (!isTruthy(fx_force_global)) fx_force_global <- FALSE
   
-  
-  
   if (!isTruthy(selected_client_ids) ||
       empty(selected_indicators) ||
       !isTruthy(selected_asof_dates)) {
-    SERVER_DASHBOARD_CURRENT_QUERY(data.table())
-    SERVER_DASHBOARD_CURRENT_INDICATORS(data.table())
+    
+    if (!empty(SERVER_DASHBOARD_CURRENT_QUERY())) { SERVER_DASHBOARD_CURRENT_QUERY(data.table()) }
+    if (!empty(SERVER_DASHBOARD_CURRENT_INDICATORS())) { SERVER_DASHBOARD_CURRENT_INDICATORS(data.table()) }
     return (NULL)
   }
   
   include.rsf_name <- any("rsf_full_name" %in% SERVER_DASHBOARD_RUN_OPTIONS$syscols)
-  include.status <- any(c("reporting_status") %in% SERVER_DASHBOARD_RUN_OPTIONS$syscols)
+  status_display <- any(c("reporting_status") %in% SERVER_DASHBOARD_RUN_OPTIONS$syscols) |
+                    any(as.logical(SERVER_DASHBOARD_RUN_OPTIONS$status_filter) %in% c(TRUE,FALSE))
+  
   fx_concatenate_LCU <- SERVER_DASHBOARD_RUN_OPTIONS$fx_concatenate_LCU
   sys_cols <- SERVER_DASHBOARD_RUN_OPTIONS$syscols
+  if (status_display==TRUE) sys_cols <- c(sys_cols,"reporting_status")
   
   flags_display <- intersect(c("active","resolved"),
                              tolower(SERVER_DASHBOARD_RUN_OPTIONS$flags_display))
@@ -511,7 +546,6 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
                     when $3::bool = true then formula_indicator_id_requirements
                end) as parameter_id
         from p_rsf.view_rsf_setup_indicator_subscriptions sis -- will pull in subscribed OR default
-        inner join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
         where sis.rsf_pfcbl_id = any($1::int[])
           and sis.indicator_id = any($2::int[])
       )
@@ -614,7 +648,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
   
   
   SERVER_DASHBOARD_CURRENT_INDICATORS(selected_indicators)
-  
+
   rsf_data <- NULL  
   withProgress(session=session,
                message="Loading data...", {
@@ -628,9 +662,8 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
                                                         reporting_current_date=ymd(asof),
                                                         fx_currency=fx_currency,
                                                         include.sys_name=TRUE,
-                                                        include.rsf_name=TRUE,
-                                                        #include.status=include.status,
                                                         include.flags=flags_display,
+                                                        #filter.status=include.status,
                                                         fx_force_global=fx_force_global,
                                                         fx_reported_date=fx_reported_date,
                                                         fx_concatenate_LCU=fx_concatenate_LCU)
@@ -642,7 +675,8 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
                })
   
   if (empty(rsf_data)) {
-    SERVER_DASHBOARD_CURRENT_QUERY(data.table())
+    if (!empty(SERVER_DASHBOARD_CURRENT_QUERY())) { SERVER_DASHBOARD_CURRENT_QUERY(data.table()) }
+    
     return (NULL)
   }
   
@@ -680,10 +714,6 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
                              unlist(flags,recursive=F),
                              by=.(checks_row)]
       
-      
-      # if (!empty(data_flags)) {
-      #   data_flags <- data_flags[check_status %in% display_flags]
-      # }  
       
       if (!empty(data_flags)) {
         data_flags[,
@@ -750,7 +780,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
                  "currency_ratio",
                  "exchange_rate_data_id",
                  "exchange_rate")
-  
+
   omit_cols <- c(omit_cols,
                  intersect(names(rsf_data),
                            setdiff(SERVER_DASHBOARD_OPTIONS_SYSCOLS,
@@ -789,6 +819,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
       fx_data_audit <- NULL
     }
   }
+  
   
   rsf_data <- rsf_data[,..keep_cols]
   
@@ -939,11 +970,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
     setnames(rsf_family_data,
              old=c("rsf_pfcbl_id","pfcbl_category"),
              new=c("SYSID","SYSCATEGORY"))
-    #SERVER_DASHBOARD_CURRENT_QUERY(rsf_data) 
-    # showNotification(type="message",
-    #                  h3("RAW mode is selected: use Export to download dataset. Dashboard browser is not available in RAW mode."))
-    # return (NULL)
-  
+   
   } else {
     
     rsf_family_data <- db_data_pivot_family(rsf_data=rsf_data,
@@ -966,7 +993,6 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
       
     }  
   }
-  #browser()
   
   setnames(rsf_family_data,
            old="current_asof_date",
@@ -1019,27 +1045,31 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
   
   SERVER_DASHBOARD_CURRENT_QUERY(rsf_family_data)
   
-}, ignoreInit=TRUE,priority=-1)
+}, ignoreInit=TRUE,priority=-1,ignoreNULL=FALSE)
 #############################################################################################
 
 #Applies filters: subsets
-SERVER_DASHBOARD_DATA_DISPLAY_UPDATE <- eventReactive(c(SERVER_DASHBOARD_CURRENT_QUERY(),
+SERVER_DASHBOARD_DATA_DISPLAY_UPDATE <- eventReactive(list(SERVER_DASHBOARD_CURRENT_QUERY(),
                                                         SERVER_DASHBOARD_RUN_OPTIONS$name_filter,
                                                         SERVER_DASHBOARD_RUN_OPTIONS$format_pivot,
-                                                        SERVER_DASHBOARD_RUN_OPTIONS$format_filter,
+                                                        SERVER_DASHBOARD_RUN_OPTIONS$check_audit,
                                                         SERVER_DASHBOARD_RUN_OPTIONS$flags_filter,
-                                                        SERVER_DASHBOARD_RUN_OPTIONS$reporting_filter,
+                                                        SERVER_DASHBOARD_RUN_OPTIONS$status_filter,
                                                         SERVER_DASHBOARD_RUN_OPTIONS$format_pivot_category), {
 
-  return (list(current_query=SERVER_DASHBOARD_CURRENT_QUERY(),
+                                                          t1<-Sys.time()
+  display_data <- list(current_query=SERVER_DASHBOARD_CURRENT_QUERY(),
                name_filter=SERVER_DASHBOARD_RUN_OPTIONS$name_filter,
                format_pivot=SERVER_DASHBOARD_RUN_OPTIONS$format_pivot,
-               format_filter=SERVER_DASHBOARD_RUN_OPTIONS$format_filter,
+               check_audit=SERVER_DASHBOARD_RUN_OPTIONS$check_audit,
                flags_filter=SERVER_DASHBOARD_RUN_OPTIONS$flags_filter,
-               reporting_filter=SERVER_DASHBOARD_RUN_OPTIONS$reporting_filter,
-               format_pivot_category=SERVER_DASHBOARD_RUN_OPTIONS$format_pivot_category))
-                                                           
-}) #%>% debounce(250)
+               status_filter=SERVER_DASHBOARD_RUN_OPTIONS$status_filter,
+               format_pivot_category=SERVER_DASHBOARD_RUN_OPTIONS$format_pivot_category)
+  
+  print(paste0("SERVER_DASHBOARD_DATA_DISPLAY_UPDATE:eventReactive ",round(as.numeric(Sys.time()-t1,units="secs"),1)," seconds"))
+  
+  return (display_data)                                                           
+}) %>% debounce(250)
 
 #Applies pivot: appearance, columns
 SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPDATE(), {
@@ -1051,7 +1081,7 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
  #selected_indicators <<- SERVER_DASHBOARD_SELECTED_INDICATORS()
  #dfilters <<- SERVER_DASHBOARD_DATA_DISPLAY_UPDATE()
  dfilters <- SERVER_DASHBOARD_DATA_DISPLAY_UPDATE()
- 
+
  dcq <- dfilters$current_query
  
  if (empty(dcq)) return (NULL)
@@ -1093,14 +1123,23 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
      !pivot %in% c("DATA","NAME","DATE","NONE")) pivot <- "DATA"
  
  format_pivot_category <- dfilters$format_pivot_category
- 
- eufilter <- toupper(dfilters$format_filter)
+ format_pivot_child_categories <- switch(ifelse(format_pivot_category=="parent",
+                                                syscategory,
+                                                format_pivot_category),
+                                         gobal=c("global","program","facility","client","borrower","loan"),
+                                         program=c("program","facility","client","borrower","loan"),
+                                         facility=c("facility","client","borrower","loan"),
+                                         client=c("client","borrower","loan"),
+                                         borrower=c("borrower","loan"),
+                                         loan=c("loan"))
+ #this is an idea that wasn't useful.  Filtering on changed row status
+ #eufilter <- toupper(dfilters$format_filter)
  
  ##name filter
  {
    nfilter <- dfilters$name_filter
    
-   if (isTruthy(nfilter)) {
+   if (isTruthy(nfilter) && length(nfilter)) {
      
      nfilter <- sapply(dashboard_data$SYSNAME,
             function(sn,nf) { 
@@ -1112,97 +1151,13 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
  }
  
  #reporting filter
- 
- rfilter <- as.logical(SERVER_DASHBOARD_RUN_OPTIONS$reporting_filter)
- if (!is.na(rfilter)) {
-   
-   dashboard_data[,REPORTING:=TRUE]
-  
-   dd_dates <- as.character(unique(dashboard_data$REPORTING_asof_date))
-   for (d in dd_dates) {
 
-     reporting_dates <- DBPOOL %>% dbGetQuery("
-       select distinct
-        ids.rsf_pfcbl_id,
-        $2::date as reporting_asof_date,
-        
-        ids.created_in_reporting_asof_date <= $2 
-        and 
-        (ids.deactivated_in_reporting_asof_date is NULL or ids.deactivated_in_reporting_asof_date >= $2::date)
-        as is_reporting
-
-        where ids.rsf_pfcbl_id = any($1::int[])",
-        params=list(dbMakeIntArray(dashboard_data$SYSID),
-                    d))
-     
-     # reporting_dates <- DBPOOL %>% dbGetQuery("
-     #   select distinct
-     #    ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
-     #    rpr.reporting_asof_date,
-     #    
-     #        bool_or(
-     #            CASE
-     #                WHEN reporting.data_value IS NULL THEN true
-     #                WHEN reporting.data_value = 'TRUE'::text THEN true
-     #                ELSE false
-     #            END) AS is_reporting
-     #    from p_rsf.view_rsf_pfcbl_id_family_tree ft
-     #    inner join p_rsf.rsf_pfcbl_reporting rpr ON rpr.rsf_pfcbl_id = ft.from_rsf_pfcbl_id
-     #    inner join p_rsf.indicators ind on ind.data_category::text = ft.to_pfcbl_category
-     #     LEFT JOIN LATERAL ( SELECT rdc.data_value
-     #           FROM p_rsf.rsf_data_current rdc
-     #          WHERE rdc.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id 
-     #          AND rdc.indicator_id = ind.indicator_id AND rdc.reporting_asof_date <= rpr.reporting_asof_date
-     #          ORDER BY rdc.reporting_asof_date DESC
-     #         LIMIT 1) reporting ON true
-     #    WHERE ind.indicator_sys_category::text = 'is_reporting'::text
-     #    and ft.from_rsf_pfcbl_id = any($1::int[])
-     #    and rpr.reporting_asof_date <= $2::date
-     #    GROUP BY ft.from_rsf_pfcbl_id, rpr.reporting_asof_date;",
-     #   params=list(dbMakeIntArray(dashboard_data$SYSID),
-     #               d))
-     
-     setDT(reporting_dates)
-     reporting_dates[,REPORTING_asof_date:=as.Date(d)]
-
-     termination_dates <- DBPOOL %>% dbGetQuery("
-     select 
-     ids.rsf_pfcbl_id,
-     (rdc.data_value is not null and ((rdc.data_value)::date) < $2::date) as is_terminated
-     from p_rsf.rsf_pfcbl_ids ids
-     inner join p_rsf.rsf_data_current rdc on rdc.rsf_pfcbl_id = ids.rsf_facility_id
-                                          and rdc.indicator_id = (select ind.indicator_id from p_rsf.indicators ind
-                                                                  where ind.indicator_sys_category = 'entity_completion_date'
-                                                                    and ind.data_category = 'facility')
-                                          and rdc.reporting_asof_date <= $2::date
-     where ids.rsf_pfcbl_id = any($1::int[])",
-     params=list(dbMakeIntArray(dashboard_data$SYSID),
-                 d))
-     
-     setDT(termination_dates)
-     termination_dates[,REPORTING_asof_date:=as.Date(d)]
-     
-     dashboard_data[reporting_dates,
-                    REPORTING:=i.is_reporting,
-                    on=.(SYSID=rsf_pfcbl_id,
-                         REPORTING_asof_date)]
-     
-     dashboard_data[termination_dates[is_terminated==TRUE],
-                    REPORTING:=FALSE,
-                    on=.(SYSID=rsf_pfcbl_id,
-                         REPORTING_asof_date)]
-     
-     reporting_dates <- NULL
-   }
-  
-   if (rfilter==TRUE) {
-     dashboard_data <- dashboard_data[REPORTING==TRUE]
-   } else {
-     dashboard_data <- dashboard_data[REPORTING==FALSE]
-   }
-   dashboard_data[,REPORTING:=NULL]
+ rfilter <- na.omit(as.logical(SERVER_DASHBOARD_RUN_OPTIONS$status_filter))
+ if (length(rfilter) && any(names(dashboard_data)=="REPORTING_status",na.rm=T)) {
+   dashboard_data <- dashboard_data[(REPORTING_status=="ACTIVE" & any(rfilter==TRUE)) |
+                                    (REPORTING_status=="INACTIVE" & any(rfilter==FALSE)) ]
  }
- 
+
  #dd <- dfilters$current_query
  #dashboard_data <- as.data.table(as.data.frame(dd))
  #flag filter -- how flags are filtered is dependent on pivot
@@ -1221,46 +1176,97 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
    }
    
    if (length(fcols) > 0 && length(ffilter) > 0) {
-     
-     
-     dashboard_data[,
-                    REPORTING_row:=1:.N]
-     
-     #change the .flags list() column to a TRUE/FALSE logical column on whether the column is in the requested filter
-     for (fcol in fcols) {
-       has_flags <- sapply(dashboard_data[[fcol]],is.null)==FALSE
-       
-       if (any(has_flags)) {
+
+     ddf <- rbindlist(lapply(fcols,function(fc,dd) {
+       x <- which(!sapply(dd[[fc]],is.null))
+       if (!length(x)) { NULL
+       } else {
+         dd[x,unlist(.SD[[1]],recursive = F),
+            by=.(SYSID),
+            .SDcols=fc
+            ][,
+              .(SYSID,
+                check_class,
+                check_type,
+                check_status,
+                data_category=indicatorNames_getCategory(fc))]
          
-         rr <- dashboard_data[has_flags,
-                              unlist(.SD[[fcol]],recursive=F),
-                              by=.(REPORTING_row)]
-         
-         if (!empty(rr)) {
-           
-           rrhf <- rr[check_class %in% ffilter,REPORTING_row]
-           rrnf <- setdiff(which(has_flags),rrhf)
-           if (length(rrnf)>0) has_flags[rrnf] <- FALSE
-           #print(paste(fcol,": ",paste0(rrnf,collapse=",")))
-         }
        }
-       
-       set(dashboard_data,
-           i=NULL,
-           j=fcol,
-           value=as.logical(has_flags))
+     },dd=dashboard_data[,.SD,.SDcols=c("SYSID",fcols)]))
+
+     #There is a rare occurance when the uploader tags system flags under the sys_entity_reporting
+     #rsf_pfcbl_id for an indicator_id that is a different category.
+     #(Such as for QReport formatting, like interpreting LCY via column names) where those flags
+     #drop out the dashboard display even though they appear in t checks display
+     if (empty(ddf)) {
+       ddf <- data.table(SYSID=numeric(),
+                         check_class=character(),
+                         check_type=character(),
+                         check_status=character(),
+                         data_category=character())
      }
-     dashboard_data[,
-                    REPORTING_row:=NULL]
-   }    
-   #If we don't want to apply a flag filter, then omit these columns now to simplify that dataset.
-   #Otherwise, we're responsibly for filtering after pivoting.
-   if (length(fcols) > 0 && length(ffilter) == 0) {
-     keep_cols <- names(dashboard_data)[!(names(dashboard_data) %in% fcols)]
-     dashboard_data <- dashboard_data[,..keep_cols]
+
+       ddf <- ddf[check_class %in% ffilter]
+
+     
+       ddf <- ddf[,
+                  .(REPORTING_checks=any(data_category %in% format_pivot_child_categories) *.N),
+                  by=.(SYSID)][REPORTING_checks>0]
+       
+       dashboard_data <- ddf[dashboard_data,
+                        on=.(SYSID),
+                        nomatch=NULL]
+          
    }
    
+   dashboard_data[,(fcols):=NULL]
+   
+  
+   
+     
+   #   {
+   # 
+   #   
+   #   dashboard_data[,
+   #                  REPORTING_row:=1:.N]
+   #   
+   #   #change the .flags list() column to a TRUE/FALSE logical column on whether the column is in the requested filter
+   #   for (fcol in fcols) {
+   #     has_flags <- sapply(dashboard_data[[fcol]],is.null)==FALSE
+   #     
+   #     if (any(has_flags)) {
+   #       
+   #       rr <- dashboard_data[has_flags,
+   #                            unlist(.SD[[fcol]],recursive=F),
+   #                            by=.(REPORTING_row)]
+   #       
+   #       if (!empty(rr)) {
+   #         
+   #         rrhf <- rr[check_class %in% ffilter,REPORTING_row]
+   #         rrnf <- setdiff(which(has_flags),rrhf)
+   #         if (length(rrnf)>0) has_flags[rrnf] <- FALSE
+   #       }
+   #     }
+   #     
+   #     set(dashboard_data,
+   #         i=NULL,
+   #         j=fcol,
+   #         value=as.logical(has_flags))
+   #   }
+   #   dashboard_data[,
+   #                  REPORTING_row:=NULL]
+   # }    
+   #If we don't want to apply a flag filter, then omit these columns now to simplify that dataset.
+   #Otherwise, we're responsibly for filtering after pivoting.
+   # if (length(fcols) > 0 && length(ffilter) == 0) {
+   #   keep_cols <- names(dashboard_data)[!(names(dashboard_data) %in% fcols)]
+   #   dashboard_data <- dashboard_data[,..keep_cols]
+   # }
+   
  }
+ 
+ #Everything is filtered out.
+ if (empty(dashboard_data)) return (dashboard_data)
  
  #Convert data cols to character and melt to long (note RAW data is already character values and in long format)
  if (format_RAW==FALSE) {
@@ -1282,8 +1288,7 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
          j=col,
          as.character(dashboard_data[[col]]))
   }
-  
- 
+
    #Melt to long
    {
      dashboard_data <- melt.data.table(dashboard_data,
@@ -1360,35 +1365,35 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
  #dd <<- as.data.frame(dashboard_data)
  #dashboard_data <- as.data.table(dd);dashboard_data[,SYSCATEGORY:=NULL];pivot <- "DATA"
  {
-   #ffilter by pivot
-   { 
-     if (any(dashboard_data$PARAMETER=="flags",na.rm=T) && 
-         length(ffilter) > 0) {
-       
-       byon <- NULL
-       {
-         if (pivot=="DATA") byon <- c("SYSID","REPORTING_asof_date")
-         else if (pivot=="NAME") byon <- c("REPORTING_asof_date","INDICATOR")
-         else if (pivot=="DATE") byon <- c("SYSID","INDICATOR")
-         else if (pivot=="NONE") byon <- c("SYSID","INDICATOR","REPORTING_asof_date")
-       }
-       
-       #filter will be TRUE if any of the pivoted date columns have any flag
-       ffilters <- dashboard_data[PARAMETER=="flags",
-                                  .(filter=any(as.logical(VALUE),na.rm=T)),
-                                  by=byon]
-       
-       dashboard_data[,filter:=FALSE]
-       dashboard_data[ffilters,
-                      filter:=i.filter,
-                      on=c(byon)]
-       
-       dashboard_data <- dashboard_data[filter==TRUE] #when we filter FOR flags, then exclude where all columns have no flags
-       dashboard_data[,filter:=NULL]
-     }
-     
-     dashboard_data <- dashboard_data[PARAMETER !="flags"]
-   }
+   # #ffilter by pivot
+   # { 
+   #   if (any(dashboard_data$PARAMETER=="flags",na.rm=T) && 
+   #       length(ffilter) > 0) {
+   #     
+   #     byon <- NULL
+   #     {
+   #       if (pivot=="DATA") byon <- c("SYSID","REPORTING_asof_date")
+   #       else if (pivot=="NAME") byon <- c("REPORTING_asof_date","INDICATOR")
+   #       else if (pivot=="DATE") byon <- c("SYSID","INDICATOR")
+   #       else if (pivot=="NONE") byon <- c("SYSID","INDICATOR","REPORTING_asof_date")
+   #     }
+   #     
+   #     #filter will be TRUE if any of the pivoted date columns have any flag
+   #     ffilters <- dashboard_data[PARAMETER=="flags",
+   #                                .(filter=any(as.logical(VALUE),na.rm=T)),
+   #                                by=byon]
+   #     
+   #     dashboard_data[,filter:=FALSE]
+   #     dashboard_data[ffilters,
+   #                    filter:=i.filter,
+   #                    on=c(byon)]
+   #     
+   #     dashboard_data <- dashboard_data[filter==TRUE] #when we filter FOR flags, then exclude where all columns have no flags
+   #     dashboard_data[,filter:=NULL]
+   #   }
+   #   
+   #   dashboard_data <- dashboard_data[PARAMETER !="flags"]
+   # }
    
    #Cast var by pivot:
    cast_var <- NA
@@ -1505,88 +1510,89 @@ SERVER_DASHBOARD_DATA_DISPLAY <- eventReactive(SERVER_DASHBOARD_DATA_DISPLAY_UPD
    }
  }
 
- if (any(eufilter %in% c("ECOLS","EROWS","UCOLS","UROWS"))) {
-   
-   not.updated <- function(x) { 
-     x <- as.logical(x)
-     is.na(x) | x==FALSE
-   }
-   
-   #Empty columns
-   if (any(eufilter=="ECOLS")) {
-     value_cols <- names(dashboard_data)[!names(dashboard_data) %in% id_vars]
-     col_data <- dashboard_data[PARAMETER=="value",
-                                ..value_cols]
-     
-     ecols <- sapply(value_cols,
-                     function(col) {
-                       all(is.na(col_data[[col]]))
-                     })
-     
-     ecols <- names(ecols)[ecols]
-     if (length(ecols) > 0) dashboard_data[,
-                                           (ecols):=NULL]
-   }
-   
-   #unchanged columns
-   if (any(eufilter=="UCOLS")) {
-     value_cols <- names(dashboard_data)[!names(dashboard_data) %in% id_vars]
-     col_data <- dashboard_data[PARAMETER=="updated",
-                                ..value_cols]
-     
-     
-     
-     ucols <- sapply(value_cols,
-                     function(x) { all(not.updated(col_data[[x]])) })
-     
-     ucols <- names(ucols)[ucols]
-     if (length(ucols) > 0) dashboard_data[,
-                                           (ucols):=NULL]
-   }
-   
-   if (any(eufilter %in% c("EROWS","UROWS"))) {
-     dashboard_data[,REPORTING_row:=.GRP,
-                    by=c(id_vars[!id_vars %in% "PARAMETER"])]
-     
-     #Empty rows
-     if (any(eufilter=="EROWS")) {
-       
-       value_cols <- names(dashboard_data)[!names(dashboard_data) %in% id_vars] #will include REPORTING_row
-       col_data <- dashboard_data[PARAMETER=="value",
-                                  ..value_cols]
-       
-       omit <- col_data[,
-                        .(filter=all(is.na(.SD))),
-                        by=.(REPORTING_row)
-                        ][filter==TRUE,REPORTING_row]
-       
-       if (length(omit) > 0) dashboard_data <- dashboard_data[!(REPORTING_row %in% omit)]
-     }
-     
-     if (any(eufilter=="UROWS")) {
-       value_cols <- names(dashboard_data)[!names(dashboard_data) %in% id_vars] #will include REPORTING_row
-       
-       col_data <- dashboard_data[PARAMETER=="updated",
-                                  ..value_cols]
-       
-       value_cols <- value_cols[-which(value_cols=="REPORTING_row")]
-       
-       col_data[,
-                (value_cols):=lapply(mget(value_cols),not.updated)]
-       
-       # omit <- col_data[,
-       #                  .(filter=all(.SD==TRUE)),
-       #                  by=.(REPORTING_row)
-       #                  ][filter==TRUE,REPORTING_row]
-       
-       omit <- col_data$REPORTING_row[(rowSums(col_data)-col_data$REPORTING_row)==(ncol(col_data)-1)]
-       if (length(omit) > 0) dashboard_data <- dashboard_data[!(REPORTING_row %in% omit)]
-     }
-     
-     dashboard_data[,
-                    REPORTING_row:=NULL]
-   }   
- }
+ #nobody case if stuff changd or not
+ # if (any(eufilter %in% c("ECOLS","EROWS","UCOLS","UROWS"))) {
+ #   
+ #   not.updated <- function(x) { 
+ #     x <- as.logical(x)
+ #     is.na(x) | x==FALSE
+ #   }
+ #   
+ #   #Empty columns
+ #   if (any(eufilter=="ECOLS")) {
+ #     value_cols <- names(dashboard_data)[!names(dashboard_data) %in% id_vars]
+ #     col_data <- dashboard_data[PARAMETER=="value",
+ #                                ..value_cols]
+ #     
+ #     ecols <- sapply(value_cols,
+ #                     function(col) {
+ #                       all(is.na(col_data[[col]]))
+ #                     })
+ #     
+ #     ecols <- names(ecols)[ecols]
+ #     if (length(ecols) > 0) dashboard_data[,
+ #                                           (ecols):=NULL]
+ #   }
+ #   
+ #   #unchanged columns
+ #   if (any(eufilter=="UCOLS")) {
+ #     value_cols <- names(dashboard_data)[!names(dashboard_data) %in% id_vars]
+ #     col_data <- dashboard_data[PARAMETER=="updated",
+ #                                ..value_cols]
+ #     
+ #     
+ #     
+ #     ucols <- sapply(value_cols,
+ #                     function(x) { all(not.updated(col_data[[x]])) })
+ #     
+ #     ucols <- names(ucols)[ucols]
+ #     if (length(ucols) > 0) dashboard_data[,
+ #                                           (ucols):=NULL]
+ #   }
+ #   
+ #   if (any(eufilter %in% c("EROWS","UROWS"))) {
+ #     dashboard_data[,REPORTING_row:=.GRP,
+ #                    by=c(id_vars[!id_vars %in% "PARAMETER"])]
+ #     
+ #     #Empty rows
+ #     if (any(eufilter=="EROWS")) {
+ #       
+ #       value_cols <- names(dashboard_data)[!names(dashboard_data) %in% id_vars] #will include REPORTING_row
+ #       col_data <- dashboard_data[PARAMETER=="value",
+ #                                  ..value_cols]
+ #       
+ #       omit <- col_data[,
+ #                        .(filter=all(is.na(.SD))),
+ #                        by=.(REPORTING_row)
+ #                        ][filter==TRUE,REPORTING_row]
+ #       
+ #       if (length(omit) > 0) dashboard_data <- dashboard_data[!(REPORTING_row %in% omit)]
+ #     }
+ #     
+ #     if (any(eufilter=="UROWS")) {
+ #       value_cols <- names(dashboard_data)[!names(dashboard_data) %in% id_vars] #will include REPORTING_row
+ #       
+ #       col_data <- dashboard_data[PARAMETER=="updated",
+ #                                  ..value_cols]
+ #       
+ #       value_cols <- value_cols[-which(value_cols=="REPORTING_row")]
+ #       
+ #       col_data[,
+ #                (value_cols):=lapply(mget(value_cols),not.updated)]
+ #       
+ #       # omit <- col_data[,
+ #       #                  .(filter=all(.SD==TRUE)),
+ #       #                  by=.(REPORTING_row)
+ #       #                  ][filter==TRUE,REPORTING_row]
+ #       
+ #       omit <- col_data$REPORTING_row[(rowSums(col_data)-col_data$REPORTING_row)==(ncol(col_data)-1)]
+ #       if (length(omit) > 0) dashboard_data <- dashboard_data[!(REPORTING_row %in% omit)]
+ #     }
+ #     
+ #     dashboard_data[,
+ #                    REPORTING_row:=NULL]
+ #   }   
+ # }
 
  #SORT Columns/Rows by SELECTED INDICATOR order
  #indicator name is a ROW
@@ -1676,7 +1682,7 @@ observeEvent(input$server_dashboard__reporting_column_priority, {
     selected_indicators <- selected_indicators[match(selected_ids,indicator_id)]
     
     if (!identical(SERVER_DASHBOARD_RUN_OPTIONS$indicator_names,selected_indicators$indicator_name)) {
-      #browser()
+      
       SERVER_DASHBOARD_RUN_OPTIONS$indicator_names <- selected_indicators$indicator_name
       #si <- SERVER_DASHBOARD_SELECTED_INDICATORS()
     }
@@ -1774,16 +1780,11 @@ observeEvent(input$server_dashboard__flags_filter, {
   
 },ignoreNULL = FALSE)
 
-observeEvent(input$server_dashboard__reporting_filter, {
+observeEvent(input$server_dashboard__status_filter, {
   
-  rfilter <- as.logical(input$server_dashboard__reporting_filter)
-  if (is.na(rfilter)) {
-    SERVER_DASHBOARD_RUN_OPTIONS$reporting_filter <- ""
-  } else if (rfilter==TRUE) {
-    SERVER_DASHBOARD_RUN_OPTIONS$reporting_filter <- TRUE
-  } else {
-    SERVER_DASHBOARD_RUN_OPTIONS$reporting_filter <- FALSE
-  }
+  sfilter <- as.logical(input$server_dashboard__status_filter)
+  SERVER_DASHBOARD_RUN_OPTIONS$status_filter <- sfilter
+  
 })
 
 observeEvent(input$server_dashboard__name_filter, {
@@ -1823,7 +1824,7 @@ observeEvent(LOGGEDIN(), {
   }
 },ignoreNULL = FALSE,ignoreInit = FALSE)
 
-observeEvent(c(SERVER_DASHBOARD_INDICATORS(),
+observeEvent(list(SERVER_DASHBOARD_INDICATORS(),
                SERVER_DASHBOARD_RUN_OPTIONS$indicator_names), {
 
   dash_indicators <- SERVER_DASHBOARD_INDICATORS()
@@ -1842,7 +1843,6 @@ observeEvent(c(SERVER_DASHBOARD_INDICATORS(),
       (isTruthy(selected_indicator_ids) &&
        !setequal(as.numeric(input$server_dashboard__reporting_column_priority),selected_indicator_ids))) {
 
-    #browser()  
     
     SERVER_DASHBOARD_CHOICE_INDICATORS(dash_indicators$indicator_name)
     updateSelectizeInput(session=session,
@@ -1933,13 +1933,6 @@ observeEvent(SERVER_DASHBOARD_CURRENT_QUERY(), {
   if (identical(SERVER_DASHBOARD_RUN_OPTIONS$format_raw,TRUE)) return(NULL)
   if (empty(rsf_data)) return (NULL)
   
-  # if (empty(rsf_data)) {
-  #   browser()
-  #   updatePickerInput(session=session,
-  #                     inputId="server_dashboard__name_filter",
-  #                     #choices="",
-  #                     selected="")
-  # } else 
   {
 
     name_tree <- unique(rsf_data[,.(SYSNAME,SYSID)])[order(SYSNAME)]
@@ -2071,7 +2064,7 @@ output$server_dashboard__browser <- DT::renderDataTable({
   if (empty(display_data)) {
 
     emptydf <- data.frame(Error="There is no data to display: Please check Reporting Date, Report Filter, Client Selections; and Column Selection filter.")
-    run <- isolate({ SERVER_DASHBOARD_RUN_AUTORUN() })
+    run <- isolate({ isTruthy(SERVER_DASHBOARD_DO_AUTORUN()) })
     
     if (!isTruthy(run)) {
       emptydf <- data.frame(Error=paste0(as.character(now()),": ",
@@ -2101,7 +2094,6 @@ output$server_dashboard__browser <- DT::renderDataTable({
 
  
   
-#browser()
   if (emode == TRUE) {
     
     reportingCols <- as.numeric(which(is.na(sapply(names(dashboard_data),
@@ -2178,33 +2170,6 @@ output$server_dashboard__browser <- DT::renderDataTable({
                                                      list(className = 'dt-left', targets = "_all")))
   )
 
-  # if (any(display_data$reporting_history==TRUE) && any(display_data$reporting_history==FALSE)) {
-  #   dd <- formatStyle(dd,
-  #                     "reporting_history",
-  #                     target="row",
-  #                     fontWeight = styleRow(rows=which(display_data$reporting_history==FALSE), #why any(FALSE) as browser will crash with numeric(0)
-  #                                           values=c("bold")))
-  # 
-  #   #https://stackoverflow.com/questions/14750078/style-disabled-button-with-css
-  #   if (emode==TRUE) {
-  #     # dd <- formatStyle(dd,
-  #     #                   columns=1:ncol(display_data)-1,
-  #     #                   target="cell",
-  #     #                   cursor = styleRow(rows=which(display_data$reporting_history==FALSE), #why any(FALSE) as browser will crash with numeric(0)
-  #     #                                     values=c("not-allowed")),
-  #     #                   `pointer-events` = styleRow(rows=which(display_data$reporting_history==FALSE), #why any(FALSE) as browser will crash with numeric(0)
-  #     #                                               values=c("none"))
-  #     #                   )
-  #     # dd <- formatStyle(dd,
-  #     #                   "reporting_history",
-  #     #                   target="row",
-  #     #                   cursor = styleRow(rows=which(display_data$reporting_history==FALSE), #why any(FALSE) as browser will crash with numeric(0)
-  #     #                                     values=c("not-allowed")))
-  #   }
-  # }
-
-  
-  
   dd <- formatStyle(dd,
                     columns=1:ncol(dashboard_data)-1,
                     target="cell",
@@ -2344,17 +2309,22 @@ output$action_server_dashboard__download <- downloadHandler(
   },
   content=function(file) {
 
-
+    
     #dd_dt <<- SERVER_DASHBOARD_DATA_DISPLAY()
     export_data <- SERVER_DASHBOARD_RENDER_DISPLAY(view="value",
                                                    display_data=SERVER_DASHBOARD_DATA_DISPLAY())
     if (!isTruthy(export_data)) return (NULL)
+
+    export_parameters <- SERVER_DASHBOARD_REPORTS_function_CURRENT_PARAMETERS()
+    
     export_data_flags <- NULL
     
     #exd <<- export_data
     report_note <- c()
     asof_dates <- SERVER_DASHBOARD_RUN_ASOF_DATES()
-    opts <- reactiveValuesToList(SERVER_DASHBOARD_RUN_OPTIONS)
+    
+   
+    opts <- export_parameters$dashboard_settings
     
     if (opts$download_flags %in% TRUE) {
       export_data_flags <- SERVER_DASHBOARD_RENDER_DISPLAY(view="checks",
@@ -2377,8 +2347,14 @@ output$action_server_dashboard__download <- downloadHandler(
                                                            export_data=export_data,
                                                            export_data_flags=export_data_flags,
                                                            exporting_user_id=USER_ID(),
-                                                           report_id=NA,
-                                                           report_note=report_note)
+                                                           report_id=export_parameters$for_report_id,
+                                                           report_note=report_note,
+                                                           exporting_title=export_parameters$for_title,
+                                                           dashboard_parameters=list(dashboard_parameters=export_parameters$dashboard_settings,
+                                                                                     for_program_name=export_parameters$for_program_name,
+                                                                                     for_facility_names=export_parameters$for_facility_names,
+                                                                                     for_asof_dates=export_parameters$for_asof_dates,
+                                                                                     for_indicator_names=export_parameters$for_indicator_names))
 
       savedwb <- openxlsx::saveWorkbook(excelwb,
                                         file,

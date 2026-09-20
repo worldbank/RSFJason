@@ -7,6 +7,7 @@ RSF_MANAGEMENT_APPLICATION_ID <- "4608A309E2E38860DC98FAC53F967CF2"
 account_credentials_rsf_sys_calculator <- yaml.load_file('./credentials/credentials-account-rsf-sys-calculator.yaml')
 account_credentials_rsf_sys_admin <- yaml.load_file('./credentials/credentials-account-rsf-sys-admin.yaml')
 
+
 dbMakeIntArray <- function(x) {
   
   x <- as.integer(suppressWarnings(unique(x)))
@@ -58,7 +59,7 @@ dbStart <- function(credentials_file,
 #   tryCatch({ poolReturn(pool) },error=function(e) {})
 # }
 
-dremioConnect <- function(pool,
+dremioConnect <- function(pool=DBPOOL_APPLICATIONS,
                           credentials_file=list(Dremio=paste0(getwd(),"/credentials/credentials-remote-dremio-direct.yaml"),
                                                 Arrow=paste0(getwd(),"/credentials/credentials-remote-dremio-arrow.yaml"))) {
   
@@ -72,11 +73,12 @@ dremioConnect <- function(pool,
   if (any(grepl("Arrow Flight SQL ODBC Driver",DREMIO_DRIVERS$name,ignore.case = T))) {
     if (is.list(credentials_file)) credentials_file <- credentials_file$Arrow
     DREMIO_DRIVERS <- grep("Arrow Flight SQL ODBC Driver",DREMIO_DRIVERS$name,ignore.case = T,value=T)
-
+    cat(paste0("Selected Driver: Arrow Flight SQL ODBC Driver"))
+    
   } else if (any(grepl("Dremio",DREMIO_DRIVERS$name,ignore.case = T))) {
     if (is.list(credentials_file)) credentials_file <- credentials_file$Dremio
     DREMIO_DRIVERS <- grep("Dremio",DREMIO_DRIVERS$name,ignore.case = T,value=T)
-    
+    cat(paste0("Selected Driver: Dremio Proprietary ODBC Driver"))
   } else {
     stop("Failed to recognized Dremio Driver")
   }
@@ -90,6 +92,7 @@ dremioConnect <- function(pool,
   credentials_list$drv <- odbc::odbc()
   credentials_list$idleTimeout <- 30
   credentials_list$CommandTimeout <- 600000
+  credentials_list$dbms.name <- "Dremio"
   
   tryCatch({ 
     { 

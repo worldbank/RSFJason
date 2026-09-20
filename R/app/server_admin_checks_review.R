@@ -35,8 +35,8 @@ SERVER_ADMIN_CHECKS_REVIEW.VIEW <- reactive({
   else return (results)
 })
 
-observeEvent(input$server_admin_checks_review__test_facilities_list, { 
-  test_rsf_pfcbl_ids <- as.numeric(input$server_admin_checks_review__test_facilities_list)
+observeEvent(input$server_admin_checks_review__test_facility_list, { 
+  test_rsf_pfcbl_ids <- as.numeric(input$server_admin_checks_review__test_facility_list)
   
   dates <- NULL
   if (isTruthy(test_rsf_pfcbl_ids)) {
@@ -157,7 +157,7 @@ observeEvent(input$server_admin_checks_review__test, {
 observeEvent(input$server_admin_checks_review__test_start, {
   
   rsf_program_id <- SELECTED_PROGRAM_ID()
-  test_rsf_pfcbl_ids <- as.numeric(input$server_admin_checks_review__test_facilities_list)
+  test_rsf_pfcbl_ids <- as.numeric(input$server_admin_checks_review__test_facility_list)
   check_test_reporting_date <- input$server_admin_checks_review__test_reporting_date
   test_check_formula_id <- as.numeric(SERVER_ADMIN_CHECKS_REVIEW__CHECK_FORMULA_ID())
   

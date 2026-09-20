@@ -13,7 +13,7 @@ options(shiny.maxRequestSize=500*1024^2) #500MB
 options(warn=0, error=NULL)
 #Sys.setlocale("LC_ALL",c("English"))
 
-  
+
 LOCATIONS <- list(ARL="/credentials/credentials-remote-ARL.yaml",
                   #SSA_DEV="/credentials/credentials-remote-dev.yaml",
                   #SSA_PROD="/credentials/credentials-remote-RSF.yaml",
@@ -26,8 +26,9 @@ LOCATIONS <- list(ARL="/credentials/credentials-remote-ARL.yaml",
 
 #LOCATION <- "Jason_STAGE"
 
-LOCATION <- "Jason_DEV"
-#LOCATION <- "Jason_PROD"
+#LOCATION <- "Jason_DEV"
+LOCATION <- "Jason_PROD"
+
 
 if (grepl("DEV",LOCATION)==TRUE) {
   #options(shiny.erctror = browser)
@@ -87,7 +88,7 @@ source("./R/reports/export_reporting_cohort_to_excel.R")
 source("./R/db_create_new_rsf_ids.R")
 source("./R/db_create_entity_indicator_requirements.R")
 source("./R/db_checks_report_comments.R")
-source("./R/db_data_get_info.R")
+#source("./R/db_data_get_info.R")
 #source("./R/db_data_get_flags.R")
 source("./R/db_data_update_flags.R")
 source("./R/db_data_get_fx_ratio.R")
@@ -201,40 +202,6 @@ source('./R/templates/parse_template_csv_backup_data.R')
 source('./R/templates/parse_template_pfcbl_editor_report.R')
 source('./R/templates/parse_template_rsf_create_entities.R')
 
-# ########################
-# source("./R/app/server_dashboard.R",local=serverENV)
-# source("./R/app/server_dashboard_options.R",local=serverENV)
-# source("./R/app/server_dashboard_reports.R",local=serverENV)
-# source("./R/app/server_dashboard_edit.R",local=serverENV)
-# source("./R/app/server_dashboard_exports.R",local=serverENV)
-# source("./R/app/server_dashboard_exports_reports.R",local=serverENV)
-# source("./R/app/server_datasets.R",local=serverENV)
-# source("./R/app/server_datasets_review_flags.R",local=serverENV)
-# 
-# source("./R/app/server_datasets_upload.R",local=serverENV)
-# 
-# #When permissions are implemented, only load administrateive modules if an admin
-# source("./R/app/server_setup.R",local=serverENV)
-# source("./R/app/server_setup_program.R",local=serverENV)
-# source("./R/app/server_setup_indicators.R",local=serverENV)
-# source("./R/app/server_setup_checks.R",local=serverENV)
-# source("./R/app/server_setup_templates.R",local=serverENV)
-# source("./R/app/server_setup_create.R",local=serverENV)
-# 
-# source("./R/app/server_admin_options.R",local=serverENV)
-# source("./R/app/server_admin_options_module.R",local=serverENV)
-# 
-# source("./R/app/server_admin_indicators.R",local=serverENV)
-# source("./R/app/server_admin_indicator_formulas.R",local=serverENV)
-# source("./R/app/server_admin_indicators_review.R",local=serverENV)
-# 
-# source("./R/app/server_admin_checks.R",local=serverENV)
-# source("./R/app/server_admin_checks_formulas.R",local=serverENV)
-# source("./R/app/server_admin_checks_review.R",local=serverENV)
-# 
-# source("./R/app/server_admin_users.R",local=serverENV)
-# 
-# source("./R/app/server_datasets_guidance_module.R",local=serverENV)
 # #######################
 
 

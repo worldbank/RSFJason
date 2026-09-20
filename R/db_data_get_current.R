@@ -3,9 +3,7 @@ db_data_get_current <- function(pool,
                                 indicator_ids,
                                 reporting_current_date,
                                 include.sys_name=TRUE,
-                                include.rsf_name=TRUE,
                                 include.flags=c("active","resolved"),
-                                #include.status=FALSE,
                                 fx_currency=NA,
                                 fx_force_global=TRUE,
                                 fx_reported_date=FALSE,
@@ -13,6 +11,7 @@ db_data_get_current <- function(pool,
                                 retry=0)
 {  
   if (length(retry) != 1 || all(is.na(retry))) retry <- 0
+  #filter.status <- toupper(match.arg(filter.status))
   
   retry <- retry+1
   
@@ -69,21 +68,7 @@ db_data_get_current <- function(pool,
         params=list(dbMakeIntArray(c(0,rsf_pfcbl_ids.familytree)),
                     reporting_current_date))
   }  
-    
-  #   return(db_data_get_current(pool=pool,
-  #                              rsf_pfcbl_ids.familytree=rsf_pfcbl_ids.familytree,
-  #                              indicator_ids=indicator_ids,
-  #                              reporting_current_date=reporting_current_date,
-  #                              include.sys_name=include.sys_name,
-  #                              include.rsf_name=include.rsf_name,
-  #                              include.status=include.status,
-  #                              include.flags=include.flags,
-  #          fx_currency=fx_currency,
-  #          fx_force_global=fx_force_global,
-  #          fx_reported_date=fx_reported_date,
-  #          fx_concatenate_LCU=fx_concatenate_LCU, #Put date unit into same colummn (or not)
-  #          retry=retry+1))
-  # }
+
   
   rsf_data <- dbGetQuery(pool,"
                     select 
@@ -113,38 +98,39 @@ db_data_get_current <- function(pool,
                       array_to_string(dft.flag_ids_active,',') as flag_ids_active,
                       array_to_string(dft.flag_ids_resolved,',') as flag_ids_resolved,
                     
-                      sn.sys_name,
+                      nids.sys_name,
                       nids.rsf_full_name,
-                      case when $3::date < ids.created_in_reporting_asof_date then 'EXANTE'
-                           when ids.deactivated_in_reporting_asof_date is NULL then 'ACTIVE'
-                           when ids.deactivated_in_reporting_asof_date < $3::date then 'CLOSED'
-                           when ids.deactivated_in_reporting_asof_date >= $3::date then 'ACTIVE'
-                           else 'ERROR' end as reporting_status
+                      case
+                        when $3::date < ids.created_in_reporting_asof_date then 'NA'
+                        when ids.deactivated_in_reporting_asof_date is NULL then 'ACTIVE'
+                        when ids.deactivated_in_reporting_asof_date < $3::date then 'INACTIVE'
+                        when ids.deactivated_in_reporting_asof_date >= $3::date then 'ACTIVE'
+                        else 'ERROR' end as reporting_status
 
                     from p_rsf.get_data_by_family_tree(input_rsf_pfcbl_ids_familytree => string_to_array($1::text,',')::int[], 
                     																	 input_indicator_ids => string_to_array($2::text,',')::int[],
                     																	 input_current_date => $3::date,
                     																	 input_to_currency => $4::text,
-                    																	 fx_force_global => $7::bool,
-                                                       fx_reported_date => $8::bool,
-                                                       include_flags => $9::bool) as dft 
+                    																	 fx_force_global => $5::bool,
+                                                       fx_reported_date => $6::bool,
+                                                       include_flags => $7::bool) as dft 
                     inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = dft.rsf_pfcbl_id
-                    left join p_rsf.view_rsf_pfcbl_id_current_sys_names sn on $5::bool = true
-                                                                          and sn.rsf_pfcbl_id = dft.rsf_pfcbl_id																						 
-                    left join p_rsf.view_current_entity_names_and_ids nids on $6::bool = true
+                    left join p_rsf.view_current_entity_names_and_ids nids on $8::bool = true
                                                                           and nids.rsf_pfcbl_id = dft.rsf_pfcbl_id
-                    
                     ",
-                         params=list(paste0(rsf_pfcbl_ids.familytree,collapse=","),
-                                     paste0(indicator_ids,collapse=","),
-                                     reporting_current_date,
-                                     fx_currency,
-                                     include.sys_name,
-                                     include.rsf_name,
-                                     #include.status,
-                                     fx_force_global,
-                                     fx_reported_date,
-                                     length(include.flags) > 0))
+                         params=list(paste0(rsf_pfcbl_ids.familytree,collapse=","), #1
+                                     paste0(indicator_ids,collapse=","),            #2
+                                     reporting_current_date,                        #3
+                                     fx_currency,                                   #4
+                                     fx_force_global,                               #5
+                                     fx_reported_date,                              #6
+                                     length(include.flags) > 0,                     #7
+                                     include.sys_name                               #8
+                                     ))
+
+  # where case when NULLIF($9::text,'NA') is NULL then true
+  # when $9::text = 'BOTH' then true
+  # else $9::text is not distinct from reporting.status end
   
   setDT(rsf_data)
   
@@ -170,9 +156,11 @@ db_data_get_current <- function(pool,
                            paste0(rsf_data[is.na(flag_ids_active)==FALSE,flag_ids_active],collapse=",")),
                          collapse=",")  
     }
+    flag_ids <- as.character(flag_ids)
+    flag_ids <- suppressWarnings(as.numeric(unlist(strsplit(flag_ids,split=",",fixed=TRUE))))
+    flag_ids <- na.omit(flag_ids)
     
-    if (length(flag_ids) > 0 &&
-        nchar(flag_ids) > 0) {
+    if (length(flag_ids)) {
       
       flags_data <- dbGetQuery(pool,"
         select 

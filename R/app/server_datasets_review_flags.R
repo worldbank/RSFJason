@@ -4,17 +4,17 @@ INDICATOR_FLAGS_SELECTED_EVALUATION_IDS <- reactiveVal(c())
 
 
 
-SERVER_DATASETS_REVIEW_FLAGS_SELECTED_FLAG_EVALUATIONS <- eventReactive(c(IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED(),
+SERVER_DATASETS_REVIEW_FLAGS_SELECTED_FLAG_EVALUATIONS <- eventReactive(c(IMPORT_FLAGS_SELECTED_SUMMARY(),
                                                                           input$action_indicator_flags_review), {
 
  selected_indicator_flag_id <- as.character(input$action_indicator_flags_review)
- indicator_flags <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()
+ indicator_flags <- IMPORT_FLAGS_SELECTED_SUMMARY()
  
  if (!isTruthy(selected_indicator_flag_id)) return (NULL)
  if (!isTruthy(indicator_flags)) return (NULL)
  if (!selected_indicator_flag_id %in% indicator_flags$indicator_flag_id) return(NULL)
  
- #IMPORT_FLAGS_SELECTED has all the underlying flag data.  Whereas IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED has reflects what remains after menu selections to focus on indicator names, titles, summary info
+ #IMPORT_FLAGS_SELECTED has all the underlying flag data.  Whereas IMPORT_FLAGS_SELECTED_SUMMARY has reflects what remains after menu selections to focus on indicator names, titles, summary info
  indicator_flags <- IMPORT_FLAGS_SELECTED()[indicator_flag_id==selected_indicator_flag_id]
  
  #this should be in order of rank
@@ -27,6 +27,8 @@ SERVER_DATASETS_REVIEW_FLAGS_SELECTED_FLAG_EVALUATIONS <- eventReactive(c(IMPORT
 
 #This is to avoid downloading potentially a lot of text data for entity names, check comments and status messages in IMPORT_FLAGS_SELECTED()
 SERVER_DATASETS_REVIEW_FLAGS_db_EVALUATION_DETAILS <- function(evaluation_ids) {
+  
+  t1 <- Sys.time()
   
   #evaluation_ids <- paste0(unique(evaluation_ids),collapse=",")
   flag_evaluations <- DBPOOL %>% dbGetQuery("select 
@@ -84,6 +86,8 @@ SERVER_DATASETS_REVIEW_FLAGS_db_EVALUATION_DETAILS <- function(evaluation_ids) {
                                                
                                                   default=as.character(NA))]
   
+  print(paste0("SERVER_DATASETS_REVIEW_FLAGS_db_EVALUATION_DETAILS:function call ",round(as.numeric(Sys.time()-t1,units="secs"),1)," seconds"))
+  
   return (flag_evaluations)
 }
 
@@ -133,6 +137,8 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
                                              indicator_check_id,
                                              check_formula_id) {
   
+  t1 <- Sys.time()
+  
   indicator <- RSF_INDICATORS()[indicator_id==for_indicator_id]
   if (!isTruthy(indicator)) return (NULL)
   
@@ -146,7 +152,6 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
   
   if (!isTruthy(check_formula_id)) { check_formula_id <- 0 } #a non-ID that will return NULL
   
-
   setup <- DBPOOL %>% dbGetQuery("
     select
       scs.rsf_pfcbl_id,
@@ -214,7 +219,9 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
   
   toleranceInput <- {
     toleranceValue <- NULL
-    if (config$variance_tolerance_allowed==FALSE && setup$variance_tolerance_allowed==FALSE) {
+    #!isTruthy() may find FALSE (not truthy) or empty setup/config tables (also not truthy)
+    if (!isTruthy(config$variance_tolerance_allowed) && 
+        !isTruthy(setup$variance_tolerance_allowed)) {
       toleranceValue <- 0.0
     } else {
       toleranceValue <- suppressWarnings(as.numeric(config$config_threshold))
@@ -229,7 +236,10 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
                                 value=as.character(toleranceValue),
                                 placeholder="eg, '2.5%', '3 DAYS'")
     
-    if (config$variance_tolerance_allowed==FALSE && setup$variance_tolerance_allowed==FALSE) ttInput <- disabled(ttInput)
+    if (!isTruthy(config$variance_tolerance_allowed) && 
+        !isTruthy(setup$variance_tolerance_allowed)) {
+      ttInput <- disabled(ttInput)
+    } 
     
     ttInput
   }  
@@ -322,6 +332,9 @@ showModal_indicator_check_config <- function(for_rsf_pfcbl_id,
                                                label="Save & Close",
                                                class="btn-primary btn-success"))),
                    size="m")
+  
+  print(paste0("showModal_indicator_check_config:function call ",round(as.numeric(Sys.time()-t1,units="secs"),1)," seconds"))
+  
   showModal(m)
 }
 
@@ -426,7 +439,13 @@ observeEvent(input$indicator_check_edit_config__action_delete, {
                                    check_formula_id))
   
   SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1)
-  IMPORT_LIST__REFRESH(IMPORT_LIST__REFRESH()+1)
+  SERVER_SETUP_INDICATORS_LIST_REFRESH(SERVER_SETUP_INDICATORS_LIST_REFRESH()+1) #Datasets can create/affect/auto-subscribed and should be up-to-date
+  #Will also trigger checks refresh
+  SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1) #Ensure new data is reflected in any reports.
+
+  IMPORT_LIST__REFRESH_ON_FOCUS(TRUE)
+  IMPORT_FLAGS_SELECTED__REFRESH(IMPORT_FLAGS_SELECTED__REFRESH()+1)
+  
   removeModal()
 })
 
@@ -632,12 +651,19 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
   }
   
   SERVER_SETUP_CHECKS_LIST_REFRESH(SERVER_SETUP_CHECKS_LIST_REFRESH()+1)
-  IMPORT_LIST__REFRESH(IMPORT_LIST__REFRESH()+1)
+  SERVER_SETUP_INDICATORS_LIST_REFRESH(SERVER_SETUP_INDICATORS_LIST_REFRESH()+1) #Datasets can create/affect/auto-subscribed and should be up-to-date
+  #Will also trigger checks refresh
+  SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1) #Ensure new data is reflected in any reports.
+  IMPORT_LIST__REFRESH_ON_FOCUS(TRUE)
+  IMPORT_FLAGS_SELECTED__REFRESH(IMPORT_FLAGS_SELECTED__REFRESH()+1)
+  
   removeModal()
 })
 
 #Action click to review cohort indicator flag details for resolutions: raises modal panel
 observeEvent(input$action_indicator_flags_review, {
+  
+  t1<- Sys.time()
   
   import <- IMPORT_SELECTED()
   selected_indicator_flag_id <- input$action_indicator_flags_review
@@ -646,7 +672,7 @@ observeEvent(input$action_indicator_flags_review, {
   if (!isTruthy(selected_indicator_flag_id)) return(NULL)
   
   flag_evaluations <- SERVER_DATASETS_REVIEW_FLAGS_SELECTED_FLAG_EVALUATIONS()
-  flag_selected <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()[indicator_flag_id==selected_indicator_flag_id]
+  flag_selected <- IMPORT_FLAGS_SELECTED_SUMMARY()[indicator_flag_id==selected_indicator_flag_id]
   
   if (!isTruthy(flag_evaluations) || !isTruthy(flag_selected)) {
     return (showNotification(type="error",
@@ -947,6 +973,9 @@ observeEvent(input$action_indicator_flags_review, {
                                                label="Save & Exit",
                                                class="btn-primary btn-success"))),
                    size="l")
+  
+  print(paste0("input$action_indicator_flags_review:observeEvent ",round(as.numeric(Sys.time()-t1,units="secs"),1)," seconds"))
+  
   showModal(m)
   
 })
@@ -972,7 +1001,7 @@ observeEvent(input$action_indicator_flags__config_check, {
 
   if (!isTruthy(selected_indicator_flag_id)) return(NULL)
 
-  config_indicator_flag <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()[indicator_flag_id==selected_indicator_flag_id]
+  config_indicator_flag <- IMPORT_FLAGS_SELECTED_SUMMARY()[indicator_flag_id==selected_indicator_flag_id]
 
   if (empty(config_indicator_flag)) return (NULL)
 
@@ -1004,7 +1033,7 @@ observeEvent(input$action_indicator_flags__setup_indicator, {
   selected_indicator_flag_id <- as.numeric(input$action_indicator_flags_review)
   if (!isTruthy(selected_indicator_flag_id)) return(NULL)
   
-  setup_indicator <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()[indicator_flag_id==selected_indicator_flag_id]
+  setup_indicator <- IMPORT_FLAGS_SELECTED_SUMMARY()[indicator_flag_id==selected_indicator_flag_id]
   if (empty(setup_indicator)) return (NULL)
   
   selected_id <- NULL
@@ -1060,7 +1089,7 @@ observeEvent(input$action_review_indicator_flags_view_dashboard, {
   selected_indicator_flag_id <- as.character(input$action_indicator_flags_review)
   if (!isTruthy(selected_indicator_flag_id)) return(NULL)
   
-  indicator_flag <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()[indicator_flag_id==selected_indicator_flag_id]
+  indicator_flag <- IMPORT_FLAGS_SELECTED_SUMMARY()[indicator_flag_id==selected_indicator_flag_id]
   if (empty(indicator_flag)) return (NULL)
 
   #for flags that reference the indicator explicitly in the message (many do) but especially for rsf_X_reporting flags
@@ -1112,11 +1141,12 @@ observeEvent(input$action_review_indicator_flags_view_dashboard, {
   for_facility_sys_names <- SELECTED_PROGRAM_FACILITIES_LIST()[rsf_facility_id %in% import$rsf_facility_id,
                                                              rsf_pfcbl_id]
   
-  
+
   SERVER_DASHBOARD_DO_LOAD(for_facility_sys_names=for_facility_sys_names,
                            for_indicator_names=for_indicator_names,
                            for_asof_dates=import$reporting_asof_date,
-                           dashboard_parameters=dashboard_parameters)
+                           dashboard_parameters=dashboard_parameters,
+                           do_run=TRUE)
 })
 
 observeEvent(input$action_review_indicator_flags_audit_indicator, {
@@ -1126,7 +1156,7 @@ observeEvent(input$action_review_indicator_flags_audit_indicator, {
   import <- IMPORT_SELECTED()
   #browser()
   if (!isTruthy(selected_indicator_flag_id)) return(NULL)
-  flag_selected <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()[indicator_flag_id==selected_indicator_flag_id]
+  flag_selected <- IMPORT_FLAGS_SELECTED_SUMMARY()[indicator_flag_id==selected_indicator_flag_id]
   review_indicator_id <- as.numeric(flag_selected$indicator_id)
   
   if (!isTruthy(review_indicator_id)) return (NULL)
@@ -1144,7 +1174,7 @@ observeEvent(input$action_review_indicator_flags_audit_check, {
   import <- IMPORT_SELECTED()
   
   if (!isTruthy(selected_indicator_flag_id)) return(NULL)
-  flag_selected <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()[indicator_flag_id==selected_indicator_flag_id]
+  flag_selected <- IMPORT_FLAGS_SELECTED_SUMMARY()[indicator_flag_id==selected_indicator_flag_id]
   review_check_formula_id <- as.numeric(flag_selected$check_formula_id)
   if (!isTruthy(review_check_formula_id)) return (NULL)
   
@@ -1272,8 +1302,8 @@ observeEvent(input$action_indicator_flags_review_save, {
     })
   }
     
-  IMPORT_LIST__REFRESH(IMPORT_LIST__REFRESH()+1)
-  
+  IMPORT_LIST__REFRESH_ON_FOCUS(TRUE)
+  IMPORT_FLAGS_SELECTED__REFRESH(IMPORT_FLAGS_SELECTED__REFRESH()+1)
   INDICATOR_FLAGS_SELECTED_EVALUATION_IDS(c()) #NA is intentional and different from c()
   removeModal()
 })
@@ -1287,9 +1317,9 @@ observeEvent(input$action_indicator_flags_review_cancel, {
 output$indicator_check_edit_setup__subscription_ui <- renderUI({
   
   #action_number <- as.numeric(input$indicator_check_edit_setup__action_submit) #force update on submit.
-  #if (empty(IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED())) return (NULL)
+  #if (empty(IMPORT_FLAGS_SELECTED_SUMMARY())) return (NULL)
   
-  #config_indicator_flag <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()[indicator_flag_id== as.numeric(input$action_indicator_flags_review)][!is.na(check_formula_id)]
+  #config_indicator_flag <- IMPORT_FLAGS_SELECTED_SUMMARY()[indicator_flag_id== as.numeric(input$action_indicator_flags_review)][!is.na(check_formula_id)]
   setup_check <- SERVER_DATASETS_REVIEW_FLAGS_SETUP_CHECK()
   
   # if (empty(config_indicator_flag)) {    
@@ -1456,38 +1486,39 @@ output$datasets_review_download_flags_action <- downloadHandler(
     whentxt <- toupper(format(today(),format="%d%b"))
     fname <- import$source_name
     
-    if (grepl("CHK\\d+[A-Z]{3}[^[:alnum:]]",fname)) {
-      fname <- gsub("CHK\\d+[A-Z]{3}[^[:alnum:]]",fname,"")  
+    if (grepl("CHK\\d+{1,2}[A-Z]{3}",fname)) {
+      fname <- gsub("CHK\\d+[A-Z]{3}","",fname)  
     }
     
-    if (grepl("\\d+[A-Z]{3}[^[:alnum:]]",fname)) {
-      fname <- gsub("\\d+[A-Z]{3}[^[:alnum:]]",fname,"")
+    if (grepl("\\d+{1,2}[A-Z]{3}[^[:alnum:]]",fname)) {
+      fname <- gsub("\\d+{1,2}[A-Z]{3}","",fname)
     }
-    # if (grepl("CHK\\d+[A-Z]{3}[^[:alnum:]]",f)) {
-    #   f <- gsub("^(.*CHK)(\\d+[A-Z]{3})([^[:alnum:]].*)$",paste0("\\1",whentxt,"\\3"),f,ignore.case = T)
-    #   
-    # } 
-    
+
     {
       
-      if (grepl("v\\d",fname,ignore.case = T)) {
-        fname <- gsub("(v\\d+)",paste0(" - CHK",whentxt," \\1"),fname)
+      if (grepl("v\\d+",fname,ignore.case = T)) {
+        fname <- gsub("(v\\d+)",paste0(" - CHK",whentxt," \\1"),fname,ignore.case=T)
       } else {
         fname <- paste0(file_path_sans_ext(fname)," - CHK",whentxt,".",file_ext(fname))
       }
     }
+    
     fname <- gsub("\\s+"," ",fname)
     fname <- gsub("\\s+\\.xlsx",".xlsx",fname)
     fname <- gsub("\\-\\s?\\-","-",fname)
     fname
+    
   },
   content=function(file) {
-    
+
     import <- IMPORT_SELECTED()
+    download_facility <- SELECTED_PROGRAM_FACILITIES_LIST()[rsf_pfcbl_id==import$import_rsf_pfcbl_id]
+    
     withProgress(message="Downloading file",value=0.5, {
       
       flags <- {
-        flags <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()[,
+        
+        flags <- IMPORT_FLAGS_SELECTED_SUMMARY()[,
                                                             .(pfcbl_category_rank,
                                                               check_rank,
                                                               indicator_id,
@@ -1542,7 +1573,7 @@ output$datasets_review_download_flags_action <- downloadHandler(
                                                                 check_reporting_comment=character(0),
                                                                 is_new_status=logical(0))
         
-        #Because the IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED filters the SUMMARY object only and the summary object contains all evaluation_ids as a list
+        #Because the IMPORT_FLAGS_SELECTED_SUMMARY filters the SUMMARY object only and the summary object contains all evaluation_ids as a list
         #regardless of the status.  So need to re-filter on the status selection.
         view_data_flags <- toupper(input$cohort_view_flagged_data)
         if (!isTruthy(view_data_flags)) view_data_flags <- ""
@@ -1586,6 +1617,7 @@ output$datasets_review_download_flags_action <- downloadHandler(
           
           if (import$template_name=="IFC-QR-TEMPLATE2025") {
             
+            
             lookup <- db_export_get_template(pool=DBPOOL,
                                              template_name="IFC-QR-TEMPLATE2025")
             
@@ -1599,22 +1631,26 @@ output$datasets_review_download_flags_action <- downloadHandler(
                                                  CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
           
           
+          
           } else {
-            
+      
             wbflags <- openxlsx2::wb_load(file=file)
             
             sheetSUMMARY <- grep("Summary",wb_get_sheet_names(wbflags),value=T,ignore.case=T)
-            if (length(sheetSUMMARY)) {
+            if (length(sheetSUMMARY) &&
+                !empty(download_facility)) {
               sumdf <- wbflags$to_df(sheet=sheetSUMMARY,col_names=F,detect_dates = F)
               rsf_report <- NULL
-              if (any(names(sumdf)=="B")) { rsf_report <- grep("RSF Quarterly report",sumdf$B,ignore.case = T) }
+              if (any(names(sumdf)=="B")) { rsf_report <- grep("RSF Quarterly|Rapport Trimestriel",sumdf$B,ignore.case = T) }
               if (length(rsf_report) && rsf_report[1] < 10) {
                 rsf_report <- rsf_report[1]
                 tojason <- wbflags$to_df(sheet=sheetSUMMARY,col_names=F,detect_dates = F,cols="B",rows=rsf_report,show_formula=T)
                 if (!grepl("hyperlink",tojason,ignore.case = T)) {
                   wbflags$add_formula(sheet=sheetSUMMARY,
                                       dims=paste0("B",rsf_report),
-                                      x=paste0('HYPERLINK("https://datanalytics-int.worldbank.org/rsf-prod/?',import$entity_id,'","RSF Quarterly Report")'))
+                                      x=paste0('HYPERLINK("https://datanalytics-int.worldbank.org/rsf-prod/?',
+                                               download_facility$id,
+                                               '","',sumdf$B[rsf_report],'")'))
                 }
               }
             }
@@ -1622,18 +1658,23 @@ output$datasets_review_download_flags_action <- downloadHandler(
             sheetCURRENTFLAGS <- "Current Flags"
             if (any(wbflags$sheet_names==sheetCURRENTFLAGS)) {
               
-              wbflags$clean_sheet(sheetCURRENTFLAGS)
-              
+              #!important:
+              #clean_sheet() does not clean tables.  So clean-up tables and this must happen FRIST
+              #before clean_sheet removes the headers and leaves the tables object out of synch.
               existing_tables <- wbflags$get_tables(sheet=sheetCURRENTFLAGS)
-              if (length(existing_tables)) {
+              if (nrow(existing_tables) && length(existing_tables)) {
                 existing_tables <- existing_tables$tab_name
                 if (length(existing_tables)) {
                   for (tn in existing_tables) {
                     message(paste0(tn," already exists: removing from Current Flags"))
-                    wbflags$remove_tables(sheet=sheetCURRENTFLAGS,table=tn)
+                    wbflags$remove_tables(sheet=sheetCURRENTFLAGS,
+                                          table=tn,
+                                          remove_data=FALSE)
                   }
                 }
               }
+              
+              wbflags$clean_sheet(sheetCURRENTFLAGS)
               
               wbflags$worksheets[[which(wbflags$sheet_names==sheetCURRENTFLAGS)]][["sheetPr"]] <- xml_node_create(
                 "sheetPr", 
@@ -1643,9 +1684,6 @@ output$datasets_review_download_flags_action <- downloadHandler(
                 )
               )
               
-              #somehow this seems to cause problems, possible it removes the wrong index or doens't upadte index correctly and results in user-defined formulas crapping out
-              #excelwb$remove_worksheet(sheet=sheetCURRENTFLAGS)
-              
             } else {
               
               wbflags$add_worksheet(sheet=sheetCURRENTFLAGS,
@@ -1653,21 +1691,25 @@ output$datasets_review_download_flags_action <- downloadHandler(
                                     tab_color=wb_color("purple"))
             }
 
-            sorder <- which(wbflags$sheet_names==sheetCURRENTFLAGS)
-            neworder <- c()
-            if (length(wbflags$sheetOrder) <= 3) {
-              neworder <- c(wbflags$sheetOrder[-sorder],sorder) #add to last
-            } else {
-              neworder <- wbflags$sheetOrder[-sorder]
-              neworder <- c(neworder[1:2],
-                            sorder,
-                            neworder[3:length(neworder)]) #add to 3rd
+            if (empty(flags)) {
+              flags <- data.table(evaluation_id="",
+                                  check_asof_date=import$reporting_asof_date,
+                                  entity_name="",
+                                  check_type="",
+                                  check_class="",
+                                  indicator_name="Nothing",
+                                  check_formula_title="Nothing",
+                                  check_name="Nothing",
+                                  check_status="Nothing",
+                                  check_message="There are no open issues for this dataset",
+                                  check_status_comment="",
+                                  check_reporting_comment="")
             }
             
-            wbflags$set_order(neworder)
-            wbflags$add_data_table(sheet=sheetCURRENTFLAGS,
-                                   table_name="RSF_current_flags",
+            wbflags$add_data(sheet=sheetCURRENTFLAGS,
                                    dims="B5",
+                                   col_names=TRUE,
+                                   with_filter=TRUE,
                                    x=flags[,
                                            .(FLAGID=evaluation_id,
                                              DATE=check_asof_date,
@@ -1681,33 +1723,179 @@ output$datasets_review_download_flags_action <- downloadHandler(
                                              `IFC Comments`=ifelse(is.na(check_status_comment),"",trimws(check_status_comment)),
                                              `Client Comments`=ifelse(is.na(check_reporting_comment),"",trimws(check_reporting_comment)))])
             
-            wbflags$add_data(sheet=sheetCURRENTFLAGS,
-                             x=paste0("RSF FLAG REPORT Generated on: ",today()),
-                             dims="A1")
             
+            if (!empty(download_facility)) {
             wbflags$add_formula(sheet=sheetCURRENTFLAGS,
                                 dims="A1",
-                                x=paste0('HYPERLINK("https://datanalytics-int.worldbank.org/rsf-prod/?',import$import_rsf_pfcbl_id,'","RSF FLAG REPORT Generated on: ',today(),'")'))
+                                x=paste0('HYPERLINK("https://datanalytics-int.worldbank.org/rsf-prod/?',
+                                         download_facility$id,
+                                         '","RSF FLAG REPORT Generated on: ',today(),'")'))
+            } else {
+              wbflags$add_data(sheet=sheetCURRENTFLAGS,
+                               x=paste0("RSF FLAG REPORT Generated on: ",today()),
+                               dims="A1")
+            }
+            
+            wbflags$add_font(sheet=sheetCURRENTFLAGS,
+                             dims="B5:K5",
+                             size=11,
+                             bold=TRUE,
+                             color = wb_color(hex = "#FFFFFF"))
+            
+            wbflags$add_fill(
+              sheet = sheetCURRENTFLAGS,
+              dims="B5:K5",
+              color = wb_color(hex = "#002060") 
+            )
+            
+            wbflags$add_cell_style(sheet=sheetCURRENTFLAGS,
+                                   dims=paste0("G6:G",nrow(flags)+5),
+                                   wrap_text = TRUE) 
+            
+            wbflags$add_cell_style(sheet=sheetCURRENTFLAGS,
+                                   dims=paste0("H6:H",nrow(flags)+5),
+                                   wrap_text = TRUE) 
+            
+            wbflags$add_cell_style(sheet=sheetCURRENTFLAGS,
+                                   dims=paste0("I6:I",nrow(flags)+5),
+                                   wrap_text = TRUE) 
+            
+            wbflags$add_cell_style(sheet=sheetCURRENTFLAGS,
+                                   dims=paste0("J6:J",nrow(flags)+5),
+                                   wrap_text = TRUE) 
+            
+            #Don't have hyperlinks
+            # wbflags$add_font(sheet=sheetCURRENTFLAGS,
+            #                  dims=paste0("B6:B",nrow(flags)+5),
+            #                  size=9,
+            #                  color = wb_color(hex = "#0000FF"), 
+            #                  underline = "single")
+            
+            wbflags$add_data_validation(sheet=sheetCURRENTFLAGS,
+                                        dims=paste0("H6:H",nrow(flags)+5),
+                                        type="list",
+                                        value='"Review,Closed,Past Reporting Error"',
+                                        allow_blank=FALSE)
+            
+            {
+              
+              wbflags$add_dxfs_style(name="checkStatusReview",
+                                     font_color = wb_color(hex = "#006100"),
+                                     bg_fill = wb_color(hex = "#C6EFCE"))
+              
+              wbflags$add_dxfs_style(name="checkStatusError",
+                                     font_color = wb_color(hex = "#FFC7CE"),
+                                     bg_fill = wb_color(hex = "#9C0006"))
+              
+              wbflags$add_dxfs_style(name="checkStatusClosed",
+                                     font_color = wb_color(hex = "#333333"),
+                                     bg_fill = wb_color(hex = "#E1E1E1"))
+              
+              wbflags$add_dxfs_style(name="checkClassCritical",
+                                     font_color = wb_color(hex = "#F4CCCC"),
+                                     bg_fill = wb_color(hex = "#800000"))
+              
+              wbflags$add_dxfs_style(name="checkClassError",
+                                     font_color = wb_color(hex = "#FCE5CD"),
+                                     bg_fill = wb_color(hex = "#CC0000"))
+              
+              wbflags$add_dxfs_style(name="checkClassWarning",
+                                     font_color = wb_color(hex = "#FFF2CC"),
+                                     bg_fill = wb_color(hex = "#ED7D31"))
+              
+              wbflags$add_dxfs_style(name="checkClassInfo",
+                                     font_color = wb_color(hex = "#D9EAD3"),
+                                     bg_fill = wb_color(hex = "#1155CC"))
+              
+            }
+            
+            wbflags$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                               dims=paste0("H6:H",nrow(flags)+5),
+                                               type = "containsText",
+                                               rule="Review",
+                                               style = "checkStatusReview")
+            
+            wbflags$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                               dims=paste0("H6:H",nrow(flags)+5),
+                                               type = "containsText",
+                                               rule = "Closed",
+                                               style = "checkStatusClosed")
+            
+            wbflags$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                               dims=paste0("H6:H",nrow(flags)+5),
+                                               type = "containsText",
+                                               rule = "Past Reporting Error",
+                                               style = "checkStatusError")
             
             
+            wbflags$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                               dims=paste0("F6:F",nrow(flags)+5),
+                                               type = "containsText",
+                                               rule = "critical",
+                                               style = "checkClassCritical")
+            
+            wbflags$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                               dims=paste0("F6:F",nrow(flags)+5),
+                                               type = "containsText",
+                                               rule = "error",
+                                               style = "checkClassError")
+            
+            wbflags$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                               dims=paste0("F6:F",nrow(flags)+5),
+                                               type = "containsText",
+                                               rule = "warning",
+                                               style = "checkClassWarning")
+            
+            wbflags$add_conditional_formatting(sheet=sheetCURRENTFLAGS,
+                                               dims=paste0("F6:F",nrow(flags)+5),
+                                               type = "containsText",
+                                               rule = "info",
+                                               style = "checkClassInfo")
+            
+           
             wbflags$set_col_widths(sheet=sheetCURRENTFLAGS,
-                                   cols=1+c(1,2,3,4,5,6,7,8,9,10),
-                                   widths = c(8,
-                                              11, #check date 
+                                   cols=1+c(1,2,3,4,5,6,7,8,9,10), #Col B is +1 offset
+                                   widths = c(12, #Flag ID/Link
+                                              10, #check date 
                                               35, #entity name
-                                              10, #check type
+                                              17, #check type
                                               10, #check class
-                                              10, #check
-                                              10, #status
-                                              90,
-                                              90,
-                                              90))
+                                              45, #check 
+                                              9,  #status
+                                              70, #Message
+                                              70, #Comment
+                                              70))#Response
+            
+           
+            #Reorder current flags to position 3
+            sorder <- which(wbflags$sheet_names==sheetCURRENTFLAGS)
+            neworder <- c()
+            if (length(wbflags$sheetOrder) <= 3) {
+              neworder <- c(wbflags$sheetOrder[-sorder],sorder) #add to last
+            } else {
+              neworder <- wbflags$sheetOrder[-sorder]
+              neworder <- c(neworder[1:2],
+                            sorder,
+                            neworder[3:length(neworder)]) #add to 3rd
+            }
 
-            wbflags$set_active_sheet(sheetCURRENTFLAGS)
-            wbflags$set_selected(sheet=sheetCURRENTFLAGS)
+            wbflags$set_order(neworder)
+            
+            
+            for (s in wbflags$get_sheet_names()) {
+              
+              wbflags$set_sheetview(sheet=s,
+                                    tab_selected=as.numeric((s==sheetCURRENTFLAGS)))
+            }
+            
+            wbflags$set_active_sheet(3)
+            #wbflags$set_selected(sheet=3)
             wbflags$set_sheetview(sheet=sheetCURRENTFLAGS,
                                   top_left_cell = "A1")
             
+            wbflags$freeze_pane(sheet=sheetCURRENTFLAGS,
+                                first_active_row=6,
+                                first_active_col="C")
             
           }
           
@@ -1736,47 +1924,6 @@ output$datasets_review_download_flags_action <- downloadHandler(
                    con=file)
         
       }
-      
-      #catch-all 
-      # if (is.null(wbflags)) {
-      #   
-      #   wbflags <- openxlsx2::wb_workbook(creator="RSF Jason")
-      #   wbflags$add_worksheet(sheet="Current Flags")
-      #   wbflags$add_data_table(sheet="Current Flags",
-      #                          table_name="RSF_current_flags",
-      #                          x=flags[,
-      #                                  .(FLAGID=evaluation_id,
-      #                                    CHECK_DATE=check_asof_date,
-      #                                    NAME=entity_name,
-      #                                    type=check_type,
-      #                                    class=check_class,
-      #                                    MESSAGE=check_message,
-      #                                    CHECK=paste0(indicator_name,": ",ifelse(is.na(check_formula_title),check_name, #system checks only have a check_name
-      #                                                                            check_formula_title)),
-      #                                    STATUS=check_status,
-      #                                    comment=check_status_comment,
-      #                                    user=check_status_users_name)])
-      #   
-      #   wbflags$set_active_sheet(sheet="Current Flags")
-      #   wbflags$set_col_widths(sheet="Current Flags",
-      #                          cols=c(1,2,3,4,5,6,7,8,9,10),
-      #                          widths = c(10,
-      #                                     13, #check date 
-      #                                     35, #entity name
-      #                                     17, #check type
-      #                                     10, #check class
-      #                                     90, #check message
-      #                                     90, #check
-      #                                     10,
-      #                                     10,
-      #                                     10))
-      #   wbflags$save(file=file,
-      #                overwrite=TRUE)
-      # }
-  
-      
-        
-      
       
       incProgress(amount=1.0,message="Completed")
     })
@@ -1814,7 +1961,7 @@ output$datasets_review_download_zeroversion_action <- downloadHandler(
     withProgress(message="Downloading file",value=0.5, {
       
       flags <- {
-        flags <- IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED()[,
+        flags <- IMPORT_FLAGS_SELECTED_SUMMARY()[,
                                                           .(pfcbl_category_rank,
                                                             check_rank,
                                                             indicator_id,
@@ -1868,7 +2015,7 @@ output$datasets_review_download_zeroversion_action <- downloadHandler(
                                                                 check_stats_comment=character(0),
                                                                 is_new_status=logical(0))
         
-        #Because the IMPORT_FLAGS_SELECTED_SUMMARY_FILTERED filters the SUMMARY object only and the summary object contains all evaluation_ids as a list
+        #Because the IMPORT_FLAGS_SELECTED_SUMMARY filters the SUMMARY object only and the summary object contains all evaluation_ids as a list
         #regardless of the status.  So need to re-filter on the status selection.
         view_data_flags <- toupper(input$cohort_view_flagged_data)
         if (!isTruthy(view_data_flags)) view_data_flags <- ""

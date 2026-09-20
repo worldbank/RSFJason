@@ -22,7 +22,8 @@ div(style="background-color:white;padding:10px;",
   tabsetPanel(id="datasetsTabset",
               
               #######################
-              tabPanel("Uploads List",value="list",
+              tabPanel("Uploads List",
+                       value="list",
                        fluidRow(column(width=12,
                                        div(style="padding-top:5px;min-width:1200px",
                                        DT::dataTableOutput(outputId="list_reporting_cohorts",width="100%")))),
@@ -90,7 +91,7 @@ div(style="background-color:white;padding:10px;",
                                                                                      }")))
                                        ),
                                        
-                                       div(style="display:flex;min-width:200px;flex-shrink:2;flex-flow:row nowrap;margin-right:10px;",
+                                       div(style="display:flex;min-width:300px;flex-shrink:2;flex-flow:row nowrap;margin-right:10px;",
                                            name="flag_options_filters",
                                            selectizeInput(inputId="cohort_view_flag_types",
                                                           multiple=TRUE,
@@ -105,16 +106,16 @@ div(style="background-color:white;padding:10px;",
                                                                                      }")))
                                        ),
                                        
-                                       div(style="display:flex;min-width:250px;flex-shrink:2;flex-flow:row nowrap;margin-right:10px;",
-                                           name="flag_options_filters",
-                                           selectizeInput(inputId="cohort_view_flag_indicator_classifications",
-                                                          multiple=FALSE,
-                                                          label="Priority Indicator Flags",
-                                                          width="100%",
-                                                          choices="",
-                                                          selected="",
-                                                          options=list(placeholder="Nothing flagged"))
-                                       ),
+                                       # div(style="display:flex;min-width:250px;flex-shrink:2;flex-flow:row nowrap;margin-right:10px;",
+                                       #     name="flag_options_filters",
+                                       #     selectizeInput(inputId="cohort_view_flag_indicator_classifications",
+                                       #                    multiple=FALSE,
+                                       #                    label="Priority Indicator Flags",
+                                       #                    width="100%",
+                                       #                    choices="",
+                                       #                    selected="",
+                                       #                    options=list(placeholder="Nothing flagged"))
+                                       # ),
                                        
                                        div(style="display:flex;text-align:center;flex-grow:1;flex-flow:row nowrap;",
                                            div(" ")

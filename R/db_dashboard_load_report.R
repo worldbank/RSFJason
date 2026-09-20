@@ -118,9 +118,9 @@ db_dashboard_load_report <- function(pool,
                         rt.is_reportable,
                         rt.is_setup_template,
                         rt.is_complete_portfolio,
-                        ec.exporting_cohort_id,
+                        ec.export_id,
                         ec.rsf_program_id,
-                        ec.exporting_rsf_pfcbl_id,
+                        ec.exporting_rsf_pf_id,
                         ec.exporting_asof_date,
                         upper(ec.data_integrity_key) = upper($3::text) as data_integrity_validated
                        from p_rsf.reporting_templates rt
@@ -177,12 +177,12 @@ db_dashboard_load_report <- function(pool,
     if (length(reporting_rsf_pfcbl_id)==0) reporting_rsf_pfcbl_id <- as.numeric(NA)
     if (length(rsf_program_id)==0) rsf_program_id <- as.numeric(NA)
     
-    if (!is.na(export$exporting_rsf_pfcbl_id)) {
+    if (!is.na(export$exporting_rsf_pf_id)) {
       
-      if (!all(as.integer(export$exporting_rsf_pfcbl_id) %in% 
+      if (!all(as.integer(export$exporting_rsf_pf_id) %in% 
                as.integer(c(unlist(sys_name_lookup[,.(rsf_program_id,rsf_facility_id,rsf_client_id)]))),na.rm=T)) {
         stop(paste0("RSF Template error: Template was generated from a Jason data export request under SYSID:",
-                    export$exporting_rsf_pfcbl_id," but template has altered the exporting SYSNAME:",template_reporting_entity,
+                    export$exporting_rsf_pf_id," but template has altered the exporting SYSNAME:",template_reporting_entity,
                     ", which is associated with SYSID:",reporting_rsf_pfcbl_id,". Modifying the template SYSNAME is not allowed."))
       }
     

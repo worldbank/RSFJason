@@ -285,6 +285,9 @@ observeEvent(input$server_setup_agreement__apply, {
   })
   
   IMPORT_LIST__REFRESH(IMPORT_LIST__REFRESH()+1)
+  SERVER_SETUP_INDICATORS_LIST_REFRESH(SERVER_SETUP_INDICATORS_LIST_REFRESH()+1) #Datasets can create/affect/auto-subscribed and should be up-to-date
+  #Will also trigger checks refresh
+  SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1) #Ensure new data is reflected in any reports.
   
 },ignoreInit=TRUE)
 

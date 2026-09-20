@@ -9,6 +9,8 @@ export_dashboard_view_to_excel <- function(pool,
                                            exporting_user_id,
                                            report_id,
                                            report_note="None",
+                                           exporting_title=as.character(NA),
+                                           dashboard_parameters=as.character(NA),
                                            options=list(useDropDowns=FALSE,
                                                         useTextFormat=TRUE,
                                                         writeFlags=FALSE),
@@ -59,6 +61,7 @@ export_dashboard_view_to_excel <- function(pool,
     SYSID_NAMES <- unique(snames[,.(SYSNAME=rsf_full_name,SYSID=rsf_pfcbl_id)])
     
   }
+  
   SYSID_NAMES <- setNames(SYSID_NAMES$SYSID,
                           SYSID_NAMES$SYSNAME)
   #print("Generating excel report")
@@ -117,7 +120,9 @@ export_dashboard_view_to_excel <- function(pool,
                                     exporting_pfcbl_ids=unname(SYSID_NAMES),
                                     exporting_indicator_ids=export_names[!is.na(indicator_id),indicator_id],
                                     template_id=TEMPLATE$template_id,
-                                    export_name="RSF Dashboard")
+                                    report_id=report_id,
+                                    exporting_title=exporting_title,
+                                    dashboard_parameters=dashboard_parameters)
 
   if (empty(export_cohort)) stop("Failed to create export cohort")
   
@@ -226,10 +231,9 @@ export_dashboard_view_to_excel <- function(pool,
                                              reporting_entity=export_cohort$exporting_entity_name,
                                              reporting_asof_date=export_cohort$exporting_asof_date,
                                              reporting_user=format_name_abbreviation(export_cohort$exporting_users_name),
-                                             reporting_time=export_cohort$exporting_time,
-                                             reporting_notes=ifelse(is.na(export_cohort$export_name),
-                                                                    paste0("Data Extract #",export_cohort$exporting_cohort_id),
-                                                                    paste0(export_cohort$export_name,"#",export_cohort$exporting_cohort_id)),
+                                             reporting_time=toupper(as.character(format.Date(now(),"%Y%b%d %Hh%M"))),
+                                             reporting_notes=exporting_title,
+                                             reporting_url=paste0("https://datanalytics-int.worldbank.org/rsf-prod/?EID=",export_cohort$export_id),
                                              protect=NA)
   
 

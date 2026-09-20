@@ -151,7 +151,7 @@ rsf_indicators_calculate <- function(pool,
           #formula value.  Others may have a formula that's manually called internally and also may be calculated through this automated process
           #hashids are an example: may be manually calculated to support look-up of IDs before data is saved; but also auto-calculated here in response to any updates
           #to their input values.  Whereas hashvalue values are only internally calculated (as they are artifacts of what gets uploaded rather than a response to changes in saved data)
-          if (is_system==FALSE) {
+          if (calculation$is_system==FALSE) {
             add_data_flag(rsf_pfcbl_id = calculate_for_rsf_pfcbl_ids,
                           indicator_id=calculation$calculate_indicator_id,
                           check_name="sys_calculator_failed",

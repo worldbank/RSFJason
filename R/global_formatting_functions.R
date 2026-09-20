@@ -35,6 +35,12 @@ indicatorNames_extractIndicatorVariables <- function(indicator_formula) {
   stringr::str_extract_all(indicator_formula,regexprs_indicator_variable)
 }
 
+indicatorNames_getCategory <- function(ind_names) {
+  
+  pattern <- "^(sys_)?(global|program|facility|client|borrower|loan)(_[a-zA-Z0-9_]+.*)$"
+  gsub(pattern,"\\2",ind_names)
+}
+
 indicatorNames_getAttributes <- function(ind_names) {
   pattern <- "^[a-zA-Z0-9_]+\\.([a-z.]+)$"
   ind_names[!grepl(pattern,ind_names)] <- NA

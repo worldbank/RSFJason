@@ -8,8 +8,7 @@
 observeEvent(SELECTED_PROGRAM(), {
   
   program <- SELECTED_PROGRAM()
-  loaded_program_id <- LOAD_PROGRAM_ID()
-  
+
   updateSelectizeInput(session=session,
                        inputId="setup_program_create_what",
                        selected="")
@@ -32,21 +31,7 @@ observeEvent(SELECTED_PROGRAM(), {
                          selected="")
   }
   
-  #Guide user to PROGRAM admin instead  
-  if (isTruthy(loaded_program_id) && !empty(program) && loaded_program_id==program$rsf_program_id) {
-    
-    showNotification(type="message",
-                     ui=h3("Setup the relevant indicators and checks for this program to monitor.  By default, program monitors all indicators and all checks.  Click on the indicator and/or check from the list below to toggle monitoring OFF for this Program."))
-    
-    updateTabItems(session=session,
-                   inputId="sidebarMenu",
-                   selected="admin")
-    
-    updateTabsetPanel(session=session,
-                      inputId="tabset_setup_program",
-                      selected="Setup Program Indicators")
-    
-  }
+  
 }, ignoreNULL = FALSE)
 
 observeEvent(input$setup_program_create_action_button, {
@@ -217,8 +202,10 @@ observeEvent(input$setup_program_create_action_button, {
                                                 reporting_user_id=USER_ID(),
                                                 program_reporting_frequency="quarter",
                                                 source_name="Program Created in JASON")
-        LOAD_PROGRAM_ID(results$rsf_program_id)
-          
+        
+        USER_PROGRAMS_REFRESH(USER_PROGRAMS_REFRESH()+1)
+        DO_SELECT_PROGRAM_ID(as.numeric(results$rsf_program_id))
+
         updateTabsetPanel(session=session,
                           inputId="tabset_setup_program",
                           selected = "Setup Indicators")
@@ -297,16 +284,16 @@ observeEvent(input$setup_program_create_action_button, {
               and ids.pfcbl_category_rank <= 3",
           params=list(results$import_id))
           
-          created_rsf_pfcbl_ids <- unlist(created_rsf_pfcbl_ids)
-          #if (!isTruthy(created_rsf_pfcbl_ids)) created_rsf_pfcbl_ids <- NA
+          #created_rsf_pfcbl_ids <- unlist(created_rsf_pfcbl_ids)
           
           IMPORT_LIST__REFRESH(IMPORT_LIST__REFRESH()+1)
+          SERVER_SETUP_INDICATORS_LIST_REFRESH(SERVER_SETUP_INDICATORS_LIST_REFRESH()+1) #Datasets can create/affect/auto-subscribed and should be up-to-date
+          #Will also trigger checks refresh
+          SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1) #Ensure new data is reflected in any reports.
           
-          if (length(created_rsf_pfcbl_ids)>0) LOAD_RSF_PFCBL_IDS(created_rsf_pfcbl_ids)
-          
-          if (!any(as.character(unique(results$reporting_asof_date)) %in% as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))) {
-            new_dates <- setdiff(sort(as.character(unique(results$reporting_asof_date))),as.character(SELECTED_PROGRAM_VALID_REPORTING_DATES()))
-            LOAD_VALID_REPORTING_DATE(new_dates)
+          if (!empty(created_rsf_pfcbl_ids)) {
+            #Refresh selected program with negative value and force it to re-query its facilities
+            DO_SELECT_PROGRAM_ID(-as.numeric(created_rsf_pfcbl_ids$rsf_program_id))
           }
           
           showNotification(ui=h3(paste0("New ",toupper(what)," successfully created!")))
@@ -386,7 +373,6 @@ observeEvent(input$setup_program_create_what, {
     
     hideElement(id="setup_program_create_selected_facility")
     hideElement(id="setup_program_create_selected_client")
-    #hideElement(id="setup_program_create_selected_borrower")
   }
 }, ignoreNULL = FALSE)
 
@@ -406,42 +392,6 @@ observeEvent(input$setup_program_create_selected_facility, {
   }
   
 }, ignoreNULL = FALSE)
-
-# observeEvent(input$setup_program_create_selected_client, {
-#   client_rsf_pfcbl_id <- as.numeric(input$setup_program_create_selected_client)
-#   what <- input$setup_program_create_what
-#   
-#   # if (isTruthy(client_rsf_pfcbl_id) && any(what==c("loan"))) {
-#   #   
-#   #   borrowers <- DBPOOL %>% dbGetQuery("select 
-#   #                                     	nids.rsf_pfcbl_id,
-#   #                                     	nids.rsf_full_name
-#   #                                     from p_rsf.rsf_pfcbl_ids ids
-#   #                                     inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_borrower_id
-#   #                                     where ids.rsf_pfcbl_id = $1::int 
-#   #                                     order by nids.rsf_full_name",
-#   #                                     params=list(client_rsf_pfcbl_id))
-#   #   
-#   #   if (empty(borrowers)) borrowers <- setNames("","No borrowers exist")
-#   #   else borrowers <- c("",setNames(borrowers$rsf_pfcbl_id,borrowers$rsf_full_name))
-#   #   
-#   #   updateSelectizeInput(session=session,
-#   #                        inputId="setup_program_create_selected_borrower",
-#   #                        choices=borrowers,
-#   #                        selected="")
-#   #   showElement(id="setup_program_create_selected_borrower",anim = TRUE,animType="fade")
-#   # } else 
-#     
-#   {
-#     updateSelectizeInput(session=session,
-#                          inputId="setup_program_create_selected_borrower",
-#                          choices=c(""),
-#                          selected="")
-#     
-#     hideElement(id="setup_program_create_selected_borrower")
-#   }
-# }, ignoreNULL = FALSE)
-
 
 ##################
 ###########OUTPUTS

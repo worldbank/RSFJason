@@ -71,7 +71,7 @@ rsf_calculations_resolve_parameters <- function(calculations,
     #for FX we want to add .unit and .reporteddate to all currency data types
     #but .all will be done separately since we don't need to add any .unit or .reporteddate parameters to the request
     fx_variable_requirements <- request_indicator_variables[parameter_data_type=="currency" &
-                                                            grepl("(current|previous|first)$",parameter_variable)]
+                                                            grepl("(current|previous|first|primary|prior)$",parameter_variable)]
     
     request_indicator_variables[parameter_data_type=="currency" &
                                 grepl("all$|conflicts$",parameter_variable),

@@ -4,7 +4,7 @@ template_parse_file <- function(pool,
                                 source_note=NA,
                                 parse_rsf_pfcbl_id=NULL, #For those templates that do not report the entity (like pdf files), this is manually specified at upload
                                 auto_delete_old_versions=TRUE,
-                                parse_file.retry=TRUE,
+                                #parse_file.retry=TRUE,
                                 status_message=function(...) {}) {
   
 #Setups
@@ -812,8 +812,10 @@ template_parse_file <- function(pool,
                           		'sys_global_fx_' || regexp_replace(alphabetic_lookup_ratio,'/','_') as indicator_name,
                           		true as is_system,
                           		tcc.alphabetic_lookup_ratio || ' WBG Exchange Rate' as label,
+                          		'{}'::text[] as secondary_labels,
                           		tcc.data_category,
-                          		alphabetic_lookup_ratio || ' WBG corporate exchange rate, internally managed by System' as definition
+                          		alphabetic_lookup_ratio || ' WBG corporate exchange rate, internally managed by System' as definition,
+                          		'metrics' as classification
                           	from _temp_currency_codes tcc
                           	where tcc.data_category = 'global'
                           	
@@ -824,8 +826,12 @@ template_parse_file <- function(pool,
                           		'facility_fx_defined_exchange_rate_' || regexp_replace(alphabetic_lookup_ratio,'/','_') as indicator_name,
                           		false as is_system,
                           		'Facility defined FX rate ' || tcc.alphabetic_lookup_ratio as label,
+                          		array[concat(alphabetic_lookup_ratio,' Exchange Rate on QDD'),
+                          		      concat(p_rsf.fx_currency_ratio_inverse(alphabetic_lookup_ratio),' Exchange Rate on QDD')]::text[]
+                          	  as secondary_labels,
                           		tcc.data_category,
-                          		alphabetic_lookup_ratio || 'FX rate as defined by the facility and reported in the QR (not automatically calculated). Used when RSA requires a source external to IFC as basis of truth for FX reporting.' as definition
+                          		alphabetic_lookup_ratio || 'FX rate as defined by the facility and reported in the QR (not automatically calculated). Used when RSA requires a source external to IFC as basis of truth for FX reporting.' as definition,
+                          		'reporting' as classification
 
                           	from _temp_currency_codes tcc
                           	where tcc.data_category = 'facility'
@@ -840,7 +846,8 @@ template_parse_file <- function(pool,
                           															 data_unit,
                           															 modification_time,
                           															 is_required,
-                                                         default_subscription)
+                                                         default_subscription,
+                                                         classification)
                            select 
                           	ncu.indicator_name,
                           	ncu.data_category,
@@ -851,17 +858,19 @@ template_parse_file <- function(pool,
                           	alphabetic_lookup_ratio as data_unit,
                           	(timeofday())::timestamptz as modification_time,
                           	false as is_required,
-                            true as default_subscription
+                            true as default_subscription,
+                            ncu.classification
                            from new_currencies ncu
                            returning indicator_id,label_id,data_unit,data_category,indicator_name
                           ),
                           new_labels as materialized (
                             
-                            insert into p_rsf.labels(label_id,label_key,primary_label,label_id_group)
+                            insert into p_rsf.labels(label_id,label_key,primary_label,secondary_labels,label_id_group)
                               select 
                               ni.label_id,
                               'EN' as label_key,
                               ncu.label as primary_label,
+                              ncu.secondary_labels,
                               'indicators' as label_id_group
                             from new_indicators ni
                             inner join new_currencies ncu on ncu.alphabetic_lookup_ratio = ni.data_unit
@@ -871,7 +880,7 @@ template_parse_file <- function(pool,
                             select 
                               ni.indicator_id,
                               'get_IFC_FX_rate(exchange_rate_date=global_reporting_quarter_end_date.current,
-                                               currency_code_ratio=' || ni.data_unit || ')' as formula,
+                                               currency_code_ratio=\"' || ni.data_unit || '\")' as formula,
                               case when ni.data_category = 'global' then 'allow'
                                    else 'deny' end 
                               as overwrite,
@@ -900,18 +909,22 @@ template_parse_file <- function(pool,
         })
         
         setDT(new_indicators)
-        if (!empty(new_indicators) && isTRUE(parse_file.retry)) {
-          #Because template may have had its currency ratio indicator defined that we failed to read-in properly because the indicator and
-          #its label didn't exist yet.  Now that it does, let's re-try.
-          return (template_parse_file(pool=pool,
-                                      template_file=template_file,
-                                      reporting_user_id=reporting_user_id,
-                                      source_note=source_note,
-                                      parse_rsf_pfcbl_id=parse_rsf_pfcbl_id,
-                                      auto_delete_old_versions=auto_delete_old_versions,
-                                      parse_file.retry=FALSE,
-                                      status_message=status_message))
+        if (!empty(new_indicators)) {
+          status_message(class="warning","\n\nThis template defined NEW fx metrics.  These have been created in the system. But the template must be re-uploaded.  Please try uploading this template again.\n\n")
+          stop("\n\nThis template defined NEW fx metrics.  These have been created in the system. But the template must be re-uploaded.  Please try uploading this template again.\n\n")
         }
+        # if (!empty(new_indicators) && isTRUE(parse_file.retry)) {
+        #   #Because template may have had its currency ratio indicator defined that we failed to read-in properly because the indicator and
+        #   #its label didn't exist yet.  Now that it does, let's re-try.
+        #   return (template_parse_file(pool=pool,
+        #                               template_file=template_file,
+        #                               reporting_user_id=reporting_user_id,
+        #                               source_note=source_note,
+        #                               parse_rsf_pfcbl_id=parse_rsf_pfcbl_id,
+        #                               auto_delete_old_versions=auto_delete_old_versions,
+        #                               parse_file.retry=FALSE,
+        #                               status_message=status_message))
+        # }
       }      
     }
     
@@ -967,6 +980,8 @@ template_parse_file <- function(pool,
                                                                create[i]$name,
                                                                create[i]$email))
               
+              new_account_id <- unlist(new_account_id)
+              
               accounts[email==create[i]$email,
                        account_id:=new_account_id]
             } 
@@ -979,7 +994,7 @@ template_parse_file <- function(pool,
             for (i in 1:nrow(grant)) {
             
               status_message(class="warning",
-                             paste0("\n\nGRANTING WRITE PRMISSIONS to <",grant[i,email],"> from template's IFC Correspondence Field\n"))  
+                             paste0("\n\nGRANTING WRITE PRMISSIONS to '",grant[i,email],"' from template's IFC Correspondence Field\n"))  
               Sys.sleep(2)
               
               dbExecute(pool,"
