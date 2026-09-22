@@ -7,7 +7,8 @@ rsf_computation_fx_conversion <- function(pool,
                                           fx_table,
                                           update_fx_table_function=NULL,
                                           add_data_flag_function=NULL,
-                                          add_fx_conversions_function=NULL)
+                                          add_fx_conversions_function=NULL,
+                                          CALCULATIONS_ENVIRONMENT)
 {
   
   if (!is.data.table(computation)) stop("Computation must be a data.table")
@@ -353,7 +354,8 @@ rsf_computation_fx_conversion <- function(pool,
           fx_rates <- db_data_get_fx_ratio(pool=pool,
                                            fx_lookup=fx_lookup,
                                            create.indicators=TRUE,
-                                           force.global = FALSE)
+                                           force.global = FALSE,
+                                           CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
           
 #browser()
           if (!empty(fx_rates[is.na(exchange_rate) & fx_pfcbl_category=="global"])) {
@@ -436,7 +438,8 @@ rsf_computation_fx_conversion <- function(pool,
                                                                                             from_currency,
                                                                                             to_currency)],
                                                           create.indicators=TRUE,
-                                                          force.global = TRUE)
+                                                          force.global = TRUE,
+                                                          CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
               
               fx_indicators_fail <- rbindlist(list(fx_indicators_fail,
                                                    fx_indicators_overwrite[fx_overwrite_rates[is.na(exchange_rate),

@@ -7,7 +7,8 @@ template_parse_process_and_upload <- function(pool,
                                               delete_after_upload=FALSE,
                                               status_message=function(...) {},
                                               continue_on_error=FALSE,
-                                              delete_on_error=TRUE) {
+                                              delete_on_error=TRUE,
+                                              CALCULATIONS_ENVIRONMENT) {
   
   #delete_on_error <- FALSE
   #rsf_program_id <- as.numeric(rsf_program_id)
@@ -46,7 +47,8 @@ template_parse_process_and_upload <- function(pool,
                                                delete_after_upload=delete_after_upload,
                                                status_message=status_message,
                                                continue_on_error=FALSE,
-                                               delete_on_error=delete_on_error)
+                                               delete_on_error=delete_on_error,
+                                               CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
       if (is.null(ppu)) {
         
         status_message(paste0("Successfully uploaded: \n",
@@ -76,7 +78,7 @@ template_parse_process_and_upload <- function(pool,
   for (tf in template_files) {
     
     current_import_id <- NULL
-    if(SYS_PRINT_TIMING) debugtime(reset=T)
+    debugtime(reset=T)
     #status_message(class="none","Reading file",tf,"\n",reset=T)
     
     error_message <- NULL
@@ -92,7 +94,8 @@ template_parse_process_and_upload <- function(pool,
                             #Nope, changed my mind.  Let the system clean its self up on bulk uploads.  It's what a refresh is all about!                            
                             # auto_delete_old_versions=(length(template_files)==1), #If we're uploading many files at once, assume its intentional to uplaod them all
                             #                                                       #Or, alternatively, don't know which is which so don't assume and auto-delete wrong one.
-                            status_message=status_message)
+                            status_message=status_message,
+                            CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
       },
       warning = function(w) {
         #status_message(class="error",conditionMessage(w))
@@ -136,7 +139,8 @@ template_parse_process_and_upload <- function(pool,
     template <- tryCatch({
       template_process(pool=pool,
                        template=template,
-                       status_message=status_message)
+                       status_message=status_message,
+                       CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
     },
     warning = function(w) {
       #status_message(class="error",conditionMessage(w))
@@ -171,7 +175,8 @@ template_parse_process_and_upload <- function(pool,
     template <- tryCatch({
       template_upload(pool=pool,
                       template=template,
-                      status_message=status_message)
+                      status_message=status_message,
+                      CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
     },
     warning = function(w) {
       #status_message(class="error",conditionMessage(w))

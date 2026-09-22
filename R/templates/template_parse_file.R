@@ -5,7 +5,8 @@ template_parse_file <- function(pool,
                                 parse_rsf_pfcbl_id=NULL, #For those templates that do not report the entity (like pdf files), this is manually specified at upload
                                 auto_delete_old_versions=TRUE,
                                 #parse_file.retry=TRUE,
-                                status_message=function(...) {}) {
+                                status_message=function(...) {},
+                                CALCULATIONS_ENVIRONMENT) {
   
 #Setups
   {
@@ -527,7 +528,8 @@ template_parse_file <- function(pool,
       #and therefore, we keep it tied to the data point so that after it is processed, we can disaggregate these flags and assign it to the appropraite rsf_pfcbl_id,
       #after it is known.
       template$template_data <- parse_data_formats(template_data=template$template_data,
-                                                   rsf_indicators=template$rsf_indicators)
+                                                   rsf_indicators=template$rsf_indicators,
+                                                   CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
      
       
       

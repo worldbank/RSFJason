@@ -338,6 +338,7 @@ observeEvent(input$server_setup_checks__recheck_run, {
                                                 check_future=TRUE,
                                                 check_consolidation_threshold=NA,
                                                 reference_asof_date=NULL,
+                                                CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT,
                                                 status_message=progress_status_message)
                  })
   }

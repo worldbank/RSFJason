@@ -6,7 +6,8 @@ db_data_get_fx_ratio <- function(pool,
                                  fx_lookup,
                                  create.indicators=TRUE,
                                  force.global=FALSE,
-                                 ignore.validation=FALSE) {
+                                 ignore.validation=FALSE,
+                                 CALCULATIONS_ENVIRONMENT) {
   #browser()
   #fx_table <- fx_required
   #fxt <<- as.data.frame(fx_lookup)
@@ -77,7 +78,7 @@ db_data_get_fx_ratio <- function(pool,
                                   currency_code_ratio) {
       tryCatch({
         #print(paste0("Dremio lookup: ",currency_code_ratio," ",exchange_rate_date))
-        get_fx_rate(exchange_rate_date=exchange_rate_date,
+        CALCULATIONS_ENVIRONMENT$get_IFC_FX_rate(exchange_rate_date=exchange_rate_date,
                     currency_code_ratio=currency_code_ratio)
       },
       warning=function(w) { stop(paste0("Error: failed to connect to IFC fx Dremio database and lookup rates for: ",exchange_rate_date," ",currency_code_ratio))},
@@ -198,13 +199,13 @@ db_data_get_fx_ratio <- function(pool,
   #Creates a new indicator, or looks up existing one if that indicator has no entry in timeseries data for some reason
   if (!empty(fx_lookup[is.na(fx_indicator_id) & is.na(exchange_rate)]) && create.indicators==TRUE) {
    
-    valid_codes <- get_fx_codes()
+    
     
     
     fx_codes <- unique(fx_lookup[is.na(fx_indicator_id) & 
                                  is.na(exchange_rate) &
-                                 to_currency %in% valid_codes &
-                                 from_currency %in% valid_codes,
+                                 to_currency %in% CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES &
+                                 from_currency %in% CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES,
                                  .(to_currency,
                                    from_currency)])
     

@@ -1,3 +1,8 @@
+
+#DATABASE_LOCATION <- "Jason_DEV"
+DATABASE_LOCATION <- "Jason_PROD"
+
+
 #shiny::runApp(display.mode="showcase")
 options(shiny.reactlog=TRUE) #press Ctrl+F3 to launch the reactive log visualization
 options(shiny.autoload.r = FALSE)
@@ -14,26 +19,17 @@ options(warn=0, error=NULL)
 #Sys.setlocale("LC_ALL",c("English"))
 
 
-LOCATIONS <- list(ARL="/credentials/credentials-remote-ARL.yaml",
-                  #SSA_DEV="/credentials/credentials-remote-dev.yaml",
-                  #SSA_PROD="/credentials/credentials-remote-RSF.yaml",
-                  #Jason_DEV_Shafique="/credentials/credentials-rsfjson-rsfshafique.yaml",
-                  Jason_DEV="/credentials/credentials-rsfjson-rsfdev.yaml",
-                  Jason_PROD="/credentials/credentials-rsfjson-rsfprod.yaml",
-                  Jason_STAGE="/credentials/credentials-rsfjson-rsfstaging.yaml")
 
 #LOCATION <- "Jason_DEV_Shafique"
 
 #LOCATION <- "Jason_STAGE"
 
-#LOCATION <- "Jason_DEV"
-LOCATION <- "Jason_PROD"
-
-
-if (grepl("DEV",LOCATION)==TRUE) {
+if (grepl("DEV",DATABASE_LOCATION)==TRUE) {
   #options(shiny.erctror = browser)
   options(shiny.error = NULL)
 }
+
+
 
 library(purrr)
 library(pdftools)
@@ -68,10 +64,9 @@ library(sendmailR)
 library(english)
 
 source("./R/rsf_database.R") #First
-source("./R/rsf_calculations_environment.R") #Second
 
 
-source("./R/openxlsx_get_formulas.R")
+source("./R/openxlsx_helper_functions.R")
 
 source('./accounts/module_accounts_server.R')
 source('./accounts/ui_objects.R')
@@ -82,8 +77,9 @@ source('./accounts/db_user_reset_password.R')
 source('./accounts/db_user_check_permission.R')
 source('./accounts/db_user_login.R')
 source('./accounts/db_user_logout.R')
+source('./accounts/user_send_email.R')
 
-source("./R/reports/export_reporting_cohort_to_excel.R")
+#source("./R/reports/export_reporting_cohort_to_excel.R")
 
 source("./R/db_create_new_rsf_ids.R")
 source("./R/db_create_entity_indicator_requirements.R")
@@ -95,7 +91,7 @@ source("./R/db_data_get_fx_ratio.R")
 source("./R/db_data_get_current.R")
 source("./R/db_data_pivot_family.R")
 
-source("./R/db_cohort_get_data.R")
+#source("./R/db_cohort_get_data.R")
 
 #source("./R/db_cohort_create.R")
 #source("./R/db_import_upload_file.R")
@@ -172,7 +168,7 @@ source('./R/templates/template_excel_read_sheet.R')
 source('./R/templates/template_set_data_match_rsf_ids.R')
 source('./R/templates/template_set_data_match_pfcbl_ids.R')
 source("./R/templates/template_set_redundancy_reporting.R")
-
+source("./R/templates/template_match_labels.R")
 
 source('./R/templates/template_upload.R')
 source('./R/templates/template_process.R')
@@ -202,6 +198,8 @@ source('./R/templates/parse_template_csv_backup_data.R')
 source('./R/templates/parse_template_pfcbl_editor_report.R')
 source('./R/templates/parse_template_rsf_create_entities.R')
 
+source("./R/rsf_calculations_environment.R") #LAST
+
 # #######################
 
 
@@ -212,9 +210,6 @@ DASH_DISPLAY_BLUE_HH <- "35,150,240,0.05"
 DASH_DISPLAY_YELLOW_C <- "255,235,200,0.05"
 DASH_DISPLAY_YELLOW_CH <- "255,235,200,0.35"
 DASH_DISPLAY_YELLOW_HH <- "255,235,200,0.025"
-
-SYS_PRINT_TIMING <- FALSE
-if (grepl("DEV",LOCATION)==TRUE) SYS_PRINT_TIMING <- TRUE
 
 status_message <- function(...) { 
   intercept <- dynGet("intercept_status_message",inherits=TRUE,ifnotfound = NULL)
@@ -227,224 +222,66 @@ status_message <- function(...) {
 # debug_time_running <- Sys.time()
 # debug_time_now <- Sys.time()
 # debug_msg <- c()
-debugtime <- function(...,reset=FALSE,showmsg=SYS_PRINT_TIMING) {
-  if (showmsg==FALSE) return (NULL)
-  args <- unlist(list(...))
-  msg <- paste0(args,collapse=" ")
 
-  # if (reset) {
-  #   ret <- debug_msg
-  #   debug_count <<- 0
-  #   debug_time_running <<- Sys.time()
-  #   debug_time_now <<- Sys.time()
-  #   debug_msg <<- c()
-  #   
-  #   if (...length()==0) return (ret)
-  # }
-  
-  # debug_count <<- debug_count+1
-  # t1 <- format(Sys.time() - debug_time_now)
-  # t2 <- format(Sys.time()-debug_time_running)
-  # 
-  # debug_time_now <<- Sys.time()
-  # msg <- paste0(debug_count,": ",msg," @",t1," running total @",(t2))
-  # debug_msg <<- c(debug_msg,msg)
-  #print(msg)
-  cat(msg,"\n")
-  #status_message(class="info",msg,"\n")
-}
+debugtime <- function(...) { }
 
-#SYS_PRINT_TIMING <- FALSE
-SYS_PRINT_TIMING <- TRUE
-if (grepl("DEV",LOCATION)==TRUE) devmode()
-#devmode126(FALSE)
-
-
-
-
-
-labelMatches <- function(find_sections=NA, #match any section if NA, section may match regular expression, notably :ALL will be .*$
-                         find_labels=NA,   #match any section if NA, template_label must always have an exact "normalized" match (also may match content)
-                         search_sections=NA,
-                         search_labels=NA,
-                         match_id=NA,
-                         match_postion=NA) {
-  
-  if (!is.na(find_sections) && nchar(find_sections)==0) find_sections <- NA
-  if (!is.na(find_labels) && nchar(find_labels)==0) find_labels <- NA
-  if (length(search_sections) != length(search_labels)) stop(paste0("seach_sections and search_labels should be equal length vectors to ensure which() returns equivalent indexes: ",
-                                                                    length(search_sections)," vs ",length(search_labels)))
-  
-  #JUN2026: didn'tknow why "Lists" wasn't working and needed to be "lists" -- spent a while on this!
-  find_sections <- tolower(find_sections)
-  search_sections <- tolower(search_sections)
-  search_labels <- tolower(search_labels)
-  find_labels <- tolower(find_labels)
-  
-  if (all(is.na(find_sections)) && all(is.na(find_labels))) return (NULL)
-
- 
-  
-  # add_start_stop <- function(str) {
-  #   none <- grep("^\\^",str,invert = T)
-  #   if (any(none)) str[none] <- paste0("^",str[none])
-  #   
-  #   none <- grep("\\$$",str,invert = T)
-  #   if (any(none)) str[none] <- paste0(str[none],"$")
-  #   
-  #   return (str)
-  # }
-  
-  if (!is.na(find_sections) && !is.na(find_labels)) {
+if (grepl("DEV",DATABASE_LOCATION)==TRUE) {
+  devmode()
+  debugtime <- function(...,reset=FALSE) {
     
-    matches <- intersect(which(stringr::str_detect(string=search_sections,pattern=find_sections)),
-                         which(stringr::str_detect(string=search_labels,pattern=find_labels)))
+    args <- unlist(list(...))
+    msg <- paste0(args,collapse=" ")
     
-  } else if (!is.na(find_sections)) {
-    
-    matches <- which(stringr::str_detect(string=search_sections,pattern=find_sections))
-    
-  } else {
-    
-    matches <- which(stringr::str_detect(string=search_labels,pattern=find_labels))
-    
+    cat(msg,"\n")
   }
   
-  if (length(matches)==0) { return(NULL) 
-  } else { 
-   
-    return (list(match_id=match_id,
-                 match_position=match_postion,
-                 match_rows=unlist(matches)))
-  }
+} else {
+  debugtime <- function(...) { }
 }
 
-openxlsx_getNamedRegionsTable <- function(excelwb) {
-  nregions <- openxlsx::getNamedRegions(excelwb)
-  nregions_locations <- attr(nregions,"position")
-  nregions_allowed <- grep("^[A-Z]+[0-9]+$|^[A-Z]+[0-9]+:[A-Z]+[0-9]+$",nregions_locations)
-  nregions_locations <- nregions_locations[nregions_allowed]
-  nregions_sheets <- attr(nregions,"sheet")[nregions_allowed]
-  nregions <- nregions[nregions_allowed]
+#start the databases and assign to calling environment
+
+DBPOOL_APPLICATIONS <- dbStart(database="ARL")
+
+if (!is.null(DBPOOL_APPLICATIONS) && pool::dbIsValid(DBPOOL_APPLICATIONS)) { print("DBPOOL (APPLICATIONS) Started")
+} else { print("DBPOOL (APPLICATIONS) FAILED TO START") }
+
+
+DBPOOL_DREMIO <- dremioConnect()
+if (!is.null(DBPOOL_DREMIO) && pool::dbIsValid(DBPOOL_DREMIO)) { print("DBPOOL (DREMIO) Started")
+} else { print("DBPOOL (DREMIO) FAILED TO START") }
+
+RSF_MANAGEMENT_APPLICATION_ID <- "4608A309E2E38860DC98FAC53F967CF2"
+ACCOUNT_SYS_ADMIN <- do.call(db_user_login,
+                             append(list(pool=DBPOOL_APPLICATIONS,
+                                         application_hashid=RSF_MANAGEMENT_APPLICATION_ID),
+                                    yaml.load_file(here::here("credentials","credentials-account-rsf-sys-admin.yaml"))))
+
+ACCOUNT_SYS_CALCULATOR <- do.call(db_user_login,
+                             append(list(pool=DBPOOL_APPLICATIONS,
+                                         application_hashid=RSF_MANAGEMENT_APPLICATION_ID),
+                                    yaml.load_file(here::here("credentials","credentials-account-rsf-sys-calculator.yaml"))))
+
+
+CALCULATIONS_ENVIRONMENT <- rsf_calculations_initialize_enivonment(dremio_database_pool=DBPOOL_DREMIO)
+
+onStop(function() {
   
-  nregion_data <- mapply(SIMPLIFY=F,FUN=function(sheet,cell,nr) {
-    
-    nregion_cols <- convertFromExcelRef(nregions_locations)
-    cols <- NULL
-    rows <- NULL
-
-    if (grepl("^_xl|\\.wvu\\.",nr)) { return (NULL); }
-    
-    if (grepl(":",cell)) {
-      cell <- strsplit(cell,":",fixed=T)[[1]]
-      cols <- seq(from=convertFromExcelRef(cell[[1]]),
-                  to=convertFromExcelRef(cell[[2]]),
-                  by=1)
-      
-      rows <- seq(from=as.numeric(gsub("[^0-9]","",cell[[1]])),
-                  to=as.numeric(gsub("[^0-9]","",cell[[2]])),
-                  by=1)
-    } else {
-      cols <- convertFromExcelRef(cell)
-      rows <- as.numeric(gsub("[^0-9]","",cell))
+  for(i in seq_len(sink.number())) { suppressWarnings(sink(NULL)) }
+  
+  tryCatch({ 
+    if (!is.null(DBPOOL_APPLICATIONS) && 
+        any(pool::dbIsValid(DBPOOL_APPLICATIONS)==TRUE,DBPOOL_APPLICATIONS$valid)) {
+      print("Closing DBPOOL_APPLICATIONS")
+      poolClose(DBPOOL_APPLICATIONS)
+      DBPOOL_APPLICATIONS <<- NULL
     }
     
-    #if (nr=="Data_PeriodEndDate") { browser() }
-    
-    val <- suppressWarnings(openxlsx::readWorkbook(xlsxFile=excelwb,
-                                  sheet=sheet,
-                                  rows=rows,
-                                  cols=cols,
-                                  colNames=F,
-                                  rowNames=F,
-                                  skipEmptyRows = T,
-                                  skipEmptyCols = T))
-    
-    value <- NA
-
-    if (length(val)==0) val <- NA
-    
-
-    range_val <- NULL    
-    if (!is.data.frame(val)) {
-      range_val <- as.data.frame(val)
-    } else {
-      range_val <- val
-    }
-    
-    if (all(dim(val)==1)) {
-      value <- unlist(unique(val))
-    }
-    
-    if (nrow(range_val)==1 || ncol(range_val)==1) {
-      range_val <- unlist(range_val,use.names = F)
-      range_val <- list(c(range_val))
-    }
-    #browser()
-    dt <- data.table(sheet=sheet,
-                     range_name=nr,
-                     range_value=as.character(value),
-                     range_list=list(),
-                     range_rows=list(rows),
-                     range_cols=list(cols))
-    
-    dt[,range_list:=list(range_val)]
-    
-
-    #dt
-    return(dt)
+    CALCULATIONS_ENVIRONMENT$closeConnections();
+    CALCULATIONS_ENVIRONMENT <<- NULL
   },
-  sheet=nregions_sheets,
-  cell=nregions_locations,
-  nr=nregions)
+  error=function(e) { print(conditionMessage(e)) },
+  warning=function(w) { print(conditionMessage(w)) })
   
-  nregion_data <- rbindlist(nregion_data)
-  return (nregion_data)
-}
-
-user_send_email <- function(arl_pool=dbStart(credentials_file=paste0(getwd(),LOCATIONS[["ARL"]])),
-                            from="\"RSF JASON\"<noreply@positconnect.int.worldbank.org>",
-                            to,
-                            subject,
-                            html) {
-  
-  #to may be an actual email address or a user login_name and we'll lookup the email address actually tied to the account here.
-  lookup_email <- db_user_check_email_exists(pool=arl_pool,
-                                             RSF_MANAGEMENT_APPLICATION_ID,
-                                             to)
-  
-  #to <- "sheitmann@ifc.org"
-  
-  if (!length(lookup_email)) stop(paste0("Invalid email address: ",to))
-  if (length(lookup_email) != 1) stop("Only one receipient may be defined")
-  
-  print(paste0("user_send_email : emailing ",lookup_email," from ",from," subject: ",subject))
-  html <- as.character(html)
-  html <- gsub(">[[:space:]]+","> ",html) #Pandoc won't format html when line breaks exist; and it will crash when not having some spaces.
-  
-  page <- paste0("<html>
-          <head><title>",subject,"</title></head>
-          <body style='font-family:Verdana;'>
-            <section id='emailbody'>",html,"</section>
-          </body>
-        </html>")
-  
-  msg <- page
-  msg <- mime_part(msg)
-  msg[["headers"]][["Content-Type"]] <- "text/html"
-  
-  tryCatch({
-    sendmail(from=from,
-             to=lookup_email,
-             subject=subject,
-             msg=msg,
-             control=list(smtpServer="lmail.worldbank.org"))
-  },
-  error=function(e) {
-    print(conditionMessage(e))
-  },
-  warning=function(w) {
-    print(conditionMessage(w))
-  })
-}
+})
 

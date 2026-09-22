@@ -8,7 +8,8 @@ db_data_get_current <- function(pool,
                                 fx_force_global=TRUE,
                                 fx_reported_date=FALSE,
                                 fx_concatenate_LCU=TRUE, #Put date unit into same colummn (or not)
-                                retry=0)
+                                retry=0,
+                                CALCULATIONS_ENVIRONMENT)
 {  
   if (length(retry) != 1 || all(is.na(retry))) retry <- 0
   #filter.status <- toupper(match.arg(filter.status))
@@ -53,7 +54,8 @@ db_data_get_current <- function(pool,
                             rsf_pf_id=stale[i,rsf_pf_id],
                             for_import_id=NA,
                             calculate_future=TRUE,
-                            reference_asof_date=NULL)
+                            reference_asof_date=NULL,
+                            CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
     }
     
     #rsf program calculation should clean-up after itself quite nicely.
@@ -263,7 +265,8 @@ db_data_get_current <- function(pool,
                                       fx_lookup=unique(bad_fx[,.(rsf_pfcbl_id,exchange_rate_date,to_currency,from_currency)]),
                                       create.indicators=TRUE,
                                       force.global=TRUE,
-                                      ignore.validation=FALSE)
+                                      ignore.validation=FALSE,
+                                      CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
       good_fx[,currency_ratio:=paste0(from_currency,"/",to_currency)]
       bad_fx[,omit:=FALSE]
       bad_fx[good_fx,
@@ -287,6 +290,7 @@ db_data_get_current <- function(pool,
                fx_force_global=fx_force_global,
                fx_reported_date=fx_reported_date,
                fx_concatenate_LCU=fx_concatenate_LCU, #Put date unit into same colummn (or not)
+               CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT,
                retry=retry+1))
       }
       

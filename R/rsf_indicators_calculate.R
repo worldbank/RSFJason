@@ -3,7 +3,8 @@ rsf_indicators_calculate <- function(pool,
                                      rsf_data_wide,
                                      calculations,
                                      flags.fx=FALSE,
-                                     status_message=function(...) {}) { 
+                                     status_message=function(...) {},
+                                     CALCULATIONS_ENVIRONMENT) { 
   
   #Setups
   {
@@ -627,7 +628,8 @@ rsf_indicators_calculate <- function(pool,
                                                           fx_table=fx_table,
                                                           update_fx_table_function=update_fx_table_function, 
                                                           add_data_flag_function=add_data_flag_function, #we don't flag the flags
-                                                          add_fx_conversions_function=add_fx_conversions_function)
+                                                          add_fx_conversions_function=add_fx_conversions_function,
+                                                          CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
               
               setnames(ts_fx_data,
                        old=grep(paste0("^",ts_fx_col,"\\.timeseries"),names(ts_fx_data),value=T),
@@ -691,7 +693,8 @@ rsf_indicators_calculate <- function(pool,
                                                           fx_table=fx_table,
                                                           update_fx_table_function=update_fx_table_function, 
                                                           add_data_flag_function=add_data_flag_function, #we don't flag the flags
-                                                          add_fx_conversions_function=add_fx_conversions_function)
+                                                          add_fx_conversions_function=add_fx_conversions_function,
+                                                          CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
               
               setnames(ts_fx_data,
                        old=grep(paste0("^",ts_fx_col,"\\.timeseries"),names(ts_fx_data),value=T),
@@ -719,7 +722,8 @@ rsf_indicators_calculate <- function(pool,
                                                      fx_table=fx_table,
                                                      update_fx_table_function=update_fx_table_function, 
                                                      add_data_flag_function=add_data_flag_function, #we don't flag the flags
-                                                     add_fx_conversions_function=add_fx_conversions_function) #if fx rates change we don't redo checks
+                                                     add_fx_conversions_function=add_fx_conversions_function,
+                                                     CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) #if fx rates change we don't redo checks
         }
       }
       
@@ -908,7 +912,6 @@ rsf_indicators_calculate <- function(pool,
       do_calc
     })
     
-    #if(SYS_PRINT_TIMING) debugtime("rsf_indicators_calculate",calculation$indicator_name," calculation time=",format((Sys.time()-t2)))
     
     #Results filter
     #Note: results filter is different than calculations filter in situations where calculations require aggregate of all children entities within 
@@ -1000,7 +1003,7 @@ rsf_indicators_calculate <- function(pool,
       status_message(class="warning",",\n",calculation$indicator_name," took ",calc_time,"s to calculate\n")
     }
     
-    if(SYS_PRINT_TIMING & calc_time > 1 & grepl("sys_global_fx",calculation$indicator_name)==FALSE)  {
+    if(calc_time > 1 & grepl("sys_global_fx",calculation$indicator_name)==FALSE)  {
 
       debugtime("rsf_indicators_calculate",
                 "calculaton time for '",calculation$indicator_name," #",

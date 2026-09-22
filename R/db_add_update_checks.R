@@ -482,7 +482,6 @@ db_add_update_checks <- function(pool,
                                                                          and scc.check_formula_id is not distinct from tac.check_formula_id")
           
           
-          #if(SYS_PRINT_TIMING)  debugtime("db_add_update_checks","staged",format(nx,big.mark = ",")," checks in ",format(Sys.time()-t1))
           #x <- dbGetQuery(conn,"select * from _temp_data_checks");setDT(x);x
           #y <- dbGetQuery(conn,"select * from _temp_add_checks");setDT(y);y
         }
@@ -540,6 +539,6 @@ db_add_update_checks <- function(pool,
     })
   
   
-  if(SYS_PRINT_TIMING) debugtime("db_add_update_checks","Done! uploading",nx," in ",format(Sys.time()-t10))
+  debugtime("db_add_update_checks","Done! uploading",nx," in ",format(Sys.time()-t10))
   return(TRUE)
 }

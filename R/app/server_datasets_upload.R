@@ -149,14 +149,15 @@ observeEvent(input$modal_dataset_upload_next, {
   results <- tryCatch({  
 
     #Template gets its own database pool
-    localPool <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
+    localPool <- dbStart(database=DATABASE_LOCATION)
     ppu <- template_parse_process_and_upload(pool=localPool,
                                       reporting_user_id=USER_ID(),
                                       template_files=filename,
                                       parse_rsf_pfcbl_id=parse_rsf_pfcbl_id,
                                       source_note=source_note,
                                       delete_after_upload=TRUE,
-                                      status_message=status_message)
+                                      status_message=status_message,
+                                      CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
     poolClose(localPool)
     localPool <- NULL
     ppu

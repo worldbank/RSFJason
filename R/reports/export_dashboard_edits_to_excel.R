@@ -1,7 +1,7 @@
 export_dashboard_edits_to_excel <- function(pool,
                                              edits_dt,
                                              exporting_user_id,
-                                             report_note="None") {
+                                             exporting_filename) {
   # t0 <- Sys.time()
   #edits <<- as.data.frame(edits_dt)
   # edits_dt <- as.data.table(edits)
@@ -19,7 +19,8 @@ export_dashboard_edits_to_excel <- function(pool,
                                     exporting_pfcbl_ids=unique(edits_dt$SYSID),
                                     exporting_indicator_ids=unique(edits_dt$INDID),
                                     template_id=TEMPLATE$template_id,
-                                    export_name=NA)
+                                    report_id=as.numeric(NA),
+                                    exporting_title=exporting_filename)
   
   #REPORT_KEY <- export_cohort$reporting_key
 
@@ -36,7 +37,7 @@ export_dashboard_edits_to_excel <- function(pool,
   #   source_name <- source_name[,.(source_name=paste0(pfcbl_category,": ",paste0(rsf_name,collapse=" & "))),by=.(pfcbl_category)][,source_name]
   # }
   
-  if (is.na(report_note) || nchar(trim(report_note))==0) report_note = "None"
+  # if (is.na(report_note) || nchar(trim(report_note))==0) report_note = "None"
   
   excelwb <- rsf_reports_create_excel_sheet(excelwb=NULL,
                                             sheet_name="RSF_DATA",

@@ -65,87 +65,6 @@ observeEvent(LOAD_SYSTEM_INDICATOR(), {
   }
 },priority=100)
 
-SERVER_ADMIN_INDICATORS_DO_RECALCULATE <- function(rsf_pfcbl_ids=NA,
-                                                   indicator_id,
-                                                   reset=FALSE) {
-  
-  rsf_pf_ids <- c()
-  
-  if (any(is.na(rsf_pfcbl_ids))) {
-    if (reset==TRUE) {
-      all_ids <- DBPOOL %>% dbGetQuery("
-        select pfi.rsf_pfcbl_id as rsf_pf_id
-        from p_rsf.rsf_setup_indicators pfi 
-        where pfi.is_subscribed = true
-          and pfi.indicator_id = $1::int",
-      params=list(indicator_id))
-      rsf_pf_ids <- all_ids$rsf_pf_id
-    } 
-    else {
-
-        all_ids <- DBPOOL %>% dbGetQuery("
-          select distinct dce.rsf_pf_id 
-          from p_rsf.rsf_data_calculation_evaluations dce
-          where dce.indicator_id = $1::int",
-          params=list(indicator_id))
-        
-        rsf_pfcbl_ids <- all_ids$rsf_pf_id
-    }
-  }
-  
-  if (length(rsf_pf_ids) > 0) {
-    withProgress(message="Recalculating",
-                 value=(1/length(rsf_pf_ids))/2, {
-      
-      for (id in rsf_pf_ids) {
-        
-        progress_status_message <- function(class,...) {
-          dots <- list(...)
-          dots <- paste0(unlist(dots),collapse=" ")
-          incProgress(amount=0,
-                      message=paste0("Recalculating affected data: ",dots))
-        }
-
-        if (reset==TRUE) {
-          DBPOOL %>% dbExecute("
-          delete from p_rsf.rsf_data_calculation_validations dcv
-          using p_rsf.rsf_pfcbl_ids ids
-          where ids.rsf_pf_id = $1::int
-            and dcv.rsf_pfcbl_id = ids.rsf_pfcbl_id
-            and dcv.indicator_id = $2::int",
-          params=list(id,
-                      indicator_id))
-          
-          DBPOOL %>% dbExecute("
-            insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,indicator_id,calculation_asof_date,rsf_pf_id,formula_calculation_rank)
-            select distinct
-              req.calculate_rsf_pfcbl_id,
-              req.calculate_indicator_id,
-              req.calculate_asof_date,
-              req.to_rsf_pf_id,
-              req.to_formula_calculation_rank
-          
-            from p_rsf.view_rsf_pf_calculation_evaluations_required req
-            where req.from_rsf_pf_id = $1::int
-              and req.calculate_indicator_id = $2::int
-            on conflict do nothing;",
-            params=list(id,
-                        indicator_id))
-        }
-        
-        DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
-                                         rsf_pf_id=pid,
-                                         for_import_id=NA,
-                                         calculate_future=TRUE,
-                                         reference_asof_date=today(),
-                                         status_message=progress_status_message)
-        
-        incProgress(amount=(1/length(rsf_pfcbl_ids)))
-      }
-    })
-  }
-}
-
 SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR <- eventReactive(c(RSF_INDICATORS(),
                                                                      input$admin_system_selected_indicator), {
 
@@ -245,12 +164,16 @@ SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR <- eventReactive(c(RSF_INDICAT
     
     SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR_LABELS(labels)
     SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS(formulas)
-    
+   
     pending <- DBPOOL %>% dbGetQuery("
-      select count(*)::int as pending
-      from p_rsf.rsf_data_calculation_evaluations dce
-      where dce.indicator_id = $1::int",
-      params=list(selected_indicator_id))
+      select count(dce.*)::int as pending
+      from p_rsf.view_rsf_pfcbl_id_family_tree ft
+      inner join p_rsf.rsf_data_calculation_evaluations dce on dce.rsf_pf_id = ft.to_family_rsf_pfcbl_id
+      where ft.from_rsf_pfcbl_id = $1::int
+        and ft.to_pfcbl_rank <= 2
+        and dce.indicator_id = $2::int",
+      params=list(SELECTED_PF_ID(),
+                  selected_indicator_id))
     
     pending <- pending$pending
     if (!isTruthy(pending)) pending <- 0
@@ -788,7 +711,7 @@ observeEvent(input$server_admin_indicators__save_indicator, {
   }
   
   success <- withProgress(message="Saving changes...",value=0.3, {
-    
+
     success <- tryCatch({
       
       DBPOOL %>% db_indicator_update(indicator=data.table(indicator_id=indicator$indicator_id,
@@ -861,11 +784,16 @@ observeEvent(input$server_admin_indicators__save_indicator, {
   
   if (success) {
     
+    
     pending <- DBPOOL %>% dbGetQuery("
-      select count(*)::int as pending
-      from p_rsf.rsf_data_calculation_evaluations dce
-      where dce.indicator_id = $1::int",
-      params=list(indicator$indicator_id))
+      select count(dce.*)::int as pending
+      from p_rsf.view_rsf_pfcbl_id_family_tree ft
+      inner join p_rsf.rsf_data_calculation_evaluations dce on dce.rsf_pf_id = ft.to_family_rsf_pfcbl_id
+      where ft.from_rsf_pfcbl_id = $1::int
+        and ft.to_pfcbl_rank <= 2
+        and dce.indicator_id = $2::int",
+    params=list(SELECTED_PF_ID(),
+                indicator$indicator_id))
     
     pending <- pending$pending
     if (!isTruthy(pending)) pending <- 0
@@ -1311,6 +1239,7 @@ output$admin_system_edit_indicator <- renderUI({
                                           SERVER_ADMIN_INDICATORS.MODULES=SERVER_ADMIN_INDICATORS.MODULES)
   }
   
+  recalculate_pending <- NULL
   ui_formulas <- tagList()
   if (!empty(formulas)) {
     for (i in 1:nrow(formulas)) {
@@ -1327,6 +1256,29 @@ output$admin_system_edit_indicator <- renderUI({
                                                                        SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS=SERVER_ADMIN_INDICATORS.SELECTED_INDICATOR_FORMULAS,
                                                                        SERVER_ADMIN_INDICATORS.MODULES=SERVER_ADMIN_INDICATORS.MODULES)
     }
+    
+    
+    recalculate_pending <- div(style="display:flex;flex-flow:row nowrap;",
+                               
+                               div(id="server_admin_indicators__calculations_pending",
+                                   style="display:flex;flex-flow:row nowrap;flex-shrink:1;",
+                                   actionButton(inputId="server_admin_indicators__recalculate_pending",
+                                                label=textOutput(outputId="server_admin_indicators__recalculate_count",inline = TRUE),
+                                                icon=icon("calculator"),
+                                                class="btn btn-warning")),
+                               
+                               div(style="display:flex;flex-flow:row nowrap;height:22px;padding-top:3px;padding-left:20px;",
+                                   switchInput(inputId="server_admin_indicators__calculations_resetable",
+                                               label="Reset",
+                                               value=FALSE,
+                                               onLabel="YES",
+                                               onStatus= "success",
+                                               offLabel="NO",
+                                               offStatus = "danger",
+                                               inline=TRUE,
+                                               size="small")
+                               )
+    )
   }
   
   limited <- NULL
@@ -1335,13 +1287,8 @@ output$admin_system_edit_indicator <- renderUI({
                                                    icon("exclamation-triangle",class="icon-orange"),
                                                    paste0("Indicator has ",data_points," data points saved. Editing options that affect existing data are disabled."))))
   
-  recalculate_pending <- div(id="server_admin_indicators__calculations_pending",
-                             actionButton(inputId="server_admin_indicators__recalculate_pending",
-                                          label=textOutput(outputId="server_admin_indicators__recalculate_count",inline = TRUE),
-                                          icon=icon("calculator"),
-                                          class="btn btn-warning"))
   
-  if (pending==0) recalculate_pending <- hidden(recalculate_pending)
+  
   
   ui <- div(style='width:1000px;background-color:gainsboro;padding:10px;margin: 0 auto;',
             fluidRow(align="center",style="padding-top:5px;padding-bottom:5px;",column(12,uiOutput(outputId="admin_system_display_indicator_html_name"))),
@@ -1436,13 +1383,14 @@ output$admin_system_edit_indicator <- renderUI({
             ),
             fluidRow(align="left",style="padding-bottom:5px;",
                      column(12,
-                            div(style="display:flex;flex-direction:row;",
+                            div(style="display:flex;flex-flow:row nowrap;",
                                 div(actionButton(inputId="server_admin_indicators__add_formula",
                                                  label="Add Formula",
                                                  icon=icon("plus-square"),
                                                  class="btn btn-primary")),
                                 div(id="server_admin_indicators__quasi_calculation"),
-                                div(style="padding-left:20px;",recalculate_pending)),
+                                div(style="padding-left:20px;display:flex;flex-flow:row nowrap;",
+                                    recalculate_pending)),
                             
                             div(id="server_admin_indicators__formulas",style="padding-top:10px;",
                                 ui_formulas))),
@@ -1558,35 +1506,172 @@ observeEvent(input$admin_system_edit_indicator_type, {
 }, ignoreInit=FALSE, priority = -1)
 
 observeEvent(input$server_admin_indicators__recalculate_pending, {
+  
   indicator <- req(SERVER_ADMIN_INDICATORS.SELECTED_SYSTEM_INDICATOR())
-  
-  tryCatch({
-    SERVER_ADMIN_INDICATORS_DO_RECALCULATE(indicator_id=indicator$indicator_id)  
-    SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING(0)
-  },
-  warning=function(w) { showNotification(type="warning",
-                                         duration=NULL,
-                                         ui=h3(conditionMessage(w)))
-  },
-  error=function(e) {
-    showNotification(type="error",
-                     duration=NULL,
-                     ui=h3(conditionMessage(e)))
-  })
+  indicator_id  <- suppressWarnings(as.numeric(indicator$indicator_id))
   
   
+  pending <- suppressWarnings(as.numeric(SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING()))
+  
+  if (!isTruthy(indicator_id)) return (NULL)
+  if (!isTruthy(SELECTED_PF_ID())) return (NULL)
+  
+  if (any(is.na(pending),na.rm=T)) { pending <- 0 }
+  
+  rsf_pf_ids <- DBPOOL %>% dbGetQuery("
+    select distinct rsi.rsf_pfcbl_id as rsf_pf_id 
+    from p_rsf.view_rsf_pfcbl_id_family_tree ft
+    inner join p_rsf.rsf_setup_indicators rsi on rsi.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+    where ft.from_rsf_pfcbl_id = $1::int
+      and rsi.indicator_id = $2::int
+      and rsi.is_subscribed is true
+  ",params=list(SELECTED_PF_ID(),
+                indicator_id))
+  rsf_pf_ids <- rsf_pf_ids$rsf_pf_id
+  
+  if (pending==0) {
+    
+    resetable <- isTRUE(as.logical(input$server_admin_indicators__calculations_resetable))
+    if (!resetable) {
+      return(showNotification(type="error",
+                       ui=h3("First click the resettable butten to allow this action")))
+    }
+    
+    counts <- withProgress(message="Resetting all calculations for re-calculations...",
+                           value=50, {
+      counts <- poolWithTransaction(DBPOOL,function(conn) {
+      
+      dbExecute(conn,"
+        delete from p_rsf.rsf_data_calculation_evaluations dce
+        where dce.rsf_pf_id = any($1::int[])
+          and dce.indicator_id = $2::int",
+        params=list(dbMakeIntArray(rsf_pf_ids),
+                    indicator_id))
+      
+      dbExecute(conn,"
+        delete from p_rsf.rsf_data_calculation_validations dcv
+        using p_rsf.view_rsf_pfcbl_id_family_tree ft
+        where ft.from_rsf_pfcbl_id = any($1::int[])
+          and ft.to_pfcbl_category = $3::text
+          and dcv.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
+          and dcv.indicator_id = $2::int",
+      params=list(dbMakeIntArray(rsf_pf_ids),
+                  indicator_id,
+                  indicator$data_category))
+      
+      dbExecute(conn,"
+        insert into p_rsf.rsf_data_calculation_evaluations(rsf_pfcbl_id,
+                                                           indicator_id,
+                                                           calculation_asof_date,
+                                                           rsf_pf_id,
+                                                           formula_calculation_rank)
+        select distinct
+          req.calculate_rsf_pfcbl_id,
+          req.calculate_indicator_id,
+          req.calculate_asof_date,
+          req.to_rsf_pf_id,
+          req.to_formula_calculation_rank
+        from p_rsf.view_rsf_pf_calculation_evaluations_required req
+        where req.from_rsf_pf_id = any($1::int[])
+          and req.calculate_indicator_id = $2::int
+        on conflict do nothing;",
+        params=list(dbMakeIntArray(rsf_pf_ids),
+                    indicator_id))
+      
+      dbGetQuery(conn,"
+      select 
+        count(distinct dce.rsf_pf_id) as entities_count,
+        count(*) as calculations_count
+      from p_rsf.rsf_data_calculation_evaluations dce
+      where dce.rsf_pf_id = any($1::int[])
+        and dce.indicator_id = $2::int",
+       params=list(dbMakeIntArray(rsf_pf_ids),
+                   indicator_id))
+    })
+      return (counts)
+    })
+    
+    if (!length(counts) || empty(counts)) {
+      showNotification(type="warning",
+                       ui=h3("No pending calculations exist after reset. Review RSF Setup to ensure this indiactor is monitored and its formulas are correct"))
+    } else {
+      showNotification(type="message",
+                       ui=h3(paste0("Calculation reset generated ",
+                       counts$calculations_count,
+                       " pending calculations")))
+    }
+    
+    SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING(counts$calculations_count)
+    updateSwitchInput(session=session,
+                      inputId="server_admin_indicators__calculations_resetable",
+                      value=FALSE)
+  
+  
+  } else {
+    
+    rsf_pf_ids <- DBPOOL %>% dbGetQuery("
+      select distinct dce.rsf_pf_id
+      from p_rsf.rsf_data_calculation_evaluations dce
+      where dce.rsf_pf_id = any($1::int[])
+          and dce.indicator_id = $2::int",
+      params=list(dbMakeIntArray(rsf_pf_ids),
+                  indicator_id))
+    
+    rsf_pf_ids <- na.omit(unlist(rsf_pf_ids))
+    if (length(rsf_pf_ids)) {
+      tryCatch({
+        
+        withProgress(message="Recalculating...",
+                     value=0, {
+                         
+           for (id in rsf_pf_ids) {
+             
+             progress_status_message <- function(class,...) {
+               dots <- list(...)
+               dots <- paste0(unlist(dots),collapse=" ")
+               incProgress(amount=0,
+                           message=paste0("Recalculating ",
+                           which(id==rsf_pf_ids),"/",length(rsf_pf_ids),
+                           ": ",dots))
+             }
+             
+             DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
+                                              rsf_pf_id=id,
+                                              for_import_id=NA,
+                                              calculate_future=TRUE,
+                                              reference_asof_date=today(),
+                                              status_message=progress_status_message,
+                                              CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
+             
+             incProgress(amount=(1/length(rsf_pf_ids)))
+           }
+         })
+        
+        SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING(0)
+      },
+      warning=function(w) { showNotification(type="warning",
+                                             duration=NULL,
+                                             ui=h3(conditionMessage(w)))
+      },
+      error=function(e) {
+        showNotification(type="error",
+                         duration=NULL,
+                         ui=h3(conditionMessage(e)))
+      })
+    }
+  }
 })
 
-observeEvent(SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING(), {
-  
-  pending <- SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING()
-  if (!isTruthy(pending)) pending <- 0
-  if (pending > 0) showElement(id="server_admin_indicators__calculations_pending")
-  else hideElement(id="server_admin_indicators__calculations_pending")
-})
 
 output$server_admin_indicators__recalculate_count <- renderText({
-  paste0("Recalculate ",SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING()," Pending")
+  pending <- suppressWarnings(as.numeric(SERVER_ADMIN_INDICATORS_CALCULATIONS_PENDING()))
+  
+  if (!isTruthy(pending) || pending==0) {
+    paste0("Reset Calculations for ",SELECTED_PF_NAME())    
+  } else {
+    paste0("Recalculate ",SELECTED_PF_NAME()," (",format(pending,big.mark=",")," Pending Calculations)")    
+  }
+
 })
 
 

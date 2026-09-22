@@ -473,7 +473,8 @@ IMPORT_SELECTED <- eventReactive(IMPORT_SELECTED_ID(), {
                                          for_import_id=selected_import$import_id,
                                          calculate_future=FALSE,
                                          reference_asof_date=selected_import$reporting_asof_date,
-                                         status_message=progress_status_message)
+                                         status_message=progress_status_message,
+                                         CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
       })
     }
 
@@ -503,6 +504,7 @@ IMPORT_SELECTED <- eventReactive(IMPORT_SELECTED_ID(), {
                                      check_future=FALSE,
                                      check_consolidation_threshold=NA,
                                      reference_asof_date=selected_import$reporting_asof_date,
+                                     CALCULATIONS_ENVIRONMENT = CALCULATIONS_ENVIRONMENT,
                                      status_message=progress_status_message)
       })
     }    

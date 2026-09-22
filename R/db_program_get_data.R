@@ -3,7 +3,8 @@ db_program_get_data  <- function(pool,
                                  indicator_variables,     #What - a named vector of indicator_id values; names, a csv concatenated string of variable attribute requirements
                                  for_rsf_pfcbl_ids,       #Who  - who do we want the data for?
                                  for_pfcbl_categories=NULL,    #query rsf_x_id when NULL will query only what is reqeusted from indicator_variables' data_category.  This is needed for grouping formulas
-                                 rsf_indicators)
+                                 rsf_indicators,
+                                 CALCULATIONS_ENVIRONMENT)
 {
 
   #checks
@@ -13,6 +14,9 @@ db_program_get_data  <- function(pool,
     #   return (NULL)
     # }
   
+    if (is.null(CALCULATIONS_ENVIRONMENT)) {
+      stop("CALCULATIONS_ENVIRONMENT is NULL: check your calling environment")
+    }
     if (length(reporting_current_date) != 1 || is.Date(as.Date(reporting_current_date))==FALSE) {
       stop("reporting_current_date must be a single date value")
       return (NULL)
@@ -51,12 +55,11 @@ db_program_get_data  <- function(pool,
   # lapply(names(db_params),function(x) { assign(x,db_params[[x]],envir = globalenv()) })
 
   
-  #SYS_PRINT_TIMING <- TRUE
+  
   t1<-Sys.time()
   
   #MAIN GET INDICATORS, FAMILY, DATA
   {
-    #if(SYS_PRINT_TIMING)  debugtime("db_program_get_data","getting data")
     
     #Valid input parameters, ensure unique, etc
     {
@@ -974,7 +977,8 @@ db_program_get_data  <- function(pool,
                                         chk.data_id,
                                         chk.indicator_id,
                                         chk.data_check_value as data_value,
-                                      	chk.data_check_unit as data_unit
+                                      	chk.data_check_unit as data_unit,
+                                      	chk.check_status
                                       from p_rsf.rsf_data_checks chk
                                       where chk.rsf_pfcbl_id = any($1::int[])
                                       	and chk.indicator_id = any($2::int[])
@@ -990,6 +994,13 @@ db_program_get_data  <- function(pool,
                                                  reporting_current_date))
         
         setDT(query_rsf_data)
+        #conflicts only happen when overwrite equals DENY
+        #Resolving will "reject" the calculation and use the reported one
+        #Accepting will overwrite the data and eliminate the flag.
+        #Therefore we only want "active" checks because if it's been resolved, it's been rejected
+        #(so don't consider it!)
+        query_rsf_data <- query_rsf_data[check_status=="active"]
+        query_rsf_data[,check_status:=NULL]
         query_rsf_data[,data_class:="conflicts"]
         query_rsf_data[,
                        `:=`(reporting_asof_date=reporting_current_date,
@@ -1847,7 +1858,7 @@ db_program_get_data  <- function(pool,
   pfcbl_family[,
                CALCULATION_DATE:=reporting_current_date]
   
-  if(SYS_PRINT_TIMING) debugtime("db_program_get_data","Done!",format(Sys.time()-t1))
+  debugtime("db_program_get_data","Done!",format(Sys.time()-t1))
   
   return (pfcbl_family)
 }

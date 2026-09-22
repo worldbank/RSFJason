@@ -9,11 +9,10 @@
 <meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
 
 
-<meta name="author" content="RSF Jason: Calculator" />
+<meta name="author" content="Soren Heitmann" />
 
-<meta name="date" content="2026-09-19" />
 
-<title>Scheduled Data Sync &amp; Processing Job</title>
+<title>RSF Jason Scheduled Data Sync &amp; Processing Job</title>
 
 <script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
 // be compatible with the behavior of Pandoc < 2.8).
@@ -368,47 +367,29 @@ display: none;
 
 
 
-<h1 class="title toc-ignore">Scheduled Data Sync &amp; Processing
-Job</h1>
-<h4 class="author">RSF Jason: Calculator</h4>
-<h4 class="date">2026-09-19</h4>
+<h1 class="title toc-ignore">RSF Jason Scheduled Data Sync &amp;
+Processing Job</h1>
+<h4 class="author">Soren Heitmann</h4>
+<h4 class="date">2026-SEP-21 11H09</h4>
 
 </div>
 
 <div id="TOC">
 <ul>
-<li><a href="#job-execution-log" id="toc-job-execution-log">Job
-Execution Log</a>
+<li><a href="#job-pendingcalculations" id="toc-job-pendingcalculations">Job pendingCalculations</a>
 <ul>
-<li><a href="#step-3-write-output-to-shared-layer" id="toc-step-3-write-output-to-shared-layer">Step 3: Write Output to
-Shared Layer</a></li>
+<li><a href="#finalizing-jobs" id="toc-finalizing-jobs">Finalizing
+Jobs</a></li>
 </ul></li>
 </ul>
 </div>
 
-<pre class="r"><code> calcPool &lt;- dbStart(credentials_list=credentials_list)
- 
- pending_calcs &lt;- unlist(calcPool %&gt;% dbGetQuery(&quot;
-  select count(*)::int as pending 
-  from p_rsf.rsf_data_calculation_evaluations
- &quot;))
- 
- if(length(pending_calcs) &amp;&amp; pending_calcs &gt; 0) {
-  message(paste0(&quot;There are &quot;,pending_calcs,&quot; pending calculations&quot;)) 
- }</code></pre>
-<pre><code>## There are 30286 pending calculations</code></pre>
-<div id="job-execution-log" class="section level2">
-<h2>Job Execution Log</h2>
-<p>Pending calculations 30286</p>
-<div id="step-3-write-output-to-shared-layer" class="section level3">
-<h3>Step 3: Write Output to Shared Layer</h3>
-<pre class="r"><code>message(&quot;Writing updated data to the production layer...&quot;)</code></pre>
-<pre><code>## Writing updated data to the production layer...</code></pre>
-<pre class="r"><code># Example: Write out to a shared database table that the Shiny App reads
-# dbWriteTable(con, &quot;shiny_app_table&quot;, clean_data, overwrite = TRUE)
-
-message(&quot;Job successfully completed at: &quot;, Sys.time())</code></pre>
-<pre><code>## Job successfully completed at: 2026-09-19 15:54:55.905555</code></pre>
+<div id="job-pendingcalculations" class="section level2">
+<h2>Job pendingCalculations</h2>
+<pre><code>## NOT DEPLOYED: skipping do_pendingCalculations()</code></pre>
+<p>##Completed: 0 pending calculations</p>
+<div id="finalizing-jobs" class="section level3">
+<h3>Finalizing Jobs</h3>
 </div>
 </div>
 

@@ -132,7 +132,7 @@ db_program_get_stale_checks <- function(pool,
               computation_group)]
   
   
-  if(SYS_PRINT_TIMING) debugtime("db_program_get_stale_checks","Done! Downloaded:",nrow(checks),format(Sys.time()-t1))
+  debugtime("db_program_get_stale_checks","Done! Downloaded:",nrow(checks),format(Sys.time()-t1))
   
   return(checks)
 }

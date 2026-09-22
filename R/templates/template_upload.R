@@ -1,13 +1,12 @@
 template_upload <- function(pool,
                             template,
-                            status_message=function(...) {}) 
+                            status_message=function(...) {},
+                            CALCULATIONS_ENVIRONMENT) 
 {
   
   
 
   {
-    
-    SYSTEM_CALCULATOR_ACCOUNT <- CALCULATIONS_ENVIRONMENT$SYSTEM_CALCULATOR_ACCOUNT
     
     if (is.null(template$pfcbl_data) || empty(is.na(template$pfcbl_data))) {
       status_message(class="warning",paste0("\n EMPTY DATASET: this upload contains no data\n"))
@@ -509,9 +508,10 @@ template_upload <- function(pool,
                                                   for_import_id=template$reporting_import$import_id,
                                                   calculate_future=FALSE,
                                                   reference_asof_date=reference_asof_date,
-                                                  status_message = status_message)
+                                                  status_message = status_message,
+                                                  CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
 
-  if(SYS_PRINT_TIMING) debugtime("template_upload"," >> Calculate time: ",format(Sys.time()-t2))
+  debugtime("template_upload"," >> Calculate time: ",format(Sys.time()-t2))
   
   template$calculate_time <- as.numeric(Sys.time()-t2,"secs")
   
@@ -523,9 +523,10 @@ template_upload <- function(pool,
                                         check_future=FALSE,
                                         check_consolidation_threshold=0,
                                         reference_asof_date=reference_asof_date,
-                                        status_message= status_message)
+                                        status_message= status_message,
+                                        CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
 
-  if(SYS_PRINT_TIMING) debugtime("template_upload"," >> Check time: ",format(Sys.time()-t2))
+  debugtime("template_upload"," >> Check time: ",format(Sys.time()-t2))
   
   template$check_time <- as.numeric(Sys.time()-t2,"secs")
 
@@ -541,7 +542,7 @@ template_upload <- function(pool,
 
   #status_message(class="info",paste0("Processing time: ",round(as.numeric(difftime(Sys.time(),t1,units="secs")))," seconds\n"))
   
-  if(SYS_PRINT_TIMING) debugtime("template_upload","Done!",format(Sys.time()-t1))
+  debugtime("template_upload","Done!",format(Sys.time()-t1))
   
   return (template)
 }

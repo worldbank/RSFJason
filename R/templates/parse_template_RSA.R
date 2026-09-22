@@ -622,7 +622,7 @@ parse_template_RSA <- function(pool,
   
   rsa <- {
     
-    label_matches <- mapply(labelMatches,
+    label_matches <- mapply(template_match_labels,
                             find_sections=tolower(rsf_labels$template_section_lookup),
                             find_labels=tolower(rsf_labels$template_label_lookup),
                             match_id=rsf_labels$label_header_id,

@@ -3,7 +3,8 @@ rsf_checks_calculate <- function(pool,
                                  rsf_data_wide,
                                  checks,
                                  on_fail="sys_checker_failed",
-                                 status_message=function(...) {}) #noise useful for test checks functionality and printing status messages
+                                 status_message=function(...) {},
+                                 CALCULATIONS_ENVIRONMENT) #noise useful for test checks functionality and printing status messages
 {
   #keep_false_flags=FALSE
   
@@ -234,7 +235,8 @@ rsf_checks_calculate <- function(pool,
                                                   fx_table=fx_table,
                                                   update_fx_table_function=update_fx_table_function, 
                                                   add_data_flag_function=NULL, #we don't flag these flags
-                                                  add_fx_conversions_function=NULL) #if fx rates change we don't redo checks
+                                                  add_fx_conversions_function=NULL,
+                                                  CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) #if fx rates change we don't redo checks
     }
 
     #no, this emerges as a result of actively doing addition and subtraction within the formula.    
@@ -499,7 +501,7 @@ rsf_checks_calculate <- function(pool,
     
     calc_time <- round(as.numeric(Sys.time() - calc_time,format="sec"),2)
     if (calc_time > 1) status_message(class="warning",",\n",check_name," took ",calc_time,"s to calculate\n")
-    if(SYS_PRINT_TIMING & calc_time > 0.5)  debugtime("rsf_checks_calculate","long check of ",calc_time," for ",check_name," for ",check_for)  
+    
     #computed_results
   }
   status_message(class="none","\n") #to line-break after #1,2,3,4...etc

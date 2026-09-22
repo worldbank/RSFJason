@@ -9,7 +9,6 @@ template_set_data_match_rsf_ids <- function(pool,
 
   #setups
   {
-    #if(SYS_PRINT_TIMING) debugtime("template_set_data_match_rsf_ids")
     
     import_id <- as.numeric(template$reporting_import$import_id)
     if (is.null(import_id) || all(is.na(import_id))) stop(paste0("Bad import_id: ",import_id))
@@ -510,7 +509,7 @@ template_set_data_match_rsf_ids <- function(pool,
           
           {
             
-            if(SYS_PRINT_TIMING) debugtime("template_set_data_match_rsf_ids",paste0("db_current_match_data for ",current_data_category),format(Sys.time()-t2))
+            debugtime("template_set_data_match_rsf_ids",paste0("db_current_match_data for ",current_data_category),format(Sys.time()-t2))
             
             template_current_lookup_data[,data_value:=NULL]
             unmatched_data <- fsetdiff(template_current_lookup_data[,
@@ -737,7 +736,7 @@ template_set_data_match_rsf_ids <- function(pool,
   #template$template_data <- template_data
   template$match_results <- template_match_data
   
-  if(SYS_PRINT_TIMING) debugtime("template_set_data_match_rsf_ids","Done!",format(Sys.time()-t1))
+  debugtime("template_set_data_match_rsf_ids","Done!",format(Sys.time()-t1))
   
   return (template)
 }

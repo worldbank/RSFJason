@@ -3,7 +3,8 @@ rsf_program_perform_checks <- function(pool=pool,
                                        rsf_indicators,
                                        perform_checks,
                                        perform.test = FALSE,
-                                       status_message=function(...) {}) {
+                                       status_message=function(...) {},
+                                       CALCULATIONS_ENVIRONMENT) {
 
   if (empty(perform_checks)) return (NULL)
   #if (nrow(perform_checks) != 1) { stop("Multiple perform checks not allowed") }
@@ -126,7 +127,8 @@ rsf_program_perform_checks <- function(pool=pool,
                                          indicator_variables=request_indicator_variables,
                                          for_rsf_pfcbl_ids=data_rsf_pfcbl_ids,
                                          for_pfcbl_categories = for_pfcbl_categories,
-                                         rsf_indicators=rsf_indicators)
+                                         rsf_indicators=rsf_indicators,
+                                         CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
   }
   
    #lobstr::obj_size(rsf_data_wide)
@@ -134,7 +136,8 @@ rsf_program_perform_checks <- function(pool=pool,
                                           rsf_indicators = rsf_indicators,
                                           rsf_data_wide=rsf_data_wide,
                                           checks=checks,
-                                          status_message = status_message)
+                                          status_message = status_message,
+                                          CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
   
   if (perform.test==TRUE) {
     return (list(input=rsf_data_wide,

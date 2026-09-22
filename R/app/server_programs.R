@@ -17,7 +17,6 @@ USER_PROGRAMS <- eventReactive(list(LOGGEDIN(),
                                    
   if (LOGGEDIN()==FALSE) return (data.table())
   
-  if(SYS_PRINT_TIMING) debugtime("1: USER_PROGRAMS",reset=TRUE)
   programs <- DBPOOL %>% dbGetQuery("
                                     select 
                                       nids.rsf_pfcbl_id,
@@ -215,7 +214,25 @@ SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST <- eventReactive(SELECTED_PROGRAM_F
   return (pf)
 },ignoreNULL = FALSE)
 
+SELECTED_PF_ID <- eventReactive(SELECTED_PROGRAM_FACILITIES_LIST(), {
+  
+    if (as.numeric(input$server_programs__selected_facility) %in% SELECTED_PROGRAM_FACILITIES_LIST()$rsf_pfcbl_id) {
+      return (as.numeric(input$server_programs__selected_facility))
+    } else if (isTruthy(SELECTED_PROGRAM_ID())) {
+      SELECTED_PROGRAM_ID()
+    } else {
+      0
+    }
+},ignoreNULL=FALSE)
 
+SELECTED_PF_NAME <- eventReactive(SELECTED_PF_ID(), {
+ if (SELECTED_PF_ID()==0) {
+   "global:Global"
+ } else {
+   SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()[rsf_pfcbl_id==SELECTED_PF_ID(),facility_name]
+ }
+  
+})
 #Populates select input to filter on client/facility name
 observeEvent(SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST(), {
   

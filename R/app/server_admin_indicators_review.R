@@ -213,7 +213,8 @@ observeEvent(input$action_indicator_review_start, {
                                                             indicator_id=review_indicator_id,
                                                             reporting_current_date=indicator_review_reporting_date,
                                                             all_parameters=(method=="rec"),
-                                                            status_message=status_message)
+                                                            status_message=status_message,
+                                                            CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
      
       results <- rbindlist(list(results,nextresult),
                            use.names=TRUE,

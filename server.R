@@ -9,61 +9,47 @@ server <- function(input, output, session)
   serverENV <- environment()
   server_module_registry <- list()
   
-  DBPOOL <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
+  DBPOOL <- dbStart(database=DATABASE_LOCATION)
   if (!is.null(DBPOOL) && pool::dbIsValid(DBPOOL)) { print("DBPOOL (MAIN) Started")
   } else { print("DBPOOL (MAIN) FAILED TO START") }
   
   observeEvent(session, { 
     
-    # print("Session information")
-    # # session$url_hostname [1] "127.0.0.1"
-    # # session$url_hostname [1] "datanalytics-int.worldbank.org"
-    # #browser()
-    # #print(reactiveValuesToList(session))
-    # print("Session$user")
-    # print(session$user)
-    # print("Session$groups")
-    # print(session$groups)
-    # dbserver <- NULL
-    # if (grepl("rsf-prod",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_PROD"]]
-    # } else if (grepl("rsf-dev",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_DEV"]]
-    # } else if (grepl("rsf-stage",session$clientData$url_pathname)==TRUE) { dbserver <- LOCATIONS[["Jason_STAGE"]]
-    # } else {  }
     
     if (grepl("rsf-prod",session$clientData$url_pathname)) {
       
-      if (!identical(LOCATION,"Jason_PROD")) {
+      if (!identical(DATABASE_LOCATION,"Jason_PROD")) {
         showNotification(type="error",
-                         ui=h3(paste0("rsf-prod deployment does not match location setting: ",LOCATION)))
+                         ui=h3(paste0("rsf-prod deployment does not match location setting: ",DATABASE_LOCATION)))
         
-        stop(paste0("rsf-prod deployment does not match location setting: ",LOCATION))
+        stop(paste0("rsf-prod deployment does not match location setting: ",DATABASE_LOCATION))
       }
     } else if (grepl("rsf-dev",session$clientData$url_pathname)) {
       
-      if (!identical(LOCATION,"Jason_DEV")) {
+      if (!identical(DATABASE_LOCATION,"Jason_DEV")) {
         showNotification(type="error",
-                         ui=h3(paste0("rsf-dev deployment does not match location setting: ",LOCATION)))
-        stop(paste0("rsf-dev deployment does not match location setting: ",LOCATION))
+                         ui=h3(paste0("rsf-dev deployment does not match location setting: ",DATABASE_LOCATION)))
+        stop(paste0("rsf-dev deployment does not match location setting: ",DATABASE_LOCATION))
       }    
     } else if (grepl("rsf-stage",session$clientData$url_pathname)) {
       
-      if (!identical(LOCATION,"Jason_STAGE")) {
+      if (!identical(DATABASE_LOCATION,"Jason_STAGE")) {
         showNotification(type="error",
-                         ui=h3(paste0("rsf-stage deployment does not match location setting: ",LOCATION)))
+                         ui=h3(paste0("rsf-stage deployment does not match location setting: ",DATABASE_LOCATION)))
         
-        stop(paste0("rsf-stage deployment does not match location setting: ",LOCATION))
+        stop(paste0("rsf-stage deployment does not match location setting: ",DATABASE_LOCATION))
       }
     } else if (session$clientData$url_pathname=="/") { #Local
       
-      if (!identical(LOCATION,"Jason_DEV")) {
+      if (!identical(DATABASE_LOCATION,"Jason_DEV")) {
         showNotification(type="warning",
-                         ui=h3("Warning: DATABASE LOCATION = '",LOCATION,"'"))
+                         ui=h3("Warning: DATABASE LOCATION = '",DATABASE_LOCATION,"'"))
       }
     } else {
       showNotification(type="error",
-                       ui=h3("Failed to identify database LOCATION (",LOCATION,") for application URL (",session$clientData$url_pathname,")"))
+                       ui=h3("Failed to identify database LOCATION (",DATABASE_LOCATION,") for application URL (",session$clientData$url_pathname,")"))
       
-      stop(paste0("Failed to parse url_pathname '",session$clientData$url_pathname,"' and Global.R LOCATION=",LOCATION))
+      stop(paste0("Failed to parse url_pathname '",session$clientData$url_pathname,"' and Global.R DATABASE_LOCATION=",DATABASE_LOCATION))
     }
     
     
@@ -139,21 +125,23 @@ server <- function(input, output, session)
   
  
 
-  GLOBAL_CURRENCIES <- reactive({
-    tryCatch({ get_fx_codes() },
-             warning=function(w) { 
-               showNotification(type="error",
-                                duration=NULL,
-                                ui=h3(conditionMessage(w)))
-               NULL
-             },
-             error=function(e) { 
-               showNotification(type="error",
-                                duration=NULL,
-                                ui=h3(conditionMessage(e)))
-               NULL
-             })
-  })
+  # GLOBAL_CURRENCIES <- reactive({
+  #   
+  #   CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES
+  #   # tryCatch({ get_fx_codes() },
+  #   #          warning=function(w) { 
+  #   #            showNotification(type="error",
+  #   #                             duration=NULL,
+  #   #                             ui=h3(conditionMessage(w)))
+  #   #            NULL
+  #   #          },
+  #   #          error=function(e) { 
+  #   #            showNotification(type="error",
+  #   #                             duration=NULL,
+  #   #                             ui=h3(conditionMessage(e)))
+  #   #            NULL
+  #   #          })
+  # })
   
   source("./R/app/server_admin_options.R",local=serverENV)
   source("./R/app/server_admin_options_module.R",local=serverENV)
@@ -310,7 +298,7 @@ server <- function(input, output, session)
                               ui=h3("Request failed: You may only request an account registered to a World Bank Group email address")))
     }
     
-    #DBPOOL_APPLICATIONS <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[["ARL"]]))
+    
     lookup_email <- db_user_check_email_exists(pool=DBPOOL_APPLICATIONS,
                                                RSF_MANAGEMENT_APPLICATION_ID,
                                                email=email)

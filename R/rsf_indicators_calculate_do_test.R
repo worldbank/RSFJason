@@ -1,6 +1,6 @@
 # 
-# reporting_current_date <- '2026-09-30'
-# indicator_id <-43429
+# reporting_current_date <- '2020-09-30'
+# indicator_id <-157419
 # rsf_pf_id <- 71605
 # all_parameters <- F
 #x<-rsf_indicators_calculate_do_test(pool,rsf_pf_id,indicator_id,reporting_current_date,all_parameters=T)
@@ -11,23 +11,25 @@ rsf_indicators_calculate_do_test <- function(pool,
                                              reporting_current_date,
                                              all_parameters=TRUE,
                                              parent_formula_id=as.numeric(NA),
-                                             status_message=function(...) {})
+                                             status_message=function(...) {},
+                                             CALCULATIONS_ENVIRONMENT)
 {
  
   if (is.na(rsf_pf_id)) stop("A facility/program ID is required")
   #Ensure nothing is pending
   rsf_indicators <- db_indicators_get_labels(pool=pool)
-  pending <- rsf_program_calculate(pool=pool,
-                        rsf_indicators=rsf_indicators,
-                        rsf_pf_id=rsf_pf_id,
-                        for_import_id=NA,
-                        calculate_future=FALSE,
-                        reference_asof_date=reporting_current_date,
-                        status_message=status_message)
-  
-  if (!empty(pending)) {
-    status_message(paste0("Completd ",nrow(pending)," pending calculations for SYSID=",paste0(rsf_pf_id,collapse=","),"\n"))
-  }
+  # pending <- rsf_program_calculate(pool=pool,
+  #                       rsf_indicators=rsf_indicators,
+  #                       rsf_pf_id=rsf_pf_id,
+  #                       for_import_id=NA,
+  #                       calculate_future=FALSE,
+  #                       reference_asof_date=reporting_current_date,
+  #                       status_message=status_message,
+  #                       CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
+  # 
+  # if (!empty(pending)) {
+  #   status_message(paste0("Completd ",nrow(pending)," pending calculations for SYSID=",paste0(rsf_pf_id,collapse=","),"\n"))
+  # }
   
   {
     
@@ -137,7 +139,8 @@ rsf_indicators_calculate_do_test <- function(pool,
                                                      rsf_indicators=rsf_indicators,
                                                      rsf_calculator_checks=rsf_calculator_checks,
                                                      perform.test = TRUE,
-                                                     status_message=status_message)
+                                                     status_message=status_message,
+                                                     CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
     
     
     
@@ -496,7 +499,8 @@ rsf_indicators_calculate_do_test <- function(pool,
                                                          reporting_current_date=reporting_current_date,
                                                          all_parameters=TRUE,
                                                          parent_formula_id=unique(pre$parent_formula_id),
-                                                         status_message=function(...) {})
+                                                         status_message=function(...) {},
+                                                         CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
           
           setcolorder(preResults,
                       neworder = names(results))

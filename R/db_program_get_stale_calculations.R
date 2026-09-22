@@ -294,6 +294,6 @@ VALUES
       setDT(calculations)
       if (empty(calculations)) return (NULL)
     
-    if(SYS_PRINT_TIMING) debugtime("db_program_get_stale_calculations","Done!",as.numeric(Sys.time()-t1,"secs"))
+    debugtime("db_program_get_stale_calculations","Done!",as.numeric(Sys.time()-t1,"secs"))
     return (calculations)
 }

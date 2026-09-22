@@ -8,7 +8,7 @@ parse_template_IFC_QR2018 <- function(pool,
                                       return.next_date=FALSE,    #To automatically create zero-version of next QR based on current QR in system
                                       reporting_user_id,
                                       status_message,
-                                      CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) 
+                                      CALCULATIONS_ENVIRONMENT) 
 {
  
   {
@@ -354,7 +354,7 @@ parse_template_IFC_QR2018 <- function(pool,
     
       #Matches
       {
-        label_matches <- mapply(labelMatches,
+        label_matches <- mapply(template_match_labels,
                                 find_sections=tolower(rsf_labels$template_section_lookup),
                                 find_labels=tolower(rsf_labels$template_label_lookup),
                                 match_id=rsf_labels$label_header_id,
@@ -589,7 +589,7 @@ parse_template_IFC_QR2018 <- function(pool,
 
         label_matches <- lapply(summary_sheet[,.SD,.SDcols=c(names(remap_lcu))],
                                 FUN=function(x,find_sections,find_labels,match_id,match_postion) {
-                                  mapply(labelMatches,
+                                  mapply(template_match_labels,
                                          find_sections=find_sections,
                                          find_labels=find_labels,
                                          match_id=match_id,
@@ -637,7 +637,7 @@ parse_template_IFC_QR2018 <- function(pool,
     {
       label_matches <- lapply(summary_sheet,
                  FUN=function(x,find_sections,find_labels,match_id,match_postion) {
-                   mapply(labelMatches,
+                   mapply(template_match_labels,
                           find_sections=find_sections,
                           find_labels=find_labels,
                           match_id=match_id,
@@ -1331,7 +1331,7 @@ parse_template_IFC_QR2018 <- function(pool,
       label_matches <- lapply(as.data.frame(t(data_sheet[1:30])),
                               FUN=function(x,find_sections,find_labels,match_id,match_postion) {
                                 
-                                mapply(labelMatches,
+                                mapply(template_match_labels,
                                        find_sections=find_sections,
                                        find_labels=find_labels,
                                        match_id=match_id,

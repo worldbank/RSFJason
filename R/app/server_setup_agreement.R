@@ -253,7 +253,7 @@ observeEvent(input$server_setup_agreement__apply, {
     
     tryCatch({
     
-      localPool <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
+      localPool <- dbStart(database=DATABASE_LOCATION)
       ppu <- template_parse_process_and_upload(pool=localPool,
                                         reporting_user_id=USER_ID(),
                                         template_files=file_name,
@@ -263,7 +263,8 @@ observeEvent(input$server_setup_agreement__apply, {
                                         delete_after_upload=TRUE,
                                         status_message=progress_status_message,
                                         continue_on_error=FALSE,
-                                        delete_on_error=T)
+                                        delete_on_error=T,
+                                        CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
       poolClose(localPool)
       localPool <- NULL
       ppu

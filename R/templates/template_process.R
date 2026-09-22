@@ -1,7 +1,8 @@
 #rsf_program_id may be NA where template encodes program_id (such as system reports); but traditional templates require a user-defined input value
 template_process <- function(pool,
                              template,
-                             status_message=function(...) {}) {
+                             status_message=function(...) {},
+                             CALCULATIONS_ENVIRONMENT) {
   t1 <- Sys.time()
   status_message(class="info",paste0("Parsing template: ",template$template_source," for reporting date ",template$reporting_asof_date,"\n"))
   
@@ -643,7 +644,8 @@ template_process <- function(pool,
                                                              to_currency,
                                                              from_currency)],
                                           create.indicators=TRUE, #Yes, create because these will be queried otherwise later for the same indicator when variance is checked.
-                                          force.global=TRUE) #the whole point is to check against global rates
+                                          force.global=TRUE,
+                                          CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) #the whole point is to check against global rates
         },
         warning=function(w) {
           status_message(paste0("Failed to get FX Ratios: ",conditionMessage(w)))
@@ -1054,6 +1056,6 @@ template_process <- function(pool,
   }
   
   template$process_time <- as.numeric(Sys.time()-t1,"secs")
-  if(SYS_PRINT_TIMING) debugtime("template_process"," Process time: ",format(Sys.time()-t1))
+  debugtime("template_process"," Process time: ",format(Sys.time()-t1))
   return (template)
 }

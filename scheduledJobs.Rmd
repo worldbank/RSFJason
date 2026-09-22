@@ -1,0 +1,183 @@
+---
+title: "RSF Jason Scheduled Data Sync & Processing Job"
+author: "Soren Heitmann"
+date: "`r toupper(format(Sys.time(),'%Y-%b-%d %Hh%m'))`"
+output: 
+  html_document:
+    toc: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+
+# 1. Standard chunk options
+knitr::opts_chunk$set(#root.dir = here::here(".."),
+                      echo = FALSE, 
+                      warning = TRUE, 
+                      message = TRUE)
+
+knit_env <- knitr::knit_global()
+
+evalq({
+  DATABASE_LOCATION <- "Jason_PROD"
+
+  debugtime <- function(...) {
+    invisible(NULL)
+  }
+}, envir = knit_env)
+
+#libraries
+{
+  library(DBI)
+  library(purrr)
+  library(lubridate)
+  library(stringr)
+  library(data.table)
+  library(jsonlite)
+  library(tools)
+  library(plyr)
+  library(glue)
+  library(R.utils)
+  library(digest)
+  library(rlang)
+  library(odbc)
+  library(RPostgres)
+  library(pool)
+  library(yaml)
+  library(sendmailR)
+  library(english)
+}
+  
+
+#parameters
+
+
+#app sources
+{
+  
+  source_files <- c(
+    here::here("R","rsf_database.R"),
+       here::here("R","rsf_calculations_environment.R"),
+       here::here("R","db_rsf_checks_validate.R"),
+       here::here("R","db_program_get_data.R"),
+       here::here("R","rsf_computation_fx_conversion.R"),
+       here::here("R","rsf_program_calculate.R"),
+       here::here("R","rsf_program_check.R"),
+       here::here("R","rsf_program_perform_calculations.R"),
+       here::here("R","rsf_program_perform_checks.R"),
+       here::here("R","db_program_get_stale_calculations.R"),
+       here::here("R","db_program_get_stale_checks.R"),
+       here::here("R","db_indicators_get_labels.R"),
+       here::here("R","db_indicators_get_calculation_parameter_rsf_pfcbl_ids.R"),
+       here::here("R","db_checks_get_calculation_parameter_rsf_pfcbl_ids.R"),
+       here::here("R","rsf_checks_calculate.R"),
+       here::here("R","rsf_indicators_calculate.R"),
+       here::here("R","rsf_calculations_resolve_parameters.R"),
+       here::here("R","rsf_checks_resolve_parameters.R"),
+       here::here("R","global_formatting_functions.R"),
+       here::here("R","db_add_update_data_system.R"),
+       here::here("R","db_data_get_fx_ratio.R"),
+       here::here("R","db_add_update_checks.R"),  
+       here::here("accounts","db_user_login.R"),
+       
+       #here::here("scheduledJobs.Rmd"),
+       here::here("schedules","job_pendingCalculations.R")
+       #list.files(here::here("credentials"),full.names=T,pattern="yaml$")
+  )
+
+
+invisible(
+  lapply(
+    source_files,
+    function(f) {
+      sys.source(f, envir = knit_env)
+    }
+  )
+)
+# 
+# stopifnot(
+#   exists(
+#     "debugtime",
+#     envir = environment(db_program_get_stale_calculations),
+#     mode = "function",
+#     inherits = TRUE
+#   )
+# )
+
+}
+
+RSF_MANAGEMENT_APPLICATION_ID <- "4608A309E2E38860DC98FAC53F967CF2"
+scheduleApps <- dbStart(database="ARL")
+
+
+ACCOUNT_SYS_CALCULATOR <- do.call(
+  db_user_login,
+  append(list(pool=scheduleApps,
+              application_hashid=RSF_MANAGEMENT_APPLICATION_ID),
+         yaml.load_file(here::here("credentials","credentials-account-rsf-sys-calculator.yaml"))))
+
+
+scheduleCalcEnv <- rsf_calculations_initialize_enivonment(dremioConnect())
+schedulePool <- dbStart(database=DATABASE_LOCATION)
+
+IS_DEPLOYED <- grepl("worldbank\\.org",Sys.getenv("CONNECT_SERVER"),ignore.case=T)
+IS_DEPLOYED <- nzchar(Sys.getenv("CONNECT_CONTENT_GUID"))
+
+# IS_DEPLOYED <- grepl(
+#   "rstudio-connect",
+#   getwd(),
+#   ignore.case = TRUE
+# )
+
+
+
+```
+
+## Job globalReporting
+
+```{r}
+
+  if (isTRUE(IS_DEPLOYED)) {
+    
+    message("RUNNING do_global_reporting()")
+    
+    updates <- dbGetQuery(schedulePool,"
+    select p_rsf.do_global_reporting()::bool as current")
+    
+  } else {
+    message("NOT DEPLOYED: skipping do_global_reporting()")
+  }
+
+```
+
+## Job pendingCalculations
+
+```{r }
+pending_calcs <- 0
+if (isTRUE(IS_DEPLOYED)) {
+  message("RUNNING do_pendingCalculations()")
+  
+  pending_calcs <- do_pendingCalculations(schedulePool = schedulePool,
+                                          scheduleCalcEnv = scheduleCalcEnv)
+
+} else {
+  message("NOT DEPLOYED: skipping do_pendingCalculations()")
+}
+
+```
+
+##Completed: `r pending_calcs` pending calculations
+
+### Finalizing Jobs
+```{r complete, message=FALSE }
+
+scheduleCalcEnv$closeConnections()
+
+poolClose(schedulePool)
+poolClose(scheduleApps)
+
+scheduleCalcEnv <- NULL
+schedulePool <- NULL
+scheduleApps <- NULL
+
+```

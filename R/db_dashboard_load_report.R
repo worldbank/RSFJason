@@ -119,7 +119,6 @@ db_dashboard_load_report <- function(pool,
                         rt.is_setup_template,
                         rt.is_complete_portfolio,
                         ec.export_id,
-                        ec.rsf_program_id,
                         ec.exporting_rsf_pf_id,
                         ec.exporting_asof_date,
                         upper(ec.data_integrity_key) = upper($3::text) as data_integrity_validated

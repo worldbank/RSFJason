@@ -181,7 +181,8 @@ observeEvent(input$server_admin_checks_review__test_start, {
   result <- tryCatch({
     DBPOOL %>% rsf_checks_do_test(rsf_pf_ids=test_rsf_pfcbl_ids,
                                   reporting_current_date=check_test_reporting_date,
-                                  check_formula_id=test_check_formula_id)
+                                  check_formula_id=test_check_formula_id,
+                                  CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
   },
   error = function(err) {
     status_message(class="error",

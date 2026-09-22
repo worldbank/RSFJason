@@ -12,10 +12,12 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                                      "{MISSING}","{VOID}","{BLANK}","{DELETED}","{NA}"),
                                DATA_DEFINED_LOCAL_CURRENCY_UNITS=c("LCU",
                                                                    "LCY"),
-                               DATA_MAX_DECIMALS=CALCULATIONS_ENVIRONMENT$MAX_DECIMALS,
-                               DATA_SIG_DIGITS=CALCULATIONS_ENVIRONMENT$SIG_DIGITS,
-                               VALID_CURRENCIES=CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES,
+                               CALCULATIONS_ENVIRONMENT,
                                flag.defaults=FALSE) {
+  
+  DATA_MAX_DECIMALS <- CALCULATIONS_ENVIRONMENT$MAX_DECIMALS
+  DATA_SIG_DIGITS <- CALCULATIONS_ENVIRONMENT$SIG_DIGITS
+  VALID_CURRENCIES <- CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES
   
   # ld <<- as.data.frame(template_data)
   # ri <<- as.data.frame(rsf_indicators)
@@ -1723,7 +1725,7 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                 data_value==data_submitted,
                 data_submitted:=NA]
   
-  if(SYS_PRINT_TIMING) debugtime("parse_data_formats","Done!",as.numeric(Sys.time()-t1,"secs"))
+  debugtime("parse_data_formats","Done!",as.numeric(Sys.time()-t1,"secs"))
   
   return (template_data)
 }

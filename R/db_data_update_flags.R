@@ -81,7 +81,7 @@ db_data_update_flags <- function(pool,
   
     TRUE
   })
-  if(SYS_PRINT_TIMING) debugtime("db_data_update_flags","Done! ",round(as.numeric(Sys.time()-t1,"secs"),1)," seconds")
+  debugtime("db_data_update_flags","Done! ",round(as.numeric(Sys.time()-t1,"secs"),1)," seconds")
   
   return (affected_flags)
 }

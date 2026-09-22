@@ -69,13 +69,15 @@ observeEvent(input$action_server_dashboard__edit, {
       return (showNotification(type="error",ui=h2("An editing session is currently active.  First Save and Exit")))
     } 
     
+    # 
+    # if (!isTruthy(SERVER_DASHBOARD_RUN_AUTORUN())) {
+    #   return (showNotification(type="error",ui=h2("Turn on RUN to edit current data")))
+    # }
     
-    if (!isTruthy(SERVER_DASHBOARD_RUN_AUTORUN())) {
-      return (showNotification(type="error",ui=h2("Turn on RUN to edit current data")))
-    }
-    
-    if (empty(SERVER_DASHBOARD_DATA_DISPLAY())) {
-      return (showNotification(type="error",ui=h2("The dashboard has no data to edit!  Ensure relevant client, date and indicators are selected")))
+    if (empty(SERVER_DASHBOARD_DATA_DISPLAY()) ||
+        empty(SERVER_DASHBOARD_CURRENT_QUERY())) {
+      
+      return (showNotification(type="error",ui=h2("The dashboard has no data to edit!  Ensure relevant client, date and indicators are selected: And click RUN")))
     }
   }
   
@@ -521,12 +523,10 @@ observeEvent(input$action_server_dashboard__edit_save, {
     
     incProgress(amount=0.10,message="Converting to excel...")    
     
-    #USER_ID <- function() { CALCULATIONS_ENVIRONMENT$SYSTEM_CALCULATOR_ACCOUNT }
-    #SELECTED_PROGRAM_ID <- function() { 66 }
     #progress_status_message <- testing_status_message
     excelwb <- DBPOOL %>% export_dashboard_edits_to_excel(edits_dt=edit_dt,
                                                           exporting_user_id=USER_ID(),
-                                                          report_note="None")
+                                                          exporting_filename=editing_filename)
     
     saveWorkbook(excelwb,
                  file=editing_filename,
@@ -535,15 +535,18 @@ observeEvent(input$action_server_dashboard__edit_save, {
     incProgress(amount=0.10,message="Uploading edits...")
 
     results <- tryCatch({
-      localPool <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
+      localPool <- dbStart(database=DATABASE_LOCATION)
       ppu <- template_parse_process_and_upload(pool=localPool,
                                         reporting_user_id = USER_ID(),
                                         template_files=editing_filename,
                                         source_note="None",
                                         delete_on_error=FALSE,
-                                        status_message=progress_status_message)
+                                        status_message=progress_status_message,
+                                        CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
       poolClose(localPool)
       localPool <- NULL
+      SERVER_DASHBOARD_DO_AUTORUN(TRUE) #Refresh the current view with whatever was just edited
+      
       ppu
     },
     warning=function(w) {

@@ -9,7 +9,7 @@ db_cohort_get_data <- function(pool,
 {
   
 
-  if(SYS_PRINT_TIMING)  debugtime("db_cohort_get_data: reporting_cohort_id=",reporting_cohort_id,reset=FALSE)
+  debugtime("db_cohort_get_data: reporting_cohort_id=",reporting_cohort_id,reset=FALSE)
   if (length(reporting_cohort_id) != 1) stop(paste0("Invalid reporting_cohort_id: ",paste0(reporting_cohort_id,collapse=",")))
 
 #conn<-poolCheckout(pool);
@@ -265,7 +265,7 @@ db_cohort_get_data <- function(pool,
     cohort_data[is_calculated==TRUE,indicator_type:="CALCULATED"]
     cohort_data[is_system==TRUE,indicator_type:="SYSTEM"]
   }
-  if(SYS_PRINT_TIMING)  debugtime("db_cohort_get_data: done!")
+  debugtime("db_cohort_get_data: done!")
   
   return (cohort_data)
 }

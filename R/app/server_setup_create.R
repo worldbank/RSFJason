@@ -242,13 +242,14 @@ observeEvent(input$setup_program_create_action_button, {
  
         results <- tryCatch({
           #Template gets its own database pool
-          localPool <- dbStart(credentials_file=paste0(getwd(),LOCATIONS[[LOCATION]]))
+          localPool <- dbStart(database=DATABASE_LOCATION)
           ppu <- template_parse_process_and_upload(pool=localPool,
                                             reporting_user_id = USER_ID(),
                                             template_files=export_filename,
                                             source_note="None",
                                             delete_on_error=FALSE,
-                                            status_message=progress_status_message)
+                                            status_message=progress_status_message,
+                                            CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
           poolClose(localPool)
           localPool <- NULL
           ppu
@@ -496,7 +497,7 @@ output$setup_program_create_ui <- renderUI({
                                 
                                 
                               } else if (indicator$is_data_unit==TRUE & grepl("currency",indicator$indicator_name)) {
-                                currencies <- GLOBAL_CURRENCIES()
+                                currencies <- CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES
                                 currencies <- c("",currencies)
                                 uiOb <- selectizeInput(inputId=inputId,
                                                        label=label,

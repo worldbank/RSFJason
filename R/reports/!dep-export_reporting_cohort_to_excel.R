@@ -25,7 +25,7 @@ export_reporting_cohort_to_excel <- function(pool,
   
   #if (flags.only==TRUE) freport <- freport[has_data_flags_active == TRUE & data_sequence_rank==1]
   
-  if(SYS_PRINT_TIMING)  debugtime("export_reporting_cohort_to_excel",reset=TRUE)
+  debugtime("export_reporting_cohort_to_excel",reset=TRUE)
 
   TEMPLATE <- db_export_get_template(pool,USE_TEMPLATE_NAME)
   
@@ -57,7 +57,7 @@ export_reporting_cohort_to_excel <- function(pool,
                                     export_name=NA)
   
   
-  if(SYS_PRINT_TIMING)  debugtime("export_reporting_cohort_to_excel","export cohort created with db_export_create")
+  debugtime("export_reporting_cohort_to_excel","export cohort created with db_export_create")
   
   report_key <- export_cohort$reporting_key
   
@@ -81,7 +81,7 @@ export_reporting_cohort_to_excel <- function(pool,
                                        `Source Note`=source_note,
                                        `Source Upload Time`=as.character(reporting_time))
   
-  if(SYS_PRINT_TIMING)  debugtime("export_reporting_cohort_to_excel","header created with rsf_reports_excel_header()")
+  debugtime("export_reporting_cohort_to_excel","header created with rsf_reports_excel_header()")
   
   START_ROW <- 9
   freport[,`:=`(source_name=NULL,source_reference=NULL,source_note=NULL,reporting_time=NULL,reporting_asof_date=NULL)]
@@ -259,7 +259,7 @@ export_reporting_cohort_to_excel <- function(pool,
     
   }
 
-  if(SYS_PRINT_TIMING)  debugtime("export_reporting_cohort_to_excel","Excel formatted.  Done!")
+  debugtime("export_reporting_cohort_to_excel","Excel formatted.  Done!")
   
   return (excelwb)
 }

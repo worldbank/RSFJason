@@ -8,7 +8,8 @@
 rsf_calculations_recalculate <- function(pool,
                                          for_rsf_program_ids=NA,
                                          for_indicator_ids=NA,
-                                         recalculation_start_date=NA)
+                                         recalculation_start_date=NA,
+                                         CALCULATIONS_ENVIRONMENT)
 {
   
   if (all(is.na(for_rsf_program_ids))) {
@@ -59,7 +60,8 @@ rsf_calculations_recalculate <- function(pool,
                    }
                    DBPOOL %>% rsf_program_calculate(rsf_indicators=rsf_indicators,
                                                     rsf_pf_id=fac$rsf_pf_id,
-                                                    status_message=progress_status_message)
+                                                    status_message=progress_status_message,
+                                                    CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
                  })
   }
 }

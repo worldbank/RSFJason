@@ -13,7 +13,8 @@ rsf_program_perform_calculations <- function(pool,
                                              #the same and will NOT overwrite the manually reported value with the system calculated value.  This
                                              #helps audit uploads to keep exactly what was uploaded and reduced data IO to overwrite functionally the same data.
                                              #But also allows some unexpected variance that can result in system calculated results having slightly different inputs.
-                                             PROGRAM_FLAGS_OVERWRITE_EQUIVALENT_NUMBERS=TRUE) { 
+                                             PROGRAM_FLAGS_OVERWRITE_EQUIVALENT_NUMBERS=TRUE,
+                                             CALCULATIONS_ENVIRONMENT) { 
    
   
 
@@ -52,7 +53,7 @@ rsf_program_perform_calculations <- function(pool,
                                        paste0(sort(unique(current_data$computation_group)),collapse=", "),
                                        "\n")) 
     
-    if(SYS_PRINT_TIMING) debugtime("rsf_program_perform_calculations",paste0("Performing ",global,"calculations for ",current_data$calculate_asof_date[[1]],
+    debugtime("rsf_program_perform_calculations",paste0("Performing ",global,"calculations for ",current_data$calculate_asof_date[[1]],
                                                                              " and ",
                                                                              length(unique(current_data$computation_group))," groups:",
                                                                              paste0(sort(unique(current_data$computation_group)),collapse=", ")))
@@ -285,7 +286,8 @@ rsf_program_perform_calculations <- function(pool,
                                              rsf_indicators=rsf_indicators,
                                              indicator_variables=request_indicator_variables, #a named vector of indicator_id values; names, a csv concatenated string of variable attribute requirements
                                              for_rsf_pfcbl_ids=data_rsf_pfcbl_ids,
-                                             for_pfcbl_categories=for_pfcbl_categories)
+                                             for_pfcbl_categories=for_pfcbl_categories,
+                                             CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
         
       }      
       
@@ -299,7 +301,8 @@ rsf_program_perform_calculations <- function(pool,
                                                          rsf_data_wide=rsf_data_wide,
                                                          calculations=calculations_group,
                                                          flags.fx=perform.test, #If we're testing then flag fx info, else it generates noise.
-                                                         status_message=status_message)
+                                                         status_message=status_message,
+                                                         CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
         
         #This can happen if there is a complete failure and calculation gets rejected from calculation queue.  That reporting_asof_date gets omitted from the 
         #empty results is an oversight and this is a workarond to permit validating-with-errors
@@ -412,15 +415,7 @@ rsf_program_perform_calculations <- function(pool,
 
       
 
-      #2023-07-12: Removed parse_data_formats for calculated data
-      #All data formats are guaranteed to be the correct data type (or NA) as the result of formulas built-in as.numeric() etc.,
-      #So the only place this can be relevant is calculated options results that yield category data -- presently no such formulas exist
-      #and even if they did and the formula is wrong, then this is an extraordinary overhead for each upload and calculation iteration to
-      #enable flagging a super rare formula result
-      # parsed_calculated_data <- parse_data_formats(template_data=calculations_results,
-      #                                              rsf_indicators=rsf_indicators,
-      #                                              sys_indicator_format_check=TRUE)
-
+      
       status_message(class="none","\n")
       
 
@@ -991,7 +986,7 @@ rsf_program_perform_calculations <- function(pool,
         })
         
         
-        if(SYS_PRINT_TIMING) debugtime("rsf_program_perform_calculations","register_fx_rate_applied",as.numeric(Sys.time()-t2,"secs"))
+        debugtime("rsf_program_perform_calculations","register_fx_rate_applied",as.numeric(Sys.time()-t2,"secs"))
       }
 
     }
@@ -1120,6 +1115,6 @@ rsf_program_perform_calculations <- function(pool,
                              consolidation_threshold=NA)
   }
 
-  if(SYS_PRINT_TIMING) debugtime("rsf_program_perform_calculations","Done!",format(Sys.time()-t20))
+  debugtime("rsf_program_perform_calculations","Done!",format(Sys.time()-t20))
   return (current_results)
 }

@@ -410,7 +410,8 @@ observeEvent(input$server_setup_indicators__recalculate_pending, {
                                                     for_import_id=NA,
                                                     calculate_future=FALSE,
                                                     reference_asof_date=today(),
-                                                    status_message=progress_status_message)
+                                                    status_message=progress_status_message,
+                                                    CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
                  })
   }
 },ignoreInit = TRUE)
@@ -843,7 +844,8 @@ observeEvent(input$ui_setup__indicators_monitored_table_cell_edit, {
                                                             )]
         
         setup_data <- parse_data_formats(template_data=setup_data,
-                                         rsf_indicators=RSF_INDICATORS())
+                                         rsf_indicators=RSF_INDICATORS(),
+                                         CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
         
         data_flags <- rbindlist(setup_data$data_flags_new)
         

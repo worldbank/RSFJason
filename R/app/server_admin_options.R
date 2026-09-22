@@ -63,8 +63,6 @@ SELECTED_SYSTEM_OPTION <- eventReactive(c(SYSTEM_ALL_OPTIONS(),
   if (!LOGGEDIN()) return (NULL)
   if (!isTruthy(selected_id)) return (NULL)
   
-  if (SYS_PRINT_TIMING) debugtime("eventReactive: SELECTED_SYSTEM_OPTION")
-  
   options <- SYSTEM_ALL_OPTIONS()
   if (!isTruthy(options)) return (NULL)
 
@@ -110,9 +108,7 @@ observeEvent(SELECTED_SYSTEM_OPTION(), {
   
   if (empty(sso)) return (NULL)
   
-  if (SYS_PRINT_TIMING) debugtime("observeEvent: SELECTED_SYSTEM_OPTION")
   
-    
     options_data <- as.data.frame(sso$labels[[1]])
 
     # print("options data")

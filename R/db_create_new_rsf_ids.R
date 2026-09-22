@@ -9,7 +9,6 @@ db_create_new_rsf_ids <- function(pool,
   #https://postgres.ai/blog/20220106-explain-analyze-needs-buffers-to-improve-the-postgres-query-optimization-process
   {
     t1 <- Sys.time()  
-    #if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids","start")
     # rc <<- as.data.frame(reporting_cohort)
     # ni <<- as.data.frame(new_ids)
     # 
@@ -206,8 +205,7 @@ db_create_new_rsf_ids <- function(pool,
         #dbExecute(conn,"alter table _temp_new_rsf_pfcbl_ids add primary key(unique_new_entity_row_id)")
         dbExecute(conn,"analyze _temp_new_rsf_pfcbl_ids")
         
-        #if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids","_temp_new_rsf_pfcbl_ids created",as.numeric(Sys.time()-t1,"secs"))
-    
+        
         #3.0ms
         
         dbExecute(conn,"
@@ -215,7 +213,6 @@ db_create_new_rsf_ids <- function(pool,
                   set new_rsf_pfcbl_id = nextval('p_rsf.rsf_pfcbl_ids_rsf_pfcbl_id_seq'::regclass)::int")
         
         #x <- dbGetQuery(conn,"select * from _temp_new_rsf_pfcbl_ids");x
-        #if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids","_temp_new_rsf_pfcbl_ids keys and new IDs",as.numeric(Sys.time()-t1,"secs"))
         #5.2ms
         # x<-dbGetQuery(conn,"select distinct
         # ids.rsf_id as parent_rsf_id,
@@ -325,7 +322,7 @@ db_create_new_rsf_ids <- function(pool,
                                     params=list(creation_cohort$reporting_cohort_id,
                                                 for_pfcbl_category))
 
-        if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids",nrow(new_pfcbl_ids)," new ",toupper(for_pfcbl_category)," IDs created in database in ",format(Sys.time()-t2))                                
+        debugtime("db_create_new_rsf_pfcbl_ids",nrow(new_pfcbl_ids)," new ",toupper(for_pfcbl_category)," IDs created in database in ",format(Sys.time()-t2))                                
         
         new_pfcbl_ids
       })
@@ -338,7 +335,7 @@ db_create_new_rsf_ids <- function(pool,
 
   
 
-  if(SYS_PRINT_TIMING) debugtime("db_create_new_rsf_pfcbl_ids","Done!",as.numeric(Sys.time()-t1,"secs"))
+  debugtime("db_create_new_rsf_pfcbl_ids","Done!",as.numeric(Sys.time()-t1,"secs"))
   
   return (pfcbl_ids)
 }

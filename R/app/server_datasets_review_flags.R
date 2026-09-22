@@ -1279,7 +1279,8 @@ observeEvent(input$action_indicator_flags_review_save, {
                                        for_import_id=import$import_id,
                                        calculate_future=FALSE,
                                        reference_asof_date=import$reporting_asof_date,
-                                       status_message=progress_status_message)
+                                       status_message=progress_status_message,
+                                       CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
     })
     
     withProgress(message="Rechecking...",value=0.25, {
@@ -1298,6 +1299,7 @@ observeEvent(input$action_indicator_flags_review_save, {
                                    check_future=FALSE,
                                    check_consolidation_threshold=NA,
                                    reference_asof_date=import$reporting_asof_date,
+                                   CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT,
                                    status_message=progress_status_message)
     })
   }

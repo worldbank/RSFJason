@@ -2,7 +2,7 @@ db_add_update_data_system <- function(pool,
                                       for_import_id,
                                       for_formula_calculation_rank,
                                       system_upload_data,
-                                      calculator_user_id=CALCULATIONS_ENVIRONMENT$SYSTEM_CALCULATOR_ACCOUNT)
+                                      calculator_user_id=ACCOUNT_SYS_CALCULATOR$account_id)
 {
   expected_cols <- c("current_data_id",
                      "rsf_pfcbl_id",
@@ -25,8 +25,7 @@ db_add_update_data_system <- function(pool,
   }
 
   t1<-Sys.time()
-  #SYS_PRINT_TIMING <- FALSE
-  #if(SYS_PRINT_TIMING)  debugtime("db_add_update_data_system","start")  
+  
   #system_upload_data <<- as.data.frame(system_upload_data)
   #setDT(system_upload_data)
   system_upload_data <- system_upload_data[,
@@ -332,12 +331,12 @@ db_add_update_data_system <- function(pool,
       }    
       
       t3 <- Sys.time()
-      if(SYS_PRINT_TIMING) debugtime("db_add_update_data_system","poolWithTransaction",format(t3-t2))
+      debugtime("db_add_update_data_system","poolWithTransaction",format(t3-t2))
       
       return (nx)
   })
   
-  if(SYS_PRINT_TIMING) debugtime("db_add_update_data_system","Done!",format(Sys.time()-t1))
+  debugtime("db_add_update_data_system","Done!",format(Sys.time()-t1))
   #setDT(results_data)
   return (results_added)
 }

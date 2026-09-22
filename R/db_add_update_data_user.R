@@ -29,10 +29,6 @@ db_add_update_data_user <- function(pool,
     if (length(bad_cols)>0) stop(paste0("cohort_upload_data must define columns: ",paste0(valid_cols,collapse=","), ".  Issues with: ",paste0(bad_cols,collapse=",")))
     #if (length(unique(upload_data$reporting_asof_date)) != 1) stop("Only one reporting_asof_date can be reported per function call")
     
-    #if(SYS_PRINT_TIMING)  debugtime("db_add_update_data_create_temp_upload_rsf_data")
-    
-   
-    
     
     upload_data[,
                 n:=.N,
@@ -163,7 +159,6 @@ db_add_update_data_user <- function(pool,
                                           data_unit,
                                           data_submitted)])
         
-        #if(SYS_PRINT_TIMING)  debugtime("db_add_update_data_user _temp_upload_rsf_data created: ",format(Sys.time()-t1))
         #dbExecute(conn,"drop table _temp_upload_rsf_data")
         #x<-dbGetQuery(conn,"select * from _temp_upload_rsf_data")
         dbExecute(conn,"analyze _temp_upload_rsf_data")

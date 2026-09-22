@@ -1,5 +1,5 @@
 sidebar_width <- 200
-LOCATION_SKIN  <- switch(LOCATION,
+LOCATION_SKIN  <- switch(DATABASE_LOCATION,
                          Jason_DEV="yellow",
                          Jason_PROD="blue",
                          "green")
@@ -446,7 +446,7 @@ ui_htmlHead <- tagList(
             "),
   useShinyjs())
 
-ui_header_OUT <- shinydashboardPlus::dashboardHeader(title=div(ifelse(grepl("DEV",LOCATION)==TRUE,"DEV! ",""),
+ui_header_OUT <- shinydashboardPlus::dashboardHeader(title=div(ifelse(grepl("DEV",DATABASE_LOCATION)==TRUE,"DEV! ",""),
                                            "RSF/ Jason"),
                                  titleWidth = sidebar_width,
                                  controlbarIcon=NULL,
@@ -460,7 +460,7 @@ ui_header_OUT <- shinydashboardPlus::dashboardHeader(title=div(ifelse(grepl("DEV
 
 
 
-ui_header_IN <- shinydashboardPlus::dashboardHeader(title=div(ifelse(grepl("DEV",LOCATION)==TRUE,"DEV/ Jason",
+ui_header_IN <- shinydashboardPlus::dashboardHeader(title=div(ifelse(grepl("DEV",DATABASE_LOCATION)==TRUE,"DEV/ Jason",
                                                                      "RSF/ Jason")),
                                                     titleWidth = sidebar_width,
                                                     controlbarIcon=NULL,

@@ -666,7 +666,8 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
                                                         #filter.status=include.status,
                                                         fx_force_global=fx_force_global,
                                                         fx_reported_date=fx_reported_date,
-                                                        fx_concatenate_LCU=fx_concatenate_LCU)
+                                                        fx_concatenate_LCU=fx_concatenate_LCU,
+                                                        CALCULATIONS_ENVIRONMENT = CALCULATIONS_ENVIRONMENT)
                    rsf_data <- rbindlist(list(rsf_data,
                                               rd))
                    
@@ -1808,7 +1809,7 @@ observeEvent(LOGGEDIN(), {
   
   if (!LOGGEDIN()) return (NULL)
   
-  currency_choices <- GLOBAL_CURRENCIES()
+  currency_choices <- CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES
   
   if (!is.null(currency_choices)) {
     currency_choices <- unique(c("USD","EUR",currency_choices))

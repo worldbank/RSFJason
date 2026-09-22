@@ -3,16 +3,17 @@
 	
 # check
 # 
-# rsf_pf_ids <- NA
+# rsf_pf_ids <- 71605
 # reporting_current_date='2026-06-30';
-# check_formula_id = 276
+# check_formula_id = 280
 #rsf_checks_do_test(pool=pool,rsf_pf_ids,reporting_current_date,check_formula_id)
 #Revise to take check_id and then check/warn if program is not subscribed to it
 rsf_checks_do_test <- function(pool,
                                rsf_pf_ids=NA,
                                reporting_current_date,
                                check_formula_id,
-                               status_message=function(...) {})
+                               status_message=function(...) {},
+                               CALCULATIONS_ENVIRONMENT)
 {
   
   
@@ -164,6 +165,7 @@ rsf_checks_do_test <- function(pool,
                                       rsf_indicators=rsf_indicators,
                                       perform_checks=pchk,
                                       perform.test=TRUE,
+                                      CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT,
                                       status_message=status_message)
     
     test$input <- rbindlist(list(test$input,
