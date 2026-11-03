@@ -1,9 +1,9 @@
 # 
-# reporting_current_date <- '2020-09-30'
-# indicator_id <-157419
-# rsf_pf_id <- 71605
+# reporting_current_date <- '2026-09-30'
+# indicator_id <-6588
+# rsf_pf_id <- 37369
 # all_parameters <- F
-#x<-rsf_indicators_calculate_do_test(pool,rsf_pf_id,indicator_id,reporting_current_date,all_parameters=T)
+#x<-rsf_indicators_calculate_do_test(pool,rsf_pf_id,indicator_id,reporting_current_date,all_parameters=T,CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
 
 rsf_indicators_calculate_do_test <- function(pool,
                                              rsf_pf_id,
@@ -18,19 +18,7 @@ rsf_indicators_calculate_do_test <- function(pool,
   if (is.na(rsf_pf_id)) stop("A facility/program ID is required")
   #Ensure nothing is pending
   rsf_indicators <- db_indicators_get_labels(pool=pool)
-  # pending <- rsf_program_calculate(pool=pool,
-  #                       rsf_indicators=rsf_indicators,
-  #                       rsf_pf_id=rsf_pf_id,
-  #                       for_import_id=NA,
-  #                       calculate_future=FALSE,
-  #                       reference_asof_date=reporting_current_date,
-  #                       status_message=status_message,
-  #                       CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
-  # 
-  # if (!empty(pending)) {
-  #   status_message(paste0("Completd ",nrow(pending)," pending calculations for SYSID=",paste0(rsf_pf_id,collapse=","),"\n"))
-  # }
-  
+ 
   {
     
     status_message(paste0("Running test for SYSID=",paste0(rsf_pf_id,collapse=",")," indicator_id=",indicator_id,"\n"))
@@ -115,6 +103,8 @@ rsf_indicators_calculate_do_test <- function(pool,
                                                                      reporting_current_date))
     
     setDT(test_calculation)
+    test_calculation[,rsf_pf_id:=rsf_pf_id]
+    
     if (empty(test_calculation)) {
       stop(paste0("Invalid calculation request and/or no entities in this tree exist asof ",as.character(reporting_current_date)))
     }
@@ -134,7 +124,7 @@ rsf_indicators_calculate_do_test <- function(pool,
     setDT(rsf_calculator_checks)
     
     test_results <- rsf_program_perform_calculations(pool=pool,
-                                                     rsf_pf_id=rsf_pf_id,
+                                                     #rsf_pf_id=rsf_pf_id,
                                                      current_data=test_calculation,
                                                      rsf_indicators=rsf_indicators,
                                                      rsf_calculator_checks=rsf_calculator_checks,
@@ -405,89 +395,33 @@ rsf_indicators_calculate_do_test <- function(pool,
       
       
       prerequisites <- dbGetQuery(pool,"
-        with requirements as materialized (
-          select 
+         select 
+          calc.from_rsf_pf_id,
           calc.formula_id as parent_formula_id,
-  				#pids.to_parameter_rsf_pfcbl_id,
-  				ft.to_family_rsf_pfcbl_id as to_parameter_pfcbl_id,
-  				requirement_indicator_id
-  				
+  				cpr.to_parameter_pf_id,
+  				ifp.parameter_indicator_id as requirement_indicator_id,
+          rsi.formula_id
           from (
     				select distinct
-    				sis.rsf_pfcbl_id,
+    				sis.rsf_pfcbl_id as from_rsf_pf_id,
     				sis.formula_id
     				from p_rsf.view_rsf_setup_indicator_subscriptions sis 
     				where sis.rsf_pfcbl_id = any($1::int[])
     				  and sis.formula_id = any($2::int[])
   				) as calc
-  				inner join p_rsf.indicator_formulas indf on indf.formula_id = calc.formula_id
-  				inner join lateral unnest(indf.formula_indicator_id_requirements) as requirement_indicator_id on true
-  				inner join p_rsf.indicators ind on ind.indicator_id = requirement_indicator_id
-  				
-  				inner join p_rsf.view_rsf_pfcbl_id_family_tree ft on ft.from_rsf_pfcbl_id = calc.rsf_pfcbl_id
-                                                           and ft.to_pfcbl_rank = ind.pfcbl_rank
-                                                 
-  				# inner join p_rsf.compute_calculation_to_parameter_rsf_pfcbl_ids pids on pids.from_calculate_rsf_pfcbl_id = calc.rsf_pfcbl_id
-  				#                                                                     and pids.from_calculate_formula_id = calc.formula_id
-          #where pids.to_parameter_pfcbl_category = ind.data_category																																								
-        )
-        select 
-          req.parent_formula_id,
-          req.requirement_indicator_id,
-          sis.rsf_pfcbl_id,
-          sis.formula_id
-        from requirements req
-        inner join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = req.to_parameter_rsf_pfcbl_id
-                                                                   
-        inner join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
-        where sis.formula_id is not null
-        order by 
-          indf.formula_calculation_rank,
-          indf.computation_group,
-          indf.formula_id",
+          inner join p_rsf.view_rsf_pf_calculation_parameter_requirements cpr on cpr.from_rsf_pf_id = calc.from_rsf_pf_id
+                                                                             and cpr.formula_id = calc.formula_id
+          inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = cpr.to_parameter_pf_id
+          inner join p_rsf.indicator_formula_parameters ifp on ifp.formula_id = cpr.formula_id
+                                                           and least(2,ifp.parameter_pfcbl_rank) = ids.pfcbl_category_rank
+          inner join p_rsf.rsf_setup_indicators rsi on rsi.rsf_pfcbl_id = cpr.to_parameter_pf_id
+                                                   and rsi.indicator_id = ifp.parameter_indicator_id
+         where rsi.is_subscribed is true
+           and rsi.formula_id is not null",
                                   params=list(dbMakeIntArray(results$rsf_pfcbl_id),
                                               dbMakeIntArray(results$formula_id)))
       
-      
-  #     prerequisites <- dbGetQuery(pool,"
-  #       with requirements as materialized (
-  #         select 
-  #         calc.formula_id as parent_formula_id,
-  # 				pids.to_parameter_rsf_pfcbl_id,
-  # 				requirement_indicator_id
-  # 				
-  #         from (
-  #   				select distinct
-  #   				sis.rsf_pfcbl_id,
-  #   				sis.formula_id
-  #   				from p_rsf.view_rsf_setup_indicator_subscriptions sis 
-  #   				where sis.rsf_pfcbl_id = any($1::int[])
-  #   				  and sis.formula_id = any($2::int[])
-  # 				) as calc
-  # 				inner join p_rsf.indicator_formulas indf on indf.formula_id = calc.formula_id
-  # 				inner join lateral unnest(indf.formula_indicator_id_requirements) as requirement_indicator_id on true
-  # 				inner join p_rsf.indicators ind on ind.indicator_id = requirement_indicator_id
-  # 				inner join p_rsf.compute_calculation_to_parameter_rsf_pfcbl_ids pids on pids.from_calculate_rsf_pfcbl_id = calc.rsf_pfcbl_id
-  # 				                                                                    and pids.from_calculate_formula_id = calc.formula_id
-  #         where pids.to_parameter_pfcbl_category = ind.data_category																																								
-  #       )
-  #       select 
-  #         req.parent_formula_id,
-  #         req.requirement_indicator_id,
-  #         sis.rsf_pfcbl_id,
-  #         sis.formula_id
-  #       from requirements req
-  #       inner join p_rsf.view_rsf_setup_indicator_subscriptions sis on sis.rsf_pfcbl_id = req.to_parameter_rsf_pfcbl_id
-  #                                                                  
-  #       inner join p_rsf.indicator_formulas indf on indf.formula_id = sis.formula_id
-  #       where sis.formula_id is not null
-  #       order by 
-  #         indf.formula_calculation_rank,
-  #         indf.computation_group,
-  #         indf.formula_id",
-  # 			params=list(dbMakeIntArray(results$rsf_pfcbl_id),
-  # 			            dbMakeIntArray(results$formula_id)))
-  #     
+        
       if (!empty(prerequisites)) {
         setDT(prerequisites)
         for (fId in unique(prerequisites$formula_id)) {

@@ -504,6 +504,8 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
       #Numerics for decimal separator 
       if (any(reference_data_types %in% c("number","currency","currency_ratio","percent"))) {
         
+        correction_data_parse_ids <- c()
+        
         sci_notation <- grep("\\d+e-\\d+$",regular_data$data_value,ignore.case = T,perl=T)
         if (length(sci_notation) > 0) {
           sci_notation <- sci_notation[!is.na(suppressWarnings(as.numeric(regular_data$data_value[sci_notation])))]
@@ -562,117 +564,220 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
                                                 reporting_submitted_data_value,
                                                 data_value,
                                                 data_unit)]
+        #Decimals vs Thousands seperators
+        if (!empty(regular_data_numerics)) {
+          numerics_correction_flags <- c()
+          regular_data_numerics[grepl("\\s+",data_value),
+                                data_value:=gsub("\\s+","",data_value,perl=T)]
+          
+          regular_data_numerics[,thousands_sep:=as.character(NA)]
+  
+          #ends after comma or period without thousands sep
+          regular_data_numerics[is.na(thousands_sep) & grepl(",\\d{1,2}$",data_value,perl=T),thousands_sep:="period"]  #if multiple thousands-seps are used, then that must be the units sep 
+          regular_data_numerics[is.na(thousands_sep) & grepl("\\.\\d{1,2}$",data_value,perl=T),thousands_sep:="comma"]   #if multiple thousands-seps are used, then that must be the units sep 
+          
+          #if both , and . are used, then the first one must be thousands sep and the second one must be decimal sep
+          regular_data_numerics[is.na(thousands_sep) & grepl(",\\d{3}\\.",data_value,perl=T),thousands_sep:="comma"]
+          regular_data_numerics[is.na(thousands_sep) & grepl("\\.\\d{3},",data_value,perl=T),thousands_sep:="period"]
+          
+          #if multiple thousands-seps are used, then that must be the thousands sep
+          regular_data_numerics[is.na(thousands_sep) & grepl(",\\d{3},",data_value,perl=T),thousands_sep:="comma"]   
+          regular_data_numerics[is.na(thousands_sep) & grepl("\\.\\d{3}\\.",data_value,perl=T),thousands_sep:="period"]   #if multiple thousands-seps are used, then that must be the units sep 
+          
+          #ends after comma or period with more than 3 placeholders
+          regular_data_numerics[is.na(thousands_sep) & grepl(",\\d{4,}$",data_value,perl=T),thousands_sep:="period"]  #if multiple thousands-seps are used, then that must be the units sep 
+          regular_data_numerics[is.na(thousands_sep) & grepl("\\.\\d{4,}$",data_value,perl=T),thousands_sep:="comma"]   #if multiple thousands-seps are used, then that must be the units sep 
+          
+          #A bit of a guess work, but a pretty good guess that if , or . is followed by 000 that it's a thousands sep and not specifying a decimal that is precisely .000
+          #Assume that period separator is less common, so require that at least one period was previously identified
+          any_periods <- any(regular_data_numerics$thousands_sep=="period")
+          if (is.na(any_periods)) any_periods <- FALSE
+  
+          any_commas <- any(regular_data_numerics$thousands_sep=="comma")
+          if (is.na(any_commas)) any_commas <- FALSE
+          
+          #comma comes first and is less strict since it is a stronger assumption
+          regular_data_numerics[is.na(thousands_sep) &
+                                  grepl(",000$",data_value,perl=T) & 
+                                  !any_periods,
+                                thousands_sep:="comma"]
+          
+          regular_data_numerics[is.na(thousands_sep) &
+                                grepl("\\.000$",data_value,perl=T) &
+                                !any_commas,
+                                thousands_sep:="period"]
+          
+          if (anyNA(regular_data_numerics$thousands_sep)) {
+            unambiguous_sep <- unique(regular_data_numerics[!is.na(thousands_sep),thousands_sep])
+            if (length(unambiguous_sep)==1) {
+              regular_data_numerics[is.na(thousands_sep),
+                                    thousands_sep:=unambiguous_sep]
+            }
+          }
+          
+          has_subs <- !is.na(regular_data_numerics$thousands_sep)     &
+                      regular_data_numerics$thousands_sep == "comma"  &
+                      grepl(",",regular_data_numerics$data_value,perl=T)
+  
+          #comma is the decimal separator
+          regular_data_numerics[has_subs & grepl(",\\d{0,2}$",data_value),
+                                `:=`(data_value=gsub(",(\\d{0,2})$",".\\1",data_value,perl=T),
+                                     thousands_sep=as.character(NA))]
+          
+          regular_data_numerics[has_subs,
+                                `:=`(data_value=gsub(",","",data_value,perl=T),
+                                     thousands_sep=as.character(NA))]
+          
+          numerics_correction_flags <- c(numerics_correction_flags,regular_data_numerics$parse_id[which(has_subs)])
+          has_subs <- FALSE
+          # subs_flags <- regular_data_numerics[which(has_subs),
+          #                                     .(parse_id,
+          #                                       check_name="sys_flag_data_format_auto_correction",
+          #                                       check_message=paste0(indicator_name,": ",
+          #                                                            "from {",reporting_submitted_data_value,"} ",
+          #                                                            "to {",ifelse(is.na(data_value),"MISSING",data_value),
+          #                                                                   ifelse(is.na(data_unit),"",paste(" ",data_unit)),"}"))]
+          # 
+          # indicator_data_flags <- rbindlist(list(indicator_data_flags,
+          #                                        subs_flags))
+          
+          #eg, 100.000.000,23
+          has_subs <- !is.na(regular_data_numerics$thousands_sep)     &
+                      regular_data_numerics$thousands_sep == "period" &
+                      grepl("\\.",regular_data_numerics$data_value,perl=T)
+          
+          regular_data_numerics[has_subs,
+                                `:=`(data_value=gsub(",","\\.",
+                                                     gsub("\\.","",data_value,perl=T),perl=T), #place both thousands separator "." with "" and also decimal sep of "," with "."
+                                     thousands_sep=as.character(NA))]
+          
+          numerics_correction_flags <- c(numerics_correction_flags,regular_data_numerics$parse_id[which(has_subs)])
+          # subs_flags <- regular_data_numerics[which(has_subs),
+          #                                     .(parse_id,
+          #                                       check_name="sys_flag_data_format_auto_correction",
+          #                                       check_message=paste0(indicator_name,": ",
+          #                                                            "from {",reporting_submitted_data_value,"} ",
+          #                                                            "to {",ifelse(is.na(data_value),"MISSING",data_value),
+          #                                                                   ifelse(is.na(data_unit),"",paste(" ",data_unit)),"}"))]
+          # 
+          # 
+          # indicator_data_flags <- rbindlist(list(indicator_data_flags,
+          #                                        subs_flags))
+          
+          
+          #ends in period eg, 100.  or lots of zeros after period 1.00
+          has_zeros <- grepl("\\.$|\\.0+$",regular_data_numerics$data_value,perl=T)
+          if (any(has_zeros)) {
+            regular_data_numerics[has_zeros,
+                                  data_value:=gsub("\\.$|\\.0+$","",data_value,perl=T)]
+          }
+          
+          has_zeros <- grepl("\\.[1-9]+0+$",regular_data_numerics$data_value,perl=T)
+          if (any(has_zeros)) {
+            regular_data_numerics[has_zeros,
+                                  data_value:=gsub("(\\.[1-9]+)0+$","\\1",data_value,perl=T)]
+          }
+          
+          regular_data[regular_data_numerics,
+                       data_value:=i.data_value,
+                       on=.(parse_id)]
+          
+          
+          correction_data_parse_ids <- c(correction_data_parse_ids,numerics_correction_flags)
+          regular_data_numerics <- NULL
+        }
         
-        regular_data_numerics[grepl("\\s+",data_value),
-                              data_value:=gsub("\\s+","",data_value,perl=T)]
-        
-        regular_data_numerics[,thousands_sep:=as.character(NA)]
+        #Ranged numbers
+        {
+          regular_data_ranges <- regular_data[data_type %in% c("number","currency","currency_ratio","percent")
+                                              & is.na(data_value)==FALSE
+                                              & grepl("[<>=-]",data_value,perl=T)==TRUE,
+                                              .(parse_id,
+                                                indicator_name,
+                                                reporting_submitted_data_value,
+                                                data_value,
+                                                data_unit)]
+          
+          if (!empty(regular_data_ranges)) {
+            
+            regular_data_ranges[,data_value:=gsub("[[:space:]]+","",data_value)] #not flagged
+            
+            ranged_data <- grep("\\d\\-\\d",regular_data_ranges$data_value)
+            ranged_data_corrections <- c()
+            
+            if (length(ranged_data)) {
+              
+              regular_data_ranges[ranged_data,
+                                  data_value:=trimws(gsub("^[^-]+\\-(.*)$","\\1",data_value))]
 
-        #ends after comma or period without thousands sep
-        regular_data_numerics[is.na(thousands_sep) & grepl(",\\d{1,2}$",data_value,perl=T),thousands_sep:="period"]  #if multiple thousands-seps are used, then that must be the units sep 
-        regular_data_numerics[is.na(thousands_sep) & grepl("\\.\\d{1,2}$",data_value,perl=T),thousands_sep:="comma"]   #if multiple thousands-seps are used, then that must be the units sep 
-        
-        #if both , and . are used, then the first one must be thousands sep and the second one must be decimal sep
-        regular_data_numerics[is.na(thousands_sep) & grepl(",\\d{3}\\.",data_value,perl=T),thousands_sep:="comma"]
-        regular_data_numerics[is.na(thousands_sep) & grepl("\\.\\d{3},",data_value,perl=T),thousands_sep:="period"]
-        
-        #if multiple thousands-seps are used, then that must be the thousands sep
-        regular_data_numerics[is.na(thousands_sep) & grepl(",\\d{3},",data_value,perl=T),thousands_sep:="comma"]   
-        regular_data_numerics[is.na(thousands_sep) & grepl("\\.\\d{3}\\.",data_value,perl=T),thousands_sep:="period"]   #if multiple thousands-seps are used, then that must be the units sep 
-        
-        
-        #A bit of a guess work, but a pretty good guess that if , or . is followed by 000 that it's a thousands sep and not specifying a decimal that is precisely .000
-        #Assume that period separator is less common, so require that at least one period was previously identified
-        any_periods <- any(regular_data_numerics$thousands_sep=="period")
-        if (is.na(any_periods)) any_periods <- FALSE
-
-        any_commas <- any(regular_data_numerics$thousands_sep=="comma")
-        if (is.na(any_commas)) any_commas <- FALSE
-        
-        #comma comes first and is less strict since it is a stronger assumption
-        regular_data_numerics[is.na(thousands_sep) &
-                                grepl(",000$",data_value,perl=T) & 
-                                !any_periods,
-                              thousands_sep:="comma"]
-        
-        regular_data_numerics[is.na(thousands_sep) &
-                              grepl("\\.000$",data_value,perl=T) &
-                              !any_commas,
-                              thousands_sep:="period"]
-        
-        if (anyNA(regular_data_numerics$thousands_sep)) {
-          unambiguous_sep <- unique(regular_data_numerics[!is.na(thousands_sep),thousands_sep])
-          if (length(unambiguous_sep)==1) {
-            regular_data_numerics[is.na(thousands_sep),
-                                  thousands_sep:=unambiguous_sep]
+              ranged_data_corrections <- c(ranged_data_corrections,ranged_data)
+            }
+            
+            ranged_data <- grep("<=",regular_data_ranges$data_value)
+            if (length(ranged_data)) {
+              regular_data_ranges[ranged_data,
+                                  data_value:=trimws(gsub("<=","",data_value))]
+              
+              ranged_data_corrections <- c(ranged_data_corrections,ranged_data)
+            }
+            
+            ranged_data <- grep("<",regular_data_ranges$data_value)
+            if (length(ranged_data)) {
+              regular_data_ranges[ranged_data,
+                                  data_value:=suppressWarnings(as.numeric(trimws(gsub("<","",data_value)))-1)]
+              
+              ranged_data_corrections <- c(ranged_data_corrections,ranged_data)
+            }
+            
+            ranged_data <- grep(">|>=",regular_data_ranges$data_value)
+            if (length(ranged_data)) {
+              regular_data_ranges[ranged_data,
+                                  data_value:=trimws(gsub("[>=]","",data_value))]
+              
+              regular_data_ranges[ranged_data,
+                                  data_value:=as.character((10^nchar(data_value))-1)]
+              
+              ranged_data_corrections <- c(ranged_data_corrections,ranged_data)
+            }
+            
+            ranged_data <- grep("=",regular_data_ranges$data_value)
+            if (length(ranged_data)) {
+              regular_data_ranges[ranged_data,
+                                  data_value:=trimws(gsub("=","",data_value))]
+              
+              ranged_data_corrections <- c(ranged_data_corrections,ranged_data)
+            }
+            
+            if (length(ranged_data_corrections)) {
+              
+              correction_data_parse_ids <- c(correction_data_parse_ids,regular_data_ranges$parse_id[ranged_data_corrections])
+              
+              regular_data[regular_data_ranges,
+                           data_value:=i.data_value,
+                           on=.(parse_id)]
+              
+            }
+            
+            
+            regular_data_ranges <- NULL
           }
         }
         
-        has_subs <- !is.na(regular_data_numerics$thousands_sep)     &
-                    regular_data_numerics$thousands_sep == "comma"  &
-                    grepl(",",regular_data_numerics$data_value,perl=T)
-
-        #comma is the decimal separator
-        regular_data_numerics[has_subs & grepl(",\\d{0,2}$",data_value),
-                              `:=`(data_value=gsub(",(\\d{0,2})$",".\\1",data_value,perl=T),
-                                   thousands_sep=as.character(NA))]
-        
-        regular_data_numerics[has_subs,
-                              `:=`(data_value=gsub(",","",data_value,perl=T),
-                                   thousands_sep=as.character(NA))]
-        
-        subs_flags <- regular_data_numerics[which(has_subs),
-                                            .(parse_id,
-                                              check_name="sys_flag_data_format_auto_correction",
-                                              check_message=paste0(indicator_name,": ",
-                                                                   "from {",reporting_submitted_data_value,"} ",
-                                                                   "to {",ifelse(is.na(data_value),"MISSING",data_value),
-                                                                          ifelse(is.na(data_unit),"",paste(" ",data_unit)),"}"))]
-        
-        indicator_data_flags <- rbindlist(list(indicator_data_flags,
-                                               subs_flags))
-        
-        #eg, 100.000.000,23
-        has_subs <- !is.na(regular_data_numerics$thousands_sep)     &
-                    regular_data_numerics$thousands_sep == "period" &
-                    grepl("\\.",regular_data_numerics$data_value,perl=T) &
-                    grepl(",",regular_data_numerics$data_value,perl=T)
-        
-        regular_data_numerics[has_subs,
-                              `:=`(data_value=gsub(",","\\.",
-                                                   gsub("\\.","",data_value,perl=T),perl=T), #place both thousands separator "." with "" and also decimal sep of "," with "."
-                                   thousands_sep=as.character(NA))]
-        
-        subs_flags <- regular_data_numerics[which(has_subs),
-                                            .(parse_id,
-                                              check_name="sys_flag_data_format_auto_correction",
-                                              check_message=paste0(indicator_name,": ",
-                                                                   "from {",reporting_submitted_data_value,"} ",
-                                                                   "to {",ifelse(is.na(data_value),"MISSING",data_value),
-                                                                          ifelse(is.na(data_unit),"",paste(" ",data_unit)),"}"))]
-        
-        #ends in period eg, 100.  or lots of zeros after period 1.00
-        has_zeros <- grepl("\\.$|\\.0+$",regular_data_numerics$data_value,perl=T)
-        if (any(has_zeros)) {
-          regular_data_numerics[has_zeros,
-                                data_value:=gsub("\\.$|\\.0+$","",data_value,perl=T)]
+        if (length(correction_data_parse_ids)) {
+          
+          correction_flags <- regular_data[parse_id %in% unique(correction_data_parse_ids),
+                                             .(parse_id,
+                                               check_name="sys_flag_data_format_auto_correction",
+                                               check_message=paste0(indicator_name,": ",
+                                                                    "from {",reporting_submitted_data_value,"} ",
+                                                                    "to {",ifelse(is.na(data_value),"MISSING",data_value),
+                                                                    ifelse(is.na(data_unit),"",paste(" ",data_unit)),"}"))]
+          
+          indicator_data_flags <- rbindlist(list(indicator_data_flags,
+                                                 correction_flags))
         }
-        
-        has_zeros <- grepl("\\.[1-9]+0+$",regular_data_numerics$data_value,perl=T)
-        if (any(has_zeros)) {
-          regular_data_numerics[has_zeros,
-                                data_value:=gsub("(\\.[1-9]+)0+$","\\1",data_value,perl=T)]
-        }
-        
-        regular_data[regular_data_numerics,
-                     data_value:=i.data_value,
-                     on=.(parse_id)]
-        
-        indicator_data_flags <- rbindlist(list(indicator_data_flags,
-                                               subs_flags))
-        
-        regular_data_numerics <- NULL
       }
+      
       #SPECIAL FORMATTING FOR SYS CATEGORIES: Names and IDs
       reference_sys_categories <- regular_data[!is.na(indicator_sys_category),unique(indicator_sys_category)]
       if (length(reference_sys_categories) > 0) {
@@ -1033,13 +1138,13 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
         if (any(trues)) tf[trues] <- TRUE
         if (any(falses)) tf[falses] <- FALSE
         
-        missings <- is.na(tf)
+        missings <- is.na(tf) | tf %in% DATA_DEFINED_BLANKS | grepl("logical",tf,ignore.case = T)
         tf <- suppressWarnings(as.logical(tf))
         set(regular_data_tf,i=NULL,j="data_value",value=tf)
         
         bad_logic <- !missings & is.na(tf)
         if (any(bad_logic)) {
-          
+
           bad_flags <- regular_data_tf[bad_logic,
                                              .(parse_id,
                                                check_name="sys_flag_data_format_invalid_logical",
@@ -1062,104 +1167,156 @@ parse_data_formats <- function(template_data, #parses the dataset instead of the
         
         regular_data_dates <- regular_data[data_type=="date"]
         
-        parse_dates <- function(excel_values) {
-          
-          parsed_dates <- rep(NA_character_,length(excel_values))
-          unparsed_dates <- 1:length(excel_values)
-          
-          which_na_dates <- c(which(superTrim(excel_values) %in% recognized_blanks$defined_blank),
-                              which(is.na(excel_values)))
-          
-          if (length(which_na_dates) > 0) {
-            unparsed_dates[which_na_dates] <- NA
-          }
-          if (all(is.na(unparsed_dates))) return (parsed_dates)
-          
-          which_excel_dates <- which(!is.na(suppressWarnings(as.numeric(excel_values))))
-          if (length(which_excel_dates) > 0) {
-            parsed_dates[which_excel_dates] <- as.character(
-                                                as.Date(
-                                                  as.numeric(excel_values[which_excel_dates]), 
-                                                  origin = "1899-12-30")) #it's numeric, read-in as integrate days in Excel format
-            
-            unparsed_dates[which_excel_dates] <- NA
-          }
-          if (all(is.na(unparsed_dates))) return (parsed_dates)
-          
-          which_as_dates <- which(!is.na(suppressWarnings(as.Date(excel_values,optional=TRUE))))
-          if (length(which_as_dates) > 0) {
-            parsed_dates[which_as_dates] <- as.character(as.Date(excel_values[which_as_dates]))
-            unparsed_dates[which_as_dates] <- NA
-          }
-          
-          if (all(is.na(unparsed_dates))) return (parsed_dates)
-          which_ymd_dates <- which(!is.na(suppressWarnings(ymd(excel_values))))
-          if (length(which_ymd_dates) > 0) {
-            parsed_dates[which_ymd_dates] <- as.character(ymd(excel_values[which_ymd_dates]))
-            unparsed_dates[which_ymd_dates] <- NA
-          }
-          if (all(is.na(unparsed_dates))) return (parsed_dates)
-
-          which_dmy_dates <- which(!is.na(suppressWarnings(dmy(excel_values))))
-          if (length(which_dmy_dates) > 0) {
-            parsed_dates[which_dmy_dates] <- as.character(dmy(excel_values[which_dmy_dates]))
-            unparsed_dates[which_dmy_dates] <- NA
-          }
-          if (all(is.na(unparsed_dates))) return (parsed_dates)
-          
-          which_mdy_dates <- which(!is.na(suppressWarnings(mdy(excel_values))))
-          if (length(which_mdy_dates) > 0) {
-            parsed_dates[which_mdy_dates] <- as.character(mdy(excel_values[which_mdy_dates]))
-            unparsed_dates[which_mdy_dates] <- NA
-          }
-          if (all(is.na(unparsed_dates))) return (parsed_dates)
-          
-          return (parsed_dates)
-        }
+        # parse_dates <- function(excel_values) {
+        #   
+        #   parsed_dates <- rep(NA_character_,length(excel_values))
+        #   unparsed_dates <- 1:length(excel_values)
+        #   
+        #   which_na_dates <- c(which(superTrim(excel_values) %in% recognized_blanks$defined_blank),
+        #                       which(is.na(excel_values)))
+        #   
+        #   if (length(which_na_dates) > 0) {
+        #     unparsed_dates[which_na_dates] <- NA
+        #   }
+        #   if (all(is.na(unparsed_dates))) return (parsed_dates)
+        #   
+        #   which_excel_dates <- which(!is.na(suppressWarnings(as.numeric(excel_values))))
+        #   if (length(which_excel_dates) > 0) {
+        #     parsed_dates[which_excel_dates] <- as.character(
+        #                                         as.Date(
+        #                                           as.numeric(excel_values[which_excel_dates]), 
+        #                                           origin = "1899-12-30")) #it's numeric, read-in as integrate days in Excel format
+        #     
+        #     unparsed_dates[which_excel_dates] <- NA
+        #   }
+        #   if (all(is.na(unparsed_dates))) return (parsed_dates)
+        #   
+        #   which_as_dates <- which(!is.na(suppressWarnings(as.Date(excel_values,optional=TRUE))))
+        #   if (length(which_as_dates) > 0) {
+        #     parsed_dates[which_as_dates] <- as.character(as.Date(excel_values[which_as_dates]))
+        #     unparsed_dates[which_as_dates] <- NA
+        #   }
+        #   
+        #   if (all(is.na(unparsed_dates))) return (parsed_dates)
+        #   which_ymd_dates <- which(!is.na(suppressWarnings(ymd(excel_values))))
+        #   if (length(which_ymd_dates) > 0) {
+        #     parsed_dates[which_ymd_dates] <- as.character(ymd(excel_values[which_ymd_dates]))
+        #     unparsed_dates[which_ymd_dates] <- NA
+        #   }
+        #   if (all(is.na(unparsed_dates))) return (parsed_dates)
+        # 
+        #   which_dmy_dates <- which(!is.na(suppressWarnings(dmy(excel_values))))
+        #   if (length(which_dmy_dates) > 0) {
+        #     parsed_dates[which_dmy_dates] <- as.character(dmy(excel_values[which_dmy_dates]))
+        #     unparsed_dates[which_dmy_dates] <- NA
+        #   }
+        #   if (all(is.na(unparsed_dates))) return (parsed_dates)
+        #   
+        #   which_mdy_dates <- which(!is.na(suppressWarnings(mdy(excel_values))))
+        #   if (length(which_mdy_dates) > 0) {
+        #     parsed_dates[which_mdy_dates] <- as.character(mdy(excel_values[which_mdy_dates]))
+        #     unparsed_dates[which_mdy_dates] <- NA
+        #   }
+        #   if (all(is.na(unparsed_dates))) return (parsed_dates)
+        #   
+        #   return (parsed_dates)
+        # }
         
-        regular_data_dates[tolower(data_value)=="date" | normalized_submitted_data_value=="date",data_value:=as.Date(as.numeric(NA))]
+        regular_data_dates[tolower(data_value)=="date" | 
+                           normalized_submitted_data_value=="date" |
+                           superTrim(data_value) %in% recognized_blanks$defined_blank,
+                           data_value:=as.Date(as.numeric(NA))]
         
         missings <- is.na(regular_data_dates$data_value)
-        dates <- parse_dates(excel_values=regular_data_dates$data_value)
         
-        bad_dates <- is.na(dates) | is.na(suppressWarnings(ymd(dates)))
-        if (any(bad_dates)) {
-          unit_dates <- parse_dates(excel_values=regular_data_dates$data_unit[bad_dates])
-          auto_correct <- c()
-          if (any(!is.na(unit_dates))) {
-            
-            auto_correct <- which(bad_dates)[!is.na(unit_dates)]
-            
-            if (length(auto_correct) > 0) {
-              dates[auto_correct] <- unit_dates[!is.na(unit_dates)]
-                
-              regular_data[regular_data_dates[auto_correct],
-                           `:=`(data_unit=as.character(NA)),
-                           on=.(parse_id)]
-              
-              bad_flag_units <- regular_data_dates[auto_correct,
-                                              .(parse_id,
-                                                check_name="sys_flag_data_unit_auto_correction",
-                                                check_message=paste0(indicator_name,": ",
-                                                                     "from {",reporting_submitted_data_unit,"} ",
-                                                                     "to {date} because date value was reported in the data unit column"))]
-              
-              
-              bad_flag_values <- regular_data_dates[auto_correct,
-                                              .(parse_id,
-                                                check_name="sys_flag_data_format_auto_correction",
-                                                check_message=paste0(indicator_name,": ",
-                                                                     "from {",reporting_submitted_data_value,"} ",
-                                                                     "to {",reporting_submitted_data_unit,"} because date value was reported in the data unit column"))]
-              indicator_data_flags <- rbindlist(list(indicator_data_flags,
-                                                     bad_flag_units,
-                                                     bad_flag_values))
+        dates <- {
+          
+          
+          parsed_dates <- rep(as.character(NA),
+                              length(regular_data_dates$data_value))
+          
+          if (length(regular_data_dates$data_value) && !all(missings)) {
+
+            which_excel_dates <- which(!is.na(suppressWarnings(as.numeric(regular_data_dates$data_value))))
+            if (length(which_excel_dates) > 0) {
+              parsed_dates[which_excel_dates] <- as.character(
+                as.Date(
+                  as.numeric(regular_data_dates$data_value[which_excel_dates]), 
+                  origin = "1899-12-30")) #it's numeric, read-in as integrate days in Excel format
             }
+            
+            if (anyNA(parsed_dates[!missings])) {
+              
+              dorders <- c(
+                "ymd",      # 2027-12-20
+                "Ymd",      # 20271220
+                "d b Y",    # 20 Dec 2027
+                "d B Y",    # 20 December 2027
+                "b d Y",    # Dec 20 2027
+                "B d Y",    # December 20 2027
+                "dmy",      # 20/12/2027
+                "mdy",      # 12/20/2027
+                "dmY",
+                "mdY",
+                "dmy",
+                "mdy"
+              )
+              parsed_dates[is.na(parsed_dates) & !missings] <- as.character(lubridate::parse_date_time(regular_data_dates$data_value[is.na(parsed_dates) & !missings],
+                                                                                          orders=dorders,
+                                                                                          quiet=T))
+            } 
+            
           }
-          # if (length(auto_correct)>0) {
-          #   dates[bad_dates==TRUE & auto_correct==FALSE] <- as.character(NA)
+
+          # 
+          # if (length(which_na_dates) > 0) {
+          #   unparsed_dates[which_na_dates] <- NA
           # }
+          # if (all(is.na(unparsed_dates))) return (parsed_dates
+          
+          
+          parsed_dates
         }
+        
+
+        # bad_dates <- is.na(dates) | is.na(suppressWarnings(ymd(dates)))
+        # if (any(bad_dates)) {
+        #   unit_dates <- parse_dates(excel_values=regular_data_dates$data_unit[bad_dates])
+        #   auto_correct <- c()
+        #   if (any(!is.na(unit_dates))) {
+        #     
+        #     auto_correct <- which(bad_dates)[!is.na(unit_dates)]
+        #     
+        #     if (length(auto_correct) > 0) {
+        #       dates[auto_correct] <- unit_dates[!is.na(unit_dates)]
+        #         
+        #       regular_data[regular_data_dates[auto_correct],
+        #                    `:=`(data_unit=as.character(NA)),
+        #                    on=.(parse_id)]
+        #       
+        #       bad_flag_units <- regular_data_dates[auto_correct,
+        #                                       .(parse_id,
+        #                                         check_name="sys_flag_data_unit_auto_correction",
+        #                                         check_message=paste0(indicator_name,": ",
+        #                                                              "from {",reporting_submitted_data_unit,"} ",
+        #                                                              "to {date} because date value was reported in the data unit column"))]
+        #       
+        #       
+        #       bad_flag_values <- regular_data_dates[auto_correct,
+        #                                       .(parse_id,
+        #                                         check_name="sys_flag_data_format_auto_correction",
+        #                                         check_message=paste0(indicator_name,": ",
+        #                                                              "from {",reporting_submitted_data_value,"} ",
+        #                                                              "to {",reporting_submitted_data_unit,"} because date value was reported in the data unit column"))]
+        #       indicator_data_flags <- rbindlist(list(indicator_data_flags,
+        #                                              bad_flag_units,
+        #                                              bad_flag_values))
+        #     }
+        #   }
+        #   # if (length(auto_correct)>0) {
+        #   #   dates[bad_dates==TRUE & auto_correct==FALSE] <- as.character(NA)
+        #   # }
+        # }
         
         
         

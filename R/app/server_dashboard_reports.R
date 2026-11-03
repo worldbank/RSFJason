@@ -128,8 +128,6 @@ SERVER_DASHBOARD_DO_LOAD <- function(for_facility_sys_names=NA,
                                      do_run=TRUE) {
   
   if (!LOGGEDIN()) return (NULL)
-  #SERVER_DASHBOARD_AUTORUN(FALSE)
-  #runjs(paste0('Shiny.setInputValue("server_dashboard__autorun",false,{priority: "event"})'))
   if (!is.null(dashboard_parameters) &&
       !identical(dashboard_parameters,list()) &&
       is.null(names(dashboard_parameters))) stop("Dashboard parameters submitted but does not appear to be a valid list?")
@@ -155,13 +153,9 @@ SERVER_DASHBOARD_DO_LOAD <- function(for_facility_sys_names=NA,
     #Could pass-in rsf_pfcbl_id as well as the SYSNAME
     for_facility_sys_names <- as.character(for_facility_sys_names)
     facility_rsf_pfcbl_ids <- NULL
-    
-    
-    
-
   
     if (any(for_facility_sys_names=="ALL",na.rm=T)) {
-      facility_rsf_pfcbl_ids <- SERVER_DASHBOARD_FACILITIES_LIST()$rsf_pfcbl_id
+      facility_rsf_pfcbl_ids <- SERVER_DASHBOARD_FACILITIES_LIST()$rsf_pfcbl_id #will include program_and_facilities_list()
       
     } else if (any(as.character(SERVER_DASHBOARD_FACILITIES_LIST()$rsf_pfcbl_id) %in% 
                    as.character(for_facility_sys_names),na.rm = T)) {
@@ -171,12 +165,6 @@ SERVER_DASHBOARD_DO_LOAD <- function(for_facility_sys_names=NA,
                
     } else if (!empty(SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST())) {
       
-      # entities <- rbindlist(lapply(grep("^\\d+$",for_facility_sys_names,invert=T,value=T),
-      # function(x) {
-      #  
-      #   y <- unlist(strsplit(for_facility_sys_names,">",fixed=T))
-      #   data.table(program_pfcbl_name=trimws(y[1]),facility_pfcbl_name=trimws(y[2]),sys_name=x)
-      # }))
       
       facility_rsf_pfcbl_ids <- unique(
         c(SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()[
@@ -188,6 +176,15 @@ SERVER_DASHBOARD_DO_LOAD <- function(for_facility_sys_names=NA,
       
     } 
     
+    if (grepl("^program_|^sys_program_",for_indicator_names) &
+        isTruthy(SELECTED_PROGRAM_ID()>0) &
+        !any(SELECTED_PROGRAM_ID() %in% facility_rsf_pfcbl_ids,na.rm=T)) {
+      
+      facility_rsf_pfcbl_ids <- c(SELECTED_PROGAM_ID(),
+                                  facility_rsf_pfcbl_ids)
+    }
+    
+    #will include program_id
     SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids <- facility_rsf_pfcbl_ids
     updateSelectizeInput(session=session,
                          inputId="server_dashboard__reporting_facility",
@@ -457,6 +454,7 @@ SERVER_DASHBOARD_REPORTS_function_CURRENT_PARAMETERS <- function() {
   for_report_id <- as.numeric(NA)
   for_title <- "RSF Jason Data Extract"
   selected_indicator_ids <- input$server_dashboard__reporting_column_priority
+
   if (isTruthy(selected_indicator_ids)) {
     for_indicator_names <- SERVER_DASHBOARD_INDICATORS()[indicator_id %in% selected_indicator_ids]
     for_indicator_names <- for_indicator_names[match(selected_indicator_ids,for_indicator_names$indicator_id),indicator_name]
@@ -465,6 +463,11 @@ SERVER_DASHBOARD_REPORTS_function_CURRENT_PARAMETERS <- function() {
       
       if (any(paste0(":report:",SERVER_DASHBOARD_REPORT_SELECTED()$report_title) %in% for_indicator_names,na.rm=T)) {
         for_report_id <- SERVER_DASHBOARD_REPORT_SELECTED()$report_id
+        for_title <- SERVER_DASHBOARD_REPORT_SELECTED()$report_title
+      } else {
+        for_tile <- paste0(gsub("^:report:","",
+                                grep("^:report:",for_indicator_names,value=T)),
+                           collapse=" & ")
       }
       
       index <- min(grep("^:report:",for_indicator_names))
@@ -507,7 +510,10 @@ SERVER_DASHBOARD_REPORTS_function_CURRENT_PARAMETERS <- function() {
   
   for_title <- paste0(for_title," - ",
                       ifelse(length(na.omit(printed_dates))>1,
-                             "TIMESERIES",
+                             paste0("TIMESERIES from ",
+                                    format_asof_date_label(printed_dates[[1]],F),
+                                    " to ",
+                                    format_asof_date_label(printed_dates[[length(printed_dates)]],F)),
                              format_asof_date_label(printed_dates[[1]],F)))
 
   filter_names <- input$server_dashboard__name_filter
@@ -533,8 +539,8 @@ SERVER_DASHBOARD_REPORTS_function_CURRENT_PARAMETERS <- function() {
   dashboard_settings$filter_names <- filter_names
   dashboard_settings$filter_flags <- filter_flags
   
-  report_title <- trimws(input$server_dashboard_reports__title)
-  report_notes <- input$server_dashboard_reports__notes
+  # report_title <- trimws(input$server_dashboard_reports__title)
+  # report_notes <- input$server_dashboard_reports__notes
 
   return(list(user_id=USER_ID(),
               dashboard_settings=dashboard_settings,
@@ -804,16 +810,6 @@ observeEvent(SERVER_DASHBOARD_REPORT_SELECTED(), {
 },
 priority = 10) #need this observer to fire before observeEvent(SERVER_DASHBOARD_INDICATORS()
 
-
-# observeEvent(input$tabset_dashboard, {
-#   
-#   if (input$tabset_dashboard %in% "dashboard") {
-#     
-#     updateSwitchInput(session=session,
-#                       inputId="server_dashboard__autorun",
-#                       value=TRUE)
-#   }
-# })
 
 output$server_dashboard_reports__list <- DT::renderDataTable({
   

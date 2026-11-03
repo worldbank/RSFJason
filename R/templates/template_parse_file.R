@@ -27,7 +27,7 @@ template_parse_file <- function(pool,
     t1 <- Sys.time()
     
     status_message(class="warning","\n\nParsing template: ",basename(template_file),"\n")
-    
+    template_lookup <- NULL
     #Latency check
     {
       measure_baseline_latency <- function(pool) {
@@ -364,6 +364,9 @@ template_parse_file <- function(pool,
     #it IS a valid RSF template
     else { #It IS an RSF template
 
+      template_lookup <- db_export_get_template(pool=pool,
+                                                template_name=template$template_name)
+      
       #PFCBL templates are far less likely to experience these types of errors.
       #More importantly they are more likely to upload/overwrite data that will correct such errors
       #And very likely to be generated via a web UI upload where the upload is unrelated to an error and a failure will cause a user to lose data
@@ -402,6 +405,7 @@ template_parse_file <- function(pool,
     }    
   }
   
+  
   { 
     if (is.null(template$cohort_pfcbl_id) || all(is.na(template$cohort_pfcbl_id))) {
       stop("Template was unable to resolve cohort_pfcbl_id")
@@ -423,313 +427,310 @@ template_parse_file <- function(pool,
   
   }
   #testing:
-  #template$template_data[grepl("[a-z]_EUR$",indicator_name),indicator_name:=gsub("_EUR$","",indicator_name)]
-  #template$template_data[grepl("_$",indicator_name),indicator_name:=gsub("_$","",indicator_name)]
-  #template$template_data[grepl("[a-z]_EUR$",indicator_name)]
-  #template$template_data[grepl("loan_original_balance",indicator_name)]
+  
+  
+  
+  
+  #setup reporting_flags
+  { 
+    #template_parse_file may have already created and added this data table as a result of parsing indicators.
+    #but if not, no errors were found.  Yay!  But create an empty table because we query it later when trying to upload any errors that may exist.
+    if (is.null(template$pfcbl_reporting_flags)) {
+      template$pfcbl_reporting_flags <- data.table(rsf_pfcbl_id=numeric(0),
+                                                   indicator_id=numeric(0),
+                                                   reporting_asof_date=as.Date(numeric(0)),
+                                                   check_name=character(0),
+                                                   check_message=character(0))
+    } else {
+      if (!setequal(names(template$pfcbl_reporting_flags),
+                    c("rsf_pfcbl_id",
+                      "indicator_id",
+                      "reporting_asof_date",
+                      "check_name",
+                      "check_message"))) {
+        stop(paste0("parse_template function for ",template_lookup$template_name," has added template$pfcbl_reporting_flags with incorrect columns: ",
+                    paste0(names(template$pfcbl_reporting_flags),collapse=", ")))
+      }
+    }
+  }
+  
+  # (1) Parse indicators, ensure they're valid for this program
+  # (2) Parse indicator formats and flag/omit invalid data formats and options 
+  #     !important: this must be done before hashvalues and further controls to ensure comparisons are being made against normalized data (eg, trimmed, etc)
+  #     especially before matching IDs using things like name where normalized name is trimmed and upper case and only useful to compare using standardized formatting
+  # (3) Get program settings to control further processing behavior
   
   {
+    if (!all(c("cohort_pfcbl_id",
+               "rsf_indicators",
+               "reporting_asof_date",
+               "template_ids_method",
+               "template_data") %in% names(template))) stop("Templates must return: cohort_pfcbl_id, rsf_indicators,  reporting_import, reporting_asof_date, template_source_reference, template_ids_method and template_data")
+    
+    reqs <- c("reporting_asof_date",
+              "indicator_name",
+              "reporting_submitted_data_unit",
+              "reporting_submitted_data_value",
+              "reporting_submitted_data_formula",
+              "reporting_template_row_group")
+    
+    if (length(setdiff(reqs,
+                       names(template$template_data)))>0) {
+      
+      stop(paste0("Template Data must define: ",
+                  paste0(reqs,collapse=", ")))
+    
+    }
+    
+    if (!template$template_ids_method %in% c("rsf_id","pfcbl_id")) stop("Template IDs method must define either 'rsf_id' or 'pfcbl_id'")
+    
+    if (template$template_ids_method=="pfcbl_id" && !any(names(template$template_data)=="SYSID")) {
+      stop("Templates defining pfcbl_id lookup must define SYSID column in template_data")
+    }
+    
+    if (length(template$reporting_asof_date) != 1) {
+      stop("Template must report one (and only one) reporting date")
+    }
+    
+    # if (!all(template$reporting_asof_date %in% template$template_data$reporting_asof_date) && length(template$template_data$reporting_asof_date) > 0) {
+    #   stop(paste0("Template reporting_asof_date ",template$reporting_asof_date," must be present in template_data.  Must data dates are: ",
+    #               paste0(unique(template$template_data$reporting_asof_date),collapse=", ")))
+    # }
+    
+    #Templates imported via fread return an "IDate" "Date" class that can later cause conflicts when rbindlist with regular Date classes;
+    #for all other circumstances, this turns dates into dates and is otherwise not useful...
+    template$template_data[,
+                           reporting_asof_date:=as.Date(reporting_asof_date)]
+  }
+  
+  #Parsing template data
+  {
+    
+    status_message("Parsing template data.\n")
+    
+    # if (empty(template$template_data)) {
+    #   
+    #   stop("Template contains no data after omitting unrecognized/unsubscribed indicators.  Ensure program is subscribed to indicators and labels are properly defined.")
+    # }
+    #if unknown indicator name is submitted, NA indicator_id. This will be filtered later after rsf_pfcbl_ids are identified along with relevant subscriptions
+    template$template_data[template$rsf_indicators,
+                           `:=`(indicator_id=i.indicator_id,
+                                indicator_sys_category=i.indicator_sys_category,
+                                data_category=i.data_category),
+                           on=.(indicator_name)]
+    
+    template$template_data <- unique(template$template_data)
    
-    #setup reporting_flags
-    { 
-      #template_parse_file may have already created and added this data table as a result of parsing indicators.
-      #but if not, no errors were found.  Yay!  But create an empty table because we query it later when trying to upload any errors that may exist.
-      if (is.null(template$pfcbl_reporting_flags)) {
-        template$pfcbl_reporting_flags <- data.table(rsf_pfcbl_id=numeric(0),
-                                                     indicator_id=numeric(0),
-                                                     reporting_asof_date=as.Date(numeric(0)),
-                                                     check_name=character(0),
-                                                     check_message=character(0))
-      } else {
-        if (!setequal(names(template$pfcbl_reporting_flags),
-                      c("rsf_pfcbl_id",
-                        "indicator_id",
-                        "reporting_asof_date",
-                        "check_name",
-                        "check_message"))) {
-          stop(paste0("parse_template function for ",template_lookup$template_name," has added template$pfcbl_reporting_flags with incorrect columns: ",
-                      paste0(names(template$pfcbl_reporting_flags),collapse=", ")))
-        }
-      }
-    }
+    #Instances where templates repeat indicators on multiple rows for convenience sake of the user but use different labels, aliases of labels or language combination of
+    #labels. So merge these all together.
     
-    # (1) Parse indicators, ensure they're valid for this program
-    # (2) Parse indicator formats and flag/omit invalid data formats and options 
-    #     !important: this must be done before hashvalues and further controls to ensure comparisons are being made against normalized data (eg, trimmed, etc)
-    #     especially before matching IDs using things like name where normalized name is trimmed and upper case and only useful to compare using standardized formatting
-    # (3) Get program settings to control further processing behavior
+    #parse_data_formats adds a list column: data_flags_new
+    #this is because we do not yet know the rsf_pfcbl_id associated with this line-item entry.
+    #and therefore, we keep it tied to the data point so that after it is processed, we can disaggregate these flags and assign it to the appropraite rsf_pfcbl_id,
+    #after it is known.
+    template$template_data <- parse_data_formats(template_data=template$template_data,
+                                                 rsf_indicators=template$rsf_indicators,
+                                                 CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
+   
     
+    
+    
+    #Fixed currency vs LCU currency redundancies
+    #The templates themselves should filter these out.  But in case they don't...
     {
-      if (!all(c("cohort_pfcbl_id",
-                 "rsf_indicators",
-                 "reporting_asof_date",
-                 "template_ids_method",
-                 "template_data") %in% names(template))) stop("Templates must return: cohort_pfcbl_id, rsf_indicators,  reporting_import, reporting_asof_date, template_source_reference, template_ids_method and template_data")
+      #unit_fx_indicator_id is the base indicator in LCU
+      unit_fx_indicators <- rsf_indicators[!is.na(unit_fx_indicator_id),.(unit_fx_indicator_id,indicator_id,data_unit,indicator_name)]
+      if (any(unit_fx_indicators$indicator_id %in% unique(template$template_data$indicator_id,na.rm=T))) {
       
-      reqs <- c("reporting_asof_date",
-                "indicator_name",
-                "reporting_submitted_data_unit",
-                "reporting_submitted_data_value",
-                "reporting_submitted_data_formula",
-                "reporting_template_row_group")
-      
-      if (length(setdiff(reqs,
-                         names(template$template_data)))>0) {
-        
-        stop(paste0("Template Data must define: ",
-                    paste0(reqs,collapse=", ")))
-      
-      }
-      
-      if (!template$template_ids_method %in% c("rsf_id","pfcbl_id")) stop("Template IDs method must define either 'rsf_id' or 'pfcbl_id'")
-      
-      if (template$template_ids_method=="pfcbl_id" && !any(names(template$template_data)=="SYSID")) {
-        stop("Templates defining pfcbl_id lookup must define SYSID column in template_data")
-      }
-      
-      if (length(template$reporting_asof_date) != 1) {
-        stop("Template must report one (and only one) reporting date")
-      }
-      
-      # if (!all(template$reporting_asof_date %in% template$template_data$reporting_asof_date) && length(template$template_data$reporting_asof_date) > 0) {
-      #   stop(paste0("Template reporting_asof_date ",template$reporting_asof_date," must be present in template_data.  Must data dates are: ",
-      #               paste0(unique(template$template_data$reporting_asof_date),collapse=", ")))
-      # }
-      
-      #Templates imported via fread return an "IDate" "Date" class that can later cause conflicts when rbindlist with regular Date classes;
-      #for all other circumstances, this turns dates into dates and is otherwise not useful...
-      template$template_data[,
-                             reporting_asof_date:=as.Date(reporting_asof_date)]
-    }
-    
-    #Parsing template data
-    {
-      
-      status_message("Parsing template data.\n")
-      
-      # if (empty(template$template_data)) {
-      #   
-      #   stop("Template contains no data after omitting unrecognized/unsubscribed indicators.  Ensure program is subscribed to indicators and labels are properly defined.")
-      # }
-      #if unknown indicator name is submitted, NA indicator_id. This will be filtered later after rsf_pfcbl_ids are identified along with relevant subscriptions
-      template$template_data[template$rsf_indicators,
-                             `:=`(indicator_id=i.indicator_id,
-                                  indicator_sys_category=i.indicator_sys_category,
-                                  data_category=i.data_category),
-                             on=.(indicator_name)]
-      
-      template$template_data <- unique(template$template_data)
-     
-      #Instances where templates repeat indicators on multiple rows for convenience sake of the user but use different labels, aliases of labels or language combination of
-      #labels. So merge these all together.
-      
-      #parse_data_formats adds a list column: data_flags_new
-      #this is because we do not yet know the rsf_pfcbl_id associated with this line-item entry.
-      #and therefore, we keep it tied to the data point so that after it is processed, we can disaggregate these flags and assign it to the appropraite rsf_pfcbl_id,
-      #after it is known.
-      template$template_data <- parse_data_formats(template_data=template$template_data,
-                                                   rsf_indicators=template$rsf_indicators,
-                                                   CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
-     
-      
-      
-      
-      #Fixed currency vs LCU currency redundancies
-      #The templates themselves should filter these out.  But in case they don't...
-      {
-        #unit_fx_indicator_id is the base indicator in LCU
-        unit_fx_indicators <- rsf_indicators[!is.na(unit_fx_indicator_id),.(unit_fx_indicator_id,indicator_id,data_unit,indicator_name)]
-        if (any(unit_fx_indicators$indicator_id %in% unique(template$template_data$indicator_id,na.rm=T))) {
-        
-          template$template_data[,
-                      `:=`(unit_fx_defined=NA,
-                           omit=NA)]
-  
-          template$template_data[unit_fx_indicators,
-                      unit_fx_defined:=mapply(grepl,pattern=i.data_unit,x=data_unit,MoreArgs=list(ignore.case=T)),
-                      on=.(indicator_id)]
-  
-          template$template_data[,
-                      omit:=is.na(unit_fx_defined) & any(!is.na(unit_fx_defined),na.rm=T),
-                      by=.(reporting_template_row_group,reporting_template_data_rank)]
-          
-          #template$template_data[omit==T]
-          template$template_data <- template$template_data[omit==FALSE]
-        }  
-        
-      }
-    } 
-    
-    #Validate template_reporting_row_group: ensures max/min and sorting of reporting_template_row_group are as expected
-    #Starts with a row number, upper case dataset name and/or sheet name
-    {
-      if (any(grepl("^[[:digit:]]+[A-Z_-]+$",template$template_data$reporting_template_row_group)==FALSE)) {
-        first <- template$template_data$reporting_template_row_group[which(!grepl("^[[:digit:]]+[A-Z_-]+$",template$template_data$reporting_template_row_group))[[1]]]
-        
-        stop(paste0("template_data$reporting_template_row_group expects format: ROW-numberROW-name. Where ROW-name is Letters or _ or - (not numbers or other punctuation).  First malformed row group is: ",first))
-      }
-    }
-    
-    #Good practice for all templates to add this.  But it's really only an issue if duplicated data is being reported, which most usually (intentionally) occurs when 
-    #the same data point is repeated in a template either for convenience sake, or as a different currency value using a current fx rate.
-    if (!any(names(template$template_data)=="reporting_template_data_rank")) {
-      dups <- template$template_data[,
-                                     .(n=.N,
-                                       duplicates=paste0(data_submitted,collapse=" & ")),
-                                     by=.(reporting_template_row_group,
-                                          indicator_id,
-                                          indicator_name,
-                                          reporting_asof_date)][n>1]
-      
-      if (!empty(dups)) {
-        stop(paste0("Template coding error (contact your system admin): Template ",
-        template$template_name," has reported duplicate data for metrics:\n\n",
-        paste0(unique(dups$indicator_name),collapse=", "),"\n\n",
-        " but the parse_template() has not created a column for reporting_template_data_rank. Verify that the indicator names and alises are correctly assigned for this template for ",
-        " these metrics. Duplicates may be incorrectly appearing as a result of mis-assigning indicator names to the wrong column name"))
-      }
-      
-      template$template_data[,reporting_template_data_rank:=1:.N]
-    
-    
-    
-    
-    } else {
-
-      
-      #nrow(unique(template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)])) != nrow(template)
-      bad_rows <- c(which(!template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)][,c(1:.N)]==1:nrow(template$template_data)),
-                    template$template_data[,.(n=.N,r=.I),by=.(reporting_template_row_group,reporting_template_data_rank)][n>1,r])
-      if (length(bad_rows)) {
-        
-        status_message(class="error",
-                       paste0("parse_template() function for ",template$template_name," sets reporting_template_row_group and reporting_template_data_rank but these do not uniquely identify all ",
-                   nrow(template$template_data)," rows of data\n:",
-                   paste0(capture.output(template$template_data[bad_rows]),collapse="\n")))
-        
-        template$template_data[,omit:=FALSE]
         template$template_data[,
-                               `:=`(n=.N,
-                                    omit=.N>1 & (1:.N)>1),
-                               .(reporting_template_row_group,reporting_template_data_rank)]
-        bad_duplicates <- template$template_data[n>1,
-                                                 .(rsf_pfcbl_id=NA,
-                                                   indicator_id,
-                                                   reporting_asof_date,
-                                                   check_name="sys_reporting_data_discarded",
-                                                   check_message=paste0("Template import error resulted in ambiguous data on ",
-                                                                        reporting_template_row_group,"#",reporting_template_data_rank," for: \n",
-                                                                        paste0(paste0("'",indicator_name,"' = ",data_submitted),collapse=" AND \n"),
-                                                                        "System will keep: ",unique(.SD[omit==F,paste0(indicator_name,"=",data_submitted)]),"\n",
-                                                                        "And DSICARD: ",paste0(unique(.SD[omit==T,paste0(indicator_name,"=",data_submitted)]),collapse=" AND \n"))),
-                                                 by=.(reporting_template_row_group,reporting_template_data_rank)]
-        template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
-                                                         bad_duplicates[,.(rsf_pfcbl_id,indicator_id,reporting_asof_date,check_name,check_message)]))
-        template$template_data <-  template$template_data[omit==FALSE]
-        template$template_data[,`:=`(omit=NULL,n=NULL)]
+                    `:=`(unit_fx_defined=NA,
+                         omit=NA)]
+
+        template$template_data[unit_fx_indicators,
+                    unit_fx_defined:=mapply(grepl,pattern=i.data_unit,x=data_unit,MoreArgs=list(ignore.case=T)),
+                    on=.(indicator_id)]
+
+        template$template_data[,
+                    omit:=is.na(unit_fx_defined) & any(!is.na(unit_fx_defined),na.rm=T),
+                    by=.(reporting_template_row_group,reporting_template_data_rank)]
+        
+        #template$template_data[omit==T]
+        template$template_data <- template$template_data[omit==FALSE]
+      }  
+      
+    }
+  } 
+  
+  #Validate template_reporting_row_group: ensures max/min and sorting of reporting_template_row_group are as expected
+  #Starts with a row number, upper case dataset name and/or sheet name
+  {
+    if (any(grepl("^[[:digit:]]+[A-Z_-]+$",template$template_data$reporting_template_row_group)==FALSE)) {
+      first <- template$template_data$reporting_template_row_group[which(!grepl("^[[:digit:]]+[A-Z_-]+$",template$template_data$reporting_template_row_group))[[1]]]
+      
+      stop(paste0("template_data$reporting_template_row_group expects format: ROW-numberROW-name. Where ROW-name is Letters or _ or - (not numbers or other punctuation).  First malformed row group is: ",first))
+    }
+  }
+  
+  #Good practice for all templates to add this.  But it's really only an issue if duplicated data is being reported, which most usually (intentionally) occurs when 
+  #the same data point is repeated in a template either for convenience sake, or as a different currency value using a current fx rate.
+  if (!any(names(template$template_data)=="reporting_template_data_rank")) {
+    dups <- template$template_data[,
+                                   .(n=.N,
+                                     duplicates=paste0(data_submitted,collapse=" & ")),
+                                   by=.(reporting_template_row_group,
+                                        indicator_id,
+                                        indicator_name,
+                                        reporting_asof_date)][n>1]
+    
+    if (!empty(dups)) {
+      stop(paste0("Template coding error (contact your system admin): Template ",
+      template$template_name," has reported duplicate data for metrics:\n\n",
+      paste0(unique(dups$indicator_name),collapse=", "),"\n\n",
+      " but the parse_template() has not created a column for reporting_template_data_rank. Verify that the indicator names and alises are correctly assigned for this template for ",
+      " these metrics. Duplicates may be incorrectly appearing as a result of mis-assigning indicator names to the wrong column name"))
+    }
+    
+    template$template_data[,reporting_template_data_rank:=1:.N]
+  
+  
+  
+  
+  } else {
+
+    
+    #nrow(unique(template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)])) != nrow(template)
+    bad_rows <- c(which(!template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)][,c(1:.N)]==1:nrow(template$template_data)),
+                  template$template_data[,.(n=.N,r=.I),by=.(reporting_template_row_group,reporting_template_data_rank)][n>1,r])
+    if (length(bad_rows)) {
+      
+      status_message(class="error",
+                     paste0("parse_template() function for ",template$template_name," sets reporting_template_row_group and reporting_template_data_rank but these do not uniquely identify all ",
+                 nrow(template$template_data)," rows of data\n:",
+                 paste0(capture.output(template$template_data[bad_rows]),collapse="\n")))
+      
+      template$template_data[,omit:=FALSE]
+      template$template_data[,
+                             `:=`(n=.N,
+                                  omit=.N>1 & (1:.N)>1),
+                             .(reporting_template_row_group,reporting_template_data_rank)]
+      bad_duplicates <- template$template_data[n>1,
+                                               .(rsf_pfcbl_id=NA,
+                                                 indicator_id,
+                                                 reporting_asof_date,
+                                                 check_name="sys_reporting_data_discarded",
+                                                 check_message=paste0("Template import error resulted in ambiguous data on ",
+                                                                      reporting_template_row_group,"#",reporting_template_data_rank," for: \n",
+                                                                      paste0(paste0("'",indicator_name,"' = ",data_submitted),collapse=" AND \n"),
+                                                                      "System will keep: ",unique(.SD[omit==F,paste0(indicator_name,"=",data_submitted)]),"\n",
+                                                                      "And DSICARD: ",paste0(unique(.SD[omit==T,paste0(indicator_name,"=",data_submitted)]),collapse=" AND \n"))),
+                                               by=.(reporting_template_row_group,reporting_template_data_rank)]
+      template$pfcbl_reporting_flags <- rbindlist(list(template$pfcbl_reporting_flags,
+                                                       bad_duplicates[,.(rsf_pfcbl_id,indicator_id,reporting_asof_date,check_name,check_message)]))
+      template$template_data <-  template$template_data[omit==FALSE]
+      template$template_data[,`:=`(omit=NULL,n=NULL)]
+    }
+    
+    set(template$template_data,
+        j="reporting_template_data_rank",
+        value=frank(template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)],ties.method="dense"))
+  }
+  
+ 
+  cross_references <- unique(template$template_data[,
+                                             .(reporting_template_group=gsub("^[[:digit:]]+","",reporting_template_row_group),
+                                               indicator_name,
+                                               indicator_id,
+                                               data_value)])[,.(n=.N,
+                                                                data_values=list(unique(data_value)),
+                                                                data_counts=length(unique(data_value)),
+                                                                reporting_template_group),
+                                                                 by=.(indicator_name,indicator_id)][n>1]
+  
+  
+  cross_references <- template$template_data[,
+                                             .(reporting_template_group=gsub("^[[:digit:]]+","",reporting_template_row_group),
+                                               indicator_name,
+                                               indicator_id,
+                                               data_value,
+                                               data_unit)]
+  
+  cross_references[,n:=length(unique(reporting_template_group)),
+                  by=.(indicator_name,indicator_id)]
+  cross_references <- cross_references[n>1]
+  
+  if (!empty(cross_references)) {
+  
+    cross_references[,
+                     n:=length(unique(paste0(data_value," ",data_unit))),
+                     by=.(indicator_name,indicator_id)] 
+    
+    cross_references <- cross_references[n>1]
+    if (!empty(cross_references)) {
+
+      setorder(cross_references,
+               indicator_id,
+               reporting_template_group)
+      
+      cross_references[,cross_id:=1:.N,
+                       by=.(indicator_id)]
+      
+      if (!empty(template$template_headers)) {
+        cross_headers <- template$template_headers[indicator_id %in% unique(cross_references$indicator_id)]
+        setorder(cross_headers,
+                 indicator_id,
+                 data_source_index)
+        cross_headers[,cross_id:=.GRP,
+                      by=.(indicator_id,
+                           data_source_index)]
+        cross_references[cross_headers,
+                         label:=i.label,
+                         on=.(indicator_id,
+                              cross_id)]
+        cross_references <- cross_references[,
+                                             message:=paste0(reporting_template_group," SHEET @",label,": ",indicator_name," {",data_value,"}\n")]
+        
+      } else {
+        cross_references <- cross_references[,
+                                             message:=paste0("SHEET ",reporting_template_group," ",indicator_name," {",data_value,"}\n")]
       }
       
-      set(template$template_data,
-          j="reporting_template_data_rank",
-          value=frank(template$template_data[,.(reporting_template_row_group,reporting_template_data_rank)],ties.method="dense"))
+      
+      stop(paste("Indicators cannot be reported on different template data sheets with different values:\n",paste0(cross_references$message,collapse="\n AND\n"),
+                 "\nEnsure that headers are properly labled in each section to ensure the correct indicator is mapped to the right header"))
     }
+  }
+  cross_references <- NULL
+  
+  {
+    #NOTE: A cohort with a "today" reporting date will have a valid reporting_asof_date.  That cohort MAY ALSO have FUTURE reporting_asof_dates in its
+    #template_data in which case, cohort triggers will insert those future dates as valid dates.
+    #However, a template with a "tomorrow" reporting date will not be allowed.
+    #Ie, I can know today what future requirements will be (because they're contracted to be so).
+    #But I cannot report future data from a future perspective.
+    valid_date_range <- dbGetQuery(pool,"
+                                   select 
+                                    ids.pfcbl_category,
+                                    ids.created_in_reporting_asof_date::text as first_date,
+                                    ((date_trunc('quarter',(now()::date)::timestamp with time zone + '3 mons'::interval) - interval '1 day')::date)::text as current_date
+                                    from p_rsf.rsf_pfcbl_ids ids
+                                    where ids.rsf_pfcbl_id = $1::int",
+                                   params=list(template$cohort_pfcbl_id))
     
    
-    cross_references <- unique(template$template_data[,
-                                               .(reporting_template_group=gsub("^[[:digit:]]+","",reporting_template_row_group),
-                                                 indicator_name,
-                                                 indicator_id,
-                                                 data_value)])[,.(n=.N,
-                                                                  data_values=list(unique(data_value)),
-                                                                  data_counts=length(unique(data_value)),
-                                                                  reporting_template_group),
-                                                                   by=.(indicator_name,indicator_id)][n>1]
-    
-    
-    cross_references <- template$template_data[,
-                                               .(reporting_template_group=gsub("^[[:digit:]]+","",reporting_template_row_group),
-                                                 indicator_name,
-                                                 indicator_id,
-                                                 data_value,
-                                                 data_unit)]
-    
-    cross_references[,n:=length(unique(reporting_template_group)),
-                    by=.(indicator_name,indicator_id)]
-    cross_references <- cross_references[n>1]
-    
-    if (!empty(cross_references)) {
-    
-      cross_references[,
-                       n:=length(unique(paste0(data_value," ",data_unit))),
-                       by=.(indicator_name,indicator_id)] 
-      
-      cross_references <- cross_references[n>1]
-      if (!empty(cross_references)) {
-
-        setorder(cross_references,
-                 indicator_id,
-                 reporting_template_group)
-        
-        cross_references[,cross_id:=1:.N,
-                         by=.(indicator_id)]
-        
-        if (!empty(template$template_headers)) {
-          cross_headers <- template$template_headers[indicator_id %in% unique(cross_references$indicator_id)]
-          setorder(cross_headers,
-                   indicator_id,
-                   data_source_index)
-          cross_headers[,cross_id:=.GRP,
-                        by=.(indicator_id,
-                             data_source_index)]
-          cross_references[cross_headers,
-                           label:=i.label,
-                           on=.(indicator_id,
-                                cross_id)]
-          cross_references <- cross_references[,
-                                               message:=paste0(reporting_template_group," SHEET @",label,": ",indicator_name," {",data_value,"}\n")]
-          
-        } else {
-          cross_references <- cross_references[,
-                                               message:=paste0("SHEET ",reporting_template_group," ",indicator_name," {",data_value,"}\n")]
-        }
-        
-        
-        stop(paste("Indicators cannot be reported on different template data sheets with different values:\n",paste0(cross_references$message,collapse="\n AND\n"),
-                   "\nEnsure that headers are properly labled in each section to ensure the correct indicator is mapped to the right header"))
-      }
+    if (any(is.na(valid_date_range$first_date),is.na(valid_date_range$current_date))) {
+      stop(paste0("Failed to determine valid reporting date ranges for this template report. Verify that the IFC project ID is valid"))
     }
-    cross_references <- NULL
     
-    {
-      #NOTE: A cohort with a "today" reporting date will have a valid reporting_asof_date.  That cohort MAY ALSO have FUTURE reporting_asof_dates in its
-      #template_data in which case, cohort triggers will insert those future dates as valid dates.
-      #However, a template with a "tomorrow" reporting date will not be allowed.
-      #Ie, I can know today what future requirements will be (because they're contracted to be so).
-      #But I cannot report future data from a future perspective.
-      valid_date_range <- dbGetQuery(pool,"
-                                     select 
-                                      ids.pfcbl_category,
-                                      ids.created_in_reporting_asof_date::text as first_date,
-                                      ((date_trunc('quarter',(now()::date)::timestamp with time zone + '3 mons'::interval) - interval '1 day')::date)::text as current_date
-                                      from p_rsf.rsf_pfcbl_ids ids
-                                      where ids.rsf_pfcbl_id = $1::int",
-                                     params=list(template$cohort_pfcbl_id))
-      
-     
-      if (any(is.na(valid_date_range$first_date),is.na(valid_date_range$current_date))) {
-        stop(paste0("Failed to determine valid reporting date ranges for this template report. Verify that the IFC project ID is valid"))
-      }
-      
-      if (template$reporting_asof_date < as.Date(valid_date_range$first_date)) {
-        stop(paste0(valid_date_range$first_date," is the earliest reporting allowed for this ",valid_date_range$pfcbl_category))
-      }
-      
-      if (template$reporting_asof_date > as.Date(valid_date_range$current_date)) {
-        stop(paste0("Future reporting is not allowed: Template reports QDD for '",template$reporting_asof_date,"' which is ",(template$reporting_asof_date-today())," DAYS into the future. ",
-                    valid_date_range$current_date," is the maximum allowed reporting date"))
-      }
+    if (template$reporting_asof_date < as.Date(valid_date_range$first_date)) {
+      stop(paste0(valid_date_range$first_date," is the earliest reporting allowed for this ",valid_date_range$pfcbl_category))
     }
-  }  
+    
+    if (template$reporting_asof_date > as.Date(valid_date_range$current_date)) {
+      stop(paste0("Future reporting is not allowed: Template reports QDD for '",template$reporting_asof_date,"' which is ",(template$reporting_asof_date-today())," DAYS into the future. ",
+                  valid_date_range$current_date," is the maximum allowed reporting date"))
+    }
+  }
+  
   
   {
     
@@ -1020,7 +1021,7 @@ template_parse_file <- function(pool,
                                    params=list(grant[i]$account_id,
                                                template$template_file))
               
-              dbExecute(pool,"
+              dbGetQuery(pool,"
               insert into users.permissions(account_id,rsf_pfcbl_id,sys_name,granted,notes)
               select 
               vai.account_id,
@@ -1038,13 +1039,193 @@ template_parse_file <- function(pool,
               on conflict(account_id,sys_name)
               do update
               set granted = permissions.granted|excluded.granted,
-                  notes = excluded.notes;",
+                  notes = excluded.notes
+              returning permissions.account_id,permissions.rsf_pfcbl_id,permissions.granted;",
               params=list(grant[i]$account_id,
                           template$cohort_pfcbl_id,
-                          template$template_file))
+                          basename(template$template_file)))
             }
           }
           
+        }
+      }
+    }
+    
+    #Upload current flags, if any?
+    #note: this happens BEFORE reporting_import is created, where existing/previous import may be deleted and archive associated flags.
+    #but AFTER write permissions checked
+    {
+      if (isTRUE(template_lookup$is_client_reporting_template) &&
+          (file_ext(template$template_file) %in% "xlsx")) {
+        
+        excelwb <- suppressWarnings(wb_load(template_file))
+        if (any(grepl("flags",openxlsx2::wb_get_sheet_names(excelwb),ignore.case=T),na.rm=T)) {
+          
+          flags_sheet <- grep("flags",openxlsx2::wb_get_sheet_names(excelwb),ignore.case = TRUE,value=TRUE)
+          if (grepl("^Current.*Flags$",flags_sheet,ignore.case = T)) {
+            flags_sheet <- flags_sheet[grepl("^Current.*Flags$",flags_sheet,ignore.case = T)][[1]]
+          } else {
+            flags_sheet <- flags_sheet[[1]]
+          }
+          
+          flagdf <- wb_to_df(excelwb,
+                             sheet=flags_sheet,
+                             start_row=1,
+                             skip_empty_rows = T,
+                             skip_empty_cols = T)
+          
+          current_flags <- NULL
+          if (!empty(flagdf)) {
+            for (fcol in 1:ncol(flagdf)) {
+              for (frow in 1:nrow(flagdf)) {
+                if (grepl("FLAGID",flagdf[frow,fcol],ignore.case=T)) {
+                  current_flags <- flagdf[frow:nrow(flagdf),fcol:ncol(flagdf)]
+                  names(current_flags) <- current_flags[1,]
+                  current_flags <- current_flags[-1,]
+                  break;
+                }
+              }
+              if (!is.null(current_flags)) break;
+            }
+          }
+          setDT(current_flags)
+          
+          #legacy formatting
+          if (any(names(current_flags)=="comment",na.rm=T)) setnames(current_flags,old="comment",new="IFC Comments")
+          #Expected: FLAGID,DATE,NAME,type,class,CHECK,STATUS,MESSAGE,IFC Comments,CLIENT Comments
+          
+          if (!empty(current_flags)) {
+            
+            setnames(current_flags,
+                     old=names(current_flags),
+                     new=tolower(gsub("\\s+","_",names(current_flags))))
+            
+            if (!all(c("flagid","status","ifc_comments") %in% names(current_flags))) {
+              status_message(class="error",
+                             "Failed to read-in CURRENT FLAGS due to missing/unrecognized headers")
+              
+              current_flags <- NULL
+              
+              
+            } else {
+              
+              if (!any(grepl("client_comments",names(current_flags),ignore.case=T))) {
+                
+                current_flags[,
+                              client_comments:=""]
+              }
+              current_flags[,ifc_comments:=as.character(ifc_comments)]
+              current_flags[,client_comments:=as.character(client_comments)]
+              
+              current_flags[grepl("N/A",ifc_comments,ignore.case = T) | 
+                              grepl("^NA$",ifc_comments,ignore.case = T) | 
+                              is.na(ifc_comments),
+                            ifc_comments:=""]
+              
+              current_flags[grepl("N/A",client_comments,ignore.case = T) | 
+                              grepl("^NA$",client_comments,ignore.case = T) | 
+                              is.na(client_comments),
+                            client_comments:=""]
+              
+              
+              current_flags[,
+                            ifc_comments:=trimws(ifc_comments)]
+              
+              current_flags[,
+                            client_comments:=trimws(client_comments)]
+              
+              current_flags <- current_flags[nchar(ifc_comments) > 0 | nchar(client_comments) > 0]
+              
+              current_flags[,status:=tolower(status)]
+              current_flags[,status:=fcase(status=="closed","resolved",
+                                           status=="resolved","resolved",
+                                           default="active")]
+              
+              
+              
+              
+              current_flags[,evaluation_id:=suppressWarnings(as.numeric(gsub("^.*#(\\d+)$","\\1",flagid)))]
+              current_flags <- current_flags[!is.na(evaluation_id)]
+              
+            }
+          }
+          
+          if (!empty(current_flags)) {
+            
+            status_message("Found Current Flags sheet and processing",nrow(current_flags),"flags")
+            ids_notfound <- db_checks_report_comments(pool=pool,
+                                                      current_flags=current_flags,
+                                                      reporting_user_id=reporting_user_id)
+            
+            if (length(ids_notfound)) {
+              current_flags <- current_flags[evaluation_id %in% ids_notfound]
+              current_flags[,c("indicator_name","check_formula") := tstrsplit(check,":")]
+              
+              updateids <- poolWithTransaction(pool,function(conn) {
+                
+                dbExecute(conn,"create temp table _temp_flags(evaluation_id int,
+                                                          check_asof_date date,
+                                                          pfcbl_name text,
+                                                          indicator_name text,
+                                                          check_formula text,
+                                                          check_message text)
+                          on commit drop")
+                
+                dbAppendTable(conn,
+                              name="_temp_flags",
+                              value=current_flags[,.(evaluation_id,
+                                                     check_asof_date=date,
+                                                     pfcbl_name=name,
+                                                     indicator_name,
+                                                     check_formula,
+                                                     check_message=message)])
+                
+                dbGetQuery(conn,"
+            select 
+              lookup.missing_id,
+              coalesce(rdc.evaluation_id,dca.archive_id) as current_id
+            from (
+              select 
+              tf.evaluation_id as missing_id,
+              nids.rsf_pfcbl_id,
+              ind.indicator_id,
+              tf.check_asof_date,
+              coalesce(icf.indicator_check_id,ic.indicator_check_id) as indicator_check_id,
+              icf.check_formula_id,
+              tf.check_message
+              from _temp_flags tf
+              inner join p_rsf.indicators ind on ind.indicator_name = tf.indicator_name
+              inner join p_rsf.rsf_data_current_names_and_ids nids on nids.pfcbl_name like '%' || tf.pfcbl_name
+              left join p_rsf.indicator_checks ic on ic.check_name = trim(tf.check_formula)                  
+              left join p_rsf.indicator_check_formulas icf on icf.check_formula_title = trim(tf.check_formula)
+            ) lookup
+              left join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = lookup.rsf_pfcbl_id
+                                                  and rdc.check_asof_date = lookup.check_asof_date
+                                                  and rdc.indicator_check_id = lookup.indicator_check_id                                                      
+                                                  and rdc.check_formula_id is not distinct from lookup.check_formula_id
+                                                  and rdc.check_message is not distinct from lookup.check_message
+              left join p_rsf.rsf_data_checks_archive dca on dca.rsf_pfcbl_id = lookup.rsf_pfcbl_id
+                                                         and dca.check_asof_date = lookup.check_asof_date
+                                                         and dca.indicator_check_id = lookup.indicator_check_id                                                      
+                                                         and dca.check_formula_id is not distinct from lookup.check_formula_id
+                                                         and dca.check_message is not distinct from lookup.check_message                                                      
+                       
+            ")
+              })
+              
+              setDT(updateids)
+              updateids <- updateids[!is.na(current_id)]
+              
+              if (!empty(updateids)) {
+                current_flags[updateids,
+                              evaluation_id:=i.current_id,
+                              on=.(evaluation_id=missing_id)]
+                ids_notfound <- db_checks_report_comments(pool=pool,
+                                                          current_flags=current_flags[evaluation_id %in% updateids$current_id],
+                                                          reporting_user_id=reporting_user_id)
+              }
+            }
+          }
         }
       }
     }

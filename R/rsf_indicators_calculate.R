@@ -350,6 +350,23 @@ rsf_indicators_calculate <- function(pool,
         }
       }      
       
+      #although its an extra database query...its both rare and small.
+      #here within the calculations to ensure the calc_data specific to THIS calculation filters out any collections level rsf_program_ids for
+      #child-level calculations and ensure a 1:many relationship between primary program to facilities.  And also retains any data that could be used
+      #in the same batch for many:many relationship between facilities and its program/collections
+      if (calculation$require_collections_filter==TRUE & any(names(calc_data)=="rsf_program_id",na.rm=T)) {
+        primary_program_collection_filter <- dbGetQuery(pool,"
+          select ids.rsf_program_id,ids.rsf_pfcbl_id
+          from p_rsf.rsf_pfcbl_ids ids
+          where ids.rsf_pfcbl_id = any($1::int[])",
+          params=list(dbMakeIntArray(unique(calc_data$rsf_pfcbl_id))))
+        setDT(primary_program_collection_filter)
+        calc_data <- calc_data[primary_program_collection_filter,
+                               on=.(rsf_program_id,
+                                    rsf_pfcbl_id),
+                               nomatch=NULL]
+        
+      }
      # setnames(calc_data,
      #           old=c(calculation_rsf_pfcbl_id_col),
      #           new=c("rsf_pfcbl_id"))

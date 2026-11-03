@@ -1,5 +1,6 @@
 db_data_get_current <- function(pool,
-                                rsf_pfcbl_ids.familytree,
+                                for_program_id,
+                                rsf_pf_ids, 
                                 indicator_ids,
                                 reporting_current_date,
                                 include.sys_name=TRUE,
@@ -13,48 +14,64 @@ db_data_get_current <- function(pool,
 {  
   if (length(retry) != 1 || all(is.na(retry))) retry <- 0
   #filter.status <- toupper(match.arg(filter.status))
+  if (!length(rsf_pf_ids)) return (NULL)
+  if (anyNA(suppressWarnings(as.numeric(rsf_pf_ids)))) stop("Missing rsf_pf_id submitted to db_get_data_current()")
   
   retry <- retry+1
-  
-  stale <- dbGetQuery(pool,"
+
+  pf_family <- dbGetQuery(pool,"
     select 
-      ids.rsf_program_id,
-      ids.rsf_pf_id,
-      ft.from_rsf_pfcbl_id as rsf_pfcbl_id,
+      pf.rsf_pfcbl_id,
+      pf.rsf_pf_id,
       min(calculation_asof_date) as calculation_asof_date,
-      count(*) as calculations
-    from p_rsf.view_rsf_pfcbl_id_family_tree ft
-    inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-    inner join p_rsf.rsf_data_calculation_evaluations dce on dce.rsf_pf_id = ids.rsf_pf_id
-    where ft.from_rsf_pfcbl_id = any($1::int[])
-      and ft.pfcbl_hierarchy <> 'child'
-      and dce.calculation_asof_date <= $2::date
+      pf.is_collection,
+      pf.pfcbl_rank,
+      count(dce.calculation_asof_date) as calculations
+    from (
+      select distinct gpf.rsf_pf_id,gpf.is_collection,gpf.pfcbl_rank,ids.rsf_pfcbl_id
+      from p_rsf.rsf_pfcbl_ids ids 
+      cross join lateral (values (ids.rsf_gpfcbl_family[1],false,0),
+                                 (ids.rsf_gpfcbl_family[2],false,1),
+                                 (ids.rsf_gpfcbl_family[3],false,2)
+                                 
+                          union all
+                          
+                          select rf.rsf_program_id,true,1
+                          from p_rsf.rsf_facilities rf
+                          where rf.rsf_facility_id = ids.rsf_facility_id
+                            and rf.rsf_program_id <> ids.rsf_program_id
+                         ) gpf(rsf_pf_id,is_collection,pfcbl_rank)
+      where ids.rsf_pfcbl_id = any($1::int[])
+        and ids.pfcbl_category_rank <= 2
+        and gpf.rsf_pf_id is not null
+    ) as pf
+    left join p_rsf.rsf_data_calculation_evaluations dce on dce.rsf_pf_id = pf.rsf_pf_id
+                                                        and dce.calculation_asof_date <= $2::date
     group by 
-      ids.rsf_program_id,
-      ids.rsf_pf_id,
-      ft.from_rsf_pfcbl_id,
-      ids.pfcbl_category_rank
-    order by ids.pfcbl_category_rank desc",
-                      params=list(dbMakeIntArray(c(0,rsf_pfcbl_ids.familytree)),
-                                  reporting_current_date))
+      pf.rsf_pfcbl_id,
+      pf.rsf_pf_id,
+      pf.pfcbl_rank,
+      pf.is_collection",
+    params=list(dbMakeIntArray(rsf_pf_ids),
+                reporting_current_date))
   
-  
-  if (!empty(stale)) {
+  setDT(pf_family)
+  stale <- unique(pf_family[calculations > 0,rsf_pf_id])
+  if (length(stale)) {
     
     showNotification(type="warning",
                      duration=3,
                      ui=h3("Data extract encountered pending calculations.  Calculating..."))
     
     rsf_indicators <- db_indicators_get_labels(pool=pool)
-    setDT(stale)
-    for (i in 1:nrow(stale)) {
+    #setDT(stale)
+    for (sid in stale) {
       
       rsf_program_calculate(pool=pool,
                             rsf_indicators=rsf_indicators,
-                            rsf_pf_id=stale[i,rsf_pf_id],
+                            rsf_pf_id=sid,
                             for_import_id=NA,
-                            calculate_future=TRUE,
-                            reference_asof_date=NULL,
+                            reference_asof_date=reporting_current_date,
                             CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
     }
     
@@ -67,14 +84,34 @@ db_data_get_current <- function(pool,
       delete from p_rsf.rsf_data_calculation_evaluations dce
       where dce.rsf_pf_id = any($1::int[])
         and dce.calculation_asof_date <= $2::date",
-        params=list(dbMakeIntArray(c(0,rsf_pfcbl_ids.familytree)),
+        params=list(dbMakeIntArray(stale),
                     reporting_current_date))
   }  
 
+  #include all requested pf_ids,primary program,collections programs,global
+  #query_pf_ids <- pf_family[pfcbl_rank==min(pfcbl_rank),rsf_pf_id]
+
+  # #But querying multiple progams/collections (unless explicitly asked, will be very confusing results)
+  # if (!any(rsf_pf_ids %in% pf_family[pfcbl_rank==1,rsf_pf_id],na.rm=T)) {
+  #   #here we haven't explicitly asked for any rsf_program_ids, so default to primary 
+  #   query_pf_ids <- unique(pf_family[rsf_pf_id %in% rsf_pf_ids | is_collection==FALSE,rsf_pf_id])
+  # } else {
+  #   query_pf_ids <- unique(pf_family[rsf_pf_id %in% rsf_pf_ids,rsf_pf_id])
+  # }
+
+  # Note that if program-level indicators are requested, all upstream programs and collections will be returned 
+  #And then must be filtered-out based on functions rsf_program_id (both to mitigate confusion and ensure read permissions to the selected program)
+  
+  if (!all(rsf_pf_ids==for_program_id,na.rm=T) & any(rsf_pf_ids==for_program_id,na.rm=T)) {
+    #Because if user selects program from drop-down list and also a facility, then query with family-tree will select all facilities since facility-level
+    #indicators will bring-in all program's facilities, whic his probably not the intention.  But if only the program is selected and facility+ metrics
+    #selected, then it serves as a "select all"
+    rsf_pf_ids <- rsf_pf_ids[!(rsf_pf_ids==for_program_id)]
+  } 
   
   rsf_data <- dbGetQuery(pool,"
                     select 
-                    
+                      ids.rsf_program_id,
                       dft.rsf_pfcbl_id,
                       dft.pfcbl_category,
                       dft.pfcbl_rank,
@@ -99,7 +136,6 @@ db_data_get_current <- function(pool,
                       dft.current_unit,
                       array_to_string(dft.flag_ids_active,',') as flag_ids_active,
                       array_to_string(dft.flag_ids_resolved,',') as flag_ids_resolved,
-                    
                       nids.sys_name,
                       nids.rsf_full_name,
                       case
@@ -109,8 +145,8 @@ db_data_get_current <- function(pool,
                         when ids.deactivated_in_reporting_asof_date >= $3::date then 'ACTIVE'
                         else 'ERROR' end as reporting_status
 
-                    from p_rsf.get_data_by_family_tree(input_rsf_pfcbl_ids_familytree => string_to_array($1::text,',')::int[], 
-                    																	 input_indicator_ids => string_to_array($2::text,',')::int[],
+                    from p_rsf.get_data_by_family_tree(input_rsf_pfcbl_ids_familytree => ($1::int[]), 
+                    																	 input_indicator_ids => ($2::int[]),
                     																	 input_current_date => $3::date,
                     																	 input_to_currency => $4::text,
                     																	 fx_force_global => $5::bool,
@@ -120,8 +156,8 @@ db_data_get_current <- function(pool,
                     left join p_rsf.view_current_entity_names_and_ids nids on $8::bool = true
                                                                           and nids.rsf_pfcbl_id = dft.rsf_pfcbl_id
                     ",
-                         params=list(paste0(rsf_pfcbl_ids.familytree,collapse=","), #1
-                                     paste0(indicator_ids,collapse=","),            #2
+                         params=list(dbMakeIntArray(rsf_pf_ids), #1
+                                     dbMakeIntArray(indicator_ids),            #2
                                      reporting_current_date,                        #3
                                      fx_currency,                                   #4
                                      fx_force_global,                               #5
@@ -135,6 +171,17 @@ db_data_get_current <- function(pool,
   # else $9::text is not distinct from reporting.status end
   
   setDT(rsf_data)
+  
+  if (!is.na(for_program_id)) {
+    
+    #because if we request a collection, p_rsf.get_data_by_family_tree() will return both the collection AND the primary program
+    rsf_data <- rsf_data[(pfcbl_category != "program") |
+                         (pfcbl_category == "program" & rsf_program_id %in% for_program_id)]
+    
+    rsf_data <- rsf_data[(parentest_pfcbl_category  != "program") |
+                           (parentest_pfcbl_category  == "program" & parentest_rsf_pfcbl_id  %in% for_program_id)]
+    
+  }
   
   rsf_data[,flags:=list()]
   
@@ -183,7 +230,7 @@ db_data_get_current <- function(pool,
           rdc.check_asof_date,
           rdc.check_status,
           coalesce(scc.config_check_class,ic.check_class)",
-                               params=list(dbMakeIntArray(flag_ids)))
+      params=list(dbMakeIntArray(flag_ids)))
       
       setDT(flags_data)
       
@@ -280,18 +327,18 @@ db_data_get_current <- function(pool,
                          ui=h3("Data extract encountered an FX issue. Re-try ",retry,"..."))
         
         return(db_data_get_current(pool=pool,
-                                   rsf_pfcbl_ids.familytree=rsf_pfcbl_ids.familytree,
+                                   rsf_pf_ids=rsf_pf_ids,
                                    indicator_ids=indicator_ids,
                                    reporting_current_date=reporting_current_date,
                                    include.sys_name=include.sys_name,
-                                   include.rsf_name=include.rsf_name,
                                    include.flags=include.flags,
-               fx_currency=fx_currency,
-               fx_force_global=fx_force_global,
-               fx_reported_date=fx_reported_date,
-               fx_concatenate_LCU=fx_concatenate_LCU, #Put date unit into same colummn (or not)
-               CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT,
-               retry=retry+1))
+                                   fx_currency=fx_currency,
+                                   fx_force_global=fx_force_global,
+                                   fx_reported_date=fx_reported_date,
+                                   fx_concatenate_LCU=fx_concatenate_LCU, #Put date unit into same colummn (or not)
+                                   retry=retry+1,
+                                   CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT))
+        
       }
       
       stop(paste0("FX failed to convert for ",

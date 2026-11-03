@@ -112,10 +112,10 @@ server_admin_indicator_formulas.module_ui_indicator_formula <- function(id,
                                 #              icon=icon("tags"))
                                 )
                 ),
-                fluidRow(align="left",
-                         style='padding-bottom:5px;',
-                         column(12,div(tags$label("Programs monitoring this Indicator Formula"),"Todo"))),
-                
+                # fluidRow(align="left",
+                #          style='padding-bottom:5px;',
+                #          column(12,div(tags$label("Programs monitoring this Indicator Formula"),"Todo"))),
+                # 
                 fluidRow(column(12,style='padding-top:5px;',
                                 enabled(state=(!is_system),
                                         actionButton(inputId=ns("formula_delete"),

@@ -1,6 +1,5 @@
 
 rsf_program_perform_calculations <- function(pool,
-                                             rsf_pf_id,
                                              current_data,
                                              rsf_indicators,
                                              rsf_calculator_checks,
@@ -32,6 +31,10 @@ rsf_program_perform_calculations <- function(pool,
     if (empty(current_data)) {
       status_message(class="info","No calculations require update.\n")
       return (NULL)
+    }
+    
+    if (!length(unique(current_data$rsf_pf_id))) {
+      stop("current_data should contain rsf_pf_id")
     }
     
     current_calculation_date <- unique(current_data$calculate_asof_date)
@@ -70,21 +73,6 @@ rsf_program_perform_calculations <- function(pool,
     
   #setup indicators to calculate based on the current rank AND ALSO any stale calculations that MAY HAVE been added as a result of the previous calculations cycle.
   { 
-    
-    #Calculation group will segment by units and ensure different FX rates are separately applied.
-    current_data_indicators <- current_data[,
-                                            .(calculate_rsf_pfcbl_ids=list(calculate_rsf_pfcbl_id),
-                                              calculation_group=.GRP
-                                            ),
-                                            by=.(calculate_indicator_id,
-                                                 calculate_asof_date,
-                                                 entity_local_currency_unit,
-                                                 calculate_indicator_data_unit, #This is used for re-establishing calculated currency data_units after the calculation for CURRENCY data types
-                                                 formula_calculation_unit, #This is used for determining in which currency the calculation will run regardless if the data type,
-                                                 #Eg for ratios, like currency A / currency B
-                                                 formula_id,
-                                                 computation_group)] #Computation group aims to efficiently query similar pfcbl category data needs
-    
     formulas <- dbGetQuery(pool,"
                              select
                               indf.formula_id,
@@ -95,16 +83,17 @@ rsf_program_perform_calculations <- function(pool,
                               coalesce(indf.formula_calculation_rank,0) as formula_calculation_rank,
                               'rsf_' || grouping.pfcbl_category || '_id' as formula_grouping_rsf_id,
                               array_to_string(pids.pfcbl_id_categories,',') as formula_pfcbl_id_categories,
-                              indf.overwrite as formula_overwrite
+                              indf.overwrite as formula_overwrite,
+                              coalesce(pids.require_collections_filter > 0,false)::bool as require_collections_filter
                              from p_rsf.indicator_formulas indf 
                              left join p_rsf.rsf_pfcbl_categories grouping on grouping.pfcbl_rank = indf.formula_grouping_pfcbl_rank
                              left join lateral (select 
-                                                  array_agg(distinct 'rsf_' || ifp.parameter_pfcbl_category || '_id') as pfcbl_id_categories
+                                                  array_agg(distinct 'rsf_' || ifp.parameter_pfcbl_category || '_id') as pfcbl_id_categories,
+                                                  count(*) filter (where ifp.calculate_pfcbl_rank>=2 and ifp.parameter_pfcbl_rank=1) as require_collections_filter
                               									from p_rsf.indicator_formula_parameters ifp 
                               									where ifp.formula_id = indf.formula_id) as pids on true
-                             
                              where indf.formula_id = any($1::int[])",
-                           params=list(dbMakeIntArray(current_data_indicators$formula_id))) #NA omit if it's a unit_fx_indicator_id with no formula!
+                           params=list(dbMakeIntArray(current_data$formula_id))) #NA omit if it's a unit_fx_indicator_id with no formula!
     
     formulas[["formula_pfcbl_id_categories"]] <- lapply(formulas[["formula_pfcbl_id_categories"]],
                                                         function(x) as.character(strsplit(x,split=',',fixed=T)[[1]]))
@@ -123,6 +112,22 @@ rsf_program_perform_calculations <- function(pool,
       stop(paste0("Each perform calculations can only process a single formula calculation rank and this request received: ",
                   paste0(for_formula_calculation_rank,collapse=", ")))
     }
+    
+    #Calculation group will segment by units and ensure different FX rates are separately applied.
+    current_data_indicators <- current_data[,
+                                            .(calculate_rsf_pfcbl_ids=list(calculate_rsf_pfcbl_id),
+                                              calculation_group=.GRP
+                                            ),
+                                            by=.(calculate_indicator_id,
+                                                 calculate_asof_date,
+                                                 entity_local_currency_unit,
+                                                 calculate_indicator_data_unit, #This is used for re-establishing calculated currency data_units after the calculation for CURRENCY data types
+                                                 formula_calculation_unit, #This is used for determining in which currency the calculation will run regardless if the data type,
+                                                 #Eg for ratios, like currency A / currency B
+                                                 formula_id,
+                                                 computation_group)] #Computation group aims to efficiently query similar pfcbl category data needs
+    
+    
     #left join in case any NA formula_ids from unit_fx_indicator_id
     #calculations[is.na(formula)]
     calculations <- formulas[current_data_indicators,
@@ -265,7 +270,7 @@ rsf_program_perform_calculations <- function(pool,
         calculate_rsf_pfcbl_ids <- unique(unlist(calculations_group$calculate_rsf_pfcbl_ids))
         
         data_rsf_pfcbl_ids <- db_indicators_get_calculation_parameter_rsf_pfcbl_ids(pool=pool,
-                                                                                    rsf_pf_id=rsf_pf_id,
+                                                                                    rsf_pf_ids=unique(current_data$rsf_pf_id),
                                                                                     calculate_rsf_pfcbl_ids=unique(calculate_rsf_pfcbl_ids),
                                                                                     calculate_indicator_ids=unique(calculations_group$calculate_indicator_id),
                                                                                     calculate_asof_date=calculations_group$calculate_asof_date[[1]])          
@@ -279,8 +284,13 @@ rsf_program_perform_calculations <- function(pool,
         
         #some come in as rsf_X_id and others as a clean category
         for_pfcbl_categories <- gsub("^rsf_([a-z]+)_id$","\\1",for_pfcbl_categories)
+        for_pfcbl_categories <- unique(for_pfcbl_categories)
         
-        
+        #Note that for collections, the facility will be included for both its primary program and also any collections.
+        #this needs to be managed downstream to ensure that calculations requiring program-level data will ONLY reference the primary program
+        #and ensure one-way direction up the family tree, even if there can be one-to-many to the same facility down the family tree
+        #Since the request to db_program_get_data doesn't know a-priori what we want to use the data for, we need to filter it appropriately here
+        #before sending it to the calculator.
         rsf_data_wide <- db_program_get_data(pool=pool,
                                              reporting_current_date=calculations_group$calculate_asof_date[[1]],
                                              rsf_indicators=rsf_indicators,
@@ -288,6 +298,10 @@ rsf_program_perform_calculations <- function(pool,
                                              for_rsf_pfcbl_ids=data_rsf_pfcbl_ids,
                                              for_pfcbl_categories=for_pfcbl_categories,
                                              CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
+        
+        # if (any(calculations_group$require_collections_filter,na.rm=T)) {
+        #   calculations_group[require_collections_filter==TRUE,calculate_rsf_pfcbl_ids]
+        # }
         
       }      
       
@@ -676,7 +690,13 @@ rsf_program_perform_calculations <- function(pool,
                                                                              " was tagged to accept this system correction",""),
                                                                       ' -> ',
                                                                       "System: {",ifelse(is.na(data_value),"MISSING",data_value),
-                                                                                  flags_unit,"}"),
+                                                                                  flags_unit,"}",
+                                                                      " Difference (system minus reported): { ",
+                                                                      ifelse(is.na(suppressWarnings(as.numeric(data_value))),0,
+                                                                             suppressWarnings(as.numeric(data_value))) -
+                                                                      ifelse(is.na(suppressWarnings(as.numeric(current_data_value))),0,
+                                                                             suppressWarnings(as.numeric(current_data_value))),
+                                                                      " }"),
                                                   data_check_value=NA,
                                                   data_check_unit=NA)]
                                                                       
@@ -755,6 +775,13 @@ rsf_program_perform_calculations <- function(pool,
                                                                "{",
                                                                 ifelse(is.na(current_data_value),"MISSING",current_data_value),
                                                                 flags_current_unit,"}",
+                                                                      " Difference (system minus reported): { ",
+                                                               ifelse(is.na(suppressWarnings(as.numeric(data_value))),0,
+                                                                      suppressWarnings(as.numeric(data_value))) -
+                                                                 ifelse(is.na(suppressWarnings(as.numeric(current_data_value))),0,
+                                                                        suppressWarnings(as.numeric(current_data_value))),
+                                                                      " }",
+                                                               
                                                                " / Not overwritten because",
                                                                fcase(omit_reporting==TRUE," set to MANUAL REPORTING",
                                                                      omit_reporting==FALSE,paste0(" indicator overwrite=\"",formula_overwrite,"\""))),
@@ -994,6 +1021,9 @@ rsf_program_perform_calculations <- function(pool,
   
   
   if (!empty(calculation_flags)) {
+    
+    status_message(class="warning","Calculator flagged ",nrow(calculation_flags)," calculation issues...\n")
+    
     #testing
     #testing <- sapply(strsplit(calculation_flags$check_message,split=" -> "),function(x) { length((trimws(unlist(x))))==2 && length(unique(trimws(unlist(x))))==1 })
     #if (any(testing)) { browser() }
@@ -1012,15 +1042,15 @@ rsf_program_perform_calculations <- function(pool,
     variance_results[,variance_tolerance_allowed:=TRUE]
     
     variance_results[data_type=="date",
-                     `:=`(data_value=as.numeric(ymd(data_value)),
-                          current_data_value=as.numeric(ymd(current_data_value)))]
+                     `:=`(data_value=suppressWarnings(as.numeric(ymd(data_value))),
+                          current_data_value=suppressWarnings(as.numeric(ymd(current_data_value))))]
     
     #MULTIPLY BY 100 to NOW (and pass to checks_add_update)
     variance_results[,
-                     variance:=abs(fcase(data_type=="percent",100*(as.numeric(current_data_value)-as.numeric(data_value)),  #Percentage points
-                                         data_type=="date",(as.numeric(current_data_value)-as.numeric(data_value)),     #Date variance in days
-                                         data_type=="currency" & !is.na(fx_value),100*((as.numeric(current_data_value)/as.numeric(fx_value))-1),
-                                         !data_type %in% c("date","percent"),100*((as.numeric(current_data_value)/as.numeric(data_value))-1), #Percent
+                     variance:=abs(fcase(data_type=="percent",suppressWarnings(100*(as.numeric(current_data_value)-as.numeric(data_value))),  #Percentage points
+                                         data_type=="date",suppressWarnings((as.numeric(current_data_value)-as.numeric(data_value))),     #Date variance in days
+                                         data_type=="currency" & !is.na(fx_value),suppressWarnings(100*((as.numeric(current_data_value)/as.numeric(fx_value))-1)),
+                                         !data_type %in% c("date","percent"),suppressWarnings(100*((as.numeric(current_data_value)/as.numeric(data_value))-1)), #Percent
                                          default=0)
                                    )]
     
@@ -1078,7 +1108,8 @@ rsf_program_perform_calculations <- function(pool,
     
     #If this is a specific import and that import didn't report any columns related to these calculation overwrites,
     #then flagging that it overwrote them becomes confusing regardless of the "missing calculation" caveate.
-    if (any(calculation_flags$check_name=="sys_calculator_vs_missing_calculation",na.rm=T) && !is.na(for_import_id)) {
+    if (any(calculation_flags$check_name=="sys_calculator_vs_missing_calculation",na.rm=T) && 
+        !is.na(for_import_id)) {
       reported_columns <- dbGetQuery(pool,"
         select distinct ith.indicator_id 
         from p_rsf.reporting_import_template_headers ith

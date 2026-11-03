@@ -56,9 +56,10 @@ do_pendingCalculations <- function(schedulePool,
                                   rsf_indicators=rsf_indicators,
                                   rsf_pf_id=stale[i,rsf_pf_id],
                                   for_import_id=NA,
-                                  calculate_future=TRUE,
-                                  reference_asof_date=NULL,
-                                  status_message= function(class,...) { cat(...) },
+                                  reference_asof_date=today(), #when are future (and therefore probably erroneous) calculations relevant? When we ask for them 
+                                                               #only. Eg, no data upload will ever encounter these because data uploads are always in the present
+                                                               #(unless uploading some future-defined term value--but even then, it would have no influence on anything present)
+                                  status_message= function(...) { invisible(NULL) },
                                   CALCULATIONS_ENVIRONMENT = scheduleCalcEnv)
           },
           message = function(m) {

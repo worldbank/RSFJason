@@ -9,7 +9,7 @@
                                                      label="Edit Indicator",
                                                      choices=character(0),
                                                      selected=NULL,
-                                                     width="450px",
+                                                     width="600px",
                                                      multiple=FALSE,
                                                      options=list(placeholder="Select Indicator to Edit"))),
                                           div(style="padding-left:15px;",

@@ -477,21 +477,21 @@ observeEvent(input$action_server_dashboard__edit_save, {
     edit_dt_dups <- edit_dt[n>1]
     edit_dt <- edit_dt[n==1]
     
-    dups_ui <- "<table>"
-    for (i in 1:nrow(edit_dt_dups)) {
-      dups_ui <- paste0("<tr> ",
-                        "<td>",edit_dt_dups[i]$SYSNAME,"</td>",
-                        "<td>",edit_dt_dups[i]$indicator_name,"</td>",
-                        "<td>",edit_dt_dups[i]$reporting_asof_date,"</td>",
-                        "<td>",edit_dt_dups[i]$data_value,"</td></tr>")
-    }
-    dups_ui <- paste(dups_ui,"</table>")
-    dups_ui <- div(h3("Duplicate values found and discarded. If multiple values are intentional they must be done in separate editing sessions"),
-                   div(HTML(dups_ui)))
-    
-    showNotification(type="warning",
-                     ui=dups_ui,
-                     duration=NULL)
+    # dups_ui <- "<table>"
+    # for (i in 1:nrow(edit_dt_dups)) {
+    #   dups_ui <- paste0("<tr> ",
+    #                     "<td>",edit_dt_dups[i]$SYSNAME,"</td>",
+    #                     "<td>",edit_dt_dups[i]$indicator_name,"</td>",
+    #                     "<td>",edit_dt_dups[i]$reporting_asof_date,"</td>",
+    #                     "<td>",edit_dt_dups[i]$data_value,"</td></tr>")
+    # }
+    # dups_ui <- paste(dups_ui,"</table>")
+    # dups_ui <- div(h3("Duplicate values found and discarded. If multiple values are intentional they must be done in separate editing sessions"),
+    #                div(HTML(dups_ui)))
+    # 
+    # showNotification(type="warning",
+    #                  ui=dups_ui,
+    #                  duration=NULL)
   }
 
   #Just want to gray-out the background  

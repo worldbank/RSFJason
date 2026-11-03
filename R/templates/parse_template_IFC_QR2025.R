@@ -446,157 +446,179 @@ parse_template_IFC_QR2025 <- function(pool,
         list_sheet[,original_row_num:=.I]
       }
       
-      #Current Flags
-      {
-        #unique(nregions_table$sheets)
-        
-        if (any(openxlsx2::wb_get_tables(excelwb)=="rsf_current_flags",na.rm=T) &&
-            RETURN.regular==TRUE) {
-          
-          current_flags <- wb_read(excelwb,named_region="rsf_current_flags")
-          setDT(current_flags)
-
-          #legacy formatting
-          if (any(names(current_flags)=="comment",na.rm=T)) setnames(current_flags,old="comment",new="IFC Comments")
-          #Expected: FLAGID,DATE,NAME,type,class,CHECK,STATUS,MESSAGE,IFC Comments,CLIENT Comments
-          
-          if (!empty(current_flags)) {
-          
-            setnames(current_flags,
-                     old=names(current_flags),
-                     new=tolower(gsub("\\s+","_",names(current_flags))))
-
-            if (!all(c("flagid","status","ifc_comments") %in% names(current_flags))) {
-              status_message(class="error",
-                             "Failed to read-in CURRENT FLAGS due to missing/unrecognized headers")
-              
-              current_flags <- NULL
-              
-            
-            } else {
-              
-             
-              # current_flags <- current_flags[,
-              #                                ..current_flag_headers]
-              
-              if (!any(grepl("client_comments",names(current_flags),ignore.case=T))) {
-                
-                current_flags[,
-                              client_comments:=""]
-              }
-              current_flags[,ifc_comments:=as.character(ifc_comments)]
-              current_flags[,client_comments:=as.character(client_comments)]
-              
-              current_flags[grepl("N/A",ifc_comments,ignore.case = T) | 
-                            grepl("^NA$",ifc_comments,ignore.case = T) | 
-                            is.na(ifc_comments),
-                            ifc_comments:=""]
-
-              current_flags[grepl("N/A",client_comments,ignore.case = T) | 
-                            grepl("^NA$",client_comments,ignore.case = T) | 
-                            is.na(client_comments),
-                            client_comments:=""]
-
-                            
-              current_flags[,
-                            ifc_comments:=trimws(ifc_comments)]
-
-              current_flags[,
-                            client_comments:=trimws(client_comments)]
-              
-              current_flags <- current_flags[nchar(ifc_comments) > 0 | nchar(client_comments) > 0]
-              
-              current_flags[,status:=tolower(status)]
-              current_flags[,status:=fcase(status=="closed","resolved",
-                                           status=="resolved","resolved",
-                                           default="active")]
-              
-              
-              
-              
-              current_flags[,evaluation_id:=suppressWarnings(as.numeric(gsub("^.*#(\\d+)$","\\1",flagid)))]
-              current_flags <- current_flags[!is.na(evaluation_id)]
-              
-            }
-          }
-          
-          if (!empty(current_flags)) {
-            
-            ids_notfound <- db_checks_report_comments(pool=pool,
-                                                      current_flags=current_flags,
-                                                      reporting_user_id=reporting_user_id)
-            
-            if (length(ids_notfound)) {
-              current_flags <- current_flags[evaluation_id %in% ids_notfound]
-              current_flags[,c("indicator_name","check_formula") := tstrsplit(check,":")]
-              
-              updateids <- poolWithTransaction(pool,function(conn) {
-                
-                dbExecute(conn,"create temp table _temp_flags(evaluation_id int,
-                                                              check_asof_date date,
-                                                              pfcbl_name text,
-                                                              indicator_name text,
-                                                              check_formula text,
-                                                              check_message text)
-                              on commit drop")
-                
-                dbAppendTable(conn,
-                              name="_temp_flags",
-                              value=current_flags[,.(evaluation_id,
-                                                     check_asof_date=date,
-                                                     pfcbl_name=name,
-                                                     indicator_name,
-                                                     check_formula,
-                                                     check_message=message)])
-                
-                dbGetQuery(conn,"
-                select 
-                  lookup.missing_id,
-                  coalesce(rdc.evaluation_id,dca.archive_id) as current_id
-                from (
-                  select 
-                  tf.evaluation_id as missing_id,
-                  nids.rsf_pfcbl_id,
-                  ind.indicator_id,
-                  tf.check_asof_date,
-                  coalesce(icf.indicator_check_id,ic.indicator_check_id) as indicator_check_id,
-                  icf.check_formula_id,
-                  tf.check_message
-                  from _temp_flags tf
-                  inner join p_rsf.indicators ind on ind.indicator_name = tf.indicator_name
-                  inner join p_rsf.rsf_data_current_names_and_ids nids on nids.pfcbl_name like '%' || tf.pfcbl_name
-                  left join p_rsf.indicator_checks ic on ic.check_name = trim(tf.check_formula)                  
-                  left join p_rsf.indicator_check_formulas icf on icf.check_formula_title = trim(tf.check_formula)
-                ) lookup
-                  left join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = lookup.rsf_pfcbl_id
-                                                      and rdc.check_asof_date = lookup.check_asof_date
-                                                      and rdc.indicator_check_id = lookup.indicator_check_id                                                      
-                                                      and rdc.check_formula_id is not distinct from lookup.check_formula_id
-                                                      and rdc.check_message is not distinct from lookup.check_message
-                  left join p_rsf.rsf_data_checks_archive dca on dca.rsf_pfcbl_id = lookup.rsf_pfcbl_id
-                                                             and dca.check_asof_date = lookup.check_asof_date
-                                                             and dca.indicator_check_id = lookup.indicator_check_id                                                      
-                                                             and dca.check_formula_id is not distinct from lookup.check_formula_id
-                                                             and dca.check_message is not distinct from lookup.check_message                                                      
-                           
-                ")
-              })
-              
-              setDT(updateids)
-              updateids <- updateids[!is.na(current_id)]
-              
-              if (!empty(updateids)) {
-                current_flags[updateids,
-                              evaluation_id:=i.current_id,
-                              on=.(evaluation_id=missing_id)]
-                ids_notfound <- db_checks_report_comments(pool=pool,
-                                                          current_flags=current_flags[evaluation_id %in% updateids$current_id],
-                                                          reporting_user_id=reporting_user_id)
-              }
-            }
-          }
-        }
-      }
+      # #Current Flags
+      # {
+      #   #unique(nregions_table$sheets)
+      #   
+      #   if (grep("flags",openxlsx2::wb_get_sheet_names(excelwb),ignore.case = TRUE,value=TRUE) && #any(openxlsx2::wb_get_tables(excelwb)=="rsf_current_flags",na.rm=T) &&
+      #       RETURN.regular==TRUE) {
+      #     
+      #     flags_sheet <- grep("flags",openxlsx2::wb_get_sheet_names(excelwb),ignore.case = TRUE,value=TRUE)
+      #     if (grepl("^Current.*Flags$",flags_sheet,ignore.case = T)) {
+      #       flags_sheet <- flags_sheet[grepl("^Current.*Flags$",flags_sheet,ignore.case = T)][[1]]
+      #     } else {
+      #       flags_sheet <- flags_sheet[[1]]
+      #     }
+      #     
+      #     flagdf <- wb_to_df(excelwb,sheet=flags_sheet,start_row=1,skip_empty_rows = T,skip_empty_cols = T)
+      # 
+      #     current_flags <- NULL
+      #     for (fcol in 1:ncol(flagdf)) {
+      #       for (frow in 1:nrow(flagdf)) {
+      #         if (grepl("FLAGID",flagdf[frow,fcol],ignore.case=T)) {
+      #           current_flags <- flagdf[frow:nrow(flagdf),fcol:ncol(flagdf)]
+      #           names(current_flags) <- current_flags[1,]
+      #           current_flags <- current_flags[-1,]
+      #           break;
+      #         }
+      #       }
+      #       if (!is.null(current_flags)) break;
+      #     }
+      #     
+      #     
+      #     setDT(current_flags)
+      # 
+      #     #legacy formatting
+      #     if (any(names(current_flags)=="comment",na.rm=T)) setnames(current_flags,old="comment",new="IFC Comments")
+      #     #Expected: FLAGID,DATE,NAME,type,class,CHECK,STATUS,MESSAGE,IFC Comments,CLIENT Comments
+      #     
+      #     if (!empty(current_flags)) {
+      #     
+      #       setnames(current_flags,
+      #                old=names(current_flags),
+      #                new=tolower(gsub("\\s+","_",names(current_flags))))
+      # 
+      #       if (!all(c("flagid","status","ifc_comments") %in% names(current_flags))) {
+      #         status_message(class="error",
+      #                        "Failed to read-in CURRENT FLAGS due to missing/unrecognized headers")
+      #         
+      #         current_flags <- NULL
+      #         
+      #       
+      #       } else {
+      #         
+      #        
+      #         # current_flags <- current_flags[,
+      #         #                                ..current_flag_headers]
+      #         
+      #         if (!any(grepl("client_comments",names(current_flags),ignore.case=T))) {
+      #           
+      #           current_flags[,
+      #                         client_comments:=""]
+      #         }
+      #         current_flags[,ifc_comments:=as.character(ifc_comments)]
+      #         current_flags[,client_comments:=as.character(client_comments)]
+      #         
+      #         current_flags[grepl("N/A",ifc_comments,ignore.case = T) | 
+      #                       grepl("^NA$",ifc_comments,ignore.case = T) | 
+      #                       is.na(ifc_comments),
+      #                       ifc_comments:=""]
+      # 
+      #         current_flags[grepl("N/A",client_comments,ignore.case = T) | 
+      #                       grepl("^NA$",client_comments,ignore.case = T) | 
+      #                       is.na(client_comments),
+      #                       client_comments:=""]
+      # 
+      #                       
+      #         current_flags[,
+      #                       ifc_comments:=trimws(ifc_comments)]
+      # 
+      #         current_flags[,
+      #                       client_comments:=trimws(client_comments)]
+      #         
+      #         current_flags <- current_flags[nchar(ifc_comments) > 0 | nchar(client_comments) > 0]
+      #         
+      #         current_flags[,status:=tolower(status)]
+      #         current_flags[,status:=fcase(status=="closed","resolved",
+      #                                      status=="resolved","resolved",
+      #                                      default="active")]
+      #         
+      #         
+      #         
+      #         
+      #         current_flags[,evaluation_id:=suppressWarnings(as.numeric(gsub("^.*#(\\d+)$","\\1",flagid)))]
+      #         current_flags <- current_flags[!is.na(evaluation_id)]
+      #         
+      #       }
+      #     }
+      #     
+      #     if (!empty(current_flags)) {
+      #       
+      #       ids_notfound <- db_checks_report_comments(pool=pool,
+      #                                                 current_flags=current_flags,
+      #                                                 reporting_user_id=reporting_user_id)
+      #       
+      #       if (length(ids_notfound)) {
+      #         current_flags <- current_flags[evaluation_id %in% ids_notfound]
+      #         current_flags[,c("indicator_name","check_formula") := tstrsplit(check,":")]
+      #         
+      #         updateids <- poolWithTransaction(pool,function(conn) {
+      #           
+      #           dbExecute(conn,"create temp table _temp_flags(evaluation_id int,
+      #                                                         check_asof_date date,
+      #                                                         pfcbl_name text,
+      #                                                         indicator_name text,
+      #                                                         check_formula text,
+      #                                                         check_message text)
+      #                         on commit drop")
+      #           
+      #           dbAppendTable(conn,
+      #                         name="_temp_flags",
+      #                         value=current_flags[,.(evaluation_id,
+      #                                                check_asof_date=date,
+      #                                                pfcbl_name=name,
+      #                                                indicator_name,
+      #                                                check_formula,
+      #                                                check_message=message)])
+      #           
+      #           dbGetQuery(conn,"
+      #           select 
+      #             lookup.missing_id,
+      #             coalesce(rdc.evaluation_id,dca.archive_id) as current_id
+      #           from (
+      #             select 
+      #             tf.evaluation_id as missing_id,
+      #             nids.rsf_pfcbl_id,
+      #             ind.indicator_id,
+      #             tf.check_asof_date,
+      #             coalesce(icf.indicator_check_id,ic.indicator_check_id) as indicator_check_id,
+      #             icf.check_formula_id,
+      #             tf.check_message
+      #             from _temp_flags tf
+      #             inner join p_rsf.indicators ind on ind.indicator_name = tf.indicator_name
+      #             inner join p_rsf.rsf_data_current_names_and_ids nids on nids.pfcbl_name like '%' || tf.pfcbl_name
+      #             left join p_rsf.indicator_checks ic on ic.check_name = trim(tf.check_formula)                  
+      #             left join p_rsf.indicator_check_formulas icf on icf.check_formula_title = trim(tf.check_formula)
+      #           ) lookup
+      #             left join p_rsf.rsf_data_checks rdc on rdc.rsf_pfcbl_id = lookup.rsf_pfcbl_id
+      #                                                 and rdc.check_asof_date = lookup.check_asof_date
+      #                                                 and rdc.indicator_check_id = lookup.indicator_check_id                                                      
+      #                                                 and rdc.check_formula_id is not distinct from lookup.check_formula_id
+      #                                                 and rdc.check_message is not distinct from lookup.check_message
+      #             left join p_rsf.rsf_data_checks_archive dca on dca.rsf_pfcbl_id = lookup.rsf_pfcbl_id
+      #                                                        and dca.check_asof_date = lookup.check_asof_date
+      #                                                        and dca.indicator_check_id = lookup.indicator_check_id                                                      
+      #                                                        and dca.check_formula_id is not distinct from lookup.check_formula_id
+      #                                                        and dca.check_message is not distinct from lookup.check_message                                                      
+      #                      
+      #           ")
+      #         })
+      #         
+      #         setDT(updateids)
+      #         updateids <- updateids[!is.na(current_id)]
+      #         
+      #         if (!empty(updateids)) {
+      #           current_flags[updateids,
+      #                         evaluation_id:=i.current_id,
+      #                         on=.(evaluation_id=missing_id)]
+      #           ids_notfound <- db_checks_report_comments(pool=pool,
+      #                                                     current_flags=current_flags[evaluation_id %in% updateids$current_id],
+      #                                                     reporting_user_id=reporting_user_id)
+      #         }
+      #       }
+      #     }
+      #   }
+      # }
     }
     
     #will also omit the first rows above the Facility ID
@@ -1270,6 +1292,26 @@ parse_template_IFC_QR2025 <- function(pool,
         summary_sheet[,
                        mismatch:=anyNA(action)==FALSE & length(unique(map_indicator_id))>1,
                        by=.(original_row_num)]
+  
+        #If any mismatches are caused by data that has mapped Fixed currency and LCY currency indicators to the same header, then re-map these back to the 
+        #fixed currency as specified in the template.
+        #Only do this if a mismatch occurs, because otherwise we want to default to LCY where that data input currency is actually the LCY of the facility.
+        {
+          summary_sheet[rsf_indicators[is.na(unit_fx_indicator_id)==FALSE,
+                                       .(indicator_id,unit_fx_indicator_id,data_unit,indicator_name,mismatch=TRUE)],
+                        `:=`(map_indicator_id=i.indicator_id,
+                             indicator_name=i.indicator_name,
+                             converted=TRUE),
+                        on=.(map_indicator_id=unit_fx_indicator_id,data_unit,mismatch)]
+          
+          if (any(summary_sheet$converted,na.rm=T)) {
+            
+            summary_sheet[,
+                          mismatch:=anyNA(action)==FALSE & length(unique(map_indicator_id))>1,
+                          by=.(original_row_num)]
+          } 
+          summary_sheet[,converted:=NULL]
+        }
         
         mismatch_labels <- summary_sheet[mismatch==TRUE]
         if (!empty(mismatch_labels)) {

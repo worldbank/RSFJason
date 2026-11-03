@@ -65,8 +65,8 @@ SERVER_DASHBOARD_RUN_OPTIONS_INIT <- list(rsf_pfcbl_ids=numeric(0),
 
 SERVER_DASHBOARD_RUN_OPTIONS <- reactiveValues()
 
-SERVER_DASHBOARD_DOWNLOAD_FILENAME <- eventReactive(c(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids,
-                                                      SERVER_DASHBOARD_RUN_ASOF_DATES()), { 
+SERVER_DASHBOARD_DOWNLOAD_FILENAME <- eventReactive(list(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids,
+                                                         SERVER_DASHBOARD_RUN_ASOF_DATES()), { 
 
   run_ids <- unique(as.numeric(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids))
   reporting_dates <- SERVER_DASHBOARD_RUN_ASOF_DATES()
@@ -105,7 +105,7 @@ SERVER_DASHBOARD_DOWNLOAD_FILENAME <- eventReactive(c(SERVER_DASHBOARD_RUN_OPTIO
 
 })
 
-SERVER_DASHBOARD_FACILITIES_LIST <- eventReactive(SELECTED_PROGRAM_FACILITIES_LIST(), {
+SERVER_DASHBOARD_FACILITIES_LIST <- eventReactive(SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST(), { #SELECTED_PROGRAM_FACILITIES_LIST(), {
   
   MODE_CROSS_PROGRAM <- FALSE
   
@@ -114,31 +114,15 @@ SERVER_DASHBOARD_FACILITIES_LIST <- eventReactive(SELECTED_PROGRAM_FACILITIES_LI
   
   if (MODE_CROSS_PROGRAM==TRUE && !empty(USER_PROGRAMS())) {
     
-    # programs <- DBPOOL %>% dbGetQuery("
-    # select 
-    #   ids.rsf_program_id,
-    #   ids.rsf_facility_id,
-    #   ids.rsf_pfcbl_id,
-    #   ids.pfcbl_category,
-    #   ids.pfcbl_category_rank as pfcbl_rank,
-    #   nids.pfcbl_category || ':' || nids.rsf_name as facility_name,
-    #   nids.name,
-    #   nids.id,
-    #   nids.sys_name,
-    #   nids.created_in_reporting_asof_date
-    # from p_rsf.rsf_pfcbl_ids ids
-    # inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
-    # where ids.pfcbl_category = 'program'
-    # order by facility_name")
-    
-    #setDT(programs)
     return (USER_PROGRAMS()[rsf_pfcbl_id != 0])
     
   } else {
     
-    return (SELECTED_PROGRAM_FACILITIES_LIST())
+    return (SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()[order(is.na(rsf_facility_id),facility_name)]) #programs last in dashboard dropdown
   }
+  
 },ignoreNULL = FALSE)
+
 
 SERVER_DASHBOARD_INDICATORS <- eventReactive(list(SERVER_DASHBOARD_REPORT_SELECTED(),
                                                   RSF_INDICATORS()), { 
@@ -366,7 +350,8 @@ SERVER_DASHBOARD_VALID_ASOF_DATES <- eventReactive(SERVER_DASHBOARD_RUN_OPTIONS$
       from p_rsf.rsf_pfcbl_ids ids
       inner join lateral p_rsf.rsf_pfcbl_generate_reporting_dates(ids.rsf_pfcbl_id) grd on true
       where ids.rsf_pfcbl_id = any($1::int[])
-      
+        and grd.valid_reporting_date < now()::date
+        
       union 
       
       select
@@ -497,7 +482,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
   #or other triggers elsewhere that refresh the dashboard's reactives unnecessarily (or irrelevantly)
   SERVER_DASHBOARD_DO_AUTORUN(FALSE)
   
-  selected_client_ids <- unique(as.numeric(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids))
+  selected_pf_ids <- na.omit(unique(as.numeric(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids)))
   selected_indicators <- SERVER_DASHBOARD_SELECTED_INDICATORS()
   selected_asof_dates <- SERVER_DASHBOARD_RUN_ASOF_DATES()
   
@@ -508,7 +493,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
   if (!isTruthy(fx_reported_date)) fx_reported_date <- FALSE
   if (!isTruthy(fx_force_global)) fx_force_global <- FALSE
   
-  if (!isTruthy(selected_client_ids) ||
+  if (!isTruthy(selected_pf_ids) ||
       empty(selected_indicators) ||
       !isTruthy(selected_asof_dates)) {
     
@@ -516,6 +501,8 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
     if (!empty(SERVER_DASHBOARD_CURRENT_INDICATORS())) { SERVER_DASHBOARD_CURRENT_INDICATORS(data.table()) }
     return (NULL)
   }
+  
+
   
   include.rsf_name <- any("rsf_full_name" %in% SERVER_DASHBOARD_RUN_OPTIONS$syscols)
   status_display <- any(c("reporting_status") %in% SERVER_DASHBOARD_RUN_OPTIONS$syscols) |
@@ -553,8 +540,8 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
       ind.indicator_id,
       ind.indicator_name
       from p_rsf.indicators ind
-      where exists(select * from params where params.parameter_id = ind.indicator_id)",
-      params=list(dbMakeIntArray(selected_client_ids),
+      where exists(select true from params where params.parameter_id = ind.indicator_id)",
+      params=list(dbMakeIntArray(selected_pf_ids),
                   dbMakeIntArray(selected_indicators$indicator_id),
                   deep))
     
@@ -600,7 +587,7 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
     group by 
       sis.indicator_id,
       sis.indicator_name",
-    params=list(dbMakeIntArray(selected_client_ids),
+    params=list(dbMakeIntArray(selected_pf_ids),
                 dbMakeIntArray(selected_indicators$indicator_id)))
     
     setDT(query_indicators)
@@ -657,7 +644,8 @@ observeEvent(SERVER_DASHBOARD_DATA_RUN(), {
                                message=paste0("Loading ",asof," data..."))
                    
                    if (is.na(asof)) next;
-                   rd <- DBPOOL %>% db_data_get_current(rsf_pfcbl_ids.familytree=selected_client_ids,
+                   rd <- DBPOOL %>% db_data_get_current(for_program_id=SELECTED_PROGRAM_ID(), #to ensure we don't get different program/collections 
+                                                        rsf_pf_ids=selected_pf_ids,
                                                         indicator_ids=selected_indicators$indicator_id,
                                                         reporting_current_date=ymd(asof),
                                                         fx_currency=fx_currency,
@@ -1748,17 +1736,44 @@ observeEvent(input$server_dashboard__reporting_asof_date, {
   }
 },ignoreNULL = FALSE)
 
+#the UI module is only loaded after LOGGEDIN, so does not exist before this.
 observeEvent(input$server_dashboard__view_currency, {
+
+  if (!isTruthy(input$server_dashboard__view_currency)) {
+    currency_choices <- CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES
+    
+    if (!isTruthy(CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES)) {
+      showNotification(type="error",
+                       h2("An error has occured: Unable to connect to IFC currency database. Jason functionality may be limited or result in errors"))    
+    }
+    
+    currency_choices <- unique(c("LCU","USD","EUR",currency_choices))
+    
+    updateSelectizeInput(session=session,
+                         inputId="server_dashboard__view_currency",
+                         choices=currency_choices,
+                         selected=SERVER_DASHBOARD_RUN_OPTIONS$fx_currency,
+                         options = list(placeholder="LCU"))
+  } else {
+    
+    if (setequal(input$server_dashboard__view_currency,SERVER_DASHBOARD_RUN_OPTIONS$fx_currency)) return (NULL)
+    
+    selected_currency <- as.character(input$server_dashboard__view_currency)
+    #if (!isTruthy(selected_currency)) selected_currency <- "LCU"
+    
+    SERVER_DASHBOARD_RUN_OPTIONS$fx_currency <- selected_currency
+    updateSelectizeInput(session=session,
+                         inputId="server_dashboard__view_currency",
+                         options=list(placeholder=selected_currency))
+    
+    # if (!isTruthy(SERVER_DASHBOARD_RUN_OPTIONS$fx_currency)) 
+    # else SERVER_DASHBOARD_RUN_OPTIONS$fx_currency <- as.character(input$server_dashboard__view_currency)
+    
+    SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1)
+  }
+
   
-  
-  if (setequal(input$server_dashboard__view_currency,SERVER_DASHBOARD_RUN_OPTIONS$fx_currency)) return (NULL)
-  
-  if (!isTruthy(SERVER_DASHBOARD_RUN_OPTIONS$fx_currency)) SERVER_DASHBOARD_RUN_OPTIONS$fx_currency <- "LCU"
-  else SERVER_DASHBOARD_RUN_OPTIONS$fx_currency <- as.character(input$server_dashboard__view_currency)
-  
-  SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1)
-  
-},ignoreNULL = FALSE)
+},ignoreNULL = FALSE,ignoreInit = TRUE)
 
 observeEvent(input$server_dashboard__format_pivot, {
   
@@ -1805,25 +1820,7 @@ observeEvent(SERVER_DASHBOARD_SELECTED_INDICATORS(), {
   SERVER_DASHBOARD_REFRESH(SERVER_DASHBOARD_REFRESH()+1) 
 })
 
-observeEvent(LOGGEDIN(), {
-  
-  if (!LOGGEDIN()) return (NULL)
-  
-  currency_choices <- CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES
-  
-  if (!is.null(currency_choices)) {
-    currency_choices <- unique(c("USD","EUR",currency_choices))
-    currency_choices <- c(LCU="LCU",setNames(currency_choices,currency_choices))
-    
-    updateSelectizeInput(session=session,
-                         inputId="server_dashboard__view_currency",
-                         choices=currency_choices,
-                         selected="LCU")
-  } else {
-    showNotification(type="error",
-                     h2("An error has occured: Unable to connect to IFC currency database. Jason functionality may be limited or result in errors"))
-  }
-},ignoreNULL = FALSE,ignoreInit = FALSE)
+
 
 observeEvent(list(SERVER_DASHBOARD_INDICATORS(),
                SERVER_DASHBOARD_RUN_OPTIONS$indicator_names), {
@@ -1860,6 +1857,7 @@ ignoreNULL = FALSE,
 ignoreInit = FALSE,
 priority = 9) # #need this observer to fire AFTER observeEvent(SERVER_DASHBOARD_REPORT_SELECTED() which sets SERVER_DASHBOARD_RUN_OPTIONS$indicator_names
 
+#will key to rsf_pf_id (since only program or facility rsf_pfcbl_id will enter facilities list)
 observeEvent(SERVER_DASHBOARD_FACILITIES_LIST(), {
   
   facilities <- SERVER_DASHBOARD_FACILITIES_LIST()
@@ -1881,10 +1879,10 @@ observeEvent(SERVER_DASHBOARD_FACILITIES_LIST(), {
   } else {
     
     f.choices <- setNames(facilities$rsf_pfcbl_id,
-                                facilities$facility_name)
+                          facilities$facility_name)
     
     f.selected <- intersect(facilities$rsf_pfcbl_id,
-                                  as.numeric(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids))
+                            as.numeric(SERVER_DASHBOARD_RUN_OPTIONS$rsf_pfcbl_ids))
   
     updatePickerInput(session=session,
                       inputId="server_dashboard__reporting_facility",

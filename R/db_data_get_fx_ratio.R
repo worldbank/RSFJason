@@ -76,18 +76,32 @@ db_data_get_fx_ratio <- function(pool,
     
     get_fx_rate_catch <- function(exchange_rate_date,
                                   currency_code_ratio) {
-      tryCatch({
+      
+      # if (exchange_rate_date >= today()) {
+      #   message(paste0(currency_code_ratio," unavailable for future date ",exchange_rate_date,". Returning N/A"))
+      #   return(as.numeric(NA))
+      # }
+      
+      fxr <- tryCatch({
         #print(paste0("Dremio lookup: ",currency_code_ratio," ",exchange_rate_date))
         CALCULATIONS_ENVIRONMENT$get_IFC_FX_rate(exchange_rate_date=exchange_rate_date,
-                    currency_code_ratio=currency_code_ratio)
+                                                 currency_code_ratio=currency_code_ratio)
       },
       warning=function(w) { stop(paste0("Error: failed to connect to IFC fx Dremio database and lookup rates for: ",exchange_rate_date," ",currency_code_ratio))},
       error=function(e) { stop(paste0("Error: failed to connect to IFC fx Dremio database and lookup rates for: ",exchange_rate_date," ",currency_code_ratio)) })
+      
+      if (is.na(fxr)) {
+        
+          stop(paste0("Dremio error.  Is the server down?  Failed to lookup fx rates for ",
+                      paste0(paste0(errors$currency_ratio," as-of ",errors$exchange_rate_date),collapse=" AND ALSO ")))
+      }
+      fxr;
     }
     
     db_lookup_fx_ratios <- function(pool,
                                     lookup,
-                                    force.global) {
+                                    force.global,
+                                    retry=0) {
       
       force.global <- as.logical(force.global)
       if (is.na(force.global)) force.global <- FALSE
@@ -126,8 +140,8 @@ db_data_get_fx_ratio <- function(pool,
                          rates.fx_indicator_id,
                          rates.exchange_rate,
                          rates.exchange_rate_data_id,
-                         coalesce(rates.is_invalidated,false) as is_invalidated,
-                         coalesce(rates.is_unreported,true) as is_unreported
+                         coalesce(rates.is_invalidated,false)::bool as is_invalidated,
+                         coalesce(rates.is_unreported,true)::bool as is_unreported
                          from _temp_fx tfx
                          left join lateral p_rsf.fx_pfcbl_convert_currency(input_rsf_pfcbl_id => tfx.lookup_rsf_pfcbl_id,
                                                                            input_to_currency => tfx.to_currency,
@@ -141,6 +155,28 @@ db_data_get_fx_ratio <- function(pool,
       
       setDT(fx_ratios)
       
+      if (!empty(fx_ratios[is_invalidated==TRUE]) & retry==0) {
+        
+        rsf_indicators <- db_indicators_get_labels(pool=pool)
+        
+        invalidated <- fx_ratios[is_invalidated==TRUE,
+                                 reference_asof_date=max(exchange_rate_date),
+                                 by=.(rsf_pf_id=lookup_rsf_pfcbl_id)]
+        
+        for (i in 1:nrow(invalidated)) {
+          rsf_program_calculate(pool=pool,
+                                rsf_indicators=rsf_indicators,
+                                rsf_pf_id=invalidated[i,rsf_pf_id],
+                                for_import_id=NA,
+                                reference_asof_date=invalidated[i,reference_asof_date],
+                                status_message=status_message,
+                                CALCULATIONS_ENVIRONMENT = CALCULATIONS_ENVIRONMENT)
+        }
+        return (db_lookup_fx_ratios(pool=pool,
+                                    lookup=lookup,
+                                    force.global=force.global,
+                                    retry=(retry+1)))
+      }
       return (fx_ratios)
     }
   }
@@ -198,10 +234,7 @@ db_data_get_fx_ratio <- function(pool,
   
   #Creates a new indicator, or looks up existing one if that indicator has no entry in timeseries data for some reason
   if (!empty(fx_lookup[is.na(fx_indicator_id) & is.na(exchange_rate)]) && create.indicators==TRUE) {
-   
-    
-    
-    
+
     fx_codes <- unique(fx_lookup[is.na(fx_indicator_id) & 
                                  is.na(exchange_rate) &
                                  to_currency %in% CALCULATIONS_ENVIRONMENT$VALID_CURRENCIES &
@@ -405,11 +438,11 @@ db_data_get_fx_ratio <- function(pool,
     
     #This should now be handled on a per-get_fx call and thrown if dremio can't connect
     #Left in for the unlikely case that Dremio returns an NA value
-    if (anyNA(calc_fx$exchange_rate)) {
-      errors <- calc_fx[is.na(exchange_rate)]
-      stop(paste0("Dremio error.  Is the server down?  Failed to lookup fx rates for ",
-                  paste0(paste0(errors$currency_ratio," as-of ",errors$exchange_rate_date),collapse=" AND ALSO ")))
-    }
+    # if (anyNA(calc_fx$exchange_rate)) {
+    #   errors <- calc_fx[is.na(exchange_rate)]
+    #   stop(paste0("Dremio error.  Is the server down?  Failed to lookup fx rates for ",
+    #               paste0(paste0(errors$currency_ratio," as-of ",errors$exchange_rate_date),collapse=" AND ALSO ")))
+    # }
     
     #fx_indicator_id will be global (or not), so not enforcing join on fx_pfcbl_category=="global" as well
     fx_lookup[calc_fx,

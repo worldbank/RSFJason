@@ -118,7 +118,7 @@ template_upload <- function(pool,
               and ind.data_category in ('client','facility')
               and ind.is_periodic_or_flow_reporting = false
               and ind.indicator_sys_category is distinct from 'template_file'
-              and ind.indicator_sys_category is distinct from 'portfolio_reporting_date'
+              and ind.indicator_sys_category is distinct from 'portfolio_reporting_determination_date'
               and facility.created_in_reporting_asof_date <> rc.reporting_asof_date -- init date isnt an update
               and exists(select * from p_rsf.rsf_data_current rdc where rdc.data_id = rd.data_id) -- wasnt a reversion
               
@@ -131,7 +131,7 @@ template_upload <- function(pool,
                          inner join p_rsf.indicators rrind on rrind.indicator_id = rdc.indicator_id
                          where ft.from_rsf_pfcbl_id = ri.import_rsf_pfcbl_id
                            and ft.to_pfcbl_category = 'client'
-                           and rrind.indicator_sys_category = 'portfolio_reporting_date'
+                           and rrind.indicator_sys_category = 'portfolio_reporting_determination_date'
                            and (
                                  (rdc.reporting_asof_date < ri.reporting_asof_date) -- and I've reported in the past
                                  or 
@@ -506,7 +506,6 @@ template_upload <- function(pool,
                                                   rsf_indicators=template$rsf_indicators,
                                                   rsf_pf_id=template$reporting_import$import_rsf_pfcbl_id,
                                                   for_import_id=template$reporting_import$import_id,
-                                                  calculate_future=FALSE,
                                                   reference_asof_date=reference_asof_date,
                                                   status_message = status_message,
                                                   CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
@@ -520,10 +519,9 @@ template_upload <- function(pool,
                                         rsf_indicators=template$rsf_indicators,
                                         rsf_pf_id=template$reporting_import$import_rsf_pfcbl_id,
                                         for_import_id=template$reporting_import$import_id,
-                                        check_future=FALSE,
                                         check_consolidation_threshold=0,
                                         reference_asof_date=reference_asof_date,
-                                        status_message= status_message,
+                                        status_message=status_message,
                                         CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
 
   debugtime("template_upload"," >> Check time: ",format(Sys.time()-t2))

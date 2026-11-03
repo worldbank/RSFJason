@@ -81,7 +81,8 @@ evalq({
        here::here("accounts","db_user_login.R"),
        
        #here::here("scheduledJobs.Rmd"),
-       here::here("schedules","job_pendingCalculations.R")
+       here::here("schedules","job_pendingCalculations.R"),
+       here::here("schedules","job_pendingChecks.R")
        #list.files(here::here("credentials"),full.names=T,pattern="yaml$")
   )
 
@@ -166,7 +167,29 @@ if (isTRUE(IS_DEPLOYED)) {
 
 ```
 
-##Completed: `r pending_calcs` pending calculations
+##Completed: `r  format(pending_calcs,big.mark=',')` pending calculations
+
+
+## Job pendingChecks
+
+```{r }
+pending_checks <- 0
+#IS_DEPLOYED <- TRUE #testing
+#debugtime <- function(...) { cat(...) }
+
+if (isTRUE(IS_DEPLOYED)) {
+  message("RUNNING do_pendingChecks()")
+  
+  pending_checks <- do_pendingChecks(schedulePool = schedulePool,
+                                     scheduleCalcEnv = scheduleCalcEnv)
+
+} else {
+  message("NOT DEPLOYED: skipping do_pendingChecks()")
+}
+
+```
+
+##Completed: `r format(pending_checks,big.mark=',')` pending checks
 
 ### Finalizing Jobs
 ```{r complete, message=FALSE }

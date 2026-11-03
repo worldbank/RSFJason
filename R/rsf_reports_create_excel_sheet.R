@@ -78,6 +78,9 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
   #header[2,c(1,2)] <- c("Data Integrity Key",data_integrity_key)
   header[2,1] <- c(data_integrity_key)
   
+  #messes up the Execel with quotes entering the formulas for hyperlinks
+  reporting_notes <- gsub("[\"']+","",reporting_notes)
+  reporting_entity <- gsub("[\"']+","",reporting_entity)
   
   header[3,c(1,2)] <- c("Entity",reporting_entity)
   header[4,c(1,2)] <- c("Data As-Of Date",reporting_asof_date)
@@ -89,6 +92,8 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
   
   openxlsx::writeData(excelwb,sheet=sheet,x=header,colNames=FALSE,rowNames=FALSE,startCol=1,startRow=1)
 
+  tableLinkStyle  <- createStyle(fontColour = "blue",textDecoration = "underline")
+  
   if (!is.na(reporting_url) && nchar(reporting_url) > 1) {
     
     link_string <- makeHyperlinkString(
@@ -152,6 +157,9 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
                cols=3:sheet_cols,
                rows=1:2)
     
+    
+
+    
     if (!is.na(header_image)) {
       openxlsx::insertImage(excelwb,
                              sheet=sheet,
@@ -170,7 +178,16 @@ rsf_reports_create_excel_sheet <- function(excelwb=NULL,
   #medium grey report info table
   addStyle(excelwb,sheet=sheet,tableSysStyle,rows=3:7,cols=1:sheet_cols,gridExpand = TRUE)
 
- 
+  if (!is.na(reporting_url) && nchar(reporting_url) > 1) {
+    tableLinkStyle  <- createStyle(fontColour = "blue",textDecoration = "underline")
+    addStyle(excelwb,
+             sheet=sheet,
+             tableLinkStyle,
+             rows=6,
+             cols=2,
+             gridExpand = TRUE,
+             stack=TRUE)
+  }
   
  
   

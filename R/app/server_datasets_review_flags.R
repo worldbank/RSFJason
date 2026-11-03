@@ -555,8 +555,8 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
                 config_comments,
                 USER_ID(),
                 check_formula_id))
-  
-  #will retroactively update active flags that are within the variance specified by the config
+
+    #will retroactively update active flags that are within the variance specified by the config
   if (config_resolving == TRUE || 
      (!is.na(config_threshold) && (config_threshold > 0))) {
     
@@ -584,12 +584,12 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
           and scc.indicator_check_id = $3::int
           and rdc.check_data_id_is_current is true
           and rdc.check_status = 'active'
-          and rdc.config_id is null
+          and (rdc.config_id is null or rdc.config_id is not distinct from scc.config_id)
           and
           (
             (scc.config_auto_resolve is true)
             or
-            (case when var.unit ~* 'days' then var.val::numeric else var.val::numeric end < coalesce(scc.config_threshold,0))
+            (case when var.unit ~* 'days' then var.val::numeric else (var.val::numeric)/100 end < coalesce(scc.config_threshold,0))
           )
       )
       update p_rsf.rsf_data_checks rdc
@@ -629,12 +629,12 @@ observeEvent(input$indicator_check_edit_config__action_submit, {
           and scc.for_indicator_id = $2::int
           and scc.indicator_check_id = $3::int
           and dca.check_status = 'active'
-          and dca.config_id is null
+          and (dca.config_id is null or dca.config_id is not distinct from scc.config_id)
           and
           (
             (scc.config_auto_resolve is true)
             or
-            (case when var.unit ~* 'days' then var.val::numeric else var.val::numeric end < coalesce(scc.config_threshold,0))
+            (case when var.unit ~* 'days' then var.val::numeric else (var.val::numeric)/100 end < coalesce(scc.config_threshold,0))
           )
       )
       update p_rsf.rsf_data_checks_archive dca
@@ -1189,12 +1189,15 @@ observeEvent(input$action_indicator_flags_review_save, {
   
   selected_evaluation_ids <- INDICATOR_FLAGS_SELECTED_EVALUATION_IDS()
   
-  if (!isTruthy(selected_evaluation_ids)) return(showNotification(type="error",h2("Nothing is checked to update, nothing to save. Please check an item to update; or select cancel to close the window")))
+  if (!isTruthy(selected_evaluation_ids)) return(showNotification(type="error",
+                                                                  h2("Nothing is checked to update, nothing to save. Please check an item to update; or select cancel to close the window")))
   
   check_status_comment_updated <- input$indicator_flags_status_message
   check_status_updated <- input$indicator_flags_status
   
-  if (!isTruthy(check_status_comment_updated)) return (showNotification(type="error",h2("A status comment is required to update flag status")))
+  if (!isTruthy(check_status_comment_updated)) return (showNotification(type="error",
+                                                                        h2("A status comment is required to update flag status")))
+  
   if (!isTruthy(check_status_updated) || 
       !check_status_updated %in% c("active",   #STANDARD
                                    "resolved", #STANDARD  
@@ -1264,7 +1267,8 @@ observeEvent(input$action_indicator_flags_review_save, {
     import <- IMPORT_SELECTED()
     #Set the overwritten data point do manual overwrite
     
-    withProgress(message="Recalculating...",value=0.25, {
+    error <- tryCatch({
+      withProgress(message="Recalculating...",value=0.25, {
       progress_status_message <- function(class,...) {
         dots <- list(...)
         dots <- paste0(unlist(dots),collapse=" ")
@@ -1277,13 +1281,25 @@ observeEvent(input$action_indicator_flags_review_save, {
       DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
                                        rsf_pf_id=import$import_rsf_pfcbl_id,
                                        for_import_id=import$import_id,
-                                       calculate_future=FALSE,
                                        reference_asof_date=import$reporting_asof_date,
                                        status_message=progress_status_message,
                                        CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
     })
+      NULL
+    },
+    error=function(e) { conditionMessage(e) },
+    warning=function(w) { conditionMessage(w) })
     
-    withProgress(message="Rechecking...",value=0.25, {
+    if (!is.null(error)) {
+      showNotification(type="warning",
+                       ui=h3(paste0("Pending calculations were found,",
+                                    "but calculations were unable to complete because:\n",
+                                    error,"\n",
+                                    "Therefore results may be incomplete.")))
+    }
+    
+    error <- tryCatch({
+      withProgress(message="Rechecking...",value=0.25, {
       
       progress_status_message <- function(class,...) {
         dots <- list(...)
@@ -1295,13 +1311,24 @@ observeEvent(input$action_indicator_flags_review_save, {
       incProgress(amount=0.25,message="Rechecking data...")
       DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
                                    rsf_pf_id=import$import_rsf_pfcbl_id,
-                                   for_import_id=NA,
-                                   check_future=FALSE,
+                                   for_import_id=import$import_id,
                                    check_consolidation_threshold=NA,
                                    reference_asof_date=import$reporting_asof_date,
                                    CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT,
                                    status_message=progress_status_message)
     })
+      NULL
+    },
+    error=function(e) { conditionMessage(e) },
+    warning=function(w) { conditionMessage(w) })
+    
+    if (!is.null(error)) {
+      showNotification(type="warning",
+                       ui=h3(paste0("Pending calculations were found,",
+                                    "but calculations were unable to complete because:\n",
+                                    error,"\n",
+                                    "Therefore results may be incomplete.")))
+    }
   }
     
   IMPORT_LIST__REFRESH_ON_FOCUS(TRUE)
@@ -1310,6 +1337,83 @@ observeEvent(input$action_indicator_flags_review_save, {
   removeModal()
 })
 
+observeEvent(input$action_indicator_flags__setup_check_subscription, {
+  
+  ids <- input$action_indicator_flags__setup_check_subscription
+  if (!isTruthy(ids)) return (NULL)
+
+  #paste0(evaluation_id,"-",rsf_pfcbl_id,"-",check_formula_id),
+  ids <- suppressWarnings(as.numeric(trimws(unlist(strsplit(ids,split="-")))))
+  
+  if (!all(is.numeric(ids))) return (NULL)
+
+
+  # subscription_status <- DBPOOL %>% db_program_toggle_check_subscription(rsf_pfcbl_id=ids[2],
+  #                                                 check_formula_id=ids[3],
+  #                                                 user_id=USER_ID())
+  status <- DBPOOL %>% dbGetQuery("select check_status from p_rsf.rsf_data_checks rdc where rdc.evaluation_id = $1::int",params=list(ids[1]))
+  set_status <- !status$check_status=="active"
+
+  #Instead of toggling the check, setting subscription status equal to the toggle of check status being active  
+  subscription_status <- DBPOOL %>% dbGetQuery("
+     insert into p_rsf.rsf_setup_checks(rsf_pfcbl_id,
+                                        check_formula_id,
+                                        indicator_check_id,
+                                        rsf_program_id,
+                                        rsf_facility_id,
+                                        is_subscribed,
+                                        is_auto_subscribed,
+                                        auto_subscribed_by_reporting_cohort_id,
+                                        subscription_comments,
+                                        comments_user_id)
+    select
+      ids.rsf_pf_id,
+      icf.check_formula_id,
+      icf.indicator_check_id,
+      ids.rsf_program_id,
+      ids.rsf_facility_id,
+      $4::bool as is_subscribed,
+      false as is_auto_subscribed,
+      NULL as auto_subscribed_by_reporting_cohort_id,
+      case when not $2::bool is false then concat('Unsubscribed by ',coalesce(vai.users_name,'UNKNOWN'),' on ',now()::date)
+           else concat('Subscribed by ',vai.users_name,' on ',now()::date) end as subscription_comments,
+      $3::text as comments_user_id
+    from p_rsf.rsf_pfcbl_ids ids
+    inner join p_rsf.indicator_check_formulas icf on icf.check_formula_id = $2::int
+    left join p_rsf.view_account_info vai on vai.account_id = $3::text
+    where ids.rsf_pfcbl_id = $1::int
+    on conflict(rsf_pfcbl_id,check_formula_id)
+    do update
+    set is_subscribed = EXCLUDED.is_subscribed,
+        indicator_check_id = EXCLUDED.indicator_check_id,
+        is_auto_subscribed = EXCLUDED.is_auto_subscribed,
+        auto_subscribed_by_reporting_cohort_id = EXCLUDED.auto_subscribed_by_reporting_cohort_id,
+        subscription_comments = concat(rsf_setup_checks.subscription_comments,'\n',EXCLUDED.subscription_comments),
+        comments_user_id = EXCLUDED.comments_user_id
+    returning is_subscribed",
+                       params=list(ids[2],
+                                   ids[3],
+                                   USER_ID(),
+                                   as.character(set_status)))
+  
+ 
+  dbExecute(DBPOOL," 
+            update p_rsf.rsf_data_checks rdc
+            set check_status = case when $2::bool is true then 'active' else 'resolved' end,
+                check_status_comment = 'Resolved: By setting check subscription to ' || upper($2::text),
+                check_status_user_id = $3::text,
+                status_time = now()::timestamptz
+            where rdc.evaluation_id = $1::int",
+            params=list(ids[1],
+                        as.character(subscription_status$is_subscribed),
+                        USER_ID()))
+  
+  IMPORT_LIST__REFRESH_ON_FOCUS(TRUE)
+  IMPORT_FLAGS_SELECTED__REFRESH(IMPORT_FLAGS_SELECTED__REFRESH()+1)
+  INDICATOR_FLAGS_SELECTED_EVALUATION_IDS(c()) #NA is intentional and different from c()
+  removeModal()
+ 
+})
 #closes modal "view_data_flags_review"
 observeEvent(input$action_indicator_flags_review_cancel, {
   INDICATOR_FLAGS_SELECTED_EVALUATION_IDS(c()) #NA is intentional and different from c()
@@ -1356,7 +1460,10 @@ output$indicator_check_edit_setup__subscription_ui <- renderUI({
 
 output$server_datasets_review_flags_dataset <- DT::renderDataTable({
   
+  selected_flag_evaluations <- SERVER_DATASETS_REVIEW_FLAGS_SELECTED_FLAG_EVALUATIONS()
   evaluations <- SERVER_DATASETS_REVIEW_FLAGS_SELECTED_FLAG_EVALUATIONS()[,.(evaluation_id,check_class,check_status,rsf_pfcbl_id)]
+  
+  
   
   if (empty(evaluations)) {
     INDICATOR_FLAGS_SELECTED_EVALUATION_IDS(c())
@@ -1435,6 +1542,46 @@ output$server_datasets_review_flags_dataset <- DT::renderDataTable({
   defs <- list(list(className = 'dt-left', targets = c(0,1,2,3,4,5)),  #Zero-based targets
                list(className = 'dt-center', targets = c(6)))
   
+
+  if (any(selected_flag_evaluations$check_is_system,na.rm=T)) {
+    
+    selected_check_name <- unique(selected_flag_evaluations$check_name)
+    
+    if (length(selected_check_name)==1) {
+      
+      if (selected_check_name=="sys_facility_missing_term") {
+        evaluations$check_message
+        evaluations[,evaluation_index:=1:.N]
+        matches <- rbindlist(mapply(function(cn,ct,id) {
+          mtch <- base::intersect(grep(cn,evaluations$check_message),
+                                  grep(ct,evaluations$check_message))
+          if (length(mtch)) { return (data.table(check_formula_id=id,evaluation_index=list(evaluations[mtch,evaluation_index])))
+          } else { return (NULL) }
+        },cn=RSF_CHECK_FORMULAS()$check_name,
+          ct=RSF_CHECK_FORMULAS()$check_formula_title,
+          id=RSF_CHECK_FORMULAS()$check_formula_id))
+        
+        if (!empty(matches)) {
+          
+          
+          matches <- matches[,.(evaluation_index=unlist(evaluation_index,recursive=F)),
+                  by=.(check_formula_id)]
+          evaluations[matches,
+                      check_message:=paste0("<div>",
+                                            check_message," ",
+                                            
+                                            paste("<a href='#' ",
+                                                  " onclick=\"Shiny.setInputValue('action_indicator_flags__setup_check_subscription','",
+                                                  paste0(evaluation_id,"-",rsf_pfcbl_id,"-",i.check_formula_id),
+                                                  "',{priority:'event'})\">",
+                                                  "toggle check subscription <i class='fa-solid fa-arrows-rotate'></i></a>"),
+                                            "</div>"),
+                      on=.(evaluation_index)]
+        }
+      }
+    }
+  }
+  
   INDICATOR_FLAGS_SELECTED_EVALUATION_IDS(unique(evaluations[selected==TRUE,evaluation_id])) #Refresh for new review
   
   if (data_flags_view %in% "revert") {
@@ -1445,7 +1592,7 @@ output$server_datasets_review_flags_dataset <- DT::renderDataTable({
                                on=.(evaluation_id),
                                nomatch=NULL]
     
-    evaluations <- evaluations[,.(SYSID=rsf_pfcbl_id,
+    evaluations <- evaluations[,.(SYSID=paste0(rsf_pfcbl_id,":",evaluation_id),
                                   NAME=entity_name,
                                   Message=check_message,
                                   `System Value`=data_value,
@@ -1455,7 +1602,7 @@ output$server_datasets_review_flags_dataset <- DT::renderDataTable({
     
   
   } else {
-    evaluations <- evaluations[,.(SYSID=rsf_pfcbl_id,
+    evaluations <- evaluations[,.(SYSID=paste0(rsf_pfcbl_id,":",evaluation_id),
                                   NAME=entity_name,
                                   Message=check_message,
                                   Comment=check_status_comment,
@@ -1636,7 +1783,7 @@ output$datasets_review_download_flags_action <- downloadHandler(
           
           } else {
       
-            wbflags <- openxlsx2::wb_load(file=file)
+            wbflags <- suppressWarnings(openxlsx2::wb_load(file=file))
             
             sheetSUMMARY <- grep("Summary",wb_get_sheet_names(wbflags),value=T,ignore.case=T)
             if (length(sheetSUMMARY) &&
@@ -2077,7 +2224,7 @@ output$datasets_review_download_zeroversion_action <- downloadHandler(
             
           } else {
             
-            wbflags <- openxlsx2::wb_load(file=file)
+            wbflags <- suppressWarnings(openxlsx2::wb_load(file=file))
             
             if (any(wbflags$sheet_names=="Current Flags")) {
               wbflags$remove_worksheet(sheet="Current Flags")

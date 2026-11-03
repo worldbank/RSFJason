@@ -26,7 +26,7 @@ rsf_calculations_initialize_enivonment <- function(dremio_database_pool) {
     
     exchange_rate_date <- as.Date(exchange_rate_date)
     if (!is.Date(exchange_rate_date)) stop("exchange_rate_date must be a valid date")
-    if (exchange_rate_date > today()) stop("Exchange rate data unavilable for future days")
+    if (exchange_rate_date >= today()) message("Exchange rate data unavilable for future days for ",currency_code_ratio," on ",exchange_rate_date,". Requesting last-available rate from ",today())
     
     {  
       currency_code_ratio <- toupper(currency_code_ratio)

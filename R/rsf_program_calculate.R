@@ -2,13 +2,15 @@ rsf_program_calculate <- function(pool,
                                   rsf_indicators,
                                   rsf_pf_id,
                                   for_import_id=NA,
-                                  calculate_future=TRUE,
                                   reference_asof_date=NULL,
                                   status_message=function(...) {},
                                   CALCULATIONS_ENVIRONMENT) { 
   
   #Setups
   {
+    if (length(rsf_pf_id) != 1) stop(paste0("Invalid rsf_pf_id {",paste0(rsf_pf_id,collapse=","),"}"))
+    if (is.na(suppressWarnings(as.numeric(rsf_pf_id)))) stop(paste0("Invalid rsf_pf_id ",rsf_pf_id))
+    
     t1 <- Sys.time()
     #created_calculations_cohorts <- list()
     status_message(class="none",paste0("Performing calculations...\n"))
@@ -16,9 +18,6 @@ rsf_program_calculate <- function(pool,
     #where as calculations are system and user should be able to view these separately.
     #unique constraint on database will deny recycling cohort_ids and enforce new cohorts on upload
     
-
-    if (all(is.na(reference_asof_date))) reference_asof_date <- NULL
-
     processed_calculations <- data.table(calculate_rsf_pfcbl_id=numeric(0),
                                          calculate_indicator_id=numeric(0),
                                          calculate_asof_date=as.Date(numeric(0)),
@@ -26,13 +25,11 @@ rsf_program_calculate <- function(pool,
                                          processed_times=numeric(0))
     
     limit_date <- NULL
-    if (calculate_future==FALSE &&
-        is.null(reference_asof_date)==FALSE) {
-      limit_date <- as.Date(reference_asof_date)
-      # status_message(class="warning",
-      #                "Setting calculate_future set to FALSE.  Skipping calculations after ",as.character(reference_asof_date),": update program setting to avoid this warning\n")
-      
+    
+    if (!is.null(reference_asof_date) && !all(is.na(reference_asof_date))) {
+      limit_date <- pmin(as.Date(reference_asof_date),today())
     }
+    
     
     rsf_calculator_checks <- dbGetQuery(pool,
                                         "select 
@@ -63,7 +60,9 @@ rsf_program_calculate <- function(pool,
     }
   }
   
+  current_calculations <- NULL
   tryCatch({
+    
     repeat {
       #Grouped by:
       #dce.rsf_pfcbl_id = 0 desc,
@@ -76,7 +75,7 @@ rsf_program_calculate <- function(pool,
                                                                  rsf_pf_id = rsf_pf_id,
                                                                  limit_future=limit_date)
       
-      
+      current_calculations <<- required_calculations
       #db_program_get_stale_calculations will ALWAYS return global indicators as priority
       #so if we've requested to calculated a non-global entity and receive a global entity
       #it means these must be calculated a-priori before continuing.
@@ -103,9 +102,10 @@ rsf_program_calculate <- function(pool,
       
       
       #using_calculations_cohort_id <- using_reporting_cohort_id
-      #if (any(required_calculations$calculate_indicator_id %in% c(157358))) { browser() }
-      #if(any(required_calculations$calculate_indicator_id %in% c(43449))) { stop("Found!") }
-      #if (any(required_calculations$calculate_asof_date > ymd('2025-06-30'))) { stop(">2025-06-30")}
+      #if (any(required_calculations$calculate_rsf_pfcbl_id  %in% c(157691))) { stop("found") }
+      
+      #if(any(required_calculations$calculate_indicator_id %in% c(6588))) { stop("Found!") }
+      #if (any(required_calculations$calculate_asof_date > ymd('2026-09-30'))) { stop(">2026-09-30")}
       #required_calculations[rsf_indicators,on=.(calculate_indicator_id=indicator_id),nomatch=NULL][,.(indicator_name=sort(unique(indicator_name)))][indicator_name=="client_risk_sharing_fee_billing_period_DAYS"]
       current_calculate_asof_date <- unique(as.character(required_calculations$calculate_asof_date))
 
@@ -219,19 +219,32 @@ rsf_program_calculate <- function(pool,
         
         
           rsf_program_perform_calculations(pool=pool,
-                                          rsf_pf_id=rsf_pf_id,
-                                          current_data=required_calculations,
-                                          rsf_indicators=rsf_indicators,
-                                          rsf_calculator_checks=rsf_calculator_checks,
-                                          for_import_id=for_import_id,
-                                          perform.test = FALSE,
-                                          status_message=status_message,
-                                          CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
+                                           current_data=required_calculations,
+                                           rsf_indicators=rsf_indicators,
+                                           rsf_calculator_checks=rsf_calculator_checks,
+                                           for_import_id=for_import_id,
+                                           perform.test = FALSE,
+                                           status_message=status_message,
+                                           CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
         
       }
       
     }
   
+  },
+  warning=function(w) {
+    warning(paste0("Calculations encountered warnings processing rsf_pf_id=",
+                rsf_pf_id,
+                " ",current_calculations$calculate_asof_date[1],
+                " indicator IDs: ",paste0(sort(unique(current_calculations$calculate_indicator_id)),collapse=", "),
+                ": ",conditionMessage(w)))
+  },
+  error=function(e) {
+    stop(paste0("Calculations encountered errors processing rsf_pf_id=",
+                rsf_pf_id,
+                " ",current_calculations$calculate_asof_date[1],
+                " indicator IDs: ",paste0(sort(unique(current_calculations$calculate_indicator_id)),collapse=", "),
+                ": ",conditionMessage(e)))
   },
   finally = {
     rsf_pf_id_unlock <- unlist(dbGetQuery(lockconn,
@@ -240,7 +253,8 @@ rsf_program_calculate <- function(pool,
     poolReturn(lockconn)
     lockconn <- NULL
   })
-
+  
+  current_calculations <- NULL
 
   debugtime("rsf_program_calculate","Done!",format(Sys.time()-t1))
   return (processed_calculations)

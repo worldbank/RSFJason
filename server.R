@@ -184,52 +184,10 @@ server <- function(input, output, session)
     #if (INITIALIZED()) return (NULL) #Don't want to re-re-load if user logs out and logs back in.
 
     t1 <- Sys.time()
-    # source("./R/app/server_dashboard.R",local=serverENV)
-    # source("./R/app/server_dashboard_options.R",local=serverENV)
-    # source("./R/app/server_dashboard_reports.R",local=serverENV)
-    # source("./R/app/server_dashboard_edit.R",local=serverENV)
-    # source("./R/app/server_dashboard_exports.R",local=serverENV)
-    # source("./R/app/server_dashboard_exports_reports.R",local=serverENV)
-    # source("./R/app/server_datasets.R",local=serverENV)
-    # source("./R/app/server_datasets_review_flags.R",local=serverENV)
-    # 
-    # source("./R/app/server_datasets_upload.R",local=serverENV)
-    # 
-    # #When permissions are implemented, only load administrateive modules if an admin
-    # source("./R/app/server_setup.R",local=serverENV)
-    # source("./R/app/server_setup_program.R",local=serverENV)
-    # source("./R/app/server_setup_indicators.R",local=serverENV)
-    # source("./R/app/server_setup_checks.R",local=serverENV)
-    # source("./R/app/server_setup_templates.R",local=serverENV)
-    # source("./R/app/server_setup_create.R",local=serverENV)
-    # 
-    # source("./R/app/server_admin_options.R",local=serverENV)
-    # source("./R/app/server_admin_options_module.R",local=serverENV)
-    # 
-    # source("./R/app/server_admin_indicators.R",local=serverENV)
-    # source("./R/app/server_admin_indicator_formulas.R",local=serverENV)
-    # source("./R/app/server_admin_indicators_review.R",local=serverENV)
-    # 
-    # source("./R/app/server_admin_checks.R",local=serverENV)
-    # source("./R/app/server_admin_checks_formulas.R",local=serverENV)
-    # source("./R/app/server_admin_checks_review.R",local=serverENV)
-    # 
-    # source("./R/app/server_admin_users.R",local=serverENV)
-    # 
-    # source("./R/app/server_datasets_guidance_module.R",local=serverENV)
+  
     login_initialize$destroy()
     
   })
-  
-  # output$dashboard_title <- renderText({ 
-  #   user_id <- USER_ID()
-  #   if (!isTruthy(user_id)) return ("RSF/ Jason")
-  #   
-  #   program <- SELECTED_PROGRAM()
-  #   if (!isTruthy(program)) return ("RSF <Select>")
-  #   else return (paste0("RSF: ",program$program_nickname))
-  # })
-  # 
   
   observeEvent(input$login_request_action, { 
     
@@ -400,6 +358,238 @@ server <- function(input, output, session)
     cat(txt,"\n")    
   }
 
+  
+outputOptions(
+  output,
+  "server_datasets_import_action_id_zeroversion",
+  suspendWhenHidden = FALSE
+)
+
+observeEvent(list(LOGGEDIN(),
+                  USER_URL_PARAMETERS()), {
+                      
+  query <- USER_URL_PARAMETERS()
+  cat(paste0("USER_URL_PARAMETERS()=",names(query),"\n"))
+  
+  if (!LOGGEDIN()) return (NULL)
+
+  #1: Load facility based on last-selected saved in user settings, from rsf_pfcbl_ids to avoid pulling-in collections.
+  selected_facility <- DBPOOL %>% dbGetQuery("
+    select 
+      ids.rsf_pfcbl_id,
+      ids.rsf_program_id,
+      ids.rsf_facility_id
+    from users.user_settings ust
+    inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = (ust.setting_value::numeric)
+    where ids.pfcbl_category_rank = 2
+      and public.isnumeric(ust.setting_value) is true
+      and ust.account_id = $1::text
+      and ust.setting_name = 'server_programs__selected_facility'",
+   params=list(USER_ID()))
+  
+  #1: Load facility based on last-selected saved in user settings
+  selected_program <- DBPOOL %>% dbGetQuery("
+    select 
+      rp.rsf_program_id
+    from users.user_settings ust
+    inner join p_rsf.rsf_programs rp on rp.rsf_program_id = (ust.setting_value::numeric)
+    where public.isnumeric(ust.setting_value) is true
+      and ust.account_id = $1::text
+      and ust.setting_name = 'server_programs__selected_program'",
+    params=list(USER_ID()))
+  
+  
+  #2: If our URL parameter has an ID, they've selected to load a specific ID
+  #So overwrite the last-viewed facility selection.
+  if (length(query)) {
+    qids <- suppressWarnings(as.numeric(trimws(names(query))))
+    qids <- qids[!is.na(qids)]
+    
+    if (length(qids)) {
+      qid <- DBPOOL %>% dbGetQuery("
+        select 
+          ids.rsf_pfcbl_id,
+          ids.rsf_program_id,
+          ids.rsf_facility_id
+        from p_rsf.rsf_data_current_names_and_ids nids
+        inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = nids.rsf_pfcbl_id
+        where nids.id = trim($1::text)
+        
+        union all
+        
+        select 
+          ids.rsf_pfcbl_id,
+          ids.rsf_program_id,
+          ids.rsf_facility_id
+        from p_rsf.rsf_pfcbl_ids ids
+        where ids.rsf_pfcbl_id = $1::int
+        ",
+         params=list(qids[[1]]))
+                        
+      if (!empty(qid)) {
+        
+        selected_facility <- qid[1,]
+        
+      }
+    }
+  }
+                      
+  #Must be first.
+  
+  #user entering with a load report request (RID) or load exported report request (EID)
+  export_id <- na.omit(suppressWarnings(as.numeric(trimws(query[which(names(query)=="EID")]))))
+  
+  #user entering with a zero-version create request (ZID)
+  zversion_id <- na.omit(suppressWarnings(as.numeric(trimws(query[which(names(query)=="ZID")]))))
+  
+  
+  #3: If they have an Export ID specified, then load based on the export's specifications instead.
+  selected_export <- NULL
+  if (length(export_id)) {
+    
+    #export_id <- 691
+    cat("Loading export ID= ",export_id,"\n")
+    
+    if (!is.na(export_id)) {
+        selected_export <- DBPOOL %>% dbGetQuery("
+      select
+        ids.rsf_program_id,
+        ids.rsf_facility_id,
+        de.export_id,
+        de.exporting_title,
+        de.exporting_rsf_pf_id as rsf_pfcbl_id,
+        de.dashboard_parameters::jsonb,
+        de.generated_with_report_id
+      from p_rsf.dashboard_exports de
+      inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = de.exporting_rsf_pf_id
+      where de.export_id = $1::int",
+     params=list(export_id))
+      
+      setDT(selected_export)
+      
+      selected_facility <- selected_export[,.(rsf_program_id,
+                                              rsf_facility_id,
+                                              rsf_pfcbl_id)]
+    }
+  }
+
+  if (length(zversion_id)) {
+      zid <- DBPOOL %>% dbGetQuery("
+        select
+          nids.rsf_pfcbl_id,
+          nids.sys_name,
+          nids.pfcbl_name,
+          ids.rsf_program_id,
+          ids.rsf_facility_id
+        from p_rsf.rsf_data_current_names_and_ids nids
+        inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = nids.rsf_pfcbl_id
+        where nids.id = $1::text
+          and nids.pfcbl_category = 'facility'
+        order by reporting_asof_date desc
+        limit 1",
+        params=list(zversion_id))
+      
+      if (!empty(zid)) {
+        
+        setDT(zid)
+       
+        selected_facility <- zid[,.(rsf_pfcbl_id,rsf_facility_id,rsf_program_id)]
+        
+        zversion <- DBPOOL %>% dbGetQuery("
+          select * 
+          from (
+            select 
+              ri.import_id,
+              ri.import_rsf_pfcbl_id,
+              ri.import_pfcbl_category,
+              ri.reporting_asof_date,
+              ri.import_completed,
+              ri.file_name,
+              rt.is_client_reporting_template,
+              rt.is_zero_versionable
+            from p_rsf.reporting_imports ri
+            inner join p_rsf.reporting_templates rt on rt.template_id = ri.template_id
+            where ri.import_rsf_pfcbl_id = $1::int
+            and rt.is_client_reporting_template is true
+            order by reporting_asof_date desc
+            limit 1
+          ) zv
+          where users.rsf_pfcbl_id_validate_permissions(validate_account_id => $2::text,
+                                                        validate_rsf_pfcbl_id => v.import_rsf_pfcbl_id,
+                                                        validate_permission_name => 'WRITE',
+                                                        raise_error => false) is true
+            and zv.import_completed is true
+        ",params=list(zid$rsf_pfcbl_id,USER_ID()))
+        
+        if (!empty(zversion)) {
+          showNotification(ui=h3(div("Generating zero-version for ",zid$pfcbl_name),
+                                 div("Using ",zversion$file_name," as the template")))
+          
+          #session$sendInputMessage("import_action_id_zeroversion", list(value = zversion$import_id))
+          IMPORT_LIST__ZEROVERSION(zversion$import_id)
+          
+          #shinyjs::runjs("document.getElementById('server_datasets_import_action_id_zeroversion').click();")
+        } else {
+          showNotification(type="error",
+                           ui=h3(div("Failed to generate zero-version for ",zid$pfcbl_name),
+                                 div("Do you have WRITE permissions for this client? Did the last QR upload correctly?")))
+        }
+      }
+  }
+  
+  #selected_facility can be set by any other EID/ZID/ID requests
+  if (!empty(selected_facility)) {
+    
+    f_id <- as.numeric(selected_facility$rsf_facility_id)
+    if (is.na(f_id)) f_id <- -1
+    
+    session$userData$server_programs__selected_facility <- f_id
+    #Because selected program may be a program collection
+    #and selected_facility will default to primary program
+    if (!empty(selected_program) && any(selected_program$rsf_progam_id %in% selected_facility$rsf_progam_id,na.rm=T)) {
+      DO_SELECT_PROGRAM_ID(as.numeric(selected_program$rsf_program_id))
+      
+    } else {
+      
+      DO_SELECT_PROGRAM_ID(as.numeric(selected_facility$rsf_program_id))
+      cat("DO SELECT PROGRAM ID: ",as.numeric(selected_facility$rsf_program_id),"\n")
+    }
+  } else if (!empty(selected_program)) {
+    
+    DO_SELECT_PROGRAM_ID(as.numeric(selected_facility$rsf_program_id))
+    
+  }
+  
+  if (!empty(selected_export)) {
+    
+    cat("Loading report ID= ",selected_export$exporting_title,"\n")
+    
+    dashboard_parameters <- jsonlite::fromJSON(selected_export$dashboard_parameters)
+    if (!is.na(selected_export$generated_with_report_id)) {
+      report <- SERVER_DASHBOARD_REPORTS_LIST()[report_id==selected_export$generated_with_report_id,
+                                                .(report_id,
+                                                  report_title,
+                                                  report_pfcbl_id_filters,
+                                                  for_facility_sys_names,
+                                                  for_indicator_names,
+                                                  for_asof_dates,
+                                                  report_parameters)]
+      SERVER_DASHBOARD_REPORT_SELECTED(as.list(report))
+    }
+    
+    SERVER_DASHBOARD_DO_LOAD(for_facility_sys_names=dashboard_parameters$for_facility_names,
+                             for_indicator_names=dashboard_parameters$for_indicator_names,
+                             for_asof_dates=dashboard_parameters$for_asof_dates,
+                             dashboard_parameters=dashboard_parameters$dashboard_parameters,
+                             do_run=FALSE)
+    
+  }
+
+  cat("Completed parsing login parameters\n")
+    
+},ignoreNULL=FALSE)
+
+
   #onStop
   onSessionEnded(function() {
     print("Session onSessionEnded called.")
@@ -410,5 +600,3 @@ server <- function(input, output, session)
     }
   })
 }
-
-

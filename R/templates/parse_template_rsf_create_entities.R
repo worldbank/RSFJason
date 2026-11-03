@@ -16,7 +16,9 @@ parse_template_rsf_create_entities <- function(pool,
     stop(paste0("Error: Expected column names ",paste0(rsf_names,collapse=",")," not found in ",paste0(names(report_data),collapse=",")))
   } 
 
+  sys_names <- NULL
   if (any(grepl("^SYSNAME$",names(report_data)))) {
+    sys_names <- unique(report_data$SYSNAME)
     report_data[,SYSNAME:=NULL]
   }
   
@@ -93,8 +95,8 @@ parse_template_rsf_create_entities <- function(pool,
                                      program_inception_date=report_data[indicator_name=="program_inception_date",reporting_submitted_data_value],
                                      program_lcu=report_data[indicator_name=="program_base_currency_unit",reporting_submitted_data_value],
                                      program_ifc_project_id=report_data[indicator_name=="program_ifc_project_id",reporting_submitted_data_value],
+                                     program_is_collection=any(grepl("^portfolio",sys_names),na.rm=T),
                                      reporting_user_id=reporting_user_id,
-                                     template_id=template$template_id,
                                      program_reporting_frequency="quarter",
                                      source_name="Initialize Program")
       

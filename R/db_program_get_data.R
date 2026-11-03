@@ -44,17 +44,6 @@ db_program_get_data  <- function(pool,
     if (anyNA(for_rsf_pfcbl_ids)) for_rsf_pfcbl_ids <- for_rsf_pfcbl_ids[-which(is.na(for_rsf_pfcbl_ids))]
     reporting_current_date <- as.Date(reporting_current_date)
   }  
-   # db_params <<- as.list(environment())[which(names(as.list(environment())) %in% c("reporting_current_date",
-   #                                                                                 "indicator_variables",
-   #                                                                                 "for_rsf_pfcbl_ids",
-   #                                                                                 "for_pfcbl_categories",
-   #                                                                                 "rsf_indicators"))]
-   
-   
-   # 
-  # lapply(names(db_params),function(x) { assign(x,db_params[[x]],envir = globalenv()) })
-
-  
   
   t1<-Sys.time()
   
@@ -209,9 +198,15 @@ db_program_get_data  <- function(pool,
       if (any(query_indicators$indicator_variable == "info.createddate")) {
         pfcbl_sql <- paste0(pfcbl_sql,", ids.created_in_reporting_asof_date")
       }
-
       
       pfcbl_sql <- paste0(pfcbl_sql," from p_rsf.rsf_pfcbl_ids ids ")
+      
+      if (grepl("ids.rsf_program_id",pfcbl_sql)) {
+        pfcbl_sql <- gsub("ids\\.rsf_program_id","rf.rsf_program_id",pfcbl_sql)
+        pfcbl_sql <- paste0(pfcbl_sql," 
+                            left join p_rsf.rsf_facilities rf on rf.rsf_facility_id = ids.rsf_facility_id ")
+      }
+      
       
 
       pfcbl_ids <- dbGetQuery(pool,glue(
@@ -243,6 +238,7 @@ db_program_get_data  <- function(pool,
                              .SD,
                              .SDcols=setdiff(names(pfcbl_ids),names(pfcbl_family))]
       
+      pfcbl_ids <- unique(pfcbl_ids)
       
       if (any(sapply(pfcbl_family,anyNA))) {
         
@@ -1241,14 +1237,74 @@ db_program_get_data  <- function(pool,
     
     #finalize rsf_data
     {
-      rsf_data[pfcbl_indicators[is.na(default_value) == FALSE,
-                                .(indicator_id,
-                                  default_value,
-                                  joincondition=as.character(NA))],
-               `:=`(data_value=i.default_value,
-                    data_value_changed=FALSE), #a default value also counts as a non-change, like a first entry.
-               on=.(indicator_id,
-                    data_value=joincondition)]
+      defaults <- unique(query_indicators[is.na(default_value) == FALSE,
+                                          .(indicator_id,
+                                            indicator_name,
+                                            data_type,
+                                            pfcbl_category,
+                                            indicator_variable_class,
+                                            data_unit,
+                                            default_value)])
+      
+      if (!empty(defaults)) {
+        defaults <- pfcbl_ids[defaults,
+                              .(rsf_pfcbl_id,
+                                indicator_id,
+                                indicator_name,
+                                data_type,
+                                data_category=pfcbl_category,
+                                data_class=indicator_variable_class,
+                                default_unit=data_unit,
+                                default_value),
+                              on=.(pfcbl_category),
+                              by=.EACHI] #multiple indicators with defaults possible per pfcbl_category
+        
+        
+        defaults <- rsf_data[,.(rsf_pfcbl_id,
+                               indicator_id,
+                               data_class,
+                               data_id)][defaults,
+                             on=.(rsf_pfcbl_id,
+                                  indicator_id,
+                                  data_class)
+                             ][is.na(data_id)]
+      }
+      
+      if (!empty(defaults)) {
+        
+        defaults <- defaults[,
+                 .(reporting_current_date,
+                   reporting_asof_date=reporting_current_date,
+                   rsf_pfcbl_id,
+                   data_id,
+                   indicator_id,
+                   indicator_name,
+                   data_type,
+                   data_category,
+                   data_value=default_value,
+                   data_unit=default_unit,
+                   data_class,
+                   data_asof_date=reporting_current_date,
+                   data_value_changed=FALSE,
+                   data_value_updated=FALSE,
+                   reportnumber=0)]
+        
+        defaults <- defaults[,.SD,
+                             .SDcols=names(rsf_data)]
+        
+        rsf_data <- rbindlist(list(rsf_data,
+                                   unique(defaults)))
+      }
+      
+      #hmm...this doesn't work at all!  The defualt needs to be applied for non-existent data (ie, no data_id) not for NA data that can only exist if reported
+      # rsf_data[pfcbl_indicators[is.na(default_value) == FALSE,
+      #                           .(indicator_id,
+      #                             default_value,
+      #                             joincondition=as.character(NA))],
+      #          `:=`(data_value=i.default_value,
+      #               data_value_changed=FALSE), #a default value also counts as a non-change, like a first entry.
+      #          on=.(indicator_id,
+      #               data_value=joincondition)]
       
       setorder(rsf_data,
                reporting_current_date,

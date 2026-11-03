@@ -197,13 +197,13 @@ observeEvent(input$action_indicator_review_start, {
     
     if (is.na(review_rsf_pfcbl_id)) {
       subs <- DBPOOL %>% dbGetQuery("
-        select 
-          ris.rsf_pfcbl_id
+        select ris.rsf_pfcbl_id
         from p_rsf.rsf_setup_indicators ris 
-        inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = ris.rsf_pfcbl_id
-        where ris.indicator_id = 157327 and ris.is_subscribed is true and ids.rsf_program_id = $1::int",
-      params=list(SELECTED_PROGRAM_ID()))
+        where ris.indicator_id = $1 and ris.is_subscribed is true",
+      params=list(review_indicator_id))
       review_rsf_pfcbl_id <- subs$rsf_pfcbl_id
+      review_rsf_pfcbl_id <- intersect(review_rsf_pfcbl_id,
+                                       SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()$rsf_pfcbl_id)
     }
     
     results <- NULL

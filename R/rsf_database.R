@@ -42,6 +42,18 @@ dbMakeIntArray <- function(x) {
 }
 
 
+dbMakeDateArray <- function(x) {
+  
+  x <- as.Date(suppressWarnings(unique(x)))
+  x <- x[!is.na(x)]
+  
+  if (!length(x)) return("{}")
+  x <- format(x,"%Y-%m-%d")
+  x <- paste0("'",x,"'")
+  
+  paste0("{", paste0(x, collapse = ","), "}")
+}
+
 dbStart <- function(database,
                     drv=DBI::dbDriver("Postgres")) {
   

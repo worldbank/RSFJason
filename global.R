@@ -3,7 +3,6 @@
 DATABASE_LOCATION <- "Jason_PROD"
 
 
-#shiny::runApp(display.mode="showcase")
 options(shiny.reactlog=TRUE) #press Ctrl+F3 to launch the reactive log visualization
 options(shiny.autoload.r = FALSE)
 options(shiny.autoreload = FALSE)

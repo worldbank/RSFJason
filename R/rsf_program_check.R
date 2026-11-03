@@ -2,20 +2,21 @@ rsf_program_check <- function(pool,
                               rsf_pf_id,
                               rsf_indicators,
                               for_import_id,
-                              check_future=TRUE,
                               check_consolidation_threshold=NA,
                               reference_asof_date=NULL,
                               CALCULATIONS_ENVIRONMENT,
                               status_message) {
   
   t1 <- Sys.time()
-
-  limit_date <- NA
-  if (check_future==FALSE &&
-      is.null(reference_asof_date)==FALSE) {
-    limit_date <- ymd(reference_asof_date)
-  }
   
+
+    
+  limit_date <- NA
+
+  if (!is.null(reference_asof_date) && !all(is.na(reference_asof_date))) {
+    limit_date <- pmin(ymd(reference_asof_date),today())
+  }
+
   if (any(is.na(check_consolidation_threshold)) || 
       is.null(check_consolidation_threshold)    ||
       length(check_consolidation_threshold) > 1 ||
@@ -50,7 +51,7 @@ rsf_program_check <- function(pool,
     
     check_groups <- sort(unique(stale_checks$check_group))
     
-    if (all(is.na(reference_asof_date))) reference_asof_date <- NULL
+    
     
     
     #Errors generally result from changes in the check formula and residual calculations
@@ -270,14 +271,15 @@ rsf_program_check <- function(pool,
       #and now the request to delete/validate them. But it seems very, very low that multiple people are uploading client data at the same time 
       #and generating new checks.  And this is the most efficient way to clear out pending evaluations.
       
+
       dbExecute(pool,"
         delete from p_rsf.rsf_data_check_evaluations dce
-        using p_rsf.view_rsf_pf_check_requirements req
-        where req.from_rsf_pf_id = $1::int
-          and dce.rsf_pf_id = req.to_rsf_pf_id
-          and dce.check_asof_date <= $2::date",
-        params=list(rsf_pf_id,
-                    limit_date))
+        where dce.rsf_pf_id = $1::int
+          and dce.check_formula_id = any($2::int[])
+          and dce.check_asof_date = any($3::date[])",
+                params=list(rsf_pf_id,
+                            dbMakeIntArray(check_results$check_formula_id),
+                            dbMakeDateArray(check_results$check_asof_date)))
     }
   },
   finally = {
@@ -288,6 +290,10 @@ rsf_program_check <- function(pool,
     lockconn <- NULL
   })
   
+  if (!is.null(lockconn)) {
+    poolReturn(lockconn)
+    lockconn <- NULL
+  }
   
   debugtime("rsf_program_check","Done!",format(Sys.time()-t1))
 }

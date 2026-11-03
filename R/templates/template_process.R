@@ -798,16 +798,21 @@ template_process <- function(pool,
         template$pfcbl_data[ambiguous>1,duplicate_value:=ifelse(!is.na(data_value) & !is.na(suppressWarnings(as.numeric(data_value))),
                                                      as.character(round(suppressWarnings(as.numeric(data_value)),CALCULATIONS_ENVIRONMENT$SIG_DIGITS)),
                                                      data_value)]
+
         
         template$pfcbl_data[ambiguous>1 & !is.na(duplicate_value) & !is.na(data_unit),
                             duplicate_value:=paste0(data_value," ",data_unit)]
+
         
         template$pfcbl_data[ambiguous>1 & is.na(duplicate_value) & !is.na(data_unit),
                             duplicate_value:=paste0("{BLANK ",data_unit,"}")]
   
         template$pfcbl_data[ambiguous>1 & is.na(duplicate_value) & is.na(data_unit),
                             duplicate_value:="{MISSING}"]
-  
+
+        template$pfcbl_data[ambiguous>1 & (is.na(data_value) | data_value=="0"),
+                            duplicate_value:="{ZERO}"]
+        
         template$pfcbl_data[,omit:=FALSE]
         template$pfcbl_data[ambiguous>1,
                             omit:=(length(unique(duplicate_value))==1) & (1:.N)>1,

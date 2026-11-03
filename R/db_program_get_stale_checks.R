@@ -51,7 +51,7 @@ db_program_get_stale_checks <- function(pool,
                                        and rdc.check_status = 'active' -- this is only to auto-resovle active checks that, being re-checked, are false.
     where true
     and req.from_rsf_pf_id = $1::int
-    and dce.check_asof_date <= $2::date
+    and coalesce(dce.check_asof_date <= NULLIF($2::text,'NA')::date,true)
     group by 
       req.to_rsf_pf_id,
       dce.check_asof_date,
@@ -59,7 +59,7 @@ db_program_get_stale_checks <- function(pool,
       req.computation_group,
       lcu.data_unit_value",
      params=list(rsf_pf_id,
-                 limit_future))
+                 as.character(limit_future)))
   
   
   

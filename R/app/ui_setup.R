@@ -361,7 +361,17 @@ tabPanel("Setup Templates",value="setup_templates",
 
                   tabPanel("Create New...",value="setup_new",
                            fluidRow(column(12,align='left',style='padding-top:10px;padding-bottom:10px;',
+                                      hidden(
+                                        div(style="width:100%;display:flex;flex-flow:row wrap",
+                                            id="setup_program_create_select_collection",
+                                            textInput(inputId="setup_program_create_collection_search",
+                                                      label="Search Facilities",
+                                                      value="",
+                                                      width="300px")
+                                            )
+                                      ),
                                       div(style="width:100%;display:flex;flex-flow:row wrap",
+                                          id="setup_program_create_select_what",
                                            div(style="width:150px",
                                                selectizeInput(inputId="setup_program_create_what",
                                                         label="Create New...",
@@ -378,22 +388,6 @@ tabPanel("Setup Templates",value="setup_templates",
                                                                      width="100%",
                                                                      selected="",
                                                                      options=list(placeholder="Select Facility..."))))
-                                          #  
-                                          # div(style="min-width:200px;flex-grow:1;margin-left:10px;",
-                                          #     hidden(selectizeInput(inputId="setup_program_create_selected_client",
-                                          #                            label="For Client",
-                                          #                            choices=c(""),
-                                          #                            width="100%",
-                                          #                            selected="",
-                                          #                            options=list(placeholder="Select Client...")))),
-                                          #  
-                                          # div(style="min-width:200px;flex-grow:1;margin-left:10px;",
-                                          #     hidden(selectizeInput(inputId="setup_program_create_selected_borrower",
-                                          #                            label="For Borrower",
-                                          #                            choices=c(""),
-                                          #                            width="100%",
-                                          #                            selected="",
-                                          #                            options=list(placeholder="Select Borrower..."))))
                                           ))
                             ),
                             fluidRow(column(12,align="center",

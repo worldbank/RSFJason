@@ -5,28 +5,30 @@ db_program_create <- function(pool,
                               program_inception_date,
                               program_lcu,
                               program_ifc_project_id=NA, #optional
+                              program_is_collection=FALSE,
                               reporting_user_id,
-                              template_id,
                               program_reporting_frequency="quarter",
-                              source_name) {
+                              source_name="None") {
   
   if (!length(program_name)) program_name <- NA
   if (!length(program_nickname)) program_nickname <- "RSF Short Name"
   if (!length(program_lcu)) program_lcu <- "USD"
   
+  template_lookup <- db_export_get_template(pool=pool,template_name="RSF-ENTITIES-TEMPLATE")
+  template_id <- template_lookup$template_id
   #program_reporting_frequency <- match.arg(program_reporting_frequency)
   program_name <- toupper(trimws(program_name,whitespace="[ \\t\\r\\n\\v\\h\\s]"))
   program_nickname <- toupper(trimws(program_nickname,whitespace="[ \\t\\r\\n\\v\\h\\s]"))
   program_inception_date <- suppressWarnings(ymd(program_inception_date))
   
-  
+
   if (nchar(program_name) < 4 || nchar(program_nickname) < 4) stop("Invalid names: minimum of 4 characters required for name and nickname")
   if (is.na(program_inception_date)) stop("Unable to establish reporting_asof_date")
   
   reporting_asof_date <- ceiling_date(ymd(program_inception_date),unit=program_reporting_frequency)-1
   #source_reference <- paste0("CREATE ",program_nickname)
   
-  
+  #rowser()
   
   #conn <- poolCheckout(pool)
   #dbBegin(conn)
@@ -72,6 +74,7 @@ db_program_create <- function(pool,
   #conn <- poolCheckout(pool)
   #dbBegin(conn)
   #dbRollback(conn)
+  program_is_collection <- isTRUE(program_is_collection)
   
   create_cohort <- poolWithTransaction(pool,function(conn) {
 
@@ -81,11 +84,11 @@ db_program_create <- function(pool,
       
     new_program <- dbGetQuery(conn,"
       insert into p_rsf.rsf_programs(rsf_program_id,
-                                     reporting_period) 
+                                     is_collection) 
       values(nextval('p_rsf.rsf_pfcbl_ids_rsf_pfcbl_id_seq'::regclass),
-             $1::text)
+             $1::bool)
       returning rsf_program_id,reporting_period",
-      params=list(program_reporting_frequency))
+      params=list(program_is_collection))
 
     new_program_rsf_pfcbl_id <- new_program$rsf_program_id
     new_program_rsf_pfcbl_id <- as.numeric(unlist(new_program_rsf_pfcbl_id))
@@ -162,7 +165,7 @@ db_program_create <- function(pool,
         params=list(program$rsf_pfcbl_id,
                     reporting_user_id,
                     reporting_asof_date,
-                    template_id,
+                    template_lookup$template_id,
                     source_name,
                     program_nickname))
         
@@ -246,10 +249,6 @@ db_program_create <- function(pool,
   program_create_indicators[indicator_sys_category=="SYSID",data_value:=as.character(rsf_pfcbl_id)]
   program_create_indicators[!(indicator_sys_category %in% nodefault_setup_indicators),data_value:=default_value]
 
-  # if (any(is.na(program_create_indicators[is_setup=="required",data_value]))) {
-  #   stop(paste0("Failed to create program due to {MISSING} values for required setup indicators: ",
-  #               paste0(program_create_indicators[is.na(data_value),indicator_name],collapse=" & ")))
-  # }
 
   if (empty(program_create_indicators[indicator_sys_category %in% c("id","nickname","name") & !is.na(data_value)])) {
     stop("Failed to create program because at least ID, nickname or name must be provided.")
@@ -294,6 +293,7 @@ db_program_create <- function(pool,
             params=list(reporting_user_id,
                         create_cohort$reporting_rsf_pfcbl_id))
   
+  program_create_indicators <- program_create_indicators[!is.na(data_value)]
   
   create_data <- db_add_update_data_user(pool=pool,
                                          import_id=create_cohort$import_id,

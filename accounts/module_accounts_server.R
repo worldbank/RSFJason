@@ -156,8 +156,8 @@ module_accounts_server <- function(id,
       ad_user <- NULL
       success <- FALSE
       
-      message(paste0("\nParent session (ActiveDirectory) user: ",parent_session$user),"\n")
-      
+      #message(paste0("\nParent session (ActiveDirectory) user: ",parent_session$user),"\n")
+      #parent_session$user <- "svoitov"
       if (isTruthy(parent_session$user)) {
         
         ad_user <- parent_session$user

@@ -19,15 +19,14 @@ rsf_calculations_recalculate <- function(pool,
   
   facilities <- dbGetQuery(pool,"
                         select 
-                        ids.rsf_program_id,
-                        ids.rsf_pfcbl_id,
-                        ids.rsf_pf_id,
+                        rf.rsf_program_id,
+                        rf.rsf_facility_id as rsf_pfcbl_id,
+                        rf.rsf_facility_id as rsf_pf_id,
                         nids.rsf_name as facility_name
                         
-                        from p_rsf.rsf_pfcbl_ids ids
-                        inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
-                        where ids.pfcbl_category = 'facility'
-                        and ids.rsf_program_id = any($1::int[])",
+                        from p_rsf.rsf_facilities rf
+                        inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = rf.rsf_facility_id
+                        where rf.rsf_program_id = any($1::int[])",
                         params=list(dbMakeIntArray(rsf_program_ids)))
   
   if (empty(facilities)) return (NULL)
@@ -58,8 +57,11 @@ rsf_calculations_recalculate <- function(pool,
                      incProgress(amount=0,
                                  message=paste0("Recalculating ",fac$facility_name,": ",dots))
                    }
+                   
                    DBPOOL %>% rsf_program_calculate(rsf_indicators=rsf_indicators,
                                                     rsf_pf_id=fac$rsf_pf_id,
+                                                    for_import_id=NA,
+                                                    reference_asof_date=today(),
                                                     status_message=progress_status_message,
                                                     CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
                  })

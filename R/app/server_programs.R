@@ -2,10 +2,9 @@
 ## Manages Information when user selects PROGRAM from dropdown
 ##############################################################
 USER_PROGRAMS_REFRESH <- reactiveVal(0)
-#LOAD_RSF_PFCBL_IDS <- reactiveVal(0)
-#LOAD_VALID_REPORTING_DATE <- reactiveVal(NA)
 DO_SELECT_PROGRAM_ID <- reactiveVal(as.numeric(NA))
 REFRESH_PROGRAM_INDICATORS <- reactiveVal(0)
+REFRESH_PROGRAM_FACILITIES <- reactiveVal(0)
 
 USER_URL_PARAMETERS <- eventReactive(session$clientData$url_search, {
   if (!isTruthy(session$clientData$url_search)) return (NULL)
@@ -18,30 +17,37 @@ USER_PROGRAMS <- eventReactive(list(LOGGEDIN(),
   if (LOGGEDIN()==FALSE) return (data.table())
   
   programs <- DBPOOL %>% dbGetQuery("
-                                    select 
-                                      nids.rsf_pfcbl_id,
-                                      nids.rsf_program_id,
-                                      nids.rsf_name as program_name,
-                                      array_to_string(array_agg(fpg.permission_name),',') as permissions,
-                                      nids.sys_name
-                                    from p_rsf.view_current_entity_names_and_ids nids
-                                    inner join users.view_rsf_pfcbl_id_family_permissions_granted fpg on fpg.rsf_pfcbl_id = nids.rsf_pfcbl_id
-                                    where nids.pfcbl_category in ('program','global')
-                                      and fpg.account_id = $1::text
-                                    group by
-                                      nids.rsf_pfcbl_id,
-                                      nids.rsf_program_id,
-                                      nids.rsf_name,
-                                      nids.sys_name
-                                    having 'LIST' = any(array_agg(fpg.permission_name))
-                                    order by
-                                      nids.rsf_program_id = 0,
-                                      nids.rsf_name",
-                                    params=list(USER_ID()))
+    select 
+      rp.rsf_program_id as rsf_pfcbl_id,
+      rp.rsf_program_id,
+      coalesce(nids.rsf_name,'UNNAMED' || rp.rsf_program_id) as program_name,
+      array_to_string(array_agg(distinct fpg.permission_name),',') as permissions,
+      coalesce(nids.sys_name,'program:UNNAMED' || rp.rsf_program_id) as sys_name,
+      rp.is_collection
+    from p_rsf.rsf_programs rp
+    inner join users.view_rsf_pfcbl_id_family_permissions_granted fpg on fpg.rsf_pfcbl_id = rp.rsf_program_id
+                                                                     and fpg.account_id = $1::text
+    left join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = rp.rsf_program_id
+    group by
+      rp.rsf_program_id,
+      nids.rsf_program_id,
+      nids.rsf_name,
+      nids.sys_name,
+      rp.is_collection
+    having 'LIST' = any(array_agg(fpg.permission_name))
+    order by
+      rp.rsf_program_id = 0,
+      rp.is_collection,
+      nids.rsf_name,
+      rp.rsf_program_id",
+    params=list(USER_ID()))
   
-  if (empty(programs)) programs <- data.frame(rsf_program_id=NA,
+  if (empty(programs)) programs <- data.frame(rsf_pfcbl_id=0,
+                                              rsf_program_id=0,
+                                              program_name='Error: No defined Programs (or no permissions granted to any programs)',
                                               permissions="0",
-                                              program_name='Error: No defined Programs (or no permissions granted to any programs)')
+                                              sys_name="global:Global")
+
   setDT(programs)
   programs[,permissions:=mapply(strsplit,x=permissions,split=",",fixed=T)]
   programs
@@ -72,24 +78,26 @@ SELECTED_PROGRAM <- eventReactive(SELECTED_PROGRAM_ID(), {
   if (!isTruthy(rsf_program_id)) return(data.table())  
 
   program <- DBPOOL %>% dbGetQuery("
-                                   select
-                                    nids.rsf_pfcbl_id,
-                                    ids.rsf_program_id,
-                                    ids.rsf_facility_id,
-                                    coalesce(nids.nickname,nids.name,'RSF' || nids.rsf_program_id) as program_nickname,
-                                    nids.rsf_name as program_name,
-                                    nids.pfcbl_category,
-                                    nids.rsf_name,
-                                    nids.nickname,
-                                    nids.name,
-                                    nids.id,
-                                    nids.sys_name,
-                                    ids.created_in_reporting_asof_date
-                                   from p_rsf.view_current_entity_names_and_ids nids
-                                   inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = nids.rsf_pfcbl_id
-                                   where nids.rsf_program_id = $1::int
-                                     and nids.pfcbl_category in ('global','program')",
-                                   params=list(rsf_program_id))
+  select
+    rp.rsf_program_id as rsf_pfcbl_id,
+    ids.rsf_program_id,
+    ids.rsf_facility_id,
+    coalesce(nids.nickname,nids.name,'RSF' || nids.rsf_program_id) as program_nickname,
+    nids.rsf_name as program_name,
+    nids.pfcbl_category,
+    nids.rsf_name,
+    nids.nickname,
+    nids.name,
+    nids.id,
+    nids.sys_name,
+    ids.created_in_reporting_asof_date,
+    ids.deactivated_in_reporting_asof_date,
+    rp.is_collection
+  from p_rsf.rsf_programs rp
+  inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rp.rsf_program_id
+  left join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = rp.rsf_program_id
+  where rp.rsf_program_id = $1::int",
+  params=list(rsf_program_id))
   
   setDT(program)
   if (empty(program) || !isTruthy(program)) return (showNotification(type="error",ui=h2("The selected program does not exist (or no longer exists)")))
@@ -117,7 +125,9 @@ SELECTED_PROGRAM_VALID_REPORTING_DATES <- eventReactive(SELECTED_PROGRAM_ID(), {
   return (dates)
 },ignoreNULL=FALSE)
 
-SELECTED_PROGRAM_FACILITIES_LIST <- eventReactive(SELECTED_PROGRAM_ID(), { 
+SELECTED_PROGRAM_FACILITIES_LIST <- eventReactive(list(SELECTED_PROGRAM_ID(),
+                                                       REFRESH_PROGRAM_FACILITIES()),
+{ 
   
   selected_program_id <- SELECTED_PROGRAM_ID()
 
@@ -125,8 +135,8 @@ SELECTED_PROGRAM_FACILITIES_LIST <- eventReactive(SELECTED_PROGRAM_ID(), {
   
   facilities <- DBPOOL %>% dbGetQuery("
     select 
-      ids.rsf_program_id,
-      ids.rsf_facility_id,
+      rf.rsf_program_id,
+      rf.rsf_facility_id,
       ids.rsf_pfcbl_id,
       ids.pfcbl_category,
       coalesce(nids.nickname,nids.name,'RSF' || ids.rsf_facility_id) as facility_name,
@@ -136,17 +146,19 @@ SELECTED_PROGRAM_FACILITIES_LIST <- eventReactive(SELECTED_PROGRAM_ID(), {
       nids.id,
       nids.sys_name,
       ids.created_in_reporting_asof_date,
-      array_to_string(array_agg(fpg.permission_name),',') as permissions
-    from 
-    p_rsf.rsf_pfcbl_ids ids
-    inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
-    inner join users.view_rsf_pfcbl_id_family_permissions_granted fpg on fpg.rsf_pfcbl_id = nids.rsf_pfcbl_id
-    where ids.rsf_program_id = $1::int
-      and ids.pfcbl_category = 'facility'
+      ids.deactivated_in_reporting_asof_date,
+      array_to_string(array_agg(distinct fpg.permission_name),',') as permissions,
+      rp.is_collection
+    from p_rsf.rsf_facilities rf
+    inner join p_rsf.rsf_programs rp on rp.rsf_program_id = rf.rsf_program_id
+    inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rf.rsf_facility_id
+    inner join users.view_rsf_pfcbl_id_family_permissions_granted fpg on fpg.rsf_pfcbl_id = rf.rsf_facility_id
+    left join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
+    where rf.rsf_program_id = $1::int
       and fpg.account_id = $2::text
     group by
-      ids.rsf_program_id,
-      ids.rsf_facility_id,
+      rf.rsf_program_id,
+      rf.rsf_facility_id,
       ids.rsf_pfcbl_id,
       ids.pfcbl_category,
       coalesce(nids.nickname,nids.name,'RSF' || ids.rsf_facility_id),
@@ -155,9 +167,11 @@ SELECTED_PROGRAM_FACILITIES_LIST <- eventReactive(SELECTED_PROGRAM_ID(), {
       nids.name,
       nids.id,
       nids.sys_name,
-      ids.created_in_reporting_asof_date
-    having 'LIST' = any(array_agg(fpg.permission_name))
-    order by ids.pfcbl_category_rank desc,facility_name",
+      ids.created_in_reporting_asof_date,
+      ids.deactivated_in_reporting_asof_date,
+      rp.is_collection
+    having 'LIST' = any(array_agg(distinct fpg.permission_name))
+    order by ids.deactivated_in_reporting_asof_date is not null asc, facility_name",
   params=list(selected_program_id,
               USER_ID()))
   
@@ -166,7 +180,7 @@ SELECTED_PROGRAM_FACILITIES_LIST <- eventReactive(SELECTED_PROGRAM_ID(), {
   
 
   return (facilities)
-}, ignoreNULL=FALSE)
+}, ignoreNULL=FALSE, ignoreInit = TRUE)
 
 SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST <- eventReactive(SELECTED_PROGRAM_FACILITIES_LIST(), {
 
@@ -233,6 +247,7 @@ SELECTED_PF_NAME <- eventReactive(SELECTED_PF_ID(), {
  }
   
 })
+
 #Populates select input to filter on client/facility name
 observeEvent(SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST(), {
   
@@ -321,15 +336,6 @@ observeEvent(input$server_programs__selected_program, {
   id <- suppressWarnings(as.numeric(input$server_programs__selected_program))
 
   if (!isTruthy(input$server_programs__selected_program)) return (NULL)
-  
-  cat(paste0("input$server_programs__selected_program={",
-             input$server_programs__selected_program,"} ",
-             id,
-             " vs ",
-             abs(DO_SELECT_PROGRAM_ID()),
-             " = ",
-             identical(as.numeric(id),as.numeric(abs(DO_SELECT_PROGRAM_ID()))),"\n"))
-
 
   if (is.na(id) || length(id)==0 || id==-1) id <- as.numeric(NA)
   
@@ -337,22 +343,24 @@ observeEvent(input$server_programs__selected_program, {
                  as.numeric(abs(DO_SELECT_PROGRAM_ID())))) {
     cat(paste0("SETTING FROM={",DO_SELECT_PROGRAM_ID(),"} TO DO_SELECT_PROGRAM_ID(",as.numeric(abs(id)),")\n"))
     DO_SELECT_PROGRAM_ID(as.numeric(abs(id)))
+    
+    if (isTruthy(id)) {
+      DBPOOL %>% dbExecute("
+        insert into users.user_settings(account_id,setting_name,setting_value)
+        values($1::text,$2::text,$3::text)
+        on conflict(account_id,setting_name)
+        do update
+        set setting_value = EXCLUDED.setting_value",
+        params=list(USER_ID(),
+                    "server_programs__selected_program",
+                    as.character(as.numeric(abs(id)))))
+    }
   } else {
+    
     cat("NOT UPDATING because identical\n")
+    
   }
 }, ignoreInit=FALSE, ignoreNULL = TRUE)
-
-# 
-# observeEvent(SELECTED_PROGRAM_ID(), {
-#   
-#   if (!identical(as.numeric(SELECTED_PROGRAM_ID()),
-#                  as.numeric(input$server_programs__selected_program)) &&
-#       isTruthy(SELECTED_PROGRAM_ID())) {
-#     updateSelectizeInput(session,
-#                          inputId="server_programs__selected_program",
-#                          selected=as.numeric(SELECTED_PROGRAM_ID()))
-#   }  
-# },priority=9000)
 
 observeEvent(input$server_programs__selected_facility, {
   
@@ -379,151 +387,3 @@ observeEvent(input$server_programs__selected_facility, {
   
 },ignoreNULL = TRUE,ignoreInit = TRUE)
 
-observeEvent(list(LOGGEDIN(),
-                  USER_URL_PARAMETERS()), {
-  
-  query <- USER_URL_PARAMETERS()
-  cat(paste0("USER_URL_PARAMETERS()=",names(query),"\n"))
-  
-  if (!LOGGEDIN()) return (NULL)
-  
-  #1: Load facility based on last-selected saved in user settings
-  selected_facility <- DBPOOL %>% dbGetQuery("
-    select 
-      ids.rsf_pfcbl_id,
-      ids.rsf_program_id,
-      ids.rsf_facility_id
-    from users.user_settings ust
-    inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = (ust.setting_value::numeric)
-    where public.isnumeric(ust.setting_value) is true
-      and ust.account_id = $1::text
-      and ust.setting_name = 'server_programs__selected_facility'",
-    params=list(USER_ID()))
-  
-  cat("selected facility\n")
-  print(selected_facility)
-  
-  #2: If our URL parameter has an ID, they've selected to load a specific ID
-  #So overwrite the last-viewed facility selection.
-  if (length(query)) {
-    qids <- suppressWarnings(as.numeric(trimws(names(query))))
-    qids <- qids[!is.na(qids)]
-    
-    if (length(qids)) {
-      qid <- DBPOOL %>% dbGetQuery("
-        select 
-          ids.rsf_pfcbl_id,
-          ids.rsf_program_id,
-          ids.rsf_facility_id
-        from p_rsf.rsf_data_current_names_and_ids nids
-        inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = nids.rsf_pfcbl_id
-        where nids.id = trim($1::text)
-        
-        union all
-        
-        select 
-          ids.rsf_pfcbl_id,
-          ids.rsf_program_id,
-          ids.rsf_facility_id
-        from p_rsf.rsf_pfcbl_ids ids
-        where ids.rsf_pfcbl_id = $1::int
-        ",
-        params=list(qids[[1]]))
-      
-      if (!empty(qid)) {
-        
-        selected_facility <- qid[1,]
-        
-      }
-    }
-    
-    
-  }
-
-  #Must be first.
-  
-  #user entering with a load report request (RID) or load exported report request (EID)
-  export_id <- na.omit(suppressWarnings(as.numeric(trimws(query[which(names(query)=="EID")]))))
-  #export_id <- 684
-  #3: If they have an Export ID specified, then load based on the export's specifications instead.
-  selected_export <- NULL
-  if (length(export_id)) {
-    
-    #export_id <- 691
-    cat("Loading export ID= ",export_id,"\n")
-
-    if (!is.na(export_id)) {
-      selected_export <- DBPOOL %>% dbGetQuery("
-      select
-        ids.rsf_program_id,
-        ids.rsf_facility_id,
-        de.export_id,
-        de.exporting_title,
-        de.exporting_rsf_pf_id as rsf_pfcbl_id,
-        de.dashboard_parameters::jsonb,
-        de.generated_with_report_id
-      from p_rsf.dashboard_exports de
-      inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = de.exporting_rsf_pf_id
-      where de.export_id = $1::int",
-      params=list(export_id))
-      
-      setDT(selected_export)
-      
-      selected_facility <- selected_export[,.(rsf_program_id,
-                                              rsf_facility_id,
-                                              rsf_pfcbl_id)]
-    }
-  }
-  
-  if (!empty(selected_facility)) {
-    
-    f_id <- as.numeric(selected_facility$rsf_facility_id)
-    if (is.na(f_id)) f_id <- -1
-    
-    session$userData$server_programs__selected_facility <- f_id
-    DO_SELECT_PROGRAM_ID(as.numeric(selected_facility$rsf_program_id))
-    cat("DO SELECT PROGRAM ID: ",as.numeric(selected_facility$rsf_program_id),"\n")
-  }
-  
-  if (!empty(selected_export)) {
-    
-    cat("Loading report ID= ",selected_export$exporting_title,"\n")
-
-    dashboard_parameters <- jsonlite::fromJSON(selected_export$dashboard_parameters)
-    if (!is.na(selected_export$generated_with_report_id)) {
-      report <- SERVER_DASHBOARD_REPORTS_LIST()[report_id==selected_export$generated_with_report_id,
-                                                .(report_id,
-                                                  report_title,
-                                                  report_pfcbl_id_filters,
-                                                  for_facility_sys_names,
-                                                  for_indicator_names,
-                                                  for_asof_dates,
-                                                  report_parameters)]
-      SERVER_DASHBOARD_REPORT_SELECTED(as.list(report))
-    }
-    
-    SERVER_DASHBOARD_DO_LOAD(for_facility_sys_names=dashboard_parameters$for_facility_names,
-                             for_indicator_names=dashboard_parameters$for_indicator_names,
-                             for_asof_dates=dashboard_parameters$for_asof_dates,
-                             dashboard_parameters=dashboard_parameters$dashboard_parameters,
-                             do_run=FALSE)
-    
-  }
-  
-  # updateQueryString(session=session,
-  #                   queryString="",
-  #                   mode="replace")
-  
-  # if (any(toupper(names(query))=="QR",na.rm=T)) {
-  #   upnum <- suppressWarnings(as.numeric(input$action_template_upload_new))
-  #   if (!length(upnum) || all(is.na(upnum))) {
-  #     upnum <- 1
-  #   } else {
-  #     upnum <- upnum +1
-  #   }
-  #   
-  #   shinyjs::runjs(paste0("Shiny.setInputValue(\"action_template_upload_new\",",upnum,",{priority:\"event\"})"))
-  # }
-  cat("Completed parsing login parameters\n")
-  
-},ignoreNULL=FALSE)

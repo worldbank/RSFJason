@@ -80,7 +80,7 @@ db_add_update_checks <- function(pool,
                                  indicator_check_id,
                                  check_formula_id,
                                  check_message,
-                                 variance,
+                                 variance,  #will apply a whole number, eg, 50% variance message, will be variance=50
                                  data_check_value,
                                  data_check_unit,
                                  flag_id=1:.N)]
@@ -400,7 +400,7 @@ db_add_update_checks <- function(pool,
           }
           
         }
-    
+
         {
           #IMPORTANT!
           #_temp_add_checks variance is alraedy multiplied by 100 so variance of 0.8 is 0.8% not 80%
@@ -476,12 +476,14 @@ db_add_update_checks <- function(pool,
                           from _temp_add_checks tac
                           left join p_rsf.indicator_checks ic on ic.indicator_check_id = tac.indicator_check_id
                           left join p_rsf.indicator_check_formulas icf on icf.check_formula_id = tac.check_formula_id
+                          
+                          -- p_rsf.view_rsf_setup_check_config MULTIPLIES VARIANCE by 100 to whole numbers.
                           left join p_rsf.view_rsf_setup_check_config scc on scc.rsf_pfcbl_id = tac.rsf_pfcbl_id
                                                                          and scc.for_indicator_id = tac.for_indicator_id
                                                                          and scc.indicator_check_id = ic.indicator_check_id
                                                                          and scc.check_formula_id is not distinct from tac.check_formula_id")
           
-          
+          #data_checks
           #x <- dbGetQuery(conn,"select * from _temp_data_checks");setDT(x);x
           #y <- dbGetQuery(conn,"select * from _temp_add_checks");setDT(y);y
         }
@@ -503,7 +505,8 @@ db_add_update_checks <- function(pool,
             																	data_check_value,
                                               data_check_unit,
                                               for_import_id,
-                                              config_id)																
+                                              config_id,
+                                              rsf_pf_id)																
                                 select 
                                   tdc.data_id,
   																tdc.rsf_pfcbl_id,
@@ -520,7 +523,8 @@ db_add_update_checks <- function(pool,
   																tdc.data_check_value,
                                   tdc.data_check_unit,
                                   ri.import_id as for_import_id, -- import can only be tied to checks for same rsf_pf_id and same as-of date.
-                                  tdc.config_id
+                                  tdc.config_id,
+                                  coalesce(ids.rsf_facility_id,ids.rsf_program_id) as rsf_pf_id
 
 
                                 from _temp_data_checks tdc

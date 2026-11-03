@@ -408,7 +408,6 @@ observeEvent(input$server_setup_indicators__recalculate_pending, {
                    DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
                                                     rsf_pfcbl_id.family=facility$rsf_pfcbl_id,
                                                     for_import_id=NA,
-                                                    calculate_future=FALSE,
                                                     reference_asof_date=today(),
                                                     status_message=progress_status_message,
                                                     CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)

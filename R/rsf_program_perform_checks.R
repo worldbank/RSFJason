@@ -13,11 +13,6 @@ rsf_program_perform_checks <- function(pool=pool,
   if (length(check_asof_date) != 1) { stop("Multiple check dates not allowed") }
  
 
-  # rsf_program_checks <- rbindlist(rsf_indicators$checks_for_indicator)
-  # rsf_program_checks <- rsf_program_checks[is_system==FALSE] #This shouldn't happen anyway
-  # rsf_program_checks <- rsf_program_checks[is_check_enabled==TRUE]
-  
-
   check_formulas <- dbGetQuery(pool,"
                                select
                                ic.indicator_check_id,

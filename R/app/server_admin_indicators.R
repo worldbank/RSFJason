@@ -1166,47 +1166,7 @@ output$admin_system_edit_indicator <- renderUI({
     addable_choices <- FALSE
   }
   
-  program_subscriptions <- DBPOOL %>% dbGetQuery("
-    select 
-      ids.rsf_program_id,
-      ids.rsf_pfcbl_id,
-      nids.rsf_name as name,
-      coalesce(pfi.is_subscribed,false) as is_subscribed
-    from p_rsf.rsf_pfcbl_ids ids
-    inner join p_rsf.view_current_entity_names_and_ids nids on nids.rsf_pfcbl_id = ids.rsf_pfcbl_id
-    left join p_rsf.rsf_setup_indicators pfi on pfi.rsf_pfcbl_id = ids.rsf_pfcbl_id
-    																									 and pfi.indicator_id = $1::int
-    where ids.pfcbl_category in ('global','program')",
-                                                 params=list(indicator$indicator_id))
   
-  setDT(program_subscriptions)
-  
-  program_subscriptions[,class:="btn "]
-  program_subscriptions[is_subscribed==TRUE,
-                        class:=paste0(class,"btn-success")]
-  
-  program_subscriptions[is_subscribed==FALSE,
-                        class:=paste0(class,"btn-warning")]
-  
-  if (selected_type=="global") {
-    program_subscriptions <- program_subscriptions[rsf_program_id==0]
-  } else {
-    program_subscriptions <- program_subscriptions[rsf_program_id!=0]
-  }
-  
-  ps<-split(program_subscriptions,
-            by="rsf_program_id")
-  
-  ps <- lapply(ps,
-               function(x) {
-                 HTML(paste0('<button 
-                      id="indicator_admin_program_subscription_',x$rsf_program_id,'" 
-                      class="',paste0(x$class," action-button"),'" 
-                      onclick="',paste0("Shiny.setInputValue('indicator_admin_program_subscription',",x$rsf_program_id,",{priority:'event'})"),'">',
-                             x$name,"</button>"))
-               })
-  
-  program_subscriptions <- tagList(fluidRow(column(12,div(tagList(ps)))))
   
   definition <- indicator$definition
   
@@ -1405,10 +1365,12 @@ output$admin_system_edit_indicator <- renderUI({
             ),
             fluidRow(align="left",
                      style='padding-bottom:5px;',
-                     column(12,div(tags$label("Programs monitoring this Indicator (Click to subscribe/unsubscribe)"),
-                                   program_subscriptions))
+                     column(12,
+                            actionButton(inputId="server_admin_indicators__manage_subscriptions",
+                                         class="btn-warning",
+                                         label="Manage Subscriptions"))
             ),
-            #recalculate_ui,
+           
             fluidRow(style='padding-top:10px;',div(style='border-top:solid gray 1px;margin-left:10px;margin-right:10px;',
                                                    column(6,align="left",style="padding-top:5px;",
                                                           actionButton(inputId="server_admin_indicators__delete_prompt",
@@ -1423,6 +1385,10 @@ output$admin_system_edit_indicator <- renderUI({
   return(ui)
 })
 
+observeEvent(input$server_admin_indicators__manage_subscriptions, {
+
+    
+})
 
 observeEvent(input$indicator_admin_program_subscription, {
   
@@ -1520,11 +1486,11 @@ observeEvent(input$server_admin_indicators__recalculate_pending, {
   
   rsf_pf_ids <- DBPOOL %>% dbGetQuery("
     select distinct rsi.rsf_pfcbl_id as rsf_pf_id 
-    from p_rsf.view_rsf_pfcbl_id_family_tree ft
-    inner join p_rsf.rsf_setup_indicators rsi on rsi.rsf_pfcbl_id = ft.to_family_rsf_pfcbl_id
-    where ft.from_rsf_pfcbl_id = $1::int
-      and rsi.indicator_id = $2::int
+    from p_rsf.rsf_setup_indicators rsi
+    inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = rsi.rsf_pfcbl_id
+    where rsi.indicator_id = $2::int
       and rsi.is_subscribed is true
+      and ids.rsf_gpfcbl_family && array[$1::int]
   ",params=list(SELECTED_PF_ID(),
                 indicator_id))
   rsf_pf_ids <- rsf_pf_ids$rsf_pf_id
@@ -1540,7 +1506,7 @@ observeEvent(input$server_admin_indicators__recalculate_pending, {
     counts <- withProgress(message="Resetting all calculations for re-calculations...",
                            value=50, {
       counts <- poolWithTransaction(DBPOOL,function(conn) {
-      
+
       dbExecute(conn,"
         delete from p_rsf.rsf_data_calculation_evaluations dce
         where dce.rsf_pf_id = any($1::int[])
@@ -1638,7 +1604,6 @@ observeEvent(input$server_admin_indicators__recalculate_pending, {
              DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
                                               rsf_pf_id=id,
                                               for_import_id=NA,
-                                              calculate_future=TRUE,
                                               reference_asof_date=today(),
                                               status_message=progress_status_message,
                                               CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)

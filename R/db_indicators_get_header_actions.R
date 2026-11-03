@@ -92,6 +92,7 @@ db_indicators_get_header_actions <- function(pool,
       
       union 
       
+      /* less accurate and less efficient!
       select distinct rdc.data_unit as fx_unit
       from p_rsf.rsf_pfcbl_ids ids
       inner join p_rsf.indicators ind on ind.data_category = ids.pfcbl_category
@@ -99,9 +100,16 @@ db_indicators_get_header_actions <- function(pool,
                                            and rdc.indicator_id = ind.indicator_id
       where ids.rsf_pfcbl_id = $1::int
        and ind.data_type = 'currency'
+       
+      union 
+      */
+      select distinct data_unit_value 
+      from p_rsf.rsf_data_current_lcu lcu
+      inner join p_rsf.rsf_pfcbl_ids ids on ids.rsf_pfcbl_id = lcu.for_rsf_pfcbl_id
+      where ids.rsf_pf_id = $1::int
     ) fx_cu
     where fx_cu.fx_unit is not null and fx_cu.fx_unit <> 'LCU'
-  ",params=list(rsf_pfcbl_id))
+  ",params=list(unlist(rsf_pfcbl_id)))
   currency_of_interest <- unlist(currency_of_interest,use.names = F)
   # header_actions[,stop:=as.numeric(NA)]
   # header_actions[grepl("^:AFTER:(ROW|COL)\\d+$",template_header),

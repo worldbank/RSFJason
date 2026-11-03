@@ -321,26 +321,38 @@ observeEvent(input$server_setup_checks__recheck_run, {
   
   for (i in 1:nrow(facilities)) {
     facility <- facilities[i]
-    withProgress(value=((i-1)/nrow(facilities)),
-                 message=paste0("Rechecking ",facility$nickname,": "), 
-                 {
-                   progress_status_message <- function(class,...) {
-                     dots <- list(...)
-                     dots <- paste0(unlist(dots),collapse=" ")
-                     incProgress(amount=0,
-                                 message=paste0("Rechecking ",facility$nickname,": ",dots))
-                   }
-                   
-                   DBPOOL %>% rsf_program_check(rsf_program_id=SELECTED_PROGRAM_ID(),
-                                                rsf_indicators=RSF_INDICATORS(),
-                                                rsf_pf_id=facility$rsf_pfcbl_id,
-                                                for_import_id=NA,
-                                                check_future=TRUE,
-                                                check_consolidation_threshold=NA,
-                                                reference_asof_date=NULL,
-                                                CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT,
-                                                status_message=progress_status_message)
-                 })
+    error <- tryCatch({
+      withProgress(value=((i-1)/nrow(facilities)),
+                   message=paste0("Rechecking ",facility$nickname,": "), 
+                   {
+                     progress_status_message <- function(class,...) {
+                       dots <- list(...)
+                       dots <- paste0(unlist(dots),collapse=" ")
+                       incProgress(amount=0,
+                                   message=paste0("Rechecking ",facility$nickname,": ",dots))
+                     }
+                     
+                     DBPOOL %>% rsf_program_check(rsf_program_id=SELECTED_PROGRAM_ID(),
+                                                  rsf_indicators=RSF_INDICATORS(),
+                                                  rsf_pf_id=facility$rsf_pfcbl_id,
+                                                  for_import_id=NA,
+                                                  check_consolidation_threshold=NA,
+                                                  reference_asof_date=NULL,
+                                                  CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT,
+                                                  status_message=progress_status_message)
+                   })
+      NULL
+    },
+    error=function(e) { conditionMessage(e) },
+    warning=function(w) { conditionMessage(w) })
+    
+    if (!is.null(error)) {
+      showNotification(type="warning",
+                       ui=h3(paste0("Pending calculations were found,",
+                                    "but calculations were unable to complete because:\n",
+                                    error,"\n",
+                                    "Therefore results may be incomplete.")))
+    }
   }
   
 },ignoreInit = TRUE)

@@ -923,6 +923,27 @@ parse_template_IFC_QR2018 <- function(pool,
                        mismatch:=anyNA(action)==FALSE & length(unique(na.omit(map_indicator_id)))>1,
                        by=.(original_row_num)]
         
+        
+        #If any mismatches are caused by data that has mapped Fixed currency and LCY currency indicators to the same header, then re-map these back to the 
+        #fixed currency as specified in the template.
+        #Only do this if a mismatch occurs, because otherwise we want to default to LCY where that data input currency is actually the LCY of the facility.
+        {
+          summary_sheet[rsf_indicators[is.na(unit_fx_indicator_id)==FALSE,
+                                       .(indicator_id,unit_fx_indicator_id,data_unit,indicator_name,mismatch=TRUE)],
+                        `:=`(map_indicator_id=i.indicator_id,
+                             indicator_name=i.indicator_name,
+                             converted=TRUE),
+                        on=.(map_indicator_id=unit_fx_indicator_id,data_unit,mismatch)]
+          
+          if (any(summary_sheet$converted,na.rm=T)) {
+            
+            summary_sheet[,
+                          mismatch:=anyNA(action)==FALSE & length(unique(map_indicator_id))>1,
+                          by=.(original_row_num)]
+          } 
+          summary_sheet[,converted:=NULL]
+        }
+        
         mismatch_labels <- summary_sheet[mismatch==TRUE]
         if (!empty(mismatch_labels)) {
           

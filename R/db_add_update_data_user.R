@@ -363,69 +363,7 @@ db_add_update_data_user <- function(pool,
         }
         
       }      
-     
-      #obsolete!
-      {
-        #Priority 1: Entity local currency units: template$rsf_indicators[indicator_sys_category=="entity_local_currency_unit",indicator_id] (facility and program defined)
-        #Priority 2: Entity local currency units: template$rsf_indicators[indicator_sys_category=="entity_currency_unit",indicator_id] (generally loan defined, but could be others?)
-        #Priority 3: Everything else
-        
-        
-        
-        #current_sequence <- 1
-        #current_sequence <- 2
-        #current_sequence <- 3
-        
-        #for (current_sequence in sort(unique(upload_data$sequence_rank))) {
           
-          #This is ultimately the driver for sequencing uploads
-          #Currency-unit definitions are uploaded FIRST (and those are NOT "currency" data types).
-          #Therefore, this statement can only be executed for last-priority data
-          #What we're doing here is if an entity uploads, for example, "1000 EUR" and it's base currency unit (inherited or defined) is "EUR"
-          #Then we want to change it from "EUR" to "LCU" (and rsf_data_current will actually change it back again)
-          #This helps ensure the "meaningfully different" analysis works reliably for metrics that provide data units and users may enter "1000" that is normalized to "1000 LCU"
-          #And then alternatively enter "1000 EUR" and this will generate a change entry and updated data timeseries data point of "1000 LCU" and "1000 EUR" whenever the user enters
-          #the value differently.  This helps eliminate unintended timeseries junk data (this is emperically experienced with some frequency).
-          #
-          #This is also if any defined or local currency units CHANGE in the future (which empirically, we know is true, eg GHANA Cedi to Shillings), 
-          #then we want the "1000 LCU" value to inherit the new base currency at the time of that change.
-          #Eg, if in the future, base currency changes to USD and is reported "1050 USD" then we want to know that it's 
-          #1050 in the newly revised base currency.  (This circumstance happens very rarely....but has been observed).
-          
-          #But if we're uploading new base unit definitions, these must happen a-priori to updating the LCU unit.
-          #NOTE: As of today (2026), this is not observed in the dataset.  Ghana RSFs were retroactively corrected and historically re-uploaded to convert all Cedi to GHS artificially to maintain historical record for management report
-          # if (!empty(upload_data[(sequence_rank==current_sequence) & (indicator_id %in% rsf_indicators[data_type %in% "currency",indicator_id])])) {
-          #   
-          #   dbExecute(conn,"
-          #   with updates as (
-          #     select 
-          #     urd.rsf_pfcbl_id,
-          #     urd.indicator_id,
-          #     urd.reporting_asof_date
-          #     from _temp_upload_rsf_data urd
-          #     inner join p_rsf.indicators ind on ind.indicator_id = urd.indicator_id
-          #     inner join lateral (select * 
-          #                         from p_rsf.rsf_data_current_lcu lcu
-          #     					          where lcu.for_rsf_pfcbl_id = urd.rsf_pfcbl_id
-          #     						          and lcu.reporting_asof_date <= urd.reporting_asof_date
-          #     					          order by lcu.reporting_asof_date desc
-          #     					          limit 1) as lcu on lcu.data_unit_value = urd.data_unit
-          #     where ind.data_type = 'currency'
-          #       and ind.data_unit = 'LCU'
-          #     	and urd.data_unit is not null
-          #     	and urd.data_unit <> 'LCU'
-          #     	and urd.sequence_rank = $1::int
-          #   )
-          #   update _temp_upload_rsf_data urd
-          #   set data_unit = 'LCU'
-          #   from updates up 
-          #   where up.rsf_pfcbl_id = urd.rsf_pfcbl_id
-          #     and up.indicator_id = urd.indicator_id
-          #   	and up.reporting_asof_date = urd.reporting_asof_date",
-          #             params=list(current_sequence))
-          #   
-          # }
-      }        
       
       #delete where not meaningfully different 
       {
@@ -446,7 +384,7 @@ db_add_update_data_user <- function(pool,
           
         if (has_data==FALSE) { return(c()) }
       }
-        #dbGetQuery(conn,"select distinct reporting_cohort_id,sequence_rank from _temp_upload_rsf_data")
+        #dbGetQuery(conn,"select count(*) from _temp_upload_rsf_data")
         
       #Insert the data (and add its reporting entity metric)  
       {
@@ -515,6 +453,31 @@ db_add_update_data_user <- function(pool,
               urd.rsf_pfcbl_id,
               ind.indicator_id,
               urd.reporting_asof_date
+          ),
+          
+          inserts as (
+          
+            select 
+              urd.rsf_pfcbl_id,
+              urd.indicator_id,
+              urd.reporting_asof_date,
+              urd.reporting_cohort_id,
+              urd.data_value,
+              urd.data_submitted,
+              urd.data_unit
+            from _temp_upload_rsf_data urd
+                    
+            union all
+                    
+            select 
+              rep.rsf_pfcbl_id,
+              rep.indicator_id,
+              rep.reporting_asof_date,
+              rep.reporting_cohort_id,
+              rep.data_value,
+              rep.data_submitted,
+              rep.data_unit
+            from reporting rep
           )
           insert into p_rsf.rsf_data(rsf_pfcbl_id,
                                      indicator_id,
@@ -523,27 +486,15 @@ db_add_update_data_user <- function(pool,
                                      data_value,
                                      data_submitted,
                                      data_unit)
-          select 
-            urd.rsf_pfcbl_id,
-            urd.indicator_id,
-            urd.reporting_asof_date,
-            urd.reporting_cohort_id,
-            urd.data_value,
-            urd.data_submitted,
-            urd.data_unit
-          from _temp_upload_rsf_data urd
-                  
-          union all
-                  
-          select 
-            rep.rsf_pfcbl_id,
-            rep.indicator_id,
-            rep.reporting_asof_date,
-            rep.reporting_cohort_id,
-            rep.data_value,
-            rep.data_submitted,
-            rep.data_unit
-          from reporting rep",
+          select                                     
+          ins.rsf_pfcbl_id,
+          ins.indicator_id,
+          ins.reporting_asof_date,
+          ins.reporting_cohort_id,
+          ins.data_value,
+          ins.data_submitted,
+          ins.data_unit
+          from inserts ins",
           params=list(import_id))
       }
       

@@ -1,4 +1,7 @@
 IMPORT_IDS_SELECTED <- reactiveVal(c())
+IMPORT_LIST__ZEROVERSION <- reactiveVal(NULL)
+IMPORT_LIST__ZEROVERSION_EXPORT <- reactiveVal(NULL)
+
 IMPORT_LIST__REFRESH_ON_FOCUS <- reactiveVal(FALSE)
 IMPORT_LIST__REFRESH <- reactiveVal(1)
 IMPORT_FLAGS_SELECTED__REFRESH <- reactiveVal(1)
@@ -14,8 +17,8 @@ TRIGGER_IMPORTS_LIST_REFRESH <- debounce(reactive({
 }),100)
 
 #All "reported" cohorts uploaded under the given program
-IMPORTS_LIST <- eventReactive(TRIGGER_IMPORTS_LIST_REFRESH(),
-{
+IMPORTS_LIST <- eventReactive(TRIGGER_IMPORTS_LIST_REFRESH(), {
+  
   t1 <- Sys.time()
   selected_entity_id <- as.numeric(input$server_programs__selected_facility)
 
@@ -29,12 +32,27 @@ IMPORTS_LIST <- eventReactive(TRIGGER_IMPORTS_LIST_REFRESH(),
   
   if (!isTruthy(selected_entity_id)) return (NULL)
   if (empty(SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST())) return (NULL)
+  selected_import_ids <- c()
   
-  selected_entity <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()[(rsf_pfcbl_id==selected_entity_id) | (selected_entity_id==-1 & pfcbl_category %in% c("global","program"))]
-  selected_category <- selected_entity$pfcbl_category
+  if (is.na(selected_entity_id)) {
+    
+    selected_import_ids <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()[,rsf_pfcbl_id]
+    
+  } else if (!is.na(selected_entity_id) && selected_entity_id==-1) {
+    
+    selected_import_ids <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()[,rsf_pfcbl_id]
+    
+  } else {
+    
+    selected_import_ids <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()[(rsf_pfcbl_id==selected_entity_id),rsf_pfcbl_id]
+    
+  }
+  # selected_entity <- SELECTED_PROGRAM_FACILITIES_AND_PROGRAM_LIST()[ | 
+  #                                                                   (selected_entity_id==-1 & pfcbl_category %in% c("global","program"))]
+  # selected_category <- selected_entity$pfcbl_category
 
-  if (empty(selected_entity)) return (NULL)
-  if (!length(selected_category) || selected_entity_id==-1) selected_category <- "ALL"
+  # if (empty(selected_entity)) return (NULL)
+  # if (!length(selected_category) || selected_entity_id==-1) selected_category <- "ALL"
 
   load_by_limit <- as.numeric(NA)
   if (isTruthy(phrase) &&
@@ -72,23 +90,16 @@ IMPORTS_LIST <- eventReactive(TRIGGER_IMPORTS_LIST_REFRESH(),
     inner join p_rsf.reporting_imports ri on ri.import_rsf_pfcbl_id = ids.rsf_pfcbl_id
     inner join p_rsf.reporting_templates rt on rt.template_id = ri.template_id
     left join p_rsf.view_account_info accounts on accounts.account_id = ri.import_user_id
-    where $1::int in (ids.rsf_program_id,
-                      ids.rsf_facility_id,
-                      ids.rsf_client_id)
-      and case when $2::text = 'global' then $1::int = ids.rsf_pfcbl_id
-               when $2::text = 'program' then $1::int = ids.rsf_pfcbl_id
-               when $2::text = 'facility' then $1::int in (ids.rsf_facility_id,ids.rsf_client_id)
-               else true end
+    where ids.rsf_pfcbl_id = any($1::int[])
     order by ri.import_id desc
-    limit (NULLIF($3::text,'NA'))::int",
-        params=list(selected_entity$rsf_pfcbl_id,
-                    selected_category,
+    limit (NULLIF($2::text,'NA'))::int",
+        params=list(dbMakeIntArray(selected_import_ids),
                     as.character(load_by_limit)))
   
   #--and rc.rsf_facility_id is not distinct from $2::int
   if (empty(imports)) return (NULL)
   setDT(imports)
-  
+
   imports[,source_name:=gsub("\\.gz$","",file_name)]
   
   imports[,
@@ -153,11 +164,9 @@ IMPORTS_LIST <- eventReactive(TRIGGER_IMPORTS_LIST_REFRESH(),
     where cca.import_id = any($1::int[])
     group by
     cca.import_rsf_pfcbl_id,
-    cca.check_asof_date
-                                 
-                                 ,cca.import_id",
+    cca.check_asof_date,
+    cca.import_id",
   params=list(dbMakeIntArray(imports$import_id)))
-  
   
   setDT(flags)
   
@@ -381,19 +390,205 @@ observeEvent(input$import_action_id_download, {
 })
 
 observeEvent(input$import_action_id_zeroversion, {
-  
   export_id <- as.numeric(input$import_action_id_zeroversion)
-  if (!isTruthy(export_id) || !export_id %in% IMPORTS_LIST()$import_id) {
-    showNotification(type="error",
-                     ui=h3("Create Zero Version failed to find file ID#",export_id))
-  } else if (empty(IMPORTS_LIST()[import_id==export_id & is_zero_versionable==TRUE])) { 
-    showNotification(type="error",
-                     ui=h3("Create Zero Version failed to find file ID#",export_id," template ",IMPORTS_LIST()[import_id==export_id,template_name]))
-  } else {    
-    shinyjs::runjs("document.getElementById('server_datasets_import_action_id_zeroversion').click();")
-    
+  
+  if (isTruthy(export_id) && export_id > 0) {
+    IMPORT_LIST__ZEROVERSION(export_id)
+  } else {
+    IMPORT_LIST__ZEROVERSION(NULL)
   }
-})
+},ignoreNULL=TRUE,ignoreInit = TRUE)
+
+observeEvent(list(IMPORT_LIST__ZEROVERSION(),
+                  IMPORTS_LIST()), {
+                    
+  export_id <- as.numeric(IMPORT_LIST__ZEROVERSION())                    
+  
+  req(isTruthy(export_id),
+      !empty(IMPORTS_LIST()),
+      export_id>0) 
+                    
+  cat("observeEvent(input$import_action_id_zeroversion={",export_id,"} IMPORTS_LIST()={",length(IMPORTS_LIST()),"}\n")
+                    
+ 
+  IMPORT_LIST__ZEROVERSION(NULL)
+  IMPORT_LIST__ZEROVERSION_EXPORT(NULL)
+  
+  if (!isTruthy(export_id) || !export_id %in% IMPORTS_LIST()$import_id) {
+    return(showNotification(type="error",
+                     ui=h3("Create Zero Version failed to find file ID#",export_id)))
+    
+  } 
+  
+  
+  import <- IMPORTS_LIST()[import_id==export_id  & 
+                           pfcbl_category == "facility" &
+                           is_zero_versionable %in% TRUE][1]
+
+  if (empty(import)) { 
+    return(showNotification(type="error",
+                            ui=h3("Create Zero Version failed to find file ID#",export_id," template ")))
+  } 
+  
+  export <- as.list(import)
+  export$user_id <- USER_ID()
+  zfname <- NULL
+  excelwb <- NULL
+  
+  {
+    {
+        #juuuuust in case in the future on facility ever has multiple clients,
+        #then select the first-created client as primary client to be named in export.
+        fcname <- DBPOOL %>% dbGetQuery("
+        select distinct on (rf.rsf_facility_id)
+          rf.rsf_facility_id,
+          rc.rsf_client_id,
+          fnids.pfcbl_name,
+          concat(coalesce(fnids.id,'SYSID'||fnids.rsf_pfcbl_id),' ',
+                 coalesce(cnids.nickname,
+                          cnids.name,
+                          cnids.nickname,
+                          cnids.name)) as facility_id_client_name
+        from p_rsf.rsf_facilities rf
+        inner join p_rsf.rsf_data_current_names_and_ids fnids on fnids.rsf_pfcbl_id = rf.rsf_facility_id
+        left join p_rsf.rsf_pfcbl_ids rc on rc.rsf_facility_id = rf.rsf_facility_id
+                                        and rc.pfcbl_category = 'client'
+        left join p_rsf.rsf_data_current_names_and_ids cnids on cnids.rsf_pfcbl_id = rc.rsf_client_id
+        where rf.rsf_facility_id = $1::int
+        order by rf.rsf_facility_id,rc.rsf_client_id asc",
+        params=list(import$import_rsf_pfcbl_id))
+        
+        fcname <- fcname$facility_id_client_name
+      
+        
+        next_asof_date <- lubridate::quarter(ymd(import$reporting_asof_date) %m+% months(1),
+                                             type = "date_last")
+        
+        next_sequence <- DBPOOL %>% dbGetQuery("
+        select 
+        p_rsf.function_portfolio_reporting_sequence_number(v_portfolio_reporting_start_date => prd.portfolio_reporting_start_date,
+                                                           v_quarter_end_date => $2::date) as next_reporting_sequence_number
+        from p_rsf.view_rsf_pf_portfolio_reporting_start_date prd
+        where prd.rsf_pf_id = $1::int",
+                                               params=list(import$import_rsf_pfcbl_id,
+                                                           as.character(next_asof_date)))
+        
+        zfname <- paste0("#",
+                         next_sequence$next_reporting_sequence_number," ",
+                         fcname," ",
+                         format_asof_date_label(as.Date(next_asof_date),add_month=F),
+                         " - v0.xlsx")
+          #print(paste0("Filename set to: ",zfname))
+        
+       export$export_file_name <- zfname
+     }
+    
+    {
+      #download_id <- isolate(as.numeric(IMPORT_LIST__ZEROVERSION()))
+      #print(paste0("Generating content for file=",file))
+      
+      # on.exit({
+      #   IMPORT_LIST__ZEROVERSION(NULL)
+      # }, add = TRUE)
+
+      next_asof_date <- lubridate::quarter(ymd(import$reporting_asof_date) %m+% months(1),
+                                           type = "date_last")
+      
+      withProgress(message=paste0("Generating zero-version from: ",basename(import$file_name),".  This may take a minute or two..."),value=0.5, {
+        
+        outpath <- DBPOOL %>% db_import_download_file(import_id=import$import_id)
+        
+        tryCatch({
+          
+          
+          
+          if (import$template_name=="IFC-QR-TEMPLATE2025") {
+            DBPOOL %>% dbExecute("
+              insert into p_rsf.reporting_import_events(for_import_id,
+                                                        reporting_asof_date,
+                                                        event_type_id,
+                                                        event_time,
+                                                        event_by_user_id,
+                                                        event_metadata,
+                                                        is_pending)
+              select
+                $1::int as for_import_id,
+                $2::date as reporting_asof_date,
+                iet.event_type_id,
+                now()::timestamptz as event_time,
+                $3::text as event_by_user_id,
+                '{}'::jsonb,
+                false as is_pending
+              from p_rsf.reporting_event_types iet
+              where iet.event_name = 'client_reporting_zeroversion_triggered'",
+                                     params=list(import$import_id,
+                                                 as.character(next_asof_date),
+                                                 export$user_id))
+                
+                #print(paste0("Reporting zero verison event for ",import$import_id))
+                
+                lookup <- db_export_get_template(pool=DBPOOL,
+                                                 template_name="IFC-QR-TEMPLATE2025")
+                
+                rsf_indicators <- db_indicators_get_labels(pool=DBPOOL)
+                
+                excelwb <- parse_template_IFC_QR2025(pool=DBPOOL,
+                                                     template_file=outpath,
+                                                     template_lookup=lookup,
+                                                     rsf_indicators=rsf_indicators,
+                                                     return.insert_flags=NULL, #To insert and return current flags tab based on current QR of template_file in system: this is a DATA TABLE of flags exported by UI
+                                                     return.next_date=TRUE,    #To automatically create zero-version of next QR based on current QR in system
+                                                     reporting_user_id=export$user_id,
+                                                     status_message=function(...) { },
+                                                     CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) 
+          
+          }
+          
+          
+          #print(paste0("Outpath=",outpath," excelwb=",length(excelwb)))
+          export$export_excel <- excelwb
+          incProgress(amount=0.5,
+                      message="Completed")
+        },
+        error=function(e) { 
+          print(conditionMessage(e))
+          showNotification(type="error",
+                           ui=h3(conditionMessage(e))); 
+          NULL
+        })
+        
+        if (file.exists(outpath)) {
+          file.remove(outpath)
+        }
+        
+       
+      })
+    }
+  }
+  
+  if (!is.null(export$export_excel) &&
+      isTruthy(export$export_file_name)) {
+    IMPORT_LIST__ZEROVERSION_EXPORT(export)
+    session$onFlushed(function() {
+      
+      
+        shinyjs::runjs("console.log('server_datasets_import_action_id_zeroversion:click!');
+                       document.getElementById('server_datasets_import_action_id_zeroversion').click();")
+        
+      
+    },once=T)
+  } else {
+    showNotification(type="error",
+                     ui=h3("An error occured that prevented generating the zero-version report"))
+  }
+  # #showNotification(ui=h3(paste0("ZERO VERSION CLICK: ",export_id,"\n\n")))
+  # #shinyjs::runjs("document.getElementById('server_datasets_import_action_id_zeroversion').click();")
+  # shinyjs::runjs("setTimeout(() => {
+  #   document.getElementById('server_datasets_import_action_id_zeroversion').click();
+  # }, 2500);")
+  
+},ignoreInit=TRUE,ignoreNULL=TRUE) #%>% debounce(1500)
+
 
 IMPORT_SELECTED_ID <- eventReactive(list(input$import_action_id_view,
                                          IMPORTS_LIST()), {
@@ -458,24 +653,39 @@ IMPORT_SELECTED <- eventReactive(IMPORT_SELECTED_ID(), {
                   selected_import$reporting_asof_date))
     
     if (any(unlist(stale),na.rm=T)) {
-      withProgress(message="Recalculating...",value=0.25, {
-        progress_status_message <- function(class,...) {
-          dots <- list(...)
-          dots <- paste0(unlist(dots),collapse=" ")
-          incProgress(amount=0,
-                      message=paste0("Recalculating affected data: ",dots))
-        }
+      
+      error <- tryCatch({
+        withProgress(message="Recalculating...",value=0.25, {
+          progress_status_message <- function(class,...) {
+            dots <- list(...)
+            dots <- paste0(unlist(dots),collapse=" ")
+            incProgress(amount=0,
+                        message=paste0("Recalculating affected data: ",dots))
+          }
+          
+          incProgress(amount=0.25,message="Recalculating data...")
+          
+          DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
+                                           rsf_pf_id=selected_import$import_rsf_pfcbl_id,
+                                           for_import_id=selected_import$import_id,
+                                           reference_asof_date=selected_import$reporting_asof_date,
+                                           status_message=progress_status_message,
+                                           CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
+        })
         
-        incProgress(amount=0.25,message="Recalculating data...")
-        
-        DBPOOL %>% rsf_program_calculate(rsf_indicators=RSF_INDICATORS(),
-                                         rsf_pf_id=selected_import$import_rsf_pfcbl_id,
-                                         for_import_id=selected_import$import_id,
-                                         calculate_future=FALSE,
-                                         reference_asof_date=selected_import$reporting_asof_date,
-                                         status_message=progress_status_message,
-                                         CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT)
-      })
+        NULL
+      },
+      error=function(e) { conditionMessage(e) },
+      warning=function(w) { conditionMessage(w) })
+      
+      if (!is.null(error)) {
+        showNotification(type="warning",
+                         ui=h3(paste0("Pending calculations were found,",
+                                      "but calculations were unable to complete because:\n",
+                                      error,"\n",
+                                      "Therefore results may be incomplete.")))
+      }
+
     }
 
     stale <- DBPOOL %>% dbGetQuery("
@@ -488,7 +698,8 @@ IMPORT_SELECTED <- eventReactive(IMPORT_SELECTED_ID(), {
                                                selected_import$reporting_asof_date))
     
     if (any(unlist(stale),na.rm=T)) {
-      withProgress(message="Rechecking...",value=0.25, {
+      error <- tryCatch({
+        withProgress(message="Rechecking...",value=0.25, {
         
         progress_status_message <- function(class,...) {
           dots <- list(...)
@@ -501,12 +712,24 @@ IMPORT_SELECTED <- eventReactive(IMPORT_SELECTED_ID(), {
         DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
                                      rsf_pf_id=selected_import$import_rsf_pfcbl_id,
                                      for_import_id=selected_import$import_id,
-                                     check_future=FALSE,
                                      check_consolidation_threshold=NA,
                                      reference_asof_date=selected_import$reporting_asof_date,
                                      CALCULATIONS_ENVIRONMENT = CALCULATIONS_ENVIRONMENT,
                                      status_message=progress_status_message)
       })
+        NULL
+      },
+      error=function(e) { conditionMessage(e) },
+      warning=function(w) { conditionMessage(w) })
+      
+      if (!is.null(error)) {
+        showNotification(type="warning",
+                         ui=h3(paste0("Pending checks were found,",
+                                      "but checks were unable to complete because:\n",
+                                      error,"\n",
+                                      "Therefore results may be incomplete.")))
+      }
+      
     }    
   }
   
@@ -761,9 +984,10 @@ IMPORT_FLAGS_SELECTED_SUMMARY <- eventReactive(list(IMPORT_FLAGS_SELECTED(),
     
     attention_filter <- c(attention_filter,
                           cohort_indicator_flags[data_category %in% c("loan","borrower","client") &
-                                                     check_is_calculator==FALSE & 
-                                                     check_is_system==FALSE &
-                                                     !check_class %in% "info",
+                                                 (
+                                                   (check_is_calculator==FALSE & check_is_system==FALSE & !check_class %in% "info") |
+                                                   (check_class %in% "critical")
+                                                 ),
                                                      indicator_flag_id])
                                                        
   }
@@ -1145,61 +1369,7 @@ observeEvent(input$action_cohort_delete, {
          DO_SELECT_PROGRAM_ID(as.numeric(NA))
        } 
        
-       # July 2020
-       # I took out all this code to recalculate and re-check.
-       # If there's pending stuff we want to validate it, of course! That's why it's here.
-       # On the other hand, deletes occur because users want to correct/refresh a dataset.
-       # And now the dashboard's get_data_current() function will check if there are pending evaluations.  So even if the users
-       # immediately after the delete then tries to run a report, the data will be revalidated then.  Basically, we don't need the user to 
-       # wait re-calculations and re-checks after delete because they can't experience an issue that results from stale data: if they re-view and refresh
-       # the list, it will recalculate.  And if they try to access any data from a report, it will refresh.  And next they upload the corrected dataset,
-       # it will refresh.  So it's actuallay for evaluations to simply be left pending.
-       #
-       # else {
-       #   
-       #   incProgress(amount=0.20,
-       #               message="Recalculating affected data . . . ")
-       #   
-       #   
-       # }
-       # for (rnum in 1:nrow(affected_ids)) {
-       #   
-       #   who <- affected_ids[rnum]
-       #   
-       #   limit_date <- max(who$reporting_asof_date)
-       #   
-       #   progress_status_message <- function(class,...) {
-       #     dots <- list(...)
-       #     dots <- paste0(unlist(dots),collapse=" ")
-       #     incProgress(amount=0,
-       #                 message=paste0("Recalculating affected ",who$pfcbl_name," data: ",dots))
-       #   }
-       #   
-       #   DBPOOL %>% rsf_program_calculate(rsf_indicators = RSF_INDICATORS(),
-       #                                    rsf_pf_id = who$rsf_pf_id,
-       #                                    for_import_id=NA,
-       #                                    calculate_future=FALSE,
-       #                                    reference_asof_date=limit_date,
-       #                                    status_message=progress_status_message)
-       #   
-       #   incProgress(amount=(0.30/(1/nrow(affected_ids))),
-       #               message=paste0("Rechecking affected data . . . "))
-       # 
-       #   progress_status_message <- function(class,...) {
-       #     dots <- list(...)
-       #     dots <- paste0(unlist(dots),collapse=" ")
-       #     incProgress(amount=0,
-       #                 message=paste0("Rechecking affected ",who$pfcbl_name," data: ",dots))
-       #   }
-       # 
-       #   DBPOOL %>% rsf_program_check(rsf_indicators=RSF_INDICATORS(),
-       #                                rsf_pf_id=who$rsf_pf_id,
-       #                                check_future=FALSE,
-       #                                reference_asof_date=limit_date,
-       #                                check_consolidation_threshold=NA,
-       #                                status_message= progress_status_message)
-       # 
-       # }
+    
        incProgress(amount=1,message="Done")
      })
 
@@ -1393,139 +1563,223 @@ output$server_datasets_import_action_id_download <- downloadHandler(
 )
 
 output$server_datasets_import_action_id_zeroversion <- downloadHandler(
+  
   filename = function() {
     
-    download_id <- as.numeric(input$import_action_id_zeroversion)
-    if (!isTruthy(download_id)) {
+    export <- IMPORT_LIST__ZEROVERSION_EXPORT() 
+    if (!isTruthy(export$export_file_name)) {
       "error.txt"
     } else {
       
-      import <- IMPORTS_LIST()[import_id==download_id & 
-                               pfcbl_category == "facility"]
-      
-      if (empty(import)) { 
-        "error.txt"
-      } else if (!any(as.logical(import$is_zero_versionable),na.rm=T)) {
-        
-        showNotification(type="error",
-                         ui=h3("This template does not support system-generated zero versions"))
-        "error.txt"
-      } else {
-        #juuuuust in case in the future on facility ever has multiple clients,
-        #then select the first-created client as primary client to be named in export.
-        fcname <- DBPOOL %>% dbGetQuery("
-        select distinct on (rf.rsf_facility_id)
-          rf.rsf_facility_id,
-          rc.rsf_client_id,
-          fnids.pfcbl_name,
-          concat(coalesce(fnids.id,'SYSID'||fnids.rsf_pfcbl_id),' ',
-                 coalesce(cnids.nickname,
-                          cnids.name,
-                          cnids.nickname,
-                          cnids.name)) as facility_id_client_name
-        from p_rsf.rsf_facilities rf
-        inner join p_rsf.rsf_data_current_names_and_ids fnids on fnids.rsf_pfcbl_id = rf.rsf_facility_id
-        left join p_rsf.rsf_clients rc on rc.rsf_facility_id = rf.rsf_facility_id
-        left join p_rsf.rsf_data_current_names_and_ids cnids on cnids.rsf_pfcbl_id = rc.rsf_client_id
-        where rf.rsf_facility_id = $1::int
-        order by rf.rsf_facility_id,rsf_client_id asc",
-        params=list(import$import_rsf_pfcbl_id))
-        
-        fcname <- fcname$facility_id_client_name
-        if (!length(fcname)) {
-          "error.txt"
-        } else {
-          
-          next_asof_date <- lubridate::quarter(ymd(import$reporting_asof_date) %m+% months(1),
-                                               type = "date_last")
-          
-          next_sequence <- DBPOOL %>% dbGetQuery("
-            select 
-            p_rsf.function_portfolio_reporting_sequence_number(v_portfolio_reporting_start_date => prd.portfolio_reporting_start_date,
-                                                               v_quarter_end_date => $2::date) as next_reporting_sequence_number
-            from p_rsf.view_rsf_pf_portfolio_reporting_start_date prd
-            where prd.rsf_pf_id = $1::int",
-            params=list(import$import_rsf_pfcbl_id,
-                        as.character(next_asof_date)))
-          
-          paste0("#",
-                 next_sequence$next_reporting_sequence_number," ",
-                 fcname," ",
-                 format_asof_date_label(as.Date(next_asof_date),add_month=F),
-                 " - v0.xlsx")
-        }
-      }
+      export$export_file_name
     }
   },
   content=function(file) {
     
-    download_id <- as.numeric(input$import_action_id_zeroversion)
-    
-    if (!isTruthy(download_id) || !any(IMPORTS_LIST()$import_id==download_id,na.rm=T)) {
-      
+    export <- IMPORT_LIST__ZEROVERSION_EXPORT() 
+
+    on.exit({
+     IMPORT_LIST__ZEROVERSION(NULL)
+     IMPORT_LIST__ZEROVERSION_EXPORT(NULL)
+    }, add = TRUE)
+
+    if (!isTruthy(export$export_excel)) {
         write(x="Failed to download file.  Please try again by clicking on the download icon next to the file name.",
               file=file)
-      
+    
     } else {
       
-      tryCatch({
-        
-        import <- IMPORTS_LIST()[import_id==download_id]
-        
-        withProgress(message=paste0("Generating zero-version file.  This may take a minute or two..."),value=0.5, {
-          excelwb <- NULL
-          
-          outpath <- DBPOOL %>% db_import_download_file(import_id=import$import_id)
-          
-          if (import$template_name=="IFC-QR-TEMPLATE2025") {
-            
-            #browser()
-            
-            lookup <- db_export_get_template(pool=DBPOOL,
-                                             template_name="IFC-QR-TEMPLATE2025")
-            
-            rsf_indicators <- db_indicators_get_labels(pool=DBPOOL)
-            
-            excelwb <- parse_template_IFC_QR2025(pool=DBPOOL,
-                                                template_file=outpath,
-                                                template_lookup=lookup,
-                                                rsf_indicators=rsf_indicators,
-                                                return.insert_flags=NULL, #To insert and return current flags tab based on current QR of template_file in system: this is a DATA TABLE of flags exported by UI
-                                                return.next_date=TRUE,    #To automatically create zero-version of next QR based on current QR in system
-                                                reporting_user_id=USER_ID(),
-                                                status_message=function(...) { },
-                                                CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) 
-          
-          } else {
-            write(x=paste0("Failed to download file. Zero version cannot be generated by the system for ",import$template_name,
-            "Templates. Please try again by clicking on the download icon next to the file name."),
-                  file=file)
-            
-          }
-          
-          
-          if (!is.null(outpath) & !is.null(excelwb)) {
-
-            wb_save(excelwb,
-                    file=file,
-                    overwrite=T)
-          
-            if (file.exists(outpath)) file.remove(outpath)
-          }
-          incProgress(amount=1.0,message="Completed")
-        })
-      },
-      error=function(e) { showNotification(type="error",
-                                           ui=h3(conditionMessage(e))); 
-        NULL
-      },
-      warning=function(w) { showNotification(type="error",
-                                             ui=h3(conditionMessage(w)));
-        NULL
-      })
+      wb_save(wb=export$export_excel,
+              file=file,
+              overwrite=TRUE)
+      
     }
   }
 )
+  # 
+  # filename = function() {
+  # 
+  #   # download_id <- isolate(as.numeric(IMPORT_LIST__ZEROVERSION()))
+  #   # 
+  #   # #showNotification(ui=h3(paste("server_datasets_import_action_id_zeroversion clicked with download_id=",download_id)))
+  #   # zfname <- "error.txt"
+  #   # if (!isTruthy(download_id)) {
+  #   #   zfname <- "error_no_download_id.txt"
+  #   # } else if (empty(IMPORTS_LIST())) {
+  #   #   zfname <- "error_no_imports_list.txt"
+  #   # } else {
+  #   #   
+  #   #   import <- IMPORTS_LIST()[import_id==download_id & 
+  #   #                            pfcbl_category == "facility"]
+  #   #   
+  #   #   #print(paste("Generating zero version for:"))
+  #   #   #print(import$file_name)
+  #   #   
+  #   #   if (empty(import)) { 
+  #   #     zfname <- "error_import_not_found.txt"
+  #   #   } else if (!any(as.logical(import$is_zero_versionable),na.rm=T)) {
+  #   #     
+  #   #     showNotification(type="error",
+  #   #                      ui=h3("This template does not support system-generated zero versions"))
+  #   #     zfname <- "error_no_zeroversion.txt"
+  #   #   } else {
+  #   #     #juuuuust in case in the future on facility ever has multiple clients,
+  #   #     #then select the first-created client as primary client to be named in export.
+  #   #     fcname <- DBPOOL %>% dbGetQuery("
+  #   #     select distinct on (rf.rsf_facility_id)
+  #   #       rf.rsf_facility_id,
+  #   #       rc.rsf_client_id,
+  #   #       fnids.pfcbl_name,
+  #   #       concat(coalesce(fnids.id,'SYSID'||fnids.rsf_pfcbl_id),' ',
+  #   #              coalesce(cnids.nickname,
+  #   #                       cnids.name,
+  #   #                       cnids.nickname,
+  #   #                       cnids.name)) as facility_id_client_name
+  #   #     from p_rsf.rsf_facilities rf
+  #   #     inner join p_rsf.rsf_data_current_names_and_ids fnids on fnids.rsf_pfcbl_id = rf.rsf_facility_id
+  #   #     left join p_rsf.rsf_clients rc on rc.rsf_facility_id = rf.rsf_facility_id
+  #   #     left join p_rsf.rsf_data_current_names_and_ids cnids on cnids.rsf_pfcbl_id = rc.rsf_client_id
+  #   #     where rf.rsf_facility_id = $1::int
+  #   #     order by rf.rsf_facility_id,rsf_client_id asc",
+  #   #     params=list(import$import_rsf_pfcbl_id))
+  #   #     
+  #   #     fcname <- fcname$facility_id_client_name
+  #   #     if (!length(fcname)) {
+  #   #       zfname <- "error_no_client_name.txt"
+  #   #     } else {
+  #   #       
+  #   #       next_asof_date <- lubridate::quarter(ymd(import$reporting_asof_date) %m+% months(1),
+  #   #                                            type = "date_last")
+  #   #       
+  #   #       next_sequence <- DBPOOL %>% dbGetQuery("
+  #   #         select 
+  #   #         p_rsf.function_portfolio_reporting_sequence_number(v_portfolio_reporting_start_date => prd.portfolio_reporting_start_date,
+  #   #                                                            v_quarter_end_date => $2::date) as next_reporting_sequence_number
+  #   #         from p_rsf.view_rsf_pf_portfolio_reporting_start_date prd
+  #   #         where prd.rsf_pf_id = $1::int",
+  #   #         params=list(import$import_rsf_pfcbl_id,
+  #   #                     as.character(next_asof_date)))
+  #   #       
+  #   #       zfname <- paste0("#",
+  #   #              next_sequence$next_reporting_sequence_number," ",
+  #   #              fcname," ",
+  #   #              format_asof_date_label(as.Date(next_asof_date),add_month=F),
+  #   #              " - v0.xlsx")
+  #   #       #print(paste0("Filename set to: ",zfname))
+  #   #     }
+  #   #   }
+  #   # }
+  #   #showNotification(ui=h3(paste0("Setting zeroverison filename=",zfname)))
+  #   zfname
+  # },
+  # content=function(file) {
+  #   
+  #   # download_id <- isolate(as.numeric(IMPORT_LIST__ZEROVERSION()))
+  #   # #print(paste0("Generating content for file=",file))
+  #   # 
+  #   # on.exit({
+  #   #   IMPORT_LIST__ZEROVERSION(NULL)
+  #   # }, add = TRUE)
+  #   # 
+  #   # if (!isTruthy(download_id) || 
+  #   #     empty(IMPORTS_LIST()) ||
+  #   #     !any(IMPORTS_LIST()$import_id==download_id,na.rm=T)) {
+  #   #   
+  #   #     showNotification(ui=h3("Error: Failed to generate zero version.  Please re-try"))
+  #   #   
+  #   #     write(x="Failed to download file.  Please try again by clicking on the download icon next to the file name.",
+  #   #           file=file)
+  #   #   
+  #   # } else {
+  #   #   
+  #   #   tryCatch({
+  #   #     
+  #   #     import <- IMPORTS_LIST()[import_id==download_id]
+  #   #     next_asof_date <- lubridate::quarter(ymd(import$reporting_asof_date) %m+% months(1),
+  #   #                                          type = "date_last")
+  #   #     
+  #   #     withProgress(message=paste0("Generating zero-version from: ",basename(import$file_name),".  This may take a minute or two..."),value=0.5, {
+  #   #       excelwb <- NULL
+  #   # 
+  #   #       outpath <- DBPOOL %>% db_import_download_file(import_id=import$import_id)
+  #   #       
+  #   #       if (import$template_name=="IFC-QR-TEMPLATE2025") {
+  #   #         DBPOOL %>% dbExecute("
+  #   #           insert into p_rsf.reporting_import_events(for_import_id,
+  #   #                                                     reporting_asof_date,
+  #   #                                                     event_type_id,
+  #   #                                                     event_time,
+  #   #                                                     event_by_user_id,
+  #   #                                                     event_metadata,
+  #   #                                                     is_pending)
+  #   #           select
+  #   #             $1::int as for_import_id,
+  #   #             $2::date as reporting_asof_date,
+  #   #             iet.event_type_id,
+  #   #             now()::timestamptz as event_type,
+  #   #             $3::text as event_by_user_id,
+  #   #             '{}'::jsonb,
+  #   #             false as is_pending
+  #   #           from p_rsf.reporting_import_event_types iet
+  #   #           where iet.event_name = 'client_reporting_zeroversion_triggered'",
+  #   #                              params=list(import$import_id,
+  #   #                                          as.character(next_asof_date),
+  #   #                                          USER_ID()))
+  #   #         
+  #   #         #print(paste0("Reporting zero verison event for ",import$import_id))
+  #   #         
+  #   #         lookup <- db_export_get_template(pool=DBPOOL,
+  #   #                                          template_name="IFC-QR-TEMPLATE2025")
+  #   #         
+  #   #         rsf_indicators <- db_indicators_get_labels(pool=DBPOOL)
+  #   #         
+  #   #         excelwb <- parse_template_IFC_QR2025(pool=DBPOOL,
+  #   #                                             template_file=outpath,
+  #   #                                             template_lookup=lookup,
+  #   #                                             rsf_indicators=rsf_indicators,
+  #   #                                             return.insert_flags=NULL, #To insert and return current flags tab based on current QR of template_file in system: this is a DATA TABLE of flags exported by UI
+  #   #                                             return.next_date=TRUE,    #To automatically create zero-version of next QR based on current QR in system
+  #   #                                             reporting_user_id=USER_ID(),
+  #   #                                             status_message=function(...) { },
+  #   #                                             CALCULATIONS_ENVIRONMENT=CALCULATIONS_ENVIRONMENT) 
+  #   #       
+  #   #       
+  #   #       } else {
+  #   #         write(x=paste0("Failed to download file. Zero version cannot be generated by the system for ",import$template_name,
+  #   #         "Templates. Please try again by clicking on the download icon next to the file name."),
+  #   #               file=file)
+  #   #         
+  #   #       }
+  #   #       
+  #   #       #print(paste0("Outpath=",outpath," excelwb=",length(excelwb)))
+  #   #       
+  #   #       if (!is.null(outpath) & !is.null(excelwb)) {
+  #   # 
+  #   #         wb_save(excelwb,
+  #   #                 file=file,
+  #   #                 overwrite=T)
+  #   #       
+  #   #         if (file.exists(outpath)) file.remove(outpath)
+  #   #         file
+  #   #       } else {
+  #   #         write(x=paste0("Failed to download file. Zero version cannot be generated by the system for ",import$template_name,
+  #   #                        "Templates. Please try again by clicking on the download icon next to the file name."),
+  #   #               file=file)
+  #   #         
+  #   #       }
+  #   #       incProgress(amount=1.0,message="Completed")
+  #   #       file
+  #   #     })
+  #   #   },
+  #   #   error=function(e) { 
+  #   #     print(conditionMessage(e))
+  #   #     showNotification(type="error",
+  #   #                                        ui=h3(conditionMessage(e))); 
+  #   #     NULL
+  #   #   })
+  #   # }
+  # }
+#)
 
 
 ####RENDER DATA TABLES####
